@@ -38,12 +38,17 @@ def normalize_title(text):
 
 
 # Every `kind` an LFGThread roll can carry, mapped to the asset bucket it
-# validates against. Source of truth: _LFG_LOOKUP_KIND in discord_interactions
-# plus the /random and /draft capture paths.
+# belongs to. Source of truth: _LFG_LOOKUP_KIND in discord_interactions plus the
+# /random and /draft capture paths.
 #
 # Two kinds don't map one-to-one onto Tournament's M2Ms:
 #   Clockwork -> a Faction row with component="Clockwork"
 #   Captain   -> a Vagabond row with captain=True
+#
+# No longer read by lfg_option_querysets (rolls stopped narrowing the form's
+# choices), but kept as the canonical list of valid `kind` strings: the capture
+# path in discord_interactions and LFGRoll.kind both cite it, and an unknown kind
+# there stores a row nothing can resolve.
 ROLL_KIND_TO_BUCKET = {
     "Faction": "factions",
     "Clockwork": "factions",
@@ -296,13 +301,19 @@ def seated_profiles(thread):
     silently match nothing. Both are written by /pick; the vagabond is set only
     when the seat took the Vagabond faction.
 
-    With no seating recorded, falls back to the thread's players in default
-    order (seat numbers still assigned 1..N). That branch must emit the same
-    4-tuple shape -- callers unpack a fixed width."""
+    Gated on seating_set, NOT seats.exists(): a thread always knows WHO played
+    (thread.players, attached at /lfg join time) but only knows the ORDER when
+    something established one. An unordered /pick writes seat rows with FILLER
+    numbers and leaves seating_set False (_pick_seat_roster), so seat rows
+    alone are not a seating -- presenting those numbers as an order would put
+    players on rows nobody chose. Returns [] in that case, and the caller sizes
+    its rows from thread.players instead.
+
+    Empty therefore means "no established ORDER", never "no players"."""
+    if not thread.seating_set:
+        return []
+
     seats = list(thread.seats.select_related("profile", "faction", "vagabond"))
-    if not seats:
-        return [(i, p, None, None)
-                for i, p in enumerate(thread.players.all(), 1)]
 
     return [(s.seat_number, s.profile,
              s.faction.slug if s.faction_id else None,
@@ -446,21 +457,20 @@ def unclaimed_picked_seats(thread):
 
 
 def lfg_option_querysets(thread, tournament):
-    """Per-field choices for the LFG game form: the thread's rolled components,
-    intersected with what the tournament allows.
+    """Per-field choices for the LFG game form: what the TOURNAMENT allows.
 
     Returns {bucket: queryset} for factions/maps/decks/vagabonds/captains/
-    landmarks/tweaks/hirelings, plus a 'notices' list of user-facing strings
-    explaining anything that had to be dropped.
+    landmarks/tweaks/hirelings, plus an always-empty 'notices' list kept for
+    callers that still read it.
 
-    Rules:
-      * a bucket WITH rolls narrows to those rolls (intersected with the
-        tournament's allowed assets);
-      * a bucket with NO rolls keeps the tournament's normal queryset;
-      * an intersection that comes out EMPTY falls back to the tournament
-        queryset rather than leaving an unusable field -- except clockwork-only
-        factions, which are reported instead (falling back there would offer a
-        list that still excludes everything the thread rolled).
+    The thread's rolls deliberately do NOT restrict anything. They once
+    intersected each bucket, which meant a recorder could not enter a component
+    nobody happened to roll -- a roll is a suggestion, not a claim about what was
+    played. Rolls survive only as PREFILL inputs (see boxscore_components and
+    _prefill_boxscore_components), where they preselect values without
+    forbidding others.
+
+    An unlinked LFG role (tournament None) restricts nothing at all.
     """
     from the_keep.models import Faction, Vagabond, Landmark, Hireling, Tweak, Map, Deck
 
@@ -478,41 +488,14 @@ def lfg_option_querysets(thread, tournament):
                 ("factions", "maps", "decks", "vagabonds", "landmarks", "tweaks", "hirelings")}
         base["captains"] = assets["vagabonds"].filter(captain=True)
     else:
-        # Unlinked LFG role: the thread's rolls are the only restriction.
+        # Unlinked LFG role: nothing restricts the choices.
         base = {b: m.objects.all() for b, m in models_by_bucket.items()}
         base["captains"] = Vagabond.objects.filter(captain=True)
 
-    rolls = rolled_components(thread)
-    slugs_by_bucket = {}
-    for kind, slugs in rolls.items():
-        bucket = ROLL_KIND_TO_BUCKET.get(kind)
-        if bucket:
-            slugs_by_bucket.setdefault(bucket, []).extend(slugs)
-
     out = dict(base)
-    notices = []
-    for bucket, slugs in slugs_by_bucket.items():
-        narrowed = base[bucket].filter(slug__in=slugs)
-        if narrowed.exists():
-            out[bucket] = narrowed
-            continue
-
-        # Empty intersection. Clockwork is the case worth naming: the tournament
-        # excludes it unless include_clockwork, so falling back would offer a
-        # faction list that still contains none of the rolled factions.
-        if bucket == "factions" and tournament is not None and not tournament.include_clockwork:
-            clockwork_only = set(slugs) and not rolls.get("Faction")
-            if clockwork_only:
-                notices.append(
-                    f"This thread drafted Clockwork factions, but {tournament} "
-                    "does not allow Clockwork. Choose factions manually.")
-                continue
-        notices.append(
-            f"None of the {bucket} rolled in this thread are playable in "
-            f"{tournament}." if tournament else
-            f"None of the {bucket} rolled in this thread could be found.")
-
-    out["notices"] = notices
+    # Kept so callers can keep doing .get('notices', []) unconditionally. Nothing
+    # is dropped any more, so there is never anything to report.
+    out["notices"] = []
     return out
 
 

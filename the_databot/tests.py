@@ -43,7 +43,7 @@ from the_databot.services.lfg_game import (
 from the_databot.tasks import (
     record_lfg_components_task, create_lfg_thread_task, ensure_profile_from_discord,
     notify_lfg_cancelled_task, notify_schedule_poll_task,
-    sweep_boxscore_upload_tokens,
+    sweep_boxscore_upload_tokens, link_lfg_message_task,
 )
 from the_databot.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
@@ -2423,9 +2423,10 @@ class LFGStartGuardTests(TestCase):
 
 
 class LFGThreadNameTests(TestCase):
-    """What the game thread is called. The host's description wins; with none,
-    the thread takes the LFG message's own title (the tag's description or name)
-    rather than a bare "Game"."""
+    """What the game thread is called: the LFG message's own title, which /lfg
+    resolved as `title option -> tag name -> "Looking for Game"`. The free-text
+    description does NOT name the thread -- it answers "what kind of game", which
+    made a poor title, and the `title` option now exists for naming."""
 
     def _create(self, description, embed):
         """Run create_lfg_thread_task far enough to capture the thread name."""
@@ -2439,13 +2440,17 @@ class LFGThreadNameTests(TestCase):
             )
         return create.call_args.args[2]
 
-    def test_the_description_is_used_when_given(self):
-        name = self._create("Quick 4p game", {"title": "Casual Game"})
-        self.assertEqual(name, "Quick 4p game")
-
-    def test_a_blank_description_falls_back_to_the_message_title(self):
+    def test_the_message_title_names_the_thread(self):
         name = self._create("", {"title": "Casual Game"})
         self.assertEqual(name, "Casual Game")
+
+    def test_the_title_beats_a_description(self):
+        """The reversal: description used to win. It names nothing now."""
+        name = self._create("Quick 4p game", {"title": "Casual Game"})
+        self.assertEqual(name, "Casual Game")
+
+    def test_a_description_alone_does_not_name_the_thread(self):
+        self.assertEqual(self._create("Quick 4p game", {}), "Game")
 
     def test_the_default_lfg_title_is_used_when_that_is_all_there_is(self):
         name = self._create("", {"title": di.LFG_DEFAULT_TITLE})
@@ -2458,6 +2463,77 @@ class LFGThreadNameTests(TestCase):
 
     def test_the_name_is_capped_at_discords_limit(self):
         self.assertEqual(len(self._create("", {"title": "x" * 200})), 100)
+
+
+class LFGNicknameFromTitleTests(TestCase):
+    """Which embed titles become the recorded game's nickname.
+
+    The embed title is ALWAYS populated, so saving it unconditionally would name
+    every game "Looking for Game" (or the tag name) -- and since the record form
+    seeds from nickname, that boilerplate would shadow a real name. Only a title
+    the HOST typed counts; every value /lfg could have defaulted to reads as blank.
+    """
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(guild_id="900000000000000077",
+                                                 name="Guild")
+        self.role = GuildLFGRole.objects.create(
+            guild=self.guild, name="Digital LFG", role_id="910000000000000077",
+            description="Games played on Root Digital.")
+
+    def _run(self, embed_title, role_id=None, role_name=""):
+        """Start a game whose embed carries `embed_title`; return the saved thread."""
+        with mock.patch("the_databot.services.discordservice.create_message_thread",
+                        return_value="950000000000000077"), \
+                mock.patch("the_databot.services.discordservice.create_forum_thread"), \
+                mock.patch("the_databot.services.discordservice.post_channel_message"), \
+                mock.patch.object(link_lfg_message_task, "apply_async"):
+            create_lfg_thread_task(
+                "chan", "msg", self.guild.guild_id, role_id, "a quick game",
+                [{"id": "1", "name": "Bob"}, {"id": "2", "name": "Amy"}],
+                {"title": embed_title}, role_name=role_name,
+            )
+        return LFGThread.objects.get(thread_id="950000000000000077")
+
+    def test_a_typed_title_becomes_the_nickname(self):
+        self.assertEqual(self._run("Chaos 4p", role_id=self.role.role_id).nickname,
+                         "Chaos 4p")
+
+    def test_the_tag_name_fallback_is_not_a_nickname(self):
+        self.assertEqual(self._run(self.role.name, role_id=self.role.role_id).nickname, "")
+
+    def test_the_tag_blurb_is_not_a_nickname(self):
+        """Tasks queued before the title option existed were titled from the blurb."""
+        self.assertEqual(
+            self._run(self.role.description, role_id=self.role.role_id).nickname, "")
+
+    def test_the_default_title_is_not_a_nickname(self):
+        self.assertEqual(self._run(di.LFG_DEFAULT_TITLE).nickname, "")
+
+    def test_a_display_only_tags_name_is_not_a_nickname(self):
+        """A tag with no role_id renders its plain NAME instead of a mention, so the
+        task can't resolve the role from a snowflake. Without the name riding along
+        the tag name would be saved as the game's nickname."""
+        display_only = GuildLFGRole.objects.create(
+            guild=self.guild, name="TTS LFG", role_id=None)
+        thread = self._run(display_only.name, role_name=display_only.name)
+        self.assertEqual(thread.nickname, "")
+
+    def test_a_typed_title_survives_a_display_only_tag(self):
+        self.assertEqual(self._run("Chaos 4p", role_name="TTS LFG").nickname, "Chaos 4p")
+
+    def test_the_nickname_is_truncated_to_the_field_length(self):
+        """Postgres raises on overflow rather than truncating."""
+        self.assertEqual(len(self._run("x" * 200, role_id=self.role.role_id).nickname), 50)
+
+    def test_a_rename_after_the_start_is_not_clobbered(self):
+        """nickname rides in get_or_create defaults, so it is create-only: a retry
+        must not undo a /rename the host has since run."""
+        thread = self._run("Chaos 4p", role_id=self.role.role_id)
+        thread.nickname = "Renamed"
+        thread.save(update_fields=["nickname"])
+        again = self._run("Chaos 4p", role_id=self.role.role_id)
+        self.assertEqual(again.nickname, "Renamed")
 
 
 class LFGCancelNotifyTests(TestCase):
@@ -2521,6 +2597,91 @@ class LFGCancelNotifyTests(TestCase):
         delay, data = self._cancel("<@111>", custom_id=None)
         self.assertEqual(data["embeds"][0]["footer"]["text"], "✖ Game was cancelled.")
         self.assertEqual(sorted(delay.call_args.args[0]), ["111"])
+
+
+class LFGEmbedTitleTests(TestCase):
+    """What titles the /lfg post: the host's `title` option, else the tag NAME.
+
+    Deliberately not the tag's `description` -- that field is admin help text
+    ("Brief description of what this LFG role is for"), which is why it read as a
+    placeholder rather than a name for the game."""
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(guild_id="900000000000000055",
+                                                 name="Guild")
+        self.role = GuildLFGRole.objects.create(
+            guild=self.guild, name="Digital LFG", role_id="910000000000000055",
+            description="Games played on Root Digital.")
+
+    def _run(self, title=None, role=None):
+        options = []
+        if role is not None:
+            options.append({"name": "type", "value": str(role.pk)})
+        if title is not None:
+            options.append({"name": "title", "value": title})
+        data = {
+            "_author": {"name": "Tim"}, "_author_id": "830000000000000055",
+            "_author_username": "tim", "_guild_id": self.guild.guild_id,
+            "_channel_id": "940000000000000055", "_channel_type": 0,
+            "_token": "tok", "options": options,
+        }
+        with mock.patch.object(di.ensure_profile_from_discord_task, "delay"), \
+                mock.patch.object(di, "_lfg_role_is_live", return_value=True):
+            response = di._handle_lfg_command(data)
+        return json.loads(response.content)["data"]["embeds"][0]
+
+    def test_a_typed_title_wins(self):
+        self.assertEqual(self._run(title="Chaos 4p", role=self.role)["title"], "Chaos 4p")
+
+    def test_without_a_title_the_tag_name_stands_in(self):
+        self.assertEqual(self._run(role=self.role)["title"], self.role.name)
+
+    def test_the_tag_blurb_is_not_used_as_a_title(self):
+        self.assertNotEqual(self._run(role=self.role)["title"], self.role.description)
+
+    def test_with_no_tags_at_all_a_typed_title_still_wins(self):
+        GuildLFGRole.objects.all().delete()
+        self.assertEqual(self._run(title="Chaos 4p")["title"], "Chaos 4p")
+
+    def test_with_no_tags_and_no_title_the_default_stands(self):
+        GuildLFGRole.objects.all().delete()
+        self.assertEqual(self._run()["title"], di.LFG_DEFAULT_TITLE)
+
+    def test_a_stale_tag_still_honours_a_typed_title(self):
+        """The tag was deleted between registration and use, so /lfg posts plain --
+        but the host's title is theirs either way."""
+        stale_pk = self.role.pk
+        self.role.delete()
+        options = [{"name": "type", "value": str(stale_pk)},
+                   {"name": "title", "value": "Chaos 4p"}]
+        data = {
+            "_author": {"name": "Tim"}, "_author_id": "830000000000000055",
+            "_author_username": "tim", "_guild_id": self.guild.guild_id,
+            "_channel_id": "940000000000000055", "_channel_type": 0,
+            "_token": "tok", "options": options,
+        }
+        with mock.patch.object(di.ensure_profile_from_discord_task, "delay"), \
+                mock.patch.object(di, "_lfg_role_is_live", return_value=True):
+            response = di._handle_lfg_command(data)
+        embed = json.loads(response.content)["data"]["embeds"][0]
+        self.assertEqual(embed["title"], "Chaos 4p")
+
+    def test_the_description_stays_in_the_body(self):
+        options = [{"name": "type", "value": str(self.role.pk)},
+                   {"name": "title", "value": "Chaos 4p"},
+                   {"name": "description", "value": "quick game"}]
+        data = {
+            "_author": {"name": "Tim"}, "_author_id": "830000000000000055",
+            "_author_username": "tim", "_guild_id": self.guild.guild_id,
+            "_channel_id": "940000000000000055", "_channel_type": 0,
+            "_token": "tok", "options": options,
+        }
+        with mock.patch.object(di.ensure_profile_from_discord_task, "delay"), \
+                mock.patch.object(di, "_lfg_role_is_live", return_value=True):
+            response = di._handle_lfg_command(data)
+        embed = json.loads(response.content)["data"]["embeds"][0]
+        self.assertEqual(embed["title"], "Chaos 4p")
+        self.assertEqual(embed["description"], "quick game")
 
 
 class LFGInThreadCommandTests(TestCase):
@@ -3737,6 +3898,22 @@ class LFGCommandShapeTests(TestCase):
         cmd = dc.lfg_command_for_roles(roles)
         self.assertTrue(all(len(c["name"]) <= 100
                             for c in self._type_option(cmd)["choices"]))
+
+    def test_the_options_are_ordered_with_required_first(self):
+        """Discord rejects a command whose optional option precedes a required one,
+        so `type` must stay first; `title` sits ahead of `description` because it is
+        the field a host reaches for."""
+        self.assertEqual([o["name"] for o in dc.lfg_command_for_roles(self._roles(2))["options"]],
+                         ["type", "title", "description"])
+        GuildLFGRole.objects.all().delete()
+        self.assertEqual([o["name"] for o in dc.lfg_command_for_roles(self._roles(1))["options"]],
+                         ["title", "description"])
+
+    def test_title_is_an_optional_string_in_both_variants(self):
+        for cmd in (dc.LFG_COMMAND_SINGLE, dc.LFG_COMMAND_MULTI):
+            title_opt = next(o for o in cmd["options"] if o["name"] == "title")
+            self.assertEqual(title_opt["type"], 3)
+            self.assertFalse(title_opt["required"])
 
 
 class HelpCommandShapeTests(TestCase):
@@ -5304,13 +5481,33 @@ class LFGCaptureTests(TestCase):
         LFGRoll.objects.filter(thread=self.thread).update(slug="stale-snapshot")
         self.assertEqual(rolled_components(self.thread), {"Map": [self.map.slug]})
 
-    def test_seated_profiles_falls_back_to_players_when_unseated(self):
+    def _mark_seated(self):
+        """Flag the thread as really seated. seated_profiles reports the ORDER, so
+        it reads seating_set rather than the presence of seat rows -- the tests
+        below build seats directly and must say the order is real. Production sets
+        this in the same transaction as the rows (_persist_seating)."""
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+
+    def test_seated_profiles_is_empty_when_no_order_was_established(self):
+        """A thread knows WHO played from thread.players, but seated_profiles
+        reports the ORDER -- and with nothing to establish one there is no order
+        to report. Returning the roster here would assert a seating nobody chose;
+        the record view sizes its rows from thread.players instead."""
         players = [Profile.objects.create(discord=f"cap{i}", discord_id=f"71{i}")
                    for i in range(2)]
         self.thread.players.set(players)
-        seats = seated_profiles(self.thread)
-        self.assertEqual([n for n, _p, _f, _v in seats], [1, 2])
-        self.assertEqual({p for _n, p, _f, _v in seats}, set(players))
+        self.assertEqual(seated_profiles(self.thread), [])
+
+    def test_seated_profiles_ignores_filler_seats_from_an_unordered_pick(self):
+        """/pick can write seat rows WITHOUT establishing an order, leaving
+        seating_set False and the numbers as filler. Those numbers must not be
+        presented as a seating."""
+        p = Profile.objects.create(discord="capfiller", discord_id="725")
+        LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1)
+        self.thread.seating_set = False
+        self.thread.save(update_fields=["seating_set"])
+        self.assertEqual(seated_profiles(self.thread), [])
 
     def test_seated_profiles_returns_a_faction_SLUG_not_an_object(self):
         """views.py filters `.filter(slug=faction_slug)`; a Faction instance there
@@ -5318,6 +5515,7 @@ class LFGCaptureTests(TestCase):
         p = Profile.objects.create(discord="capseat", discord_id="720")
         LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1,
                                faction=self.factions[0])
+        self._mark_seated()
         _seat_no, _profile, faction_slug, _vb = seated_profiles(self.thread)[0]
         self.assertEqual(faction_slug, self.factions[0].slug)
 
@@ -5337,6 +5535,7 @@ class LFGCaptureTests(TestCase):
         vb = self._vagabond("Seat Ranger")
         LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1,
                                faction=self.factions[0], vagabond=vb)
+        self._mark_seated()
         _seat_no, _profile, _faction, vagabond_slug = seated_profiles(self.thread)[0]
         self.assertEqual(vagabond_slug, vb.slug)
 
@@ -5344,6 +5543,7 @@ class LFGCaptureTests(TestCase):
         p = Profile.objects.create(discord="capnovb", discord_id="724")
         LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1,
                                faction=self.factions[0])
+        self._mark_seated()
         self.assertIsNone(seated_profiles(self.thread)[0][3])
 
     def test_a_deleted_profile_leaves_a_blank_seat_in_position(self):
@@ -5351,6 +5551,7 @@ class LFGCaptureTests(TestCase):
         drop = Profile.objects.create(discord="capdrop", discord_id="722")
         LFGSeat.objects.create(thread=self.thread, profile=drop, seat_number=1)
         LFGSeat.objects.create(thread=self.thread, profile=keep, seat_number=2)
+        self._mark_seated()
         drop.delete()
 
         seats = seated_profiles(self.thread)
@@ -5933,8 +6134,8 @@ class PickCommandTests(TestCase):
 
     # ── the roll capture, which must branch on thread type ──
     def test_an_lfg_thread_records_the_pick_in_the_roll_log(self):
-        """lfg_option_querysets narrows factions to the roll log, so a pick that
-        isn't logged would be silently dropped at prefill."""
+        """The roll log is what the record form's prefill reads, so a pick that
+        isn't logged is silently not preselected."""
         players = self._roster(2)
         with mock.patch.object(di.record_lfg_components_task, "delay") as capture:
             self._select(self.factions[0].slug, players[1].discord_id)
@@ -6072,8 +6273,8 @@ class PickVagabondFollowUpTests(TestCase):
         self.assertIsNone(seat.vagabond_id)
 
     def test_the_follow_up_records_a_vagabond_roll(self):
-        """lfg_option_querysets narrows to the roll log, so a vagabond missing
-        from it would be dropped at prefill."""
+        """The roll log is what the record form's prefill reads, so a vagabond
+        missing from it is silently not preselected."""
         self._select(self.vagabond_faction.slug, self.players[1].discord_id)
         with mock.patch.object(di.record_lfg_components_task, "delay") as capture:
             self._choose_vagabond(self.ranger.slug, self.players[1].discord_id)
@@ -12014,6 +12215,109 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         self.assertNotIn("tournament_score", self.thread.turns_data[0])
         self.assertIn("tournament score", content)
 
+    def test_the_discarded_captain_field_offers_the_same_captains_as_the_active_one(self):
+        """The reported bug: the discarded-captain dropdown came up empty. Both
+        fields draw on one pool -- a captain is eligible to be discarded exactly
+        when it was eligible to be played -- so any divergence here is the field
+        being narrowed (or blanked) by something the active list escaped."""
+        from the_keep.models import Vagabond
+        post_save.disconnect(handle_image_resize, sender=Vagabond)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
+        caps = [Vagabond.objects.create(title=f"Discard Cap {i}", animal="Fox",
+                                        designer=self.designer, captain=True,
+                                        status=StatusChoices.STABLE, official=True)
+                for i in range(4)]
+
+        user = User.objects.create_user(username="bscaps", password="x")
+        recorder = user.profile
+        recorder.discord = "bscaps"
+        recorder.group = "P"
+        recorder.player_onboard = True
+        recorder.save()
+        self.thread.players.add(recorder)
+
+        with override_settings(ALLOWED_HOSTS=["*"]):
+            self.client.force_login(user)
+            response = self.client.get(f"/record/game/?lfg={self.thread.id}")
+
+        form = response.context["formset"].forms[0]
+        active = list(form.fields["captains"].queryset)
+        discarded = list(form.fields["discarded_captain"].queryset)
+        self.assertCountEqual(active, discarded)
+        # And the pool is genuinely populated -- two empty lists would also be
+        # "equal", which is exactly the broken state.
+        for cap in caps:
+            self.assertIn(cap, discarded)
+
+    def test_the_threads_nickname_seeds_the_games_name(self):
+        """Set by /lfg's title option or /rename. This is the whole point of saving
+        it: the recorded game inherits the name the players actually used."""
+        user = User.objects.create_user(username="bsnick", password="x")
+        recorder = user.profile
+        recorder.discord = "bsnick"
+        recorder.group = "P"
+        recorder.player_onboard = True
+        recorder.save()
+        self.thread.players.add(recorder)
+        self.thread.nickname = "Chaos 4p"
+        self.thread.save(update_fields=["nickname"])
+
+        with override_settings(ALLOWED_HOSTS=["*"]):
+            self.client.force_login(user)
+            response = self.client.get(f"/record/game/?lfg={self.thread.id}")
+
+        self.assertEqual(response.context["form"].initial["nickname"], "Chaos 4p")
+
+    def test_an_unnamed_game_is_not_named_after_its_description(self):
+        """The description answers "what kind of game", not "what is this game
+        called" -- it used to stand in here and made a poor title. A game is named
+        only when someone named it; Game.title computes a display name from blank."""
+        user = User.objects.create_user(username="bsnonick", password="x")
+        recorder = user.profile
+        recorder.discord = "bsnonick"
+        recorder.group = "P"
+        recorder.player_onboard = True
+        recorder.save()
+        self.thread.players.add(recorder)
+        self.thread.nickname = ""
+        self.thread.description = "looking for a quick 4p"
+        self.thread.save(update_fields=["nickname", "description"])
+
+        with override_settings(ALLOWED_HOSTS=["*"]):
+            self.client.force_login(user)
+            response = self.client.get(f"/record/game/?lfg={self.thread.id}")
+
+        self.assertEqual(response.context["form"].initial["nickname"], "")
+
+    def test_an_unordered_thread_renders_a_row_per_player_with_none_prefilled(self):
+        """The roster sizes the form even with no seating: a thread always knows
+        WHO played. But no order was established, so no player is placed on a
+        row -- filling them positionally would assert a seating nobody chose."""
+        user = User.objects.create_user(username="bsnoseat", password="x")
+        recorder = user.profile
+        recorder.discord = "bsnoseat"
+        recorder.group = "P"
+        recorder.player_onboard = True
+        recorder.save()
+        other = Profile.objects.create(discord="bsnoseat2", discord_id="9411")
+        self.thread.players.set([recorder, other])
+        self.thread.seats.all().delete()
+        self.thread.seating_set = False
+        self.thread.save(update_fields=["seating_set"])
+
+        with override_settings(ALLOWED_HOSTS=["*"]):
+            self.client.force_login(user)
+            response = self.client.get(f"/record/game/?lfg={self.thread.id}")
+
+        formset = response.context["formset"]
+        self.assertEqual(len(formset.forms), 2)
+        for form in formset.forms:
+            self.assertIsNone(form.initial.get("player"))
+        # The dropdown still offers exactly the thread's roster.
+        self.assertCountEqual(
+            list(formset.forms[0].fields["player"].queryset),
+            [recorder, other])
+
     def test_the_undrafted_faction_reaches_the_record_form(self):
         """The gap this closes: with no /draft in the thread, undrafted_pick
         returns None and these fields had no source at all."""
@@ -12132,10 +12436,9 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         self.assertIn("checked", win_row)
 
     def test_a_faction_the_thread_never_rolled_is_still_offered(self):
-        """A component reaches the form's dropdowns only if it is in the thread's
-        ROLLS. Map and deck worked because they were the only kinds emitted; a
-        faction the file named was dropped, so the seat rendered with no faction
-        even though the box score said what was played."""
+        """Rolls no longer restrict the form's dropdowns at all -- every component
+        the tournament allows is offered whether or not anyone rolled it. The roll
+        still has to be RECORDED, because that is what the prefill reads."""
         doc = self._doc()
         doc["participants"][0]["faction"] = self.faction.slug
 
@@ -12144,7 +12447,6 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         self.thread.refresh_from_db()
         self.assertIn(("Faction", self.faction.slug),
                       [(r.kind, r.slug) for r in self.thread.roll_log.all()])
-        # The narrowing now offers it, which is what makes the prefill possible.
         options = lfg_option_querysets(self.thread, None)
         self.assertTrue(options["factions"].filter(pk=self.faction.pk).exists())
 
@@ -12174,6 +12476,36 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         options = lfg_option_querysets(self.thread, None)
         self.assertTrue(options["landmarks"].filter(pk=rolled.pk).exists())
         self.assertTrue(options["landmarks"].filter(pk=played.pk).exists())
+
+    def test_a_component_the_options_exclude_is_collected_not_crashed_on(self):
+        """The `blocked` argument is a COLLECTOR (blocked.add(obj)), and the LFG
+        call site used to pass the request object instead -- which has no .add(),
+        so any box score naming a component the tournament excludes raised
+        AttributeError instead of reporting it in the banner."""
+        from the_keep.models import Landmark
+        excluded = Landmark.objects.create(title="Excluded Tower",
+                                           designer=self.designer,
+                                           status=StatusChoices.STABLE,
+                                           official=True)
+        doc = self._doc()
+        doc["landmarks"] = [excluded.slug]
+        self._run(doc, run_capture=True)
+        self.thread.refresh_from_db()
+
+        # An options dict that does NOT offer the landmark the file named, which
+        # is what a real tournament restriction produces.
+        opts = lfg_option_querysets(self.thread, None)
+        opts["landmarks"] = Landmark.objects.none()
+
+        from the_warroom.views import _prefill_boxscore_components, BlockedComponents
+        blocked = BlockedComponents()
+        form = mock.Mock(initial={})
+        _prefill_boxscore_components(form, self.thread, opts, blocked)
+
+        # Not preselected (it isn't offered), but NAMED so the recorder knows why.
+        # BlockedComponents.add() stores the rendered label, not the instance.
+        self.assertNotIn("landmarks", form.initial)
+        self.assertIn(str(excluded), blocked.items)
 
     def test_the_undrafted_assets_reach_the_thread_and_the_rolls(self):
         """Both, and for different reasons: the COLUMNS say which faction was the

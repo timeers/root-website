@@ -505,15 +505,24 @@ RANDOM_COMMAND = {
 # number of LFG tags a guild can create so the /lfg dropdown can list them all.
 LFG_TAG_LIMIT = 25
 
+# The /lfg embed's title when nothing else names the game. Lives HERE rather than in
+# discord_interactions so tasks.py can import it too: discord_interactions imports
+# tasks, so the reverse would be a cycle. Re-exported from discord_interactions for
+# callers (and tests) that reach for it there.
+LFG_DEFAULT_TITLE = "Looking for Game"
+
 # Two /lfg variants, both registered as `/lfg` but only one PUT per guild depending on
 # its LFG-tag count (see lfg_command_for_roles):
 #   * SINGLE — no `type` option; used for 0 or 1 tags (0 → plain post, 1 → sole tag used).
 #   * MULTI  — a required `type` dropdown of the guild's tags; used for 2+ tags.
-# `description` is optional in both.
+# `title` and `description` are optional in both. Discord requires every REQUIRED
+# option to precede the optional ones, which is why `type` stays first in MULTI.
 LFG_COMMAND_SINGLE = {
     "name": "lfg",
     "description": "Post a Looking For Game message others can join",
     "options": [
+        {"name": "title", "description": "Name this game (titles the post and the thread)",
+         "type": 3, "required": False},
         {"name": "description", "description": "What kind of game you're looking for",
          "type": 3, "required": False},
     ],
@@ -525,6 +534,8 @@ LFG_COMMAND_MULTI = {
     "options": [
         {"name": "type", "description": "Which LFG tag to ping",
          "type": 3, "required": True, "choices": []},
+        {"name": "title", "description": "Name this game (titles the post and the thread)",
+         "type": 3, "required": False},
         {"name": "description", "description": "What kind of game you're looking for",
          "type": 3, "required": False},
     ],
@@ -606,7 +617,9 @@ LFG_HELP_STEPS = [
         "title": "Find Players for your Game",
         "body": "Use `/lfg` to ping the players who want to play Root. "
                 "If your server has multiple LFG roles you can specify one in the command. "
-                "Give your LFG a description to specify the type of game you want to play. "
+                "Give your LFG a title to name the game — it titles the post, names the "
+                "thread once the game starts, and becomes the recorded game's name. "
+                "Give it a description to specify the type of game you want to play. "
                 "Other players can click join to add themselves to the roster or click notify "
                 "be alerted when another player joins. Only the host can cancel or start the game."
         ,

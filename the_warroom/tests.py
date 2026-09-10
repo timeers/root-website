@@ -1685,16 +1685,32 @@ class MatchModeSeatOrderTests(ResultsChannelViewAnnounceTests):
         self._thread_for(series, [self.opponent, self.profile])
         self.assertEqual(self._rows(match), [self.opponent.pk, self.profile.pk])
 
-    def test_match_seat_order_stands_when_the_seating_is_filler(self):
+    def test_no_player_is_placed_when_the_seating_is_filler(self):
         """seating_set False means /pick assigned factions without seating, so
-        those seat numbers assert nothing and must not reorder anything."""
+        those seat numbers assert nothing -- and MatchSeat's own numbering is just
+        the order players were ADDED. With no real order, no player is placed on a
+        row: a guessed seating reads exactly like a known one to the recorder."""
         match, series = self._match_with([self.profile, self.opponent])
         self._thread_for(series, [self.opponent, self.profile], seating_set=False)
-        self.assertEqual(self._rows(match), [self.profile.pk, self.opponent.pk])
+        self.assertEqual(self._rows(match), [None, None])
 
-    def test_match_seat_order_stands_with_no_thread(self):
+    def test_no_player_is_placed_with_no_thread(self):
+        """The common case: a match recorded without any Discord thread. The
+        roster still sizes the form and still fills the dropdown -- only the
+        ordering is withheld, because nothing established one."""
         match, _series = self._match_with([self.profile, self.opponent])
-        self.assertEqual(self._rows(match), [self.profile.pk, self.opponent.pk])
+        self.assertEqual(self._rows(match), [None, None])
+
+    def test_the_roster_is_still_offered_when_no_player_is_placed(self):
+        """Withholding the ORDER must not withhold WHO: the dropdown stays scoped
+        to the match participants so the recorder picks from the right four."""
+        match, _series = self._match_with([self.profile, self.opponent])
+        response = self.client.get(f"{reverse('record-game')}?match={match.pk}")
+        formset = response.context['formset']
+        self.assertEqual(len(formset.forms), 2)
+        self.assertCountEqual(
+            list(formset.forms[0].fields['player'].queryset),
+            [self.profile, self.opponent])
 
     def test_a_player_the_thread_does_not_seat_keeps_their_place_at_the_end(self):
         """MatchSeat stays authoritative for WHO plays: someone absent from the

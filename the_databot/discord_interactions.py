@@ -69,6 +69,10 @@ from the_databot.services.discordservice import (
 )
 from the_databot.services.discord_commands import (
     DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD, HELP_CATEGORY_LFG,
+    # Defined there so tasks.py can import it without cycling back through this
+    # module (this module imports tasks); re-exported here because this is where
+    # callers and tests look for it.
+    LFG_DEFAULT_TITLE,
 )
 from the_databot.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
@@ -9384,7 +9388,6 @@ def _handle_random_roll(payload):
 #                    which the dispatcher owner-lock enforces before the handler).
 LFG_PLAYERS_FIELD = "Players"
 LFG_NOTIFY_FIELD = "🔔 Notify"
-LFG_DEFAULT_TITLE = "Looking for Game"
 _LFG_MENTION_RE = re.compile(r"<@!?(\d+)>")
 _LFG_ROLE_MENTION_RE = re.compile(r"<@&(\d+)>")
 _LFG_PLAYER_LINE_RE = re.compile(r"^(.*) \(<@!?(\d+)>\)$")
@@ -9537,6 +9540,9 @@ def _handle_lfg_command(data):
     automatically, with none it's a plain post. When there are no tags and the invoker
     can manage the server, an ephemeral followup links them to add some."""
     description = (_get_option(data, "description") or "").strip()
+    # The host's name for this game. Titles the embed, names the thread at ✔ Start,
+    # and becomes the recorded game's nickname. Blank falls back to the tag name.
+    title_opt = (_get_option(data, "title") or "").strip()
     author = data.get("_author")
     owner = data.get("_author_id")
     if not owner:
@@ -9569,9 +9575,11 @@ def _handle_lfg_command(data):
     players_value = _lfg_player_line(_author_display_from_data(data), owner)
 
     def plain_post():
+        # No tag to name the game, so the host's title is the only thing that can.
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
-            "data": _lfg_message_data(author, owner, description, players_value),
+            "data": _lfg_message_data(author, owner, description, players_value,
+                                      title=title_opt or LFG_DEFAULT_TITLE),
         })
 
     # No tags configured. Post the plain call; if the invoker can manage the server,
@@ -9620,7 +9628,10 @@ def _handle_lfg_command(data):
                 "`/lfg` in the appropriate LFG channel to automatically create a "
                 "thread there.")
 
-    title = role.description or role.name or LFG_DEFAULT_TITLE
+    # The host's title wins; with none, the tag NAME stands in. Deliberately not
+    # role.description -- that field is admin help text ("Brief description of what
+    # this LFG role is for"), so it read as a placeholder rather than a game's name.
+    title = title_opt or role.name or LFG_DEFAULT_TITLE
     # Ping only if the underlying Discord role still exists; otherwise post with the tag
     # name as the title but no mention (avoids a broken @deleted-role ping).
     content = role.mention() if _lfg_role_is_live(role, guild_id) else None
@@ -9806,8 +9817,16 @@ def _handle_lfg_start(payload):
     # The Notify list is only useful while recruiting; drop it once started.
     _lfg_set_notify_ids(embed, [])
 
-    role_match = _LFG_ROLE_MENTION_RE.search(message.get("content", "") or "")
+    content = message.get("content", "") or ""
+    role_match = _LFG_ROLE_MENTION_RE.search(content)
     role_id = role_match.group(1) if role_match else None
+    # A DISPLAY-ONLY tag (blank role_id) has nothing to mention, so GuildLFGRole.mention()
+    # renders its plain NAME -- the regex above finds nothing and the task cannot resolve
+    # the role from a snowflake. The content is then the only surviving trace of the tag
+    # name, and the task needs it to tell a host-typed title from the tag-name fallback
+    # (otherwise the tag name would be saved as the game's nickname). Empty when a real
+    # mention matched, since the task resolves the role properly in that case.
+    role_name = "" if role_match else content.strip()
 
     # The host, read off this button's own custom_id (`lfg_start:{owner}`). This is
     # the LAST moment the host is knowable: the response below strips the buttons,
@@ -9835,7 +9854,7 @@ def _handle_lfg_start(payload):
     create_lfg_thread_task.delay(
         payload.get("channel_id"), message.get("id"), payload.get("guild_id"),
         role_id, description, players, embed, token=payload.get("token"),
-        host_id=host_id, in_thread=in_thread,
+        host_id=host_id, in_thread=in_thread, role_name=role_name,
     )
     # Answer synchronously (type 7) rather than deferring (type 6) and letting the
     # task be the sole writer. Deferring would leave the buttons LIVE until the
