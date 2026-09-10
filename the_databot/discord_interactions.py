@@ -9616,6 +9616,14 @@ def _handle_lfg_command(data):
     else:
         role = roles[0]
 
+    # A tag can be scoped to one channel; used from anywhere else, refuse outright
+    # before any other tag-specific check (the forum-channel check below only guards
+    # thread creation, not the whole command).
+    if role.restricted_channel_id and str(data.get("_channel_id")) != str(role.restricted_channel_id):
+        return _ephemeral(
+            f"The {role.name} role cannot be used in this channel and can only be "
+            f"used in <#{role.restricted_channel_id}>.")
+
     # This tag's games live in a specific forum, so a thread elsewhere is the wrong
     # home for one. Refuse before posting anything rather than adopting a thread in
     # the wrong place. Only when parent_id is known: absent (older payload, or a

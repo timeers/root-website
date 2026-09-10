@@ -2456,30 +2456,34 @@ def _lfg_add_controls_ctx(guild, field_ctx):
 
 
 def _lfg_field_context(guild, form):
-    """Data for the LFG-role form's role/forum/tag dropdowns, fetched from Discord
-    (cached ~5 min) at render time. The role and forum-channel selects are rendered
-    server-side; the tag select's options are owned entirely by the client
-    (static/js/lfg_forum_tags.js), which rebuilds them from `forum_tag_map` (a single
-    page-level JSON blob) on load, after each HTMX swap, and on channel change. The
-    tag select is only seeded server-side with the saved option so an edit form is
-    correct with no flash even before JS runs. Reading selections from the bound form
-    keeps them on a POST-invalid re-render. Any list fetch returning None makes that
-    control fall back to a manual text input (see lfg_role_form_fields.html)."""
+    """Data for the LFG-role form's role/forum/tag/restricted-channel dropdowns,
+    fetched from Discord (cached ~5 min) at render time. The role, forum-channel and
+    restricted-channel selects are rendered server-side; the tag select's options are
+    owned entirely by the client (static/js/lfg_forum_tags.js), which rebuilds them
+    from `forum_tag_map` (a single page-level JSON blob) on load, after each HTMX
+    swap, and on channel change. The tag select is only seeded server-side with the
+    saved option so an edit form is correct with no flash even before JS runs.
+    Reading selections from the bound form keeps them on a POST-invalid re-render.
+    Any list fetch returning None makes that control fall back to a manual text
+    input (see lfg_role_form_fields.html)."""
     role_sel = str(form['role_id'].value() or '')
     channel_sel = str(form['forum_channel_id'].value() or '')
     tag_sel = str(form['forum_tag_id'].value() or '')
+    restricted_channel_sel = str(form['restricted_channel_id'].value() or '')
 
     # Only hit Discord if the bot is actually in this guild. Otherwise every roles/
-    # forums/tags call 404s/403s (and the tag-map loop fires one request per channel),
-    # spamming errors and making the page slow. bot_member is kept current by
-    # sync_bot_guilds. When absent, treat lists as unfetchable (None) so the fields fall
-    # back to manual text inputs (see lfg_role_form_fields.html).
+    # forums/tags/channels call 404s/403s (and the tag-map loop fires one request per
+    # channel), spamming errors and making the page slow. bot_member is kept current
+    # by sync_bot_guilds. When absent, treat lists as unfetchable (None) so the fields
+    # fall back to manual text inputs (see lfg_role_form_fields.html).
     if guild.bot_member:
         roles = get_guild_roles(guild.guild_id)
         forums = get_guild_forum_channels(guild.guild_id)
+        text_channels = get_guild_text_channels(guild.guild_id)
     else:
         roles = None
         forums = None
+        text_channels = None
 
     # Hide roles already used by this guild so the same role can't be added twice —
     # but keep the one this form is editing (role_sel) so it still shows on an edit
@@ -2515,6 +2519,9 @@ def _lfg_field_context(guild, form):
         'forum_tag_map': forum_tag_map,
         'role_selected': role_sel, 'channel_selected': channel_sel,
         'tag_selected': tag_sel, 'tag_selected_name': tag_selected_name,
+        'text_channels': text_channels,
+        'text_channel_ids': [c['id'] for c in text_channels] if text_channels else [],
+        'restricted_channel_selected': restricted_channel_sel,
     }
 
 

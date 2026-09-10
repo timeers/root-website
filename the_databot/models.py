@@ -44,6 +44,11 @@ class GuildLFGRole(models.Model):
             "choose “Copy Role ID”. Leave blank if you only want the display tag."
         ),
     )
+    restricted_channel_id = models.CharField(
+        max_length=32, blank=True, null=True,
+        validators=[validate_discord_snowflake],
+        help_text="Discord text channel this LFG role's /lfg is restricted to. "
+                  "Leave blank to allow it from any channel.")
     description = models.TextField(
         blank=True,
         null=True,

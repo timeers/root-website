@@ -1,10 +1,11 @@
 {% load i18n crispy_forms_tags %}
 {% comment %} Shared field body for the LFG-role add + edit forms. `name` is auto-derived
-(not shown). The role and forum-channel <select>s are rendered SERVER-SIDE from `field_ctx`.
-The forum-tag <select>'s OPTIONS are owned by static/js/lfg_forum_tags.js, which builds them
-from the single page-level `#lfg-forum-tags` JSON blob (see edit_guild.html) on load, after
-each HTMX swap, and when the channel changes. It's seeded here only with the saved tag so an
-edit form is correct with no flash even before JS runs. Always a real <select name=…> so it
+(not shown). The role, forum-channel and restricted-channel <select>s are rendered
+SERVER-SIDE from `field_ctx`. The forum-tag <select>'s OPTIONS are owned by
+static/js/lfg_forum_tags.js, which builds them from the single page-level
+`#lfg-forum-tags` JSON blob (see edit_guild.html) on load, after each HTMX swap, and
+when the channel changes. It's seeded here only with the saved tag so an edit form is
+correct with no flash even before JS runs. Always a real <select name=…> so it
 POSTs normally. The .lfg-role-fields wrapper scopes the JS to this one form.
 
 `tournament` is the one FK here that ISN'T Discord-sourced — it's a normal ModelChoiceField
@@ -94,6 +95,34 @@ description/thread_message. Hidden entirely when the guild has no linked series.
         <div class="js-forum-tag-hint form-text text-warning d-none">
             {% trans 'This forum requires a tag.' %}
         </div>
+    </div>
+
+    {# ----- Restrict to channel (optional) ----- #}
+    <div class="mb-3">
+        <label class="form-label">{% trans 'Restrict to channel (optional)' %}</label>
+        {% if field_ctx.text_channels is None %}
+            <input type="text" name="restricted_channel_id" class="form-control"
+                   value="{{ field_ctx.restricted_channel_selected }}" autocomplete="off"
+                   placeholder="{% trans 'Channel ID' %}">
+            <div class="form-text text-warning">
+                {% trans "Couldn't load channels from Discord — enter a channel ID manually." %}
+            </div>
+        {% else %}
+            <select name="restricted_channel_id" class="form-select">
+                <option value="" {% if not field_ctx.restricted_channel_selected %}selected{% endif %}>{% trans '— Any channel —' %}</option>
+                {% for channel in field_ctx.text_channels %}
+                    <option value="{{ channel.id }}" {% if channel.id == field_ctx.restricted_channel_selected %}selected{% endif %}>
+                        #{{ channel.name }}
+                    </option>
+                {% endfor %}
+                {% if field_ctx.restricted_channel_selected and field_ctx.restricted_channel_selected not in field_ctx.text_channel_ids %}
+                    <option value="{{ field_ctx.restricted_channel_selected }}" selected>{% trans '(not listed)' %} {{ field_ctx.restricted_channel_selected }}</option>
+                {% endif %}
+            </select>
+            <div class="form-text text-muted">
+                {% trans 'When set, /lfg with this tag only works from this channel.' %}
+            </div>
+        {% endif %}
     </div>
 
     {{ form.thread_message|as_crispy_field }}

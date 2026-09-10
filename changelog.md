@@ -6,6 +6,7 @@
 - A guild linked Tournament can now send reminder messages through discord. Setup under the manage guild page by guild moderators
 - /timestamp command split out from /schedule set. The timestamp command simply displays the time with the timestamp for easy copying
 - /lfg now has a title field that is used as the embed title, thread title and game nickname
+- You can now restrict an LFG Role to a specific channel. If used in another channel the user will see a private message linking to the correct channel.
 
 ### Improvements
 - Better banner message for prefilled matches
@@ -14,6 +15,7 @@
 - Suggesting a time pings the players
 - /lfg's host only actions now give a hint to press "Join"
 - Match mods are now included in scheduled reminder messages
+- Made /timestamp message simpler
 
 ### Bug Fixes
 - js was breaking due to auto filling box score to game form
