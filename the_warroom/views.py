@@ -8692,7 +8692,9 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
         # --- Match scheduled_time updates ---
         # Imported here, not at module scope: the_databot.discord_interactions
         # imports the_warroom.models, so a top-level import would be circular.
-        from the_databot.discord_interactions import _cancel_open_proposals
+        from the_databot.discord_interactions import (
+            _cancel_open_proposals, _announce_schedule_to_channel,
+        )
 
         for match_data in data.get('matches', []):
             match_id = match_data.get('id')
@@ -8702,18 +8704,39 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
             if not match:
                 continue
             scheduled_str = match_data.get('scheduled_time')
+            new_time = None
             if scheduled_str:
                 try:
-                    match.scheduled_time = datetime.fromisoformat(scheduled_str.replace('Z', '+00:00'))
+                    new_time = datetime.fromisoformat(scheduled_str.replace('Z', '+00:00'))
                 except (ValueError, TypeError):
                     return JsonResponse({'error': f'Invalid date format for match {match_id}'}, status=400)
-            else:
-                match.scheduled_time = None
+
+            # This editor posts EVERY match row on every save, not just the edited
+            # ones, so an unguarded write here fired the sweep below on saves that
+            # changed no time at all -- killing live Discord polls when someone
+            # merely renamed the series.
+            #
+            # Compared to the SECOND: the browser sends millisecond-precision
+            # isoformat, so a value that round-trips untouched can still differ in
+            # microseconds from what is stored. Nobody schedules to sub-second
+            # precision.
+            old_time = match.scheduled_time
+            changed = ((old_time is None) != (new_time is None)) or (
+                old_time is not None and new_time is not None
+                and old_time.replace(microsecond=0) != new_time.replace(microsecond=0))
+            if not changed:
+                continue
+
+            match.scheduled_time = new_time
             match.save(update_fields=['scheduled_time'])
             # Retire any proposal still awaiting confirmation in Discord: its
             # Confirm button would otherwise overwrite the time just set here.
             # Same sweep every /schedule write path does -- this one was missing.
             _cancel_open_proposals(match, 'website')
+            # And announce it, exactly as the bot does: "scheduled" for a match
+            # that gained a time, "rescheduled" for one that moved. A CLEARED time
+            # announces nothing -- the helper returns early on new_time=None.
+            _announce_schedule_to_channel(match, old_time, new_time)
 
         # --- Delete matches ---
         for match_id in data.get('delete_match_ids', []):
@@ -8741,7 +8764,12 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
                         scheduled_time = datetime.fromisoformat(st_str.replace('Z', '+00:00'))
                     except (ValueError, TypeError):
                         pass
-                Match.objects.create(round=round, series=series, scheduled_time=scheduled_time)
+                new_match = Match.objects.create(
+                    round=round, series=series, scheduled_time=scheduled_time)
+                if scheduled_time:
+                    # A brand-new match, so there is no previous time: old_time
+                    # None makes this read "scheduled" rather than "rescheduled".
+                    _announce_schedule_to_channel(new_match, None, scheduled_time)
 
         # --- Remove seats ---
         for seat_id in data.get('remove_seat_ids', []):

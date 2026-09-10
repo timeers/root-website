@@ -571,7 +571,7 @@ PROPOSAL_RETIRED_TEXT = {
     "cancelled": "This proposed time is no longer active — the match's scheduled "
                  "time was changed or cleared.",
     "expired": "This proposed time has passed without everyone confirming.\n"
-               "Run `/schedule` to propose another time.",
+               "Run `/schedule set` to propose another time.",
     # Distinct from "cancelled" so players mid-confirmation learn WHERE the time
     # came from instead of just that theirs stopped mattering. Names no one: the
     # bracket editor is open to organizers and admins, not only moderators.

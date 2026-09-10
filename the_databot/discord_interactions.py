@@ -72,6 +72,7 @@ from the_databot.services.discord_commands import (
 )
 from the_databot.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
+    format_discord_timestamp_code,
     valid_timezone, search_timezones,
     timezone_regions, zones_for_region, region_for_timezone,
     describe_timezone, format_utc_offset,
@@ -872,6 +873,15 @@ _THREAD_CHANNEL_TYPES = {10, 11, 12}
 # handler, which the dispatcher would surface as "Something went wrong".
 SCHEDULE_NO_MATCH = "0"
 
+# Which command a schedule prompt belongs to. A DIFFERENT axis from whether a Match
+# resolved: /schedule set in a plain channel has no match but may still poll, while
+# /timestamp never writes anything no matter where it runs.
+#
+# Short strings because they ride in the timezone picker's custom_ids, which are
+# capped at 100 chars -- see _tz_region_data.
+SCHEDULE_MODE = "s"
+TIMESTAMP_MODE = "t"
+
 
 def _is_no_match(match_id):
     return str(match_id) == SCHEDULE_NO_MATCH
@@ -1142,7 +1152,7 @@ def _schedule_input_text(payload):
     return match.group(1) if match else ""
 
 
-def _tz_region_data(match_id, time_text, owner, current_tz=None):
+def _tz_region_data(match_id, time_text, owner, current_tz=None, mode=SCHEDULE_MODE):
     """Step 1 of the timezone prompt: pick a broad region.
 
     `current_tz` pre-selects the matching region (and switches the copy to the
@@ -1175,7 +1185,9 @@ def _tz_region_data(match_id, time_text, owner, current_tz=None):
         "allowed_mentions": {"parse": []},
         "components": [
             action_row(string_select(
-                encode_custom_id("schedule_tz_region", match_id, owner), options,
+                # mode rides BEFORE owner: the dispatcher's owner-lock reads the
+                # LAST arg, so anything appended after the snowflake disables it.
+                encode_custom_id("schedule_tz_region", match_id, mode, owner), options,
                 placeholder="Pick your region", min_values=1, max_values=1,
             )),
             action_row(button("Cancel", encode_custom_id("schedule_cancel", owner),
@@ -1184,7 +1196,8 @@ def _tz_region_data(match_id, time_text, owner, current_tz=None):
     }
 
 
-def _tz_zone_data(match_id, region_key, time_text, owner, current_tz=None):
+def _tz_zone_data(match_id, region_key, time_text, owner, current_tz=None,
+                  mode=SCHEDULE_MODE):
     """Step 2 of the timezone prompt: pick a city within the chosen region.
 
     Offsets are appended to each label, which is what makes the list readable. They
@@ -1211,11 +1224,14 @@ def _tz_zone_data(match_id, region_key, time_text, owner, current_tz=None):
         "allowed_mentions": {"parse": []},
         "components": [
             action_row(string_select(
-                encode_custom_id("schedule_tz_zone", match_id, region_key, owner), options,
+                # mode before owner, so the owner-lock still sees a snowflake last.
+                encode_custom_id("schedule_tz_zone", match_id, region_key, mode, owner),
+                options,
                 placeholder="Pick your timezone", min_values=1, max_values=1,
             )),
             action_row(
-                button("◀ Regions", encode_custom_id("schedule_tz_back", match_id, owner),
+                button("◀ Regions",
+                       encode_custom_id("schedule_tz_back", match_id, mode, owner),
                        style=STYLE_SECONDARY),
                 button("Cancel", encode_custom_id("schedule_cancel", owner),
                        style=STYLE_SECONDARY),
@@ -1226,16 +1242,26 @@ def _tz_zone_data(match_id, region_key, time_text, owner, current_tz=None):
 
 def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=None,
                            pending_confirmers=0, already_proposed=False,
-                           unlinked_kind="bare"):
+                           unlinked_kind="bare", mode=SCHEDULE_MODE):
     """The ephemeral confirm prompt: the time as Discord renders it in the clicker's
-    own timezone, plus Confirm / Change timezone / Cancel. The owner snowflake rides
-    LAST in each custom_id so the dispatcher's owner-lock applies without extra
-    checks — correct in both modes, since only the invoker may act on their own
+    own timezone, plus the actions / Change timezone / Cancel. The owner snowflake
+    rides LAST in each custom_id so the dispatcher's owner-lock applies without extra
+    checks — correct in every mode, since only the invoker may act on their own
     prompt.
 
-    `pending_confirmers` (>0) switches the copy to the consensus flow: the button
-    becomes "Propose Time" and the prompt says who still has to agree.
-    `already_proposed` adds the warning that another proposal is open.
+    `mode` is the COMMAND this prompt belongs to, and it is a different axis from
+    whether a Match resolved:
+
+      SCHEDULE_MODE  (/schedule set)  — may write a time, so it offers Suggest (poll)
+                                        and, when no confirmation is required and a
+                                        match resolved, Set Time.
+      TIMESTAMP_MODE (/timestamp)     — formats a time and nothing else, so its only
+                                        action is Display. Never offers Set Time.
+
+    `pending_confirmers` (>0) switches the copy to the consensus flow: the prompt
+    says who still has to agree and Set Time is withheld, because only a confirmed
+    poll may schedule there. `already_proposed` adds the warning that another
+    proposal is open.
 
     `tz_name` is falsy for an epoch/`<t:…>` input, which is absolute: there's no
     timezone to show and re-interpreting it in another one would be a no-op, so the
@@ -1244,17 +1270,22 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
     re-shown prompt can look unchanged even though it now means a different
     instant.
 
-    `match` is None for a time that isn't linked to any Match. Then the copy says
-    so plainly and Confirm becomes `sched_free`, because nothing will be written to
-    the site — the whole point is that this can't be mistaken for a real schedule.
+    `match` is None for a time that isn't linked to any Match. In SCHEDULE_MODE that
+    still offers the poll (a rosterless one in a plain channel), just never a write;
+    the copy says so plainly so it can't be mistaken for a real schedule.
     `unlinked_kind` is "lfg" (the thread's players get asked to confirm) or "bare"."""
     unlinked = match is None
+    timestamp_mode = mode == TIMESTAMP_MODE
     match_id = SCHEDULE_NO_MATCH if unlinked else match.id
     ts = int(when.timestamp())
     lines = []
     if note:
         lines.append(note)
-    if unlinked:
+    if timestamp_mode:
+        # No game to attach to at all, so no disclaimer is needed -- there is
+        # nothing here anyone could mistake for a schedule.
+        lines.append("Here's that time:")
+    elif unlinked:
         # "this thread" only when there actually is one -- the bare case covers a
         # plain channel too.
         lines.append("Suggest this time for the game in this thread:" if unlinked_kind == "lfg"
@@ -1264,13 +1295,17 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
             f"{'Propose' if pending_confirmers else 'Schedule'} "
             f"**{_match_label(match)}** for:")
     lines.append(format_discord_timestamp(when))
+    # The raw markup, so the time can be copied out and pasted elsewhere. AFTER the
+    # rendered line, never before: _poll_embed_meta and friends read the FIRST
+    # `<t:` in a message, and this must not become that.
+    lines.append(format_discord_timestamp_code(when))
     if tz_name:
         lines.append(f"Interpreted in **{describe_timezone(tz_name, at=when)}**.")
     if not unlinked and match.scheduled_time:
         lines.append(
             f"\nThis replaces the current time of {format_discord_timestamp(match.scheduled_time)}."
         )
-    if unlinked:
+    if unlinked and not timestamp_mode:
         lines.append(f"\n{SCHEDULE_UNLINKED_NOTE}")
         if unlinked_kind == "lfg":
             lines.append("I'll ask the other players in this thread to confirm.")
@@ -1282,42 +1317,39 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
                      "another is fine — the first one everyone confirms wins.")
     lines.append("\nDoes that look right?")
     if time_text:
+        # MUST stay last: this is the carrier the timezone picker reads the typed
+        # text back out of, and its regex is line-anchored.
         lines.append(_schedule_input_line(time_text))
-    # Two buttons in EVERY mode: poll the group, or put the time out directly.
-    # Which the second one is depends on whether this time can actually be
-    # written -- see the mode table below.
-    #
-    # Poll carries the match id in match mode so the open handler can re-resolve
-    # the match at click time; the sentinel keeps the arg count identical
-    # elsewhere, so one decode shape reads both.
-    poll_kind = "match" if not unlinked else unlinked_kind
-    poll_id = encode_custom_id("sched_poll_open", poll_kind,
-                               match_id if not unlinked else SCHEDULE_NO_MATCH,
-                               ts, owner)
-    buttons = [button("Poll", poll_id, style=STYLE_SUCCESS)]
 
-    if unlinked:
-        # NOT schedule_confirm: that handler looks the match up by id and would
-        # answer "That match can no longer be scheduled". This is the path a user
-        # lands on after setting their timezone through the picker, so it has to be
-        # decided here, in the builder both flows share.
-        buttons.append(button(
-            "Suggest", encode_custom_id("sched_free", unlinked_kind, ts, owner),
-            style=STYLE_SECONDARY))
-    elif pending_confirmers:
-        # The tournament requires participant confirmation, so a direct write is
-        # not on offer -- only a confirmed poll may schedule. Suggest still lets a
-        # moderator float a time; it just writes nothing.
-        buttons.append(button(
-            "Suggest", encode_custom_id("sched_free", "match", ts, owner),
-            style=STYLE_SECONDARY))
+    if timestamp_mode:
+        # One action only. `sched_free` posts the time publicly and writes nothing,
+        # which is the whole of what /timestamp does.
+        buttons = [button(
+            "Display", encode_custom_id("sched_free", unlinked_kind, ts, owner),
+            style=STYLE_SUCCESS)]
     else:
-        buttons.append(button(
-            "Set Time", encode_custom_id("schedule_confirm", match_id, ts, owner),
-            style=STYLE_SECONDARY))
+        # Poll carries the match id in match mode so the open handler can re-resolve
+        # the match at click time; the sentinel keeps the arg count identical
+        # elsewhere, so one decode shape reads both.
+        poll_kind = "match" if not unlinked else unlinked_kind
+        poll_id = encode_custom_id("sched_poll_open", poll_kind,
+                                   match_id if not unlinked else SCHEDULE_NO_MATCH,
+                                   ts, owner)
+        # Suggest = put the time to the group. In a plain channel that is a poll
+        # with no roster, which closes only when the host does.
+        buttons = [button("Suggest", poll_id, style=STYLE_SUCCESS)]
+        if not unlinked and not pending_confirmers:
+            # The only direct write on offer anywhere, and only here: a match
+            # resolved AND the tournament doesn't require participant confirmation.
+            buttons.append(button(
+                "Set Time", encode_custom_id("schedule_confirm", match_id, ts, owner),
+                style=STYLE_SECONDARY))
     if tz_name:
+        # Carries the mode so the picker can hand it back on the way out -- this
+        # button is the entry point to the whole tz round-trip.
         buttons.append(button(
-            "Change timezone", encode_custom_id("schedule_tz_change", match_id, owner),
+            "Change timezone",
+            encode_custom_id("schedule_tz_change", match_id, mode, owner),
             style=STYLE_SECONDARY))
     buttons.append(button("Cancel", encode_custom_id("schedule_cancel", owner),
                           style=STYLE_SECONDARY))
@@ -1436,30 +1468,34 @@ _FIELD_VALUE_MAX = FIELD_VALUE_MAX
 _name_list_value = name_list_value
 
 
-# Whether a new proposal pings the players it is waiting on.
+# Whether the schedule flows ping the roster above a public post.
 #
-# OFF deliberately. A series thread carries a proposal per game, so pinging the
-# whole roster each time is more noise than it's worth; the embed names everyone
-# who is waiting, and anyone who needs chasing can be @-mentioned by hand.
+# ONE switch for all four ping sites -- the proposal post, the embed poll, the
+# Set Time announcement and the unlinked Display post -- so pinging can be turned
+# off wholesale if it proves noisy. Every site reads this constant; none pings
+# unconditionally.
 #
-# Turning this True is enough to enable it -- but read the two hazards in
-# _proposal_ping_content first.
-SCHEDULE_PROPOSAL_PINGS = False
+# Flipping it back to False is a clean revert: each read short-circuits to None,
+# and no `content`/allowed_mentions key is attached at all, leaving the payloads
+# byte-identical to the pre-ping ones. Messages ALREADY posted keep their mention
+# line (an edit only replaces the keys it sends -- see _roster_ping_content), but
+# Discord only notifies on the initial post, so they are inert.
+SCHEDULE_ROSTER_PINGS = True
 
 # Discord's cap on message content. Well above any real roster, but an over-long
 # content makes Discord reject the POST outright, losing the whole message.
 _CONTENT_MAX = 2000
 
 
-def _proposal_ping_content(pending):
-    """The mention line for a proposal's pending players, or None.
+def _roster_ping_content(profiles):
+    """The mention line for a list of Profiles, or None when nobody is pingable.
 
     Built from discord_id directly rather than _roster_name: that helper appends
     "(not linked — log in with Discord once)", which explains a stuck proposal in
     the embed but is noise in a ping. An unlinked player cannot be pinged at all,
     so they are simply omitted here -- the embed still names them.
 
-    ⚠️ Two things to know before enabling SCHEDULE_PROPOSAL_PINGS:
+    ⚠️ Two things to know:
       * Omitting `content` on a later EDIT does not remove it: both
         edit_channel_message and a type-7 interaction response only replace the
         keys they send, so this line persists above the embed for the life of the
@@ -1467,7 +1503,7 @@ def _proposal_ping_content(pending):
         pings on the initial post, never on edits.)
       * _name_list_value can't be reused: it hard-codes the 1024-char embed FIELD
         cap, not the 2000-char content cap."""
-    mentions = [f"<@{p.discord_id}>" for p in pending if p.discord_id]
+    mentions = [f"<@{p.discord_id}>" for p in profiles if p.discord_id]
     if not mentions:
         return None
     line = " ".join(mentions)
@@ -1482,6 +1518,31 @@ def _proposal_ping_content(pending):
             used += len(m) + 1
         line = " ".join(out)
     return line or None
+
+
+def _roster_ping_others(profiles, exclude_discord_id=None):
+    """The ping line for everyone on a roster EXCEPT the invoker, or None.
+
+    The person who ran the command or clicked the button already knows -- pinging
+    them back is noise, the same reasoning _open_schedule_proposal uses when it
+    seeds the proposer into confirmed_by.
+
+    None (never an empty string) whenever there is nobody left to ping: an empty
+    roster, a roster of only unlinked players, or one holding just the invoker.
+    Callers MUST then omit `content` and `allowed_mentions` entirely rather than
+    sending an empty line."""
+    if not SCHEDULE_ROSTER_PINGS:
+        return None
+    others = profiles
+    if exclude_discord_id:
+        # Compared as strings: the roster carries Profile.discord_id (a CharField)
+        # while callers pass the snowflake straight off the interaction payload.
+        # Guarded on a truthy id so an absent one doesn't match the "" that an
+        # unlinked profile carries -- they are dropped by _roster_ping_content
+        # anyway, but never by being mistaken for the invoker.
+        others = [p for p in profiles
+                  if str(p.discord_id or "") != str(exclude_discord_id)]
+    return _roster_ping_content(others)
 
 
 def _proposal_entries(profiles):
@@ -1514,10 +1575,10 @@ def _schedule_proposal_data(proposal, match=None, mention=False, author=None,
     back in. Dropping this argument silently unsubscribes everyone on the next
     render.
 
-    `mention` marks the FIRST post, where a ping would belong. It is currently
-    INERT: pinging is off (see SCHEDULE_PROPOSAL_PINGS), and mentions inside an
-    embed never notify anyone regardless -- Discord only pings from message
-    `content`."""
+    `mention` marks the FIRST post, which is the only one that pings: Discord
+    notifies on a post, never on an edit, so a re-render carries no mention line.
+    The ping rides in message `content` because a mention inside an embed never
+    notifies anyone. Gated on SCHEDULE_ROSTER_PINGS."""
     match = match or proposal.match
     pending = list(proposal.pending_profiles())
     data = _schedule_poll_data(
@@ -1539,8 +1600,8 @@ def _schedule_proposal_data(proposal, match=None, mention=False, author=None,
         data["embeds"][0]["description"] += (
             "\n-# Another time is also proposed for this match — "
             "whichever is confirmed first wins.")
-    ping = (_proposal_ping_content(pending)
-            if mention and SCHEDULE_PROPOSAL_PINGS else None)
+    ping = (_roster_ping_content(pending)
+            if mention and SCHEDULE_ROSTER_PINGS else None)
     if ping:
         data["content"] = ping
         data["allowed_mentions"] = {"parse": ["users"]}
@@ -1560,7 +1621,7 @@ def _schedule_rejected_data(proposal, match=None, author=None):
         proposal, "🗓 Time not scheduled", "rejected",
         label=_match_label(match) if match else None,
         author=author)
-    embed["description"] += "\n-# Run `/schedule` to propose another time."
+    embed["description"] += "\n-# Run `/schedule set` to propose another time."
     return {
         "embeds": [embed],
         "components": [],
@@ -1747,8 +1808,13 @@ def _announce_schedule_to_channel(match, old_time, new_time):
     if tournament is None:
         return
     verb = "rescheduled" if old_time is not None else "scheduled"
-    content = (f"{_match_label(match)} is {verb} for "
-               f"{format_discord_timestamp(new_time)}")
+    # Three lines, not one: the rendered time gets its own line to read against,
+    # and the raw markup below it can be copied straight into another message.
+    content = "\n".join([
+        f"{_match_label(match)} is {verb}",
+        format_discord_timestamp(new_time),
+        format_discord_timestamp_code(new_time),
+    ])
     from the_warroom.services.channel_posts import post_to_tournament_channel
     # on_commit: callers run inside transaction.atomic(), and the worker must never
     # announce a time this transaction goes on to roll back.
@@ -2095,6 +2161,55 @@ def _handle_schedule_unlinked(data, profile, time_text, clearing):
     })
 
 
+def _handle_timestamp_command(data):
+    """/timestamp: format a time as a Discord timestamp.
+
+    Deliberately match-free -- it never looks up a Match or an LFG thread, so it
+    behaves identically in every channel. Everything it needs already exists for
+    /schedule set: the same parser, the same region/city picker, and the same
+    confirm prompt in TIMESTAMP_MODE."""
+    author_id = data.get("_author_id")
+
+    profile, error = _schedule_context(data)
+    if error:
+        return error
+
+    time_text = (_get_option(data, "time") or "").strip()
+    if not time_text:
+        return _ephemeral("Give me a `time` to turn into a timestamp.")
+
+    tz_option = (_get_option(data, "timezone") or "").strip()
+    if tz_option and not valid_timezone(tz_option):
+        return _ephemeral(
+            f'"{tz_option}" isn\'t a timezone I recognize. Pick one from the '
+            "suggestions, e.g. `America/New_York` — or leave it blank and I'll ask."
+        )
+    tz_name = tz_option or profile.timezone or None
+
+    when, error = parse_user_datetime(time_text, tz_name)
+    if error == NEED_TIMEZONE:
+        # The picker carries the mode so it can hand this prompt back on the way
+        # out -- it cannot be re-derived from the channel.
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": _tz_region_data(SCHEDULE_NO_MATCH, time_text, author_id,
+                                    current_tz=tz_name, mode=TIMESTAMP_MODE),
+        })
+    if error:
+        return _ephemeral(error)
+
+    # Persisted only once the whole command has succeeded, matching /schedule set.
+    if tz_option and profile.timezone != tz_option:
+        profile.timezone = tz_option
+        profile.save(update_fields=["timezone"])
+
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": _schedule_confirm_data(None, when, author_id, tz_name, time_text,
+                                       mode=TIMESTAMP_MODE),
+    })
+
+
 def _handle_schedule_confirm(payload):
     """Confirm button. Either writes the scheduled time outright (the original
     behavior, kept for tournaments that haven't opted in) or — when the tournament
@@ -2151,9 +2266,10 @@ def _handle_schedule_confirm(payload):
             # Not /upcoming's "The next scheduled game" line — this announces the
             # match just written, which needn't be the tournament's next one. No
             # roster confirmed it on this path, so name who set the time. A plain
-            # display name, not _roster_name: that renders a mention, and this
-            # followup sets no allowed_mentions, so it would ping the very person
-            # who just clicked Confirm.
+            # display name, not _roster_name: that would render a mention INSIDE
+            # the embed, which never notifies anyway -- the ping below is the part
+            # that actually reaches people, and it deliberately excludes the
+            # clicker.
             who = profile.display_name or profile.discord or profile.slug
             embed = build_upcoming_embed(
                 match, summary=f"Scheduled by {who}" if who else None)
@@ -2161,14 +2277,24 @@ def _handle_schedule_confirm(payload):
             logger.exception("Failed to build /schedule announcement embed")
             embed = None
         if embed:
+            data = {"embeds": [embed]}
+            # Tell the rest of the roster a time was set for them. Nobody
+            # confirmed anything on this path, so this post is the only notice
+            # they get. Skipped entirely when there is nobody left to ping.
+            ping = _roster_ping_others(_match_roster(match),
+                                       exclude_discord_id=owner)
+            if ping:
+                data["content"] = ping
+                data["allowed_mentions"] = {"parse": ["users"]}
             post_interaction_followup_task.apply_async(
-                (token, {"embeds": [embed]}), countdown=2,
+                (token, data), countdown=2,
             )
 
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {
-            "content": f"✔ Scheduled for {format_discord_timestamp(when)}.",
+            "content": (f"✔ Scheduled for {format_discord_timestamp(when)}.\n"
+                        f"{format_discord_timestamp_code(when)}"),
             "components": [],
         },
     })
@@ -2648,7 +2774,7 @@ SCHEDULE_FREE_UNAVAILABLE_FIELD = POLL_NO_FIELD
 POLL_FREE_RESPONSE_MAX = 12
 
 
-def _schedule_free_public_data(when, proposer_id, kind, author=None):
+def _schedule_free_public_data(when, proposer_id, kind, author=None, roster=()):
     """The PUBLIC suggested-time message: who suggested it, and when.
 
     Deliberately minimal -- this is the "just put a time out there" half of the
@@ -2656,11 +2782,18 @@ def _schedule_free_public_data(when, proposer_id, kind, author=None):
     responses is a poll (see _schedule_poll_data).
 
     Deliberately unlike a real schedule too: a different title and the unlinked
-    note, so nobody reads this as a game scheduled on the site."""
+    note, so nobody reads this as a game scheduled on the site.
+
+    `roster` are the thread's players, pinged above the embed so they actually
+    see the time. Empty for a plain channel, where there is nobody in particular
+    to tell -- and the ping must then be omitted entirely rather than sent blank."""
     embed = {
         "title": "🕐 Suggested time",
         "description": "\n".join([
             format_discord_timestamp(when),
+            # The raw markup, for copying elsewhere. Always AFTER the rendered
+            # line -- readers of this embed take the FIRST `<t:` they find.
+            format_discord_timestamp_code(when),
             "",
             f"Suggested by <@{proposer_id}>.",
             SCHEDULE_UNLINKED_NOTE,
@@ -2668,7 +2801,14 @@ def _schedule_free_public_data(when, proposer_id, kind, author=None):
     }
     if author:
         embed["author"] = author
-    return {"embeds": [embed], "allowed_mentions": {"parse": []}}
+    data = {"embeds": [embed], "allowed_mentions": {"parse": []}}
+    # A mention only notifies from `content`; inside the embed above it would just
+    # render. Excludes the proposer, who already knows.
+    ping = _roster_ping_others(roster, exclude_discord_id=proposer_id)
+    if ping:
+        data["content"] = ping
+        data["allowed_mentions"] = {"parse": ["users"]}
+    return data
 
 
 def _poll_entry_lines(entries):
@@ -2702,6 +2842,10 @@ def _schedule_poll_data(when, proposer_id, *, yes, no, notify_ids=(),
     if label:
         lines.append(f"**{label}**")
     lines.append(format_discord_timestamp(when))
+    # The raw markup, for copying elsewhere. MUST stay after the rendered line:
+    # _poll_embed_meta re-reads this poll's instant from the FIRST `<t:` in the
+    # description on every click, and that has to be the line above.
+    lines.append(format_discord_timestamp_code(when))
     lines.append(f"Suggested by <@{proposer_id}>.")
     if kind != "match":
         lines.append(SCHEDULE_UNLINKED_NOTE)
@@ -2752,7 +2896,8 @@ def _schedule_poll_data(when, proposer_id, *, yes, no, notify_ids=(),
 
     if closed:
         note = _poll_closed_note(closed_reason, closed_by, no, scheduled, kind,
-                                 yes_count=len(yes), pending=pending)
+                                 yes_count=len(yes), pending=pending,
+                                 yes_entries=yes)
         if note:
             embed["description"] += f"\n\n{note}"
 
@@ -2765,13 +2910,17 @@ def _schedule_poll_data(when, proposer_id, *, yes, no, notify_ids=(),
 
 
 def _poll_closed_note(reason, closed_by, no_entries, scheduled, kind,
-                      yes_count=0, pending=None):
+                      yes_count=0, pending=None, yes_entries=()):
     """The `-#` subtext explaining how a poll ended.
 
     `scheduled` means agreement, which only match mode can act on: it has a Match
     to write the time to. An embed poll can be just as unanimous and still writes
     nothing, so it keeps the plain "Everyone confirmed" below rather than
-    promising a booking that never happened."""
+    promising a booking that never happened.
+
+    For the same reason a No is only a VETO in match mode. Elsewhere nothing was
+    going to be booked, so one person declining doesn't defeat the poll -- the
+    people who can make it are the result, and that is what gets reported."""
     if reason == "closed":
         who = f" by <@{closed_by}>" if closed_by else ""
         # The count replaces the old "before everyone responded": it says the
@@ -2788,10 +2937,16 @@ def _poll_closed_note(reason, closed_by, no_entries, scheduled, kind,
     if scheduled and kind == "match":
         return "-# Scheduled — everyone confirmed."
     if no_entries:
-        names = name_join([f"<@{e['id']}>" for e in no_entries])
-        tail = ("\n-# Run `/schedule` to propose another time."
-                if kind == "match" else "")
-        return f"-# Not scheduled — {names} couldn't make it.{tail}"
+        if kind == "match":
+            names = name_join([f"<@{e['id']}>" for e in no_entries])
+            return (f"-# Not scheduled — {names} couldn't make it."
+                    "\n-# Run `/schedule set` to propose another time.")
+        # Nothing was being booked here, so "Not scheduled" would describe a
+        # failure that never applied. Report who is in instead.
+        if yes_entries:
+            yes_names = name_join([f"<@{e['id']}>" for e in yes_entries])
+            return f"-# {yes_names} can make it."
+        return "-# Nobody could make it."
     if kind != "match":
         return "-# Everyone confirmed."
     return None
@@ -2825,7 +2980,7 @@ def _poll_buttons(proposal_pk, kind, proposer_id):
 
 
 def _handle_schedule_free(payload):
-    """Suggest: post the unlinked suggestion publicly. Nothing is written."""
+    """Display: post the time publicly. Nothing is written."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])  # [kind, ts, owner]
     if len(args) < 3:
         return _ephemeral("That button is out of date — run /schedule again.")
@@ -2839,6 +2994,10 @@ def _handle_schedule_free(payload):
     if not token:
         return _ephemeral("Couldn't post that — run /schedule again.")
 
+    # In an LFG thread the thread's players get pinged; a plain channel has nobody
+    # in particular to tell, so the roster stays empty and no ping is sent.
+    roster, _thread = _poll_lfg_roster(payload) if kind == "lfg" else ([], None)
+
     # A followup WITHOUT the ephemeral flag is public. countdown=2 lets this
     # response's ACK land first (a followup that races ahead 404s). Swallowed on a
     # broker outage: losing the post shouldn't replace the user's confirmation with
@@ -2846,7 +3005,8 @@ def _handle_schedule_free(payload):
     try:
         post_interaction_followup_task.apply_async(
             (token, _schedule_free_public_data(
-                when, owner, kind, author=_interaction_author(payload))),
+                when, owner, kind, author=_interaction_author(payload),
+                roster=roster)),
             countdown=2)
     except Exception:
         logger.exception("Could not enqueue the suggested-time post")
@@ -2854,7 +3014,7 @@ def _handle_schedule_free(payload):
 
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
-        "data": {"content": "Posted your suggested time.", "components": [],
+        "data": {"content": "Posted that time.", "components": [],
                  "embeds": []},
     })
 
@@ -2929,6 +3089,13 @@ def _handle_schedule_poll_open(payload):
 
     data = _schedule_poll_data(when, owner, yes=yes, no=[], notify_ids=[],
                                pending=pending, author=author, kind=kind)
+    # Ping the players being asked, so the poll doesn't sit unanswered. Only an
+    # LFG thread has a roster; a bare poll is open to whoever is present, so
+    # there is nobody specific to notify and no ping is sent.
+    ping = _roster_ping_others(roster, exclude_discord_id=owner)
+    if ping:
+        data["content"] = ping
+        data["allowed_mentions"] = {"parse": ["users"]}
     try:
         post_interaction_followup_task.apply_async((token, data), countdown=2)
     except Exception:
@@ -3311,7 +3478,7 @@ def _poll_close_response(when, proposer_id, yes, no, notify_ids, label, author,
     if notify_ids:
         _notify_poll_closed(
             notify_ids, when, no, scheduled=agreed, closed_by=closed_by,
-            jump_url=jump_url, yes_count=len(yes),
+            jump_url=jump_url, yes_count=len(yes), yes_entries=yes,
             # None when there is no roster, so the DM omits the denominator --
             # the same tri-state the footer reads.
             total=(len(yes) + len(pending) + len(no)
@@ -3340,7 +3507,7 @@ def _notify_poll_yes(notify_ids, actor_id, actor_name, when, yes_count, total,
 
 
 def _notify_poll_closed(notify_ids, when, no_entries, *, scheduled, closed_by=None,
-                        jump_url=None, yes_count=0, total=None):
+                        jump_url=None, yes_count=0, total=None, yes_entries=()):
     """DM the subscribers the final result.
 
     `closed_by` is whoever's click ENDED the poll -- the person who pressed Close,
@@ -3356,7 +3523,11 @@ def _notify_poll_closed(notify_ids, when, no_entries, *, scheduled, closed_by=No
         return
     notify_schedule_poll_task.delay(
         targets, "closed", int(when.timestamp()),
-        declined=[e["name"] for e in no_entries], scheduled=scheduled,
+        declined=[e["name"] for e in no_entries],
+        # Who CAN make it. A poll with no roster books nothing, so a decline
+        # vetoes nothing there and this is the only meaningful result to report.
+        confirmed=[e["name"] for e in yes_entries],
+        scheduled=scheduled,
         jump_url=jump_url, yes_count=yes_count, total=total)
 
 
@@ -3400,9 +3571,20 @@ def _schedule_tz_context(payload, args):
     return match, profile, None
 
 
+def _tz_mode(args):
+    """The command mode carried in a timezone-picker custom_id.
+
+    The mode rides second-to-last, just before the owner snowflake. A custom_id
+    posted BEFORE the mode was added has no such arg, so anything unrecognized
+    falls back to SCHEDULE_MODE -- the behavior those older prompts already had."""
+    candidate = args[-2] if len(args) >= 2 else None
+    return TIMESTAMP_MODE if candidate == TIMESTAMP_MODE else SCHEDULE_MODE
+
+
 def _handle_schedule_tz_region(payload):
     """Region select: show that region's cities."""
-    _action, args = decode_custom_id(payload["data"]["custom_id"])  # [match_id, owner]
+    # [match_id, mode, owner]
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
     match, profile, error = _schedule_tz_context(payload, args)
     if error:
         return error
@@ -3412,7 +3594,8 @@ def _handle_schedule_tz_region(payload):
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": _tz_zone_data(args[0], region_key, _schedule_input_text(payload),
-                              args[-1], current_tz=profile.timezone),
+                              args[-1], current_tz=profile.timezone,
+                              mode=_tz_mode(args)),
     })
 
 
@@ -3421,11 +3604,13 @@ def _handle_schedule_tz_zone(payload):
 
     Re-parsing the TEXT (not reusing the instant) is the point: "Mar 15 8pm" means
     8pm wherever they actually are."""
-    _action, args = decode_custom_id(payload["data"]["custom_id"])  # [match_id, region, owner]
+    # [match_id, region, mode, owner]
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
     match, profile, error = _schedule_tz_context(payload, args)
     if error:
         return error
     owner = args[-1]
+    mode = _tz_mode(args)
 
     # Never trust a value echoed back by the client.
     tz_name = (payload["data"].get("values") or [None])[0]
@@ -3462,11 +3647,14 @@ def _handle_schedule_tz_zone(payload):
         "type": RESPONSE_UPDATE_MESSAGE,
         # match is None on the no-match sentinel; re-derive the unlinked kind from
         # the channel the same way the command did, since the tz custom_ids don't
-        # carry it.
+        # carry it. `mode` DOES ride in the custom_id -- it cannot be re-derived,
+        # because /timestamp in an LFG thread looks identical to a /schedule set
+        # that found no match.
         "data": _schedule_confirm_data(
             match, when, owner, tz_name, time_text, note=f"{saved}\n",
             unlinked_kind=("lfg" if _lfg_thread_for_channel(payload.get("channel_id"))
-                           else "bare")),
+                           else "bare"),
+            mode=mode),
     })
 
 
@@ -3474,14 +3662,15 @@ def _handle_schedule_tz_back(payload):
     """Back to the region list. Also serves the confirmation's Change timezone
     button — the two want the same prompt, and _tz_region_data already varies its
     copy on whether a timezone is stored."""
-    _action, args = decode_custom_id(payload["data"]["custom_id"])  # [match_id, owner]
+    # [match_id, mode, owner]
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
     match, profile, error = _schedule_tz_context(payload, args)
     if error:
         return error
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": _tz_region_data(args[0], _schedule_input_text(payload), args[-1],
-                                current_tz=profile.timezone),
+                                current_tz=profile.timezone, mode=_tz_mode(args)),
     })
 
 
@@ -9260,6 +9449,29 @@ def _lfg_set_notify_ids(embed, ids):
         fields[idx]["value"] = value
 
 
+# Extra sentence appended to the dispatcher's owner-lock refusal, per component.
+#
+# That refusal is ONE string shared by ~46 owner-locked custom_ids, so it can only
+# say what is true of all of them. The join gates are where the generic answer is
+# unhelpful: /lfg's ✖ and ✔ and /adset's Start sit immediately beside Join, and a
+# player reaching for one of them almost always meant to join or leave. Naming the
+# button they want turns a dead end into a direction.
+#
+# Keyed by custom_id ACTION; anything absent just gets the bare refusal. Kept here
+# beside the row that builds the /lfg buttons so a label change finds this text.
+#
+# ⚠️ Only add an action whose EVERY build site has that button on screen. The
+# dispatcher sees the action, not the message, so it cannot tell one phase from
+# another. adset_cancel is the counterexample and is deliberately absent: it is
+# built in four places and only the join gate has a Join button, so hinting it
+# would misdirect the draft-board, redraft and takeover phases.
+OWNER_LOCK_HINTS = {
+    "lfg_cancel": ' If you are trying to join or leave this game press "Join".',
+    "lfg_start": ' If you are trying to join or leave this game press "Join".',
+    "adset_start": ' If you are trying to join or leave this game press "Join".',
+}
+
+
 def _lfg_message_data(author, owner, description, players_value,
                       content=None, title=LFG_DEFAULT_TITLE, ping_role=True):
     """Build the full join-message payload (embed + button row). Used ONLY for the
@@ -9735,6 +9947,7 @@ COMMAND_HANDLERS["law"] = _handle_law_command
 COMMAND_HANDLERS["help"] = _handle_help_command
 COMMAND_HANDLERS["upcoming"] = _handle_upcoming_command
 COMMAND_HANDLERS["schedule"] = _handle_schedule_command
+COMMAND_HANDLERS["timestamp"] = _handle_timestamp_command
 COMMAND_HANDLERS["availability"] = _handle_availability_command
 COMMAND_HANDLERS["record"] = _handle_record_command
 COMMAND_HANDLERS["draft"] = _handle_draft_command
@@ -10013,6 +10226,8 @@ AUTOCOMPLETE_HANDLERS = {
     # "schedule set", not "schedule": the dispatcher keys autocomplete by the
     # composite "<parent> <sub>", so a bare key silently returns no choices.
     ("schedule set", "timezone"): _ac_schedule_timezone,
+    # A TOP-LEVEL command, so the key is the bare name -- no composite here.
+    ("timestamp", "timezone"): _ac_schedule_timezone,
     ("law", "law"): _ac_law,
     ("law", "post"): _ac_law_post,
 }
@@ -10163,7 +10378,11 @@ def discord_interactions(request):
             owner_id = last if (last.isdigit() and len(last) >= 17) else None
             clicker_id = _interaction_user_id(payload)
             if owner_id and clicker_id and clicker_id != owner_id:
-                return _ephemeral("Only the host can use this button.")
+                # The refusal is shared by every owner-locked component, so it says
+                # only what is true of all of them. /lfg's ✖ and ✔ sit right beside
+                # the button a non-host actually wants, so they add the pointer.
+                return _ephemeral("Only the host can use this button."
+                                  + OWNER_LOCK_HINTS.get(action, ""))
             try:
                 return handler(payload)  # component handlers take the full payload
             except Exception:
