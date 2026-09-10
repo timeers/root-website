@@ -28,6 +28,9 @@ from .services.discordservice import (send_discord_dm, sync_bot_guilds,
 from .services.lfg_game import (
     schedule_closed_embed, PROPOSAL_RETIRED_TEXT, name_join,
 )
+# Lives in discord_commands, not discord_interactions: that module imports THIS one,
+# so importing it back would cycle.
+from .services.discord_commands import LFG_DEFAULT_TITLE
 
 import logging
 
@@ -475,7 +478,8 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
 @shared_task
 def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, description,
                            players, embed=None, token=None, host_id=None,
-                           in_thread=False, send_kickoff=True, role_pk=None):
+                           in_thread=False, send_kickoff=True, role_pk=None,
+                           role_name=""):
     """Create the game thread, ping the players, link the original message's title
     to the thread, and persist the LFGThread row. `players` = [{"id","name"}] parsed
     from the Players field lines, so this task resolves-or-creates every Profile
@@ -491,7 +495,13 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
 
     `in_thread` means /lfg was run inside a thread, so no thread is created at all:
     that thread IS the game thread and is adopted as-is. Keyword-defaulted like
-    `host_id`, so a task enqueued before this argument existed still deserializes."""
+    `host_id`, so a task enqueued before this argument existed still deserializes.
+
+    `role_name` is the tag name recovered from the LFG message's own content, sent
+    ONLY when the message carried no role mention -- i.e. a display-only tag, which
+    cannot be resolved from `role_id` here. It exists so the nickname discriminator
+    below can still recognise a tag-name title as a fallback rather than something
+    the host typed. Keyword-defaulted for the same deserialization reason."""
     from the_databot.services.discordservice import (
         create_message_thread, create_forum_thread, post_channel_message,
         apply_thread_tag,
@@ -513,13 +523,31 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
     if role and role.thread_message:
         kickoff = f"{kickoff} {role.thread_message}".strip()
 
-    # Prefer the host's description; with none, reuse the LFG message's own title
-    # (the tag's description or name, else "Looking for Game") so the thread is
-    # named after the game rather than a bare "Game". `embed` is the started
-    # message's embed, so this is exactly the title players already saw.
-    thread_name = (description
-                   or (embed or {}).get("title")
-                   or "Game")[:100]
+    # The LFG message's own title, which /lfg already resolved as
+    # `title option -> tag name -> "Looking for Game"`. `embed` is the started
+    # message's embed, so the thread is named exactly what players already saw.
+    #
+    # The free-text `description` deliberately does NOT name the thread: it answers
+    # "what kind of game", which makes a poor title, and the `title` option now
+    # exists for naming.
+    embed_title = (embed or {}).get("title") or ""
+    thread_name = (embed_title or "Game")[:100]
+
+    # Did the host actually NAME this game, or is the embed title just a fallback?
+    # The title is always populated, so writing it to `nickname` unconditionally
+    # would give every game a name like "Looking for Game" -- and since the record
+    # form seeds from `nickname`, that would shadow a real name with boilerplate.
+    #
+    # Everything /lfg could have defaulted to is collected here and treated as "not
+    # a name". role.description is included so tasks queued before the title option
+    # existed (their embeds were titled from the blurb) still resolve to blank.
+    fallback_titles = {"", LFG_DEFAULT_TITLE}
+    if role:
+        fallback_titles |= {role.name, role.description}
+    elif role_name:
+        # Display-only tag: unresolvable here, so the caller sent its name instead.
+        fallback_titles.add(role_name)
+    typed_title = "" if embed_title in fallback_titles else embed_title
 
     if in_thread:
         # /lfg was run inside a thread: that thread IS the game thread. Discord
@@ -581,7 +609,13 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
 
     thread, created = LFGThread.objects.get_or_create(
         thread_id=thread_id,
-        defaults={"guild": guild, "lfg_role": role, "description": description or ""},
+        # nickname seeds the recorded game's name. In `defaults` (create-only) for
+        # the same reason description is: a task retry must not clobber a /rename
+        # the host has since run. Truncated because nickname is max_length=50 and
+        # Postgres raises on overflow rather than truncating.
+        defaults={"guild": guild, "lfg_role": role,
+                  "description": description or "",
+                  "nickname": typed_title[:50]},
     )
     # An adopted thread that ALREADY had a row is not ours to write to: players.set
     # below would replace the existing game's roster wholesale. /lfg refuses in a

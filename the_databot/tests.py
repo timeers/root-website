@@ -43,7 +43,7 @@ from the_databot.services.lfg_game import (
 from the_databot.tasks import (
     record_lfg_components_task, create_lfg_thread_task, ensure_profile_from_discord,
     notify_lfg_cancelled_task, notify_schedule_poll_task,
-    sweep_boxscore_upload_tokens,
+    sweep_boxscore_upload_tokens, link_lfg_message_task,
 )
 from the_databot.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
@@ -2423,9 +2423,10 @@ class LFGStartGuardTests(TestCase):
 
 
 class LFGThreadNameTests(TestCase):
-    """What the game thread is called. The host's description wins; with none,
-    the thread takes the LFG message's own title (the tag's description or name)
-    rather than a bare "Game"."""
+    """What the game thread is called: the LFG message's own title, which /lfg
+    resolved as `title option -> tag name -> "Looking for Game"`. The free-text
+    description does NOT name the thread -- it answers "what kind of game", which
+    made a poor title, and the `title` option now exists for naming."""
 
     def _create(self, description, embed):
         """Run create_lfg_thread_task far enough to capture the thread name."""
@@ -2439,13 +2440,17 @@ class LFGThreadNameTests(TestCase):
             )
         return create.call_args.args[2]
 
-    def test_the_description_is_used_when_given(self):
-        name = self._create("Quick 4p game", {"title": "Casual Game"})
-        self.assertEqual(name, "Quick 4p game")
-
-    def test_a_blank_description_falls_back_to_the_message_title(self):
+    def test_the_message_title_names_the_thread(self):
         name = self._create("", {"title": "Casual Game"})
         self.assertEqual(name, "Casual Game")
+
+    def test_the_title_beats_a_description(self):
+        """The reversal: description used to win. It names nothing now."""
+        name = self._create("Quick 4p game", {"title": "Casual Game"})
+        self.assertEqual(name, "Casual Game")
+
+    def test_a_description_alone_does_not_name_the_thread(self):
+        self.assertEqual(self._create("Quick 4p game", {}), "Game")
 
     def test_the_default_lfg_title_is_used_when_that_is_all_there_is(self):
         name = self._create("", {"title": di.LFG_DEFAULT_TITLE})
@@ -2458,6 +2463,77 @@ class LFGThreadNameTests(TestCase):
 
     def test_the_name_is_capped_at_discords_limit(self):
         self.assertEqual(len(self._create("", {"title": "x" * 200})), 100)
+
+
+class LFGNicknameFromTitleTests(TestCase):
+    """Which embed titles become the recorded game's nickname.
+
+    The embed title is ALWAYS populated, so saving it unconditionally would name
+    every game "Looking for Game" (or the tag name) -- and since the record form
+    seeds from nickname, that boilerplate would shadow a real name. Only a title
+    the HOST typed counts; every value /lfg could have defaulted to reads as blank.
+    """
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(guild_id="900000000000000077",
+                                                 name="Guild")
+        self.role = GuildLFGRole.objects.create(
+            guild=self.guild, name="Digital LFG", role_id="910000000000000077",
+            description="Games played on Root Digital.")
+
+    def _run(self, embed_title, role_id=None, role_name=""):
+        """Start a game whose embed carries `embed_title`; return the saved thread."""
+        with mock.patch("the_databot.services.discordservice.create_message_thread",
+                        return_value="950000000000000077"), \
+                mock.patch("the_databot.services.discordservice.create_forum_thread"), \
+                mock.patch("the_databot.services.discordservice.post_channel_message"), \
+                mock.patch.object(link_lfg_message_task, "apply_async"):
+            create_lfg_thread_task(
+                "chan", "msg", self.guild.guild_id, role_id, "a quick game",
+                [{"id": "1", "name": "Bob"}, {"id": "2", "name": "Amy"}],
+                {"title": embed_title}, role_name=role_name,
+            )
+        return LFGThread.objects.get(thread_id="950000000000000077")
+
+    def test_a_typed_title_becomes_the_nickname(self):
+        self.assertEqual(self._run("Chaos 4p", role_id=self.role.role_id).nickname,
+                         "Chaos 4p")
+
+    def test_the_tag_name_fallback_is_not_a_nickname(self):
+        self.assertEqual(self._run(self.role.name, role_id=self.role.role_id).nickname, "")
+
+    def test_the_tag_blurb_is_not_a_nickname(self):
+        """Tasks queued before the title option existed were titled from the blurb."""
+        self.assertEqual(
+            self._run(self.role.description, role_id=self.role.role_id).nickname, "")
+
+    def test_the_default_title_is_not_a_nickname(self):
+        self.assertEqual(self._run(di.LFG_DEFAULT_TITLE).nickname, "")
+
+    def test_a_display_only_tags_name_is_not_a_nickname(self):
+        """A tag with no role_id renders its plain NAME instead of a mention, so the
+        task can't resolve the role from a snowflake. Without the name riding along
+        the tag name would be saved as the game's nickname."""
+        display_only = GuildLFGRole.objects.create(
+            guild=self.guild, name="TTS LFG", role_id=None)
+        thread = self._run(display_only.name, role_name=display_only.name)
+        self.assertEqual(thread.nickname, "")
+
+    def test_a_typed_title_survives_a_display_only_tag(self):
+        self.assertEqual(self._run("Chaos 4p", role_name="TTS LFG").nickname, "Chaos 4p")
+
+    def test_the_nickname_is_truncated_to_the_field_length(self):
+        """Postgres raises on overflow rather than truncating."""
+        self.assertEqual(len(self._run("x" * 200, role_id=self.role.role_id).nickname), 50)
+
+    def test_a_rename_after_the_start_is_not_clobbered(self):
+        """nickname rides in get_or_create defaults, so it is create-only: a retry
+        must not undo a /rename the host has since run."""
+        thread = self._run("Chaos 4p", role_id=self.role.role_id)
+        thread.nickname = "Renamed"
+        thread.save(update_fields=["nickname"])
+        again = self._run("Chaos 4p", role_id=self.role.role_id)
+        self.assertEqual(again.nickname, "Renamed")
 
 
 class LFGCancelNotifyTests(TestCase):
@@ -2521,6 +2597,91 @@ class LFGCancelNotifyTests(TestCase):
         delay, data = self._cancel("<@111>", custom_id=None)
         self.assertEqual(data["embeds"][0]["footer"]["text"], "✖ Game was cancelled.")
         self.assertEqual(sorted(delay.call_args.args[0]), ["111"])
+
+
+class LFGEmbedTitleTests(TestCase):
+    """What titles the /lfg post: the host's `title` option, else the tag NAME.
+
+    Deliberately not the tag's `description` -- that field is admin help text
+    ("Brief description of what this LFG role is for"), which is why it read as a
+    placeholder rather than a name for the game."""
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(guild_id="900000000000000055",
+                                                 name="Guild")
+        self.role = GuildLFGRole.objects.create(
+            guild=self.guild, name="Digital LFG", role_id="910000000000000055",
+            description="Games played on Root Digital.")
+
+    def _run(self, title=None, role=None):
+        options = []
+        if role is not None:
+            options.append({"name": "type", "value": str(role.pk)})
+        if title is not None:
+            options.append({"name": "title", "value": title})
+        data = {
+            "_author": {"name": "Tim"}, "_author_id": "830000000000000055",
+            "_author_username": "tim", "_guild_id": self.guild.guild_id,
+            "_channel_id": "940000000000000055", "_channel_type": 0,
+            "_token": "tok", "options": options,
+        }
+        with mock.patch.object(di.ensure_profile_from_discord_task, "delay"), \
+                mock.patch.object(di, "_lfg_role_is_live", return_value=True):
+            response = di._handle_lfg_command(data)
+        return json.loads(response.content)["data"]["embeds"][0]
+
+    def test_a_typed_title_wins(self):
+        self.assertEqual(self._run(title="Chaos 4p", role=self.role)["title"], "Chaos 4p")
+
+    def test_without_a_title_the_tag_name_stands_in(self):
+        self.assertEqual(self._run(role=self.role)["title"], self.role.name)
+
+    def test_the_tag_blurb_is_not_used_as_a_title(self):
+        self.assertNotEqual(self._run(role=self.role)["title"], self.role.description)
+
+    def test_with_no_tags_at_all_a_typed_title_still_wins(self):
+        GuildLFGRole.objects.all().delete()
+        self.assertEqual(self._run(title="Chaos 4p")["title"], "Chaos 4p")
+
+    def test_with_no_tags_and_no_title_the_default_stands(self):
+        GuildLFGRole.objects.all().delete()
+        self.assertEqual(self._run()["title"], di.LFG_DEFAULT_TITLE)
+
+    def test_a_stale_tag_still_honours_a_typed_title(self):
+        """The tag was deleted between registration and use, so /lfg posts plain --
+        but the host's title is theirs either way."""
+        stale_pk = self.role.pk
+        self.role.delete()
+        options = [{"name": "type", "value": str(stale_pk)},
+                   {"name": "title", "value": "Chaos 4p"}]
+        data = {
+            "_author": {"name": "Tim"}, "_author_id": "830000000000000055",
+            "_author_username": "tim", "_guild_id": self.guild.guild_id,
+            "_channel_id": "940000000000000055", "_channel_type": 0,
+            "_token": "tok", "options": options,
+        }
+        with mock.patch.object(di.ensure_profile_from_discord_task, "delay"), \
+                mock.patch.object(di, "_lfg_role_is_live", return_value=True):
+            response = di._handle_lfg_command(data)
+        embed = json.loads(response.content)["data"]["embeds"][0]
+        self.assertEqual(embed["title"], "Chaos 4p")
+
+    def test_the_description_stays_in_the_body(self):
+        options = [{"name": "type", "value": str(self.role.pk)},
+                   {"name": "title", "value": "Chaos 4p"},
+                   {"name": "description", "value": "quick game"}]
+        data = {
+            "_author": {"name": "Tim"}, "_author_id": "830000000000000055",
+            "_author_username": "tim", "_guild_id": self.guild.guild_id,
+            "_channel_id": "940000000000000055", "_channel_type": 0,
+            "_token": "tok", "options": options,
+        }
+        with mock.patch.object(di.ensure_profile_from_discord_task, "delay"), \
+                mock.patch.object(di, "_lfg_role_is_live", return_value=True):
+            response = di._handle_lfg_command(data)
+        embed = json.loads(response.content)["data"]["embeds"][0]
+        self.assertEqual(embed["title"], "Chaos 4p")
+        self.assertEqual(embed["description"], "quick game")
 
 
 class LFGInThreadCommandTests(TestCase):
@@ -3737,6 +3898,22 @@ class LFGCommandShapeTests(TestCase):
         cmd = dc.lfg_command_for_roles(roles)
         self.assertTrue(all(len(c["name"]) <= 100
                             for c in self._type_option(cmd)["choices"]))
+
+    def test_the_options_are_ordered_with_required_first(self):
+        """Discord rejects a command whose optional option precedes a required one,
+        so `type` must stay first; `title` sits ahead of `description` because it is
+        the field a host reaches for."""
+        self.assertEqual([o["name"] for o in dc.lfg_command_for_roles(self._roles(2))["options"]],
+                         ["type", "title", "description"])
+        GuildLFGRole.objects.all().delete()
+        self.assertEqual([o["name"] for o in dc.lfg_command_for_roles(self._roles(1))["options"]],
+                         ["title", "description"])
+
+    def test_title_is_an_optional_string_in_both_variants(self):
+        for cmd in (dc.LFG_COMMAND_SINGLE, dc.LFG_COMMAND_MULTI):
+            title_opt = next(o for o in cmd["options"] if o["name"] == "title")
+            self.assertEqual(title_opt["type"], 3)
+            self.assertFalse(title_opt["required"])
 
 
 class HelpCommandShapeTests(TestCase):
@@ -12071,6 +12248,46 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         # "equal", which is exactly the broken state.
         for cap in caps:
             self.assertIn(cap, discarded)
+
+    def test_the_threads_nickname_seeds_the_games_name(self):
+        """Set by /lfg's title option or /rename. This is the whole point of saving
+        it: the recorded game inherits the name the players actually used."""
+        user = User.objects.create_user(username="bsnick", password="x")
+        recorder = user.profile
+        recorder.discord = "bsnick"
+        recorder.group = "P"
+        recorder.player_onboard = True
+        recorder.save()
+        self.thread.players.add(recorder)
+        self.thread.nickname = "Chaos 4p"
+        self.thread.save(update_fields=["nickname"])
+
+        with override_settings(ALLOWED_HOSTS=["*"]):
+            self.client.force_login(user)
+            response = self.client.get(f"/record/game/?lfg={self.thread.id}")
+
+        self.assertEqual(response.context["form"].initial["nickname"], "Chaos 4p")
+
+    def test_an_unnamed_game_is_not_named_after_its_description(self):
+        """The description answers "what kind of game", not "what is this game
+        called" -- it used to stand in here and made a poor title. A game is named
+        only when someone named it; Game.title computes a display name from blank."""
+        user = User.objects.create_user(username="bsnonick", password="x")
+        recorder = user.profile
+        recorder.discord = "bsnonick"
+        recorder.group = "P"
+        recorder.player_onboard = True
+        recorder.save()
+        self.thread.players.add(recorder)
+        self.thread.nickname = ""
+        self.thread.description = "looking for a quick 4p"
+        self.thread.save(update_fields=["nickname", "description"])
+
+        with override_settings(ALLOWED_HOSTS=["*"]):
+            self.client.force_login(user)
+            response = self.client.get(f"/record/game/?lfg={self.thread.id}")
+
+        self.assertEqual(response.context["form"].initial["nickname"], "")
 
     def test_an_unordered_thread_renders_a_row_per_player_with_none_prefilled(self):
         """The roster sizes the form even with no seating: a thread always knows

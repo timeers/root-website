@@ -1694,7 +1694,11 @@ def manage_game(request, id=None):
 
     if lfg_mode and not obj.pk:
         # Seed from what the thread already knows.
-        form.initial['nickname'] = (lfgthread.nickname or lfgthread.description or '')[:50]
+        # Only a name someone actually GAVE the game (/lfg title or /rename). The
+        # description deliberately doesn't stand in: it answers "what kind of game"
+        # and made a poor title. Game.nickname is nullable and Game.title falls back
+        # to a computed name, so blank is handled downstream.
+        form.initial['nickname'] = (lfgthread.nickname or '')[:50]
         thread_link = lfgthread.thread_url()
         if thread_link:
             form.initial['link'] = thread_link

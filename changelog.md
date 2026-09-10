@@ -1,10 +1,11 @@
 # Changelog
 
-## [1.13.7] - 2026-9-9 Boxscore Bug Busting
+## [1.13.7] - 2026-9-10 Brazen Bot Bugs
 
 ### New Features
 - A guild linked Tournament can now send reminder messages through discord. Setup under the manage guild page by guild moderators
 - /timestamp command split out from /schedule set. The timestamp command simply displays the time with the timestamp for easy copying
+- /lfg now has a title field that is used as the embed title, thread title and game nickname
 
 ### Improvements
 - Better banner message for prefilled matches
