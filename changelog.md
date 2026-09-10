@@ -20,6 +20,8 @@
 - Alert for forge submitted factions didn't link to submission queue
 - Closed polls no longer say the time was rejected if there was no roster to compare to
 - Editing a match no longer kills open schedule polls
+- Games recorded from an LFG thread will no longer have blank discarded captain fields
+- Games recorded from a Match thread or LFG thread will no longer seat players in an order if there is no established order.
 
 ## [1.13.6] - 2026-9-8 Box Score API & Availability
 

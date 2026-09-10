@@ -1211,13 +1211,9 @@ def manage_game(request, id=None):
     # since it is constructed after this block runs.
     captured_grid_rows = {}
     # Components the thread recorded that this match's tournament won't allow.
-    # Match mode only -- an LFG thread with no tournament narrows nothing, so it
-    # fills everything in and this stays empty. Rendered as one banner summary.
+    # An LFG thread with no tournament restricts nothing, so it fills everything
+    # in and this stays empty. Rendered as one banner summary.
     blocked_components = BlockedComponents()
-    # Whole buckets the narrowing emptied, as sentences from lfg_option_querysets.
-    # Separate from the per-item list because they say something it cannot: that
-    # a field has NO usable options rather than one missing value.
-    blocked_notices = []
 
     # Determine mode
     match_id = request.GET.get('match') or request.POST.get('match_id')
@@ -1356,6 +1352,10 @@ def manage_game(request, id=None):
     if lfg_mode:
         # Row count is fixed to the thread's seats/players -- the template hides
         # the add/remove controls, so this is the final count.
+        #
+        # Empty when the thread has no established ORDER (see seated_profiles):
+        # the roster is still known from thread.players, so the count below falls
+        # back to it and the rows render blank rather than guessing a seating.
         lfg_seats = seated_profiles(lfgthread)
 
     # Resolved HERE rather than further down where the faction join uses it: the
@@ -1376,7 +1376,10 @@ def manage_game(request, id=None):
         # completing that row means adding them to the match first.
         extra_forms = max(0, max(seat_count, len(captured_seats)) - existing_count)
     elif lfg_mode and not id:
-        extra_forms = max(0, len(lfg_seats) - existing_count)
+        # A thread with no established order still knows WHO played, so size the
+        # rows from the roster rather than collapsing the form to nothing.
+        seat_or_roster = len(lfg_seats) or lfgthread.players.count()
+        extra_forms = max(0, seat_or_roster - existing_count)
     else:
         extra_forms = max(0, 4 - existing_count)
 
@@ -1405,7 +1408,11 @@ def manage_game(request, id=None):
         # factions on the wrong players. MatchSeat still decides WHO plays --
         # only the order changes, and anyone the thread doesn't seat keeps their
         # relative position at the end.
-        if match_captured and match_captured.seating_set and captured_seats:
+        # Also gates the PLAYER prefill below -- without a real seating there is
+        # no order to place players in, only a roster.
+        match_has_seating = bool(
+            match_captured and match_captured.seating_set and captured_seats)
+        if match_has_seating:
             order = {s.profile_id: i for i, s in enumerate(captured_seats)
                      if s.profile_id}
             match_seats.sort(key=lambda ms: order.get(
@@ -1488,7 +1495,14 @@ def manage_game(request, id=None):
         # to fill. MatchSeat cannot represent "nobody identified" (the whole
         # chain is non-nullable), so without this a real participant is written
         # onto a seat the box score explicitly says it could not resolve.
-        if not id and not request.POST:
+        #
+        # Gated on a real seating for the same reason LFG mode is: MatchSeat says
+        # WHO plays, never in what ORDER (seat_number is just the order players
+        # were added to the match -- see the sort above). Placing those players on
+        # rows would assert a seating nobody chose, and the recorder cannot tell a
+        # guess from a fact. The dropdown stays scoped to the roster either way,
+        # so nothing is lost but the false ordering.
+        if not id and not request.POST and match_has_seating:
             for i, seat in enumerate(match_seats):
                 if i >= len(formset.forms):
                     break
@@ -1510,18 +1524,6 @@ def manage_game(request, id=None):
                 form.fields['vagabond'].queryset = match_opts['vagabonds']
                 form.fields['captains'].queryset = match_opts['captains']
                 form.fields['discarded_captain'].queryset = match_opts['captains']
-            # The per-bucket narrowing notices ("None of the hirelings rolled in
-            # this thread are playable in X") are DROPPED: blocked_components
-            # already names the individual components, so these restated the same
-            # restriction a second time and made one problem look like several.
-            #
-            # Clockwork is the exception and is kept. Clockwork factions come
-            # from a /draft, not a box score, so they never reach
-            # blocked_components -- without this the faction list would come back
-            # unnarrowed with nothing said about why.
-            blocked_notices = [n for n in match_opts.get('notices', [])
-                               if 'Clockwork' in n]
-
             # Factions picked with /pick in the group thread, joined on PROFILE
             # (see picked_factions_by_profile for why not seat_number).
             if not id and not request.POST:
@@ -1589,6 +1591,11 @@ def manage_game(request, id=None):
 
         # Seat order drives row order: seat 1 is the top row. Unresolved seats
         # (no matching Profile) leave the row blank but KEEP their position.
+        #
+        # lfg_seats is EMPTY when the thread has no established order, and this
+        # loop is then skipped entirely -- every row renders with a blank player
+        # dropdown scoped to the thread's roster. That is deliberate: filling
+        # players positionally would assert a seating nobody chose.
         if not id and not request.POST:
             # A sibling of seated_profiles, not a fifth tuple element: that tuple
             # is unpacked at a fixed width here and in its tests.
@@ -1610,9 +1617,9 @@ def manage_game(request, id=None):
                     seat_vagabond = lfg_opts['vagabonds'].filter(slug=vagabond_slug).first()
                     if seat_vagabond:
                         formset.forms[i].initial['vagabond'] = seat_vagabond.pk
-                # Keyed by seat_no, NOT the enumerate index: seated_profiles falls
-                # back to synthetic seat numbers when the thread has no seat rows,
-                # and the two diverge there.
+                # Keyed by seat_no, NOT the enumerate index: captains_by_seat keys
+                # on LFGSeat.seat_number, which need not equal list position (a
+                # re-seat can leave gaps), and the two diverge there.
                 seat_caps = seat_captains_map.get(seat_no)
                 if seat_caps:
                     seat_captains = lfg_opts['captains'].filter(
@@ -1636,16 +1643,14 @@ def manage_game(request, id=None):
             # be overwritten. The construction below folds this in.
             # LFG rows come from lfg_seats, so this map is built differently
             # from match mode's -- which is why _apply_turns_prefill takes it as
-            # an argument. seated_profiles can emit synthetic seat numbers when a
-            # thread has no seat rows, so the two must not be unified.
+            # an argument. The two must not be unified: LFG reads LFGSeat rows
+            # directly, while match mode inverts a MatchSeat list it re-sorted, so
+            # they key off different models with different guarantees.
             _apply_turns_prefill(
                 lfgthread.turns_data,
                 {seat_no: i
                  for i, (seat_no, _p, _f, _v) in enumerate(lfg_seats)},
                 formset, captured_grid_rows, lfg_opts)
-
-        for notice in lfg_opts.get('notices', []):
-            messages.warning(request, notice)
 
     # Build game form
     form = GameCreateFormV2(
@@ -1710,7 +1715,11 @@ def manage_game(request, id=None):
                     request, f"{lfgthread.deck} isn't playable here — pick another deck.")
         # ORDER MATTERS: the box score's undrafted_* overwrite the draft's.
         _prefill_undrafted(form, lfgthread, lfg_opts)
-        _prefill_boxscore_components(form, lfgthread, lfg_opts, request)
+        # blocked_components, NOT request: the 4th argument is the collector this
+        # adds to (blocked.add(obj)), and an HttpRequest has no .add() -- passing
+        # it raised AttributeError for any box score naming a component the
+        # tournament excludes.
+        _prefill_boxscore_components(form, lfgthread, lfg_opts, blocked_components)
 
     # Same game-level narrowing for a match whose thread captured components.
     if match_mode and match_opts:
@@ -1832,7 +1841,6 @@ def manage_game(request, id=None):
         'match': match,
         'match_mode': match_mode,
         'blocked_components': blocked_components.items,
-        'blocked_notices': blocked_notices,
         'lfg_mode': lfg_mode,
         'lfgthread': lfgthread,
         'lfg_seats': lfg_seats,
@@ -2413,7 +2421,11 @@ def import_box_score(request):
             return JsonResponse(
                 {'ok': False, 'error': _('You do not have permission to record this game.')},
                 status=403)
-        seat_limit = len(seated_profiles(lfgthread)) or None
+        # The ROSTER, not the seating: this caps how many rows an uploaded box
+        # score may fill, which has nothing to do with whether an order was
+        # established. Reading seated_profiles here would return [] for an
+        # unordered thread and hand the importer None, which means NO limit.
+        seat_limit = lfgthread.players.count() or None
         allow_game_fields = False
     elif round_id:
         round_obj = Round.objects.filter(id=round_id).first()

@@ -285,21 +285,14 @@
    naming what was dropped -- this replaced six stacked alerts that pushed the
    seating out of view, and it covers the per-seat faction/vagabond drops that
    had no alert at all. {% endcomment %}
-<div class="alert {% if blocked_components or blocked_notices %}alert-warning{% else %}alert-info{% endif %} d-flex align-items-center gap-2">
-    <i class="bi {% if blocked_components or blocked_notices %}bi-exclamation-triangle{% else %}bi-trophy{% endif %}"></i>
+<div class="alert {% if blocked_components %}alert-warning{% else %}alert-info{% endif %} d-flex align-items-center gap-2">
+    <i class="bi {% if blocked_components %}bi-exclamation-triangle{% else %}bi-trophy{% endif %}"></i>
     <div>
         <strong>Match #{{ match.match_number }}</strong>
          {{match.round}}
         {% if blocked_components %}
         <br><small>{% blocktrans with items=blocked_components|join:", " %}Not allowed in this tournament and left blank: {{ items }}{% endblocktrans %}</small>
-        {% endif %}
-        {% comment %} Only the Clockwork notice survives the view's filter -- it
-           names a restriction no per-component line can, since Clockwork
-           factions come from a draft rather than a box score. {% endcomment %}
-        {% for notice in blocked_notices %}
-        <br><small>{{ notice }}</small>
-        {% endfor %}
-        {% if not blocked_components and not blocked_notices %}
+        {% else %}
         <br><small>{% trans 'Add each player in seat order and fill in game details.' %}</small>
         {% endif %}
     </div>
@@ -2394,9 +2387,37 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // The full pool of captains from the most recent API response, used to rebuild
-    // the discarded-captain lists while excluding already-selected captains.
+    // The full pool of captains, used to rebuild the discarded-captain lists while
+    // excluding already-selected captains. Filled from the API response in normal
+    // and match mode, and from the server-rendered DOM in lfg mode.
     let captainsPool = [];
+
+    // Seed captainsPool from an effort row's already-rendered captains select.
+    // Returns whether it found anything.
+    //
+    // lfg mode never fetches the options API (that would clear the map/deck
+    // prefills), so without this the pool stays empty and refreshDiscardedOptions
+    // rebuilds every discarded select from nothing -- which is what left the field
+    // with no choices at all.
+    //
+    // Reads row 0 specifically, NOT the first [id$="-captains"] match: the
+    // empty_form template renders id_form-__prefix__-captains, and #id_undrafted_captains
+    // is a game-level field. Neither is an effort row's pool.
+    function seedCaptainsPoolFromDOM() {
+        let seed = document.getElementById('id_form-0-captains');
+        if (!seed) {
+            seed = Array.from(document.querySelectorAll('[id$="-captains"]'))
+                .find(el => /^id_form-\d+-captains$/.test(el.id));
+        }
+        if (!seed) return false;
+        const pool = Array.from(seed.options)
+            .filter(opt => opt.value)
+            .map(opt => ({ id: opt.value, name: opt.text }));
+        // Never let a seed CLEAR a pool the API legitimately filled.
+        if (!pool.length) return false;
+        captainsPool = pool;
+        return true;
+    }
 
     function updateDiscardedCaptainsFields(captainsData) {
         captainsPool = captainsData || [];
@@ -2417,6 +2438,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const captainsSelect = document.getElementById('id_form-' + index + '-captains');
         const discardedSelect = document.getElementById('id_form-' + index + '-discarded_captain');
         if (!discardedSelect) return;
+        // Lazily seed from the DOM, then bail if there is still nothing. Rebuilding
+        // from an empty pool would blank a correctly rendered select. The seed
+        // attempt matters more than the early return: without it this becomes a
+        // silent no-op and selecting a captain would stop removing it from the
+        // discarded list.
+        if (!captainsPool.length && !seedCaptainsPoolFromDOM()) return;
         const selectedCaptainIds = captainsSelect
             ? Array.from(captainsSelect.selectedOptions).map(o => o.value)
             : [];
@@ -2949,9 +2976,12 @@ document.addEventListener('DOMContentLoaded', function() {
             $('#id_deck').trigger('change');
         });
     } else if (lfgMode) {
-        // Choices are already narrowed server-side to the thread's rolls; firing
-        // the round/platform change handlers here would refetch the full
-        // tournament lists and wipe that (and clear the map/deck prefills).
+        // No fetch here on purpose: firing the round/platform change handlers
+        // would clear the map/deck prefills, and for an UNLINKED thread there is
+        // no round id to fetch with anyway (the request would 404 into the silent
+        // .catch). The server render is authoritative, so the captains pool is
+        // seeded straight from the DOM instead.
+        seedCaptainsPoolFromDOM();
     } else if (tournamentSelect && tournamentSelect.value !== "") {
         document.getElementById('id_round').dispatchEvent(new Event('change'));
     } else {

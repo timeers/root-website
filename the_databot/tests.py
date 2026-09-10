@@ -5304,13 +5304,33 @@ class LFGCaptureTests(TestCase):
         LFGRoll.objects.filter(thread=self.thread).update(slug="stale-snapshot")
         self.assertEqual(rolled_components(self.thread), {"Map": [self.map.slug]})
 
-    def test_seated_profiles_falls_back_to_players_when_unseated(self):
+    def _mark_seated(self):
+        """Flag the thread as really seated. seated_profiles reports the ORDER, so
+        it reads seating_set rather than the presence of seat rows -- the tests
+        below build seats directly and must say the order is real. Production sets
+        this in the same transaction as the rows (_persist_seating)."""
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+
+    def test_seated_profiles_is_empty_when_no_order_was_established(self):
+        """A thread knows WHO played from thread.players, but seated_profiles
+        reports the ORDER -- and with nothing to establish one there is no order
+        to report. Returning the roster here would assert a seating nobody chose;
+        the record view sizes its rows from thread.players instead."""
         players = [Profile.objects.create(discord=f"cap{i}", discord_id=f"71{i}")
                    for i in range(2)]
         self.thread.players.set(players)
-        seats = seated_profiles(self.thread)
-        self.assertEqual([n for n, _p, _f, _v in seats], [1, 2])
-        self.assertEqual({p for _n, p, _f, _v in seats}, set(players))
+        self.assertEqual(seated_profiles(self.thread), [])
+
+    def test_seated_profiles_ignores_filler_seats_from_an_unordered_pick(self):
+        """/pick can write seat rows WITHOUT establishing an order, leaving
+        seating_set False and the numbers as filler. Those numbers must not be
+        presented as a seating."""
+        p = Profile.objects.create(discord="capfiller", discord_id="725")
+        LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1)
+        self.thread.seating_set = False
+        self.thread.save(update_fields=["seating_set"])
+        self.assertEqual(seated_profiles(self.thread), [])
 
     def test_seated_profiles_returns_a_faction_SLUG_not_an_object(self):
         """views.py filters `.filter(slug=faction_slug)`; a Faction instance there
@@ -5318,6 +5338,7 @@ class LFGCaptureTests(TestCase):
         p = Profile.objects.create(discord="capseat", discord_id="720")
         LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1,
                                faction=self.factions[0])
+        self._mark_seated()
         _seat_no, _profile, faction_slug, _vb = seated_profiles(self.thread)[0]
         self.assertEqual(faction_slug, self.factions[0].slug)
 
@@ -5337,6 +5358,7 @@ class LFGCaptureTests(TestCase):
         vb = self._vagabond("Seat Ranger")
         LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1,
                                faction=self.factions[0], vagabond=vb)
+        self._mark_seated()
         _seat_no, _profile, _faction, vagabond_slug = seated_profiles(self.thread)[0]
         self.assertEqual(vagabond_slug, vb.slug)
 
@@ -5344,6 +5366,7 @@ class LFGCaptureTests(TestCase):
         p = Profile.objects.create(discord="capnovb", discord_id="724")
         LFGSeat.objects.create(thread=self.thread, profile=p, seat_number=1,
                                faction=self.factions[0])
+        self._mark_seated()
         self.assertIsNone(seated_profiles(self.thread)[0][3])
 
     def test_a_deleted_profile_leaves_a_blank_seat_in_position(self):
@@ -5351,6 +5374,7 @@ class LFGCaptureTests(TestCase):
         drop = Profile.objects.create(discord="capdrop", discord_id="722")
         LFGSeat.objects.create(thread=self.thread, profile=drop, seat_number=1)
         LFGSeat.objects.create(thread=self.thread, profile=keep, seat_number=2)
+        self._mark_seated()
         drop.delete()
 
         seats = seated_profiles(self.thread)
@@ -5933,8 +5957,8 @@ class PickCommandTests(TestCase):
 
     # ── the roll capture, which must branch on thread type ──
     def test_an_lfg_thread_records_the_pick_in_the_roll_log(self):
-        """lfg_option_querysets narrows factions to the roll log, so a pick that
-        isn't logged would be silently dropped at prefill."""
+        """The roll log is what the record form's prefill reads, so a pick that
+        isn't logged is silently not preselected."""
         players = self._roster(2)
         with mock.patch.object(di.record_lfg_components_task, "delay") as capture:
             self._select(self.factions[0].slug, players[1].discord_id)
@@ -6072,8 +6096,8 @@ class PickVagabondFollowUpTests(TestCase):
         self.assertIsNone(seat.vagabond_id)
 
     def test_the_follow_up_records_a_vagabond_roll(self):
-        """lfg_option_querysets narrows to the roll log, so a vagabond missing
-        from it would be dropped at prefill."""
+        """The roll log is what the record form's prefill reads, so a vagabond
+        missing from it is silently not preselected."""
         self._select(self.vagabond_faction.slug, self.players[1].discord_id)
         with mock.patch.object(di.record_lfg_components_task, "delay") as capture:
             self._choose_vagabond(self.ranger.slug, self.players[1].discord_id)
@@ -12014,6 +12038,69 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         self.assertNotIn("tournament_score", self.thread.turns_data[0])
         self.assertIn("tournament score", content)
 
+    def test_the_discarded_captain_field_offers_the_same_captains_as_the_active_one(self):
+        """The reported bug: the discarded-captain dropdown came up empty. Both
+        fields draw on one pool -- a captain is eligible to be discarded exactly
+        when it was eligible to be played -- so any divergence here is the field
+        being narrowed (or blanked) by something the active list escaped."""
+        from the_keep.models import Vagabond
+        post_save.disconnect(handle_image_resize, sender=Vagabond)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
+        caps = [Vagabond.objects.create(title=f"Discard Cap {i}", animal="Fox",
+                                        designer=self.designer, captain=True,
+                                        status=StatusChoices.STABLE, official=True)
+                for i in range(4)]
+
+        user = User.objects.create_user(username="bscaps", password="x")
+        recorder = user.profile
+        recorder.discord = "bscaps"
+        recorder.group = "P"
+        recorder.player_onboard = True
+        recorder.save()
+        self.thread.players.add(recorder)
+
+        with override_settings(ALLOWED_HOSTS=["*"]):
+            self.client.force_login(user)
+            response = self.client.get(f"/record/game/?lfg={self.thread.id}")
+
+        form = response.context["formset"].forms[0]
+        active = list(form.fields["captains"].queryset)
+        discarded = list(form.fields["discarded_captain"].queryset)
+        self.assertCountEqual(active, discarded)
+        # And the pool is genuinely populated -- two empty lists would also be
+        # "equal", which is exactly the broken state.
+        for cap in caps:
+            self.assertIn(cap, discarded)
+
+    def test_an_unordered_thread_renders_a_row_per_player_with_none_prefilled(self):
+        """The roster sizes the form even with no seating: a thread always knows
+        WHO played. But no order was established, so no player is placed on a
+        row -- filling them positionally would assert a seating nobody chose."""
+        user = User.objects.create_user(username="bsnoseat", password="x")
+        recorder = user.profile
+        recorder.discord = "bsnoseat"
+        recorder.group = "P"
+        recorder.player_onboard = True
+        recorder.save()
+        other = Profile.objects.create(discord="bsnoseat2", discord_id="9411")
+        self.thread.players.set([recorder, other])
+        self.thread.seats.all().delete()
+        self.thread.seating_set = False
+        self.thread.save(update_fields=["seating_set"])
+
+        with override_settings(ALLOWED_HOSTS=["*"]):
+            self.client.force_login(user)
+            response = self.client.get(f"/record/game/?lfg={self.thread.id}")
+
+        formset = response.context["formset"]
+        self.assertEqual(len(formset.forms), 2)
+        for form in formset.forms:
+            self.assertIsNone(form.initial.get("player"))
+        # The dropdown still offers exactly the thread's roster.
+        self.assertCountEqual(
+            list(formset.forms[0].fields["player"].queryset),
+            [recorder, other])
+
     def test_the_undrafted_faction_reaches_the_record_form(self):
         """The gap this closes: with no /draft in the thread, undrafted_pick
         returns None and these fields had no source at all."""
@@ -12132,10 +12219,9 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         self.assertIn("checked", win_row)
 
     def test_a_faction_the_thread_never_rolled_is_still_offered(self):
-        """A component reaches the form's dropdowns only if it is in the thread's
-        ROLLS. Map and deck worked because they were the only kinds emitted; a
-        faction the file named was dropped, so the seat rendered with no faction
-        even though the box score said what was played."""
+        """Rolls no longer restrict the form's dropdowns at all -- every component
+        the tournament allows is offered whether or not anyone rolled it. The roll
+        still has to be RECORDED, because that is what the prefill reads."""
         doc = self._doc()
         doc["participants"][0]["faction"] = self.faction.slug
 
@@ -12144,7 +12230,6 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         self.thread.refresh_from_db()
         self.assertIn(("Faction", self.faction.slug),
                       [(r.kind, r.slug) for r in self.thread.roll_log.all()])
-        # The narrowing now offers it, which is what makes the prefill possible.
         options = lfg_option_querysets(self.thread, None)
         self.assertTrue(options["factions"].filter(pk=self.faction.pk).exists())
 
@@ -12174,6 +12259,36 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         options = lfg_option_querysets(self.thread, None)
         self.assertTrue(options["landmarks"].filter(pk=rolled.pk).exists())
         self.assertTrue(options["landmarks"].filter(pk=played.pk).exists())
+
+    def test_a_component_the_options_exclude_is_collected_not_crashed_on(self):
+        """The `blocked` argument is a COLLECTOR (blocked.add(obj)), and the LFG
+        call site used to pass the request object instead -- which has no .add(),
+        so any box score naming a component the tournament excludes raised
+        AttributeError instead of reporting it in the banner."""
+        from the_keep.models import Landmark
+        excluded = Landmark.objects.create(title="Excluded Tower",
+                                           designer=self.designer,
+                                           status=StatusChoices.STABLE,
+                                           official=True)
+        doc = self._doc()
+        doc["landmarks"] = [excluded.slug]
+        self._run(doc, run_capture=True)
+        self.thread.refresh_from_db()
+
+        # An options dict that does NOT offer the landmark the file named, which
+        # is what a real tournament restriction produces.
+        opts = lfg_option_querysets(self.thread, None)
+        opts["landmarks"] = Landmark.objects.none()
+
+        from the_warroom.views import _prefill_boxscore_components, BlockedComponents
+        blocked = BlockedComponents()
+        form = mock.Mock(initial={})
+        _prefill_boxscore_components(form, self.thread, opts, blocked)
+
+        # Not preselected (it isn't offered), but NAMED so the recorder knows why.
+        # BlockedComponents.add() stores the rendered label, not the instance.
+        self.assertNotIn("landmarks", form.initial)
+        self.assertIn(str(excluded), blocked.items)
 
     def test_the_undrafted_assets_reach_the_thread_and_the_rolls(self):
         """Both, and for different reasons: the COLUMNS say which faction was the
