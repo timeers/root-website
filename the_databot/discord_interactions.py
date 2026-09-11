@@ -1814,8 +1814,17 @@ def _announce_schedule_to_channel(match, old_time, new_time):
     verb = "rescheduled" if old_time is not None else "scheduled"
     # Three lines, not one: the rendered time gets its own line to read against,
     # and the raw markup below it can be copied straight into another message.
+    group = match.player_group
+    match_thread = group.discord_thread if group else ""
+
+    if match_thread:
+        formatted_match_label = f'[{_match_label(match)}]({match_thread})'
+    else:
+        formatted_match_label = _match_label(match)
+
+
     content = "\n".join([
-        f"{_match_label(match)} is {verb}",
+        f"{formatted_match_label} is {verb} for",
         format_discord_timestamp(new_time),
         format_discord_timestamp_code(new_time),
     ])

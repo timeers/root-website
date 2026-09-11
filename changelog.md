@@ -16,6 +16,7 @@
 - /lfg's host only actions now give a hint to press "Join"
 - Match mods are now included in scheduled reminder messages
 - Made /timestamp message simpler
+- Scheduling message links to game's thread
 
 ### Bug Fixes
 - js was breaking due to auto filling box score to game form
