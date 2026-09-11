@@ -7616,9 +7616,13 @@ def boxscore_upload_from_api(thread, raw, token):
                             skip_roster_check=token.test_mode)
 
     if body is None:
+        # match_roster re-checks the SAME roster balance _boxscore_roster_mismatch
+        # already skipped above -- omitted here too for a test_mode token, or
+        # this second check would silently reinstate what the first one waived.
+        match_roster = (None if token.test_mode else
+                        _boxscore_match_roster(thread, thread.thread_id))
         lines, applied_notes = _boxscore_apply(
-            thread, pending, thread.thread_id,
-            _boxscore_match_roster(thread, thread.thread_id))
+            thread, pending, thread.thread_id, match_roster)
         # A test_mode token stays ISSUED so it can be reused for the next
         # test upload -- everything else still retires normally.
         if not token.test_mode:

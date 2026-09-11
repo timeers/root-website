@@ -3129,6 +3129,29 @@ class BoxScoreUploadTestModeTokenTests(TestCase):
         self.assertTrue(all(s.profile_id == self.alice.pk
                             for s in self.thread.seats.all()))
 
+    def test_a_test_token_ignores_the_match_roster_check_too(self):
+        """A match thread re-checks the roster balance a SECOND time inside
+        _boxscore_apply (match_roster), independently of the upload-time
+        check and of Gate 2 -- test_mode has to skip both or an off-roster
+        test upload still fails with 'not in this match'.
+
+        Driven in-process rather than through the HTTP view: series_id is set
+        on the instance only, never saved, the same way
+        test_a_match_threads_roster_is_never_touched avoids standing up a real
+        Round/Stage/MatchSeries just to make the FK truthy."""
+        from the_databot import discord_interactions as di
+        stranger = Profile.objects.create(discord='teststranger2', discord_id='904')
+        self.thread.series_id = 1     # truthy: the branch only checks series_id
+        token, _raw = self._token()
+        raw_body = json.dumps({'participants': [
+            self._seat(1, stranger, '76561198000000197'),
+        ]}).encode()
+        with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay'), \
+                mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
+                mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
+            result = di.boxscore_upload_from_api(self.thread, raw_body, token)
+        self.assertEqual(result['status'], 'applied')
+
 
 class _AvailabilityFixtureMixin:
     """A tournament, stage, round, and a roster with hand-picked availability.
