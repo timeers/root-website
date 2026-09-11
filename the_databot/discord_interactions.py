@@ -1814,8 +1814,17 @@ def _announce_schedule_to_channel(match, old_time, new_time):
     verb = "rescheduled" if old_time is not None else "scheduled"
     # Three lines, not one: the rendered time gets its own line to read against,
     # and the raw markup below it can be copied straight into another message.
+    group = match.player_group
+    match_thread = group.discord_thread if group else ""
+
+    if match_thread:
+        formatted_match_label = f'[{_match_label(match)}]({match_thread})'
+    else:
+        formatted_match_label = _match_label(match)
+
+
     content = "\n".join([
-        f"{_match_label(match)} is {verb}",
+        f"{formatted_match_label} is {verb} for",
         format_discord_timestamp(new_time),
         format_discord_timestamp_code(new_time),
     ])
@@ -2799,8 +2808,9 @@ def _schedule_free_public_data(when, proposer_id, kind, author=None, roster=()):
             # line -- readers of this embed take the FIRST `<t:` they find.
             format_discord_timestamp_code(when),
             "",
-            f"Suggested by <@{proposer_id}>.",
-            SCHEDULE_UNLINKED_NOTE,
+            # REMOVED TO KEEP MESSAGE MINIMAL
+            # f"Suggested by <@{proposer_id}>.",
+            # SCHEDULE_UNLINKED_NOTE,
         ]),
     }
     if author:
@@ -9614,6 +9624,14 @@ def _handle_lfg_command(data):
             return plain_post()
     else:
         role = roles[0]
+
+    # A tag can be scoped to one channel; used from anywhere else, refuse outright
+    # before any other tag-specific check (the forum-channel check below only guards
+    # thread creation, not the whole command).
+    if role.restricted_channel_id and str(data.get("_channel_id")) != str(role.restricted_channel_id):
+        return _ephemeral(
+            f"The {role.name} role cannot be used in this channel and can only be "
+            f"used in <#{role.restricted_channel_id}>.")
 
     # This tag's games live in a specific forum, so a thread elsewhere is the wrong
     # home for one. Refuse before posting anything rather than adopting a thread in
