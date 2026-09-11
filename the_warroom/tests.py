@@ -3037,6 +3037,99 @@ class BoxScoreUploadApiTests(TestCase):
                          before)
 
 
+class BoxScoreUploadTestModeTokenTests(TestCase):
+    """Admin-minted `test_mode` tokens: reusable, and exempt from the
+    roster/seat-count comparison that would otherwise stage a Confirm/Cancel
+    prompt no scripted client can answer."""
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+        self.alice = Profile.objects.create(discord='testalice', discord_id='901',
+                                            display_name='Alice')
+        self.bob = Profile.objects.create(discord='testbob', discord_id='902',
+                                          display_name='Bob')
+        self.thread = LFGThread.objects.create(thread_id='tts-test-thread')
+        self.thread.players.set([self.alice, self.bob])
+
+    ALICE_STEAM = '76561198000000101'
+    BOB_STEAM = '76561198000000102'
+
+    def _seat(self, turn_order, profile, steam_id):
+        return {'turn_order': turn_order, 'player': profile.slug,
+                'player_steam_id': steam_id, 'turns': [{'turn': 1, 'score': 3}]}
+
+    def _post(self, doc, token_raw):
+        with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay'), \
+                mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay') as prompt, \
+                mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
+            response = self.client.post(
+                reverse('api-boxscore-upload'), data=json.dumps(doc),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Game-Token {token_raw}')
+        return response, prompt
+
+    def _token(self):
+        from datetime import timedelta
+        return BoxScoreUploadToken.issue(
+            self.thread, profile=None, test_mode=True, ttl=timedelta(days=30))
+
+    def test_a_test_token_can_be_used_more_than_once(self):
+        _t, raw = self._token()
+        doc = {'participants': [self._seat(1, self.alice, self.ALICE_STEAM),
+                                self._seat(2, self.bob, self.BOB_STEAM)]}
+        first = self._post(doc, raw)[0]
+        second = self._post(doc, raw)[0]
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(BoxScoreUploadToken.objects.get(pk=_t.pk).status,
+                         BoxScoreUploadToken.Status.ISSUED)
+
+    def test_a_test_token_ignores_a_player_count_mismatch(self):
+        """The uploaded seat count/roster doesn't match the thread at all --
+        an off-roster player, fewer seats than the roster -- and it still
+        auto-applies instead of staging a Discord prompt nobody would answer."""
+        stranger = Profile.objects.create(discord='teststranger', discord_id='903')
+        _t, raw = self._token()
+        doc = {'participants': [
+            self._seat(1, stranger, '76561198000000199'),
+        ]}
+        response, prompt = self._post(doc, raw)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'applied')
+        self.assertFalse(prompt.called)
+
+    def test_a_test_token_still_requires_a_resolvable_steam_id(self):
+        """Gate 1 -- an unlinkable seat -- is untouched by test_mode: identity
+        resolution isn't part of what the flag is meant to skip."""
+        _t, raw = self._token()
+        doc = {'participants': [
+            {'turn_order': 1, 'player': 'nobody-on-file',
+             'player_steam_id': '76561198000000198',
+             'turns': [{'turn': 1, 'score': 3}]},
+        ]}
+        response, prompt = self._post(doc, raw)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'pending_confirmation')
+        self.assertTrue(prompt.called)
+
+    def test_a_test_token_allows_one_profile_in_every_seat(self):
+        """A test client may not have distinct accounts for every seat --
+        nothing requires seats to resolve to different profiles."""
+        _t, raw = self._token()
+        doc = {'participants': [
+            self._seat(1, self.alice, self.ALICE_STEAM),
+            self._seat(2, self.alice, self.ALICE_STEAM),
+            self._seat(3, self.alice, self.ALICE_STEAM),
+        ]}
+        response = self._post(doc, raw)[0]
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'applied')
+        self.assertEqual(self.thread.seats.count(), 3)
+        self.assertTrue(all(s.profile_id == self.alice.pk
+                            for s in self.thread.seats.all()))
+
+
 class _AvailabilityFixtureMixin:
     """A tournament, stage, round, and a roster with hand-picked availability.
 
