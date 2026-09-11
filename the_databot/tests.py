@@ -13110,6 +13110,19 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
 
         self.assertNotIn("Only the person who started", answered["content"])
 
+    def test_an_admin_minted_test_token_prompt_stays_open_to_the_roster(self):
+        """The admin "issue test token" action mints with issued_by=None --
+        no Discord user pasted it in, so the lock in
+        _boxscore_click_owner's `issuer_pk is None` branch falls back to
+        letting any roster player answer, same as a cache prompt."""
+        other = Profile.objects.create(discord="teammate", discord_id="777115")
+        ref = self._token_prompt(None, [self.alice, other])
+
+        answered = self._press_open(ref, other.discord_id)
+
+        self.assertNotIn("Only the person who started", answered["content"])
+        self.assertNotIn("Only the players in this game", answered["content"])
+
     def test_a_cache_prompt_stays_open_to_the_roster(self):
         """The lock is for TOKEN prompts. A "c:" ref has no issuer, so
         /boxscore upload keeps its original any-roster-player rule."""

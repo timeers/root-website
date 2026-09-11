@@ -417,7 +417,8 @@ class BoxScoreUploadView(APIView):
                 'invalid_token',
                 'That upload token isn\'t valid. Run /boxscore token in your '
                 'game thread for a new one.', status.HTTP_401_UNAUTHORIZED)
-        if token.status != BoxScoreUploadToken.Status.ISSUED:
+        if (not token.test_mode
+                and token.status != BoxScoreUploadToken.Status.ISSUED):
             return _upload_error(
                 'token_used',
                 'That upload token has already been used. Run /boxscore token '
@@ -443,15 +444,18 @@ class BoxScoreUploadView(APIView):
         # Claim the token BEFORE doing the work: a conditional update on `status`
         # means two simultaneous uploads can't both win. status is the single
         # source of truth; used_at is a timestamp for humans reading the admin.
-        claimed = BoxScoreUploadToken.objects.filter(
-            pk=token.pk, status=BoxScoreUploadToken.Status.ISSUED,
-        ).update(status=BoxScoreUploadToken.Status.PENDING,
-                 used_at=timezone.now())
-        if not claimed:
-            return _upload_error(
-                'token_used',
-                'That upload token has already been used. Run /boxscore token '
-                'for a new one.', status.HTTP_401_UNAUTHORIZED)
+        # A test_mode token skips the claim entirely -- it stays ISSUED so the
+        # same token can be pasted in again for the next test upload.
+        if not token.test_mode:
+            claimed = BoxScoreUploadToken.objects.filter(
+                pk=token.pk, status=BoxScoreUploadToken.Status.ISSUED,
+            ).update(status=BoxScoreUploadToken.Status.PENDING,
+                     used_at=timezone.now())
+            if not claimed:
+                return _upload_error(
+                    'token_used',
+                    'That upload token has already been used. Run /boxscore '
+                    'token for a new one.', status.HTTP_401_UNAUTHORIZED)
 
         try:
             result = di.boxscore_upload_from_api(thread, body, token)

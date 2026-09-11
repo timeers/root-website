@@ -7600,7 +7600,9 @@ def boxscore_upload_from_api(thread, raw, token):
     # the apply, so the TTS uploader is told at the table instead of the file
     # sitting in a thread prompt nobody can resolve. Raises rather than returns:
     # this path reports failures to the object through BoxScoreImportError.
-    if thread.series_id:
+    # A test_mode token is minted for a throwaway test thread specifically to
+    # ignore this -- test participants are never the match roster.
+    if thread.series_id and not token.test_mode:
         mismatch = _boxscore_roster_mismatch(pending["seats"], roster)
         if mismatch:
             raise BoxScoreImportError(mismatch)
@@ -7610,14 +7612,18 @@ def boxscore_upload_from_api(thread, raw, token):
     # it. The prompt is posted into the thread, so its buttons end in PICK_OPEN
     # and are answerable by any roster player rather than one invoker.
     body = _boxscore_decide(thread, pending, roster, PICK_OPEN,
-                            lambda: f"t:{token.pk}")
+                            lambda: f"t:{token.pk}",
+                            skip_roster_check=token.test_mode)
 
     if body is None:
         lines, applied_notes = _boxscore_apply(
             thread, pending, thread.thread_id,
             _boxscore_match_roster(thread, thread.thread_id))
-        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
-            status=BoxScoreUploadToken.Status.APPLIED, payload=None)
+        # A test_mode token stays ISSUED so it can be reused for the next
+        # test upload -- everything else still retires normally.
+        if not token.test_mode:
+            BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+                status=BoxScoreUploadToken.Status.APPLIED, payload=None)
         if lines is None:
             raise BoxScoreImportError(_boxscore_apply_error(applied_notes))
         # The clean case pings too, with different wording: it confirms the paste
@@ -8014,7 +8020,7 @@ def _boxscore_reresolve(thread, pending, channel_id, channel_name=None, guild_id
     return roster
 
 
-def _boxscore_decide(thread, pending, roster, owner, ref):
+def _boxscore_decide(thread, pending, roster, owner, ref, skip_roster_check=False):
     """The gate a staged upload still needs as a BODY, or None to apply it.
 
     THE decision, in one place. Both entry points ask this same question and
@@ -8031,6 +8037,12 @@ def _boxscore_decide(thread, pending, roster, owner, ref):
     `ref` is a CALLABLE returning the stored payload's reference, not the
     reference itself: a file needing no gate is applied and never clicked, so
     the payload must not be parked until a gate actually renders.
+
+    `skip_roster_check` is for admin-minted test tokens only: it skips Gate 2
+    below, whose only job is comparing the file's seats/players against the
+    thread's own seating and roster. Gates 0 and 1 -- resolving who a seat's
+    Steam ID actually is -- stay in effect regardless, since a test upload
+    still needs every seat to resolve to a real Profile.
     """
     # Gate 0: somebody in the file is unidentified but COULD be named from the
     # roster. Ask before Gate 1, because an answer here can empty Gate 1's list
@@ -8052,6 +8064,8 @@ def _boxscore_decide(thread, pending, roster, owner, ref):
     # seating, or (on a thread with no seating yet) its roster. The roster check
     # matters on its own: an unseated thread has nothing to compare positionally,
     # but a file naming someone who isn't in this game is still worth confirming.
+    if skip_roster_check:
+        return None
     current = _boxscore_current_seats(thread)
     if _boxscore_seats_differ(current, pending["seats"]):
         return _boxscore_gate_two_body(thread, pending, current, owner, ref=ref())

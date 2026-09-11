@@ -1,7 +1,10 @@
+from datetime import timedelta
+
 from django.contrib import admin
 
 from .models import (GuildLFGRole, BotUsage, BotBlacklist, LFGThread,
-                     ScheduleProposal, LFGRoll, LFGDraft, LFGDraftPick, LFGSeat)
+                     ScheduleProposal, LFGRoll, LFGDraft, LFGDraftPick, LFGSeat,
+                     BoxScoreUploadToken)
 
 
 class GuildLFGRoleAdmin(admin.ModelAdmin):
@@ -81,6 +84,43 @@ class LFGThreadAdmin(admin.ModelAdmin):
     readonly_fields = ['thread_id', 'created_at', 'last_activity']
     filter_horizontal = ['players']
     inlines = [LFGSeatInline, LFGDraftInline, LFGRollInline]
+    actions = ['issue_test_upload_token']
+
+    @admin.action(description="Issue a reusable box score test token (30 days)")
+    def issue_test_upload_token(self, request, queryset):
+        # issued_by=None deliberately: this token belongs to no Discord user,
+        # so _boxscore_click_owner's "issuer_pk is None" branch lets ANY
+        # roster player (or host/staff) answer a prompt it stages, rather
+        # than restricting Confirm/Cancel to one specific profile.
+        if queryset.count() != 1:
+            self.message_user(
+                request, "Select exactly one thread to issue a test token for.",
+                level="error")
+            return
+        thread = queryset.first()
+        _token, raw = BoxScoreUploadToken.issue(
+            thread, profile=None, test_mode=True, ttl=timedelta(days=30))
+        # The raw value is never recoverable after this -- only its hash is
+        # stored, same as the /boxscore token Discord flow.
+        self.message_user(
+            request,
+            f"Test upload token for {thread}: {BoxScoreUploadToken.group(raw)} "
+            "-- copy it now, it can't be shown again.")
+
+class BoxScoreUploadTokenAdmin(admin.ModelAdmin):
+    """Read-only: the raw token is never stored, only its hash, and every
+    other field is written by the upload flow itself."""
+    list_display = ['thread', 'status', 'test_mode', 'created_at', 'expires_at',
+                    'issued_by']
+    list_filter = ['status', 'test_mode']
+    search_fields = ['thread__thread_id']
+    readonly_fields = ['token_hash', 'thread', 'issued_by', 'status', 'test_mode',
+                       'created_at', 'expires_at', 'used_at', 'payload',
+                       'channel_id', 'message_id', 'prompt_expires_at',
+                       'reminded_at']
+
+    def has_add_permission(self, request):
+        return False
 
 class ScheduleProposalAdmin(admin.ModelAdmin):
     list_display = ['id', 'match', 'proposed_time', 'status', 'proposed_by', 'created_at']
@@ -96,3 +136,4 @@ admin.site.register(BotUsage, BotUsageAdmin)
 admin.site.register(LFGThread, LFGThreadAdmin)
 admin.site.register(LFGDraft, LFGDraftAdmin)
 admin.site.register(ScheduleProposal, ScheduleProposalAdmin)
+admin.site.register(BoxScoreUploadToken, BoxScoreUploadTokenAdmin)
