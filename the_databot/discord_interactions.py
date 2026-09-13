@@ -2483,10 +2483,10 @@ def _handle_schedule_proposal_confirm(payload):
         return _ephemeral(_already_confirmed_text(proposal, me))
 
     proposal.rejected_by.remove(me)   # answering moves you between the columns
-    return _resolve_match_poll(payload, proposal, match)
+    return _resolve_match_poll(payload, proposal, match, me=me, is_new_yes=not already)
 
 
-def _resolve_match_poll(payload, proposal, match):
+def _resolve_match_poll(payload, proposal, match, me=None, is_new_yes=False):
     """Re-render a match poll after a vote, closing it if that was the last one.
 
     The single place the poll's outcome is decided, shared by Yes and No so the
@@ -2498,10 +2498,24 @@ def _resolve_match_poll(payload, proposal, match):
 
     all_responded is the CLOSE condition and all_confirmed the WRITE condition;
     they differ exactly when someone declined, which is the whole point of a poll
-    that no longer dies on the first rejection."""
+    that no longer dies on the first rejection.
+
+    `me`/`is_new_yes` are Confirm-only: a genuinely new Yes (never a repeat
+    click, never a No) DMs the 🔔 subscribers immediately, same as the embed
+    poll's per-click notify. Scoped to the "still waiting" branch below, so the
+    click that completes the roster falls through to the close branch instead
+    and is never double-notified."""
     notify_ids = _poll_notify_ids_from_payload(payload)
 
     if not proposal.all_responded():
+        if is_new_yes and notify_ids:
+            pending = [p.display_name or p.discord or p.slug or "—"
+                      for p in proposal.pending_profiles()]
+            _notify_poll_yes(
+                notify_ids, _interaction_user_id(payload),
+                me.display_name or me.discord or me.slug or "—", proposal.proposed_time,
+                proposal.confirmed_by.count(), proposal.roster.count() or None,
+                _lfg_jump_url(payload), pending=pending)
         return JsonResponse({
             "type": RESPONSE_UPDATE_MESSAGE,
             "data": _schedule_proposal_data(
@@ -2657,7 +2671,8 @@ def _handle_schedule_proposal_reject(payload):
     # answers -- see _resolve_match_poll.
     proposal.rejected_by.add(me)
     proposal.confirmed_by.remove(me)   # answering moves you between the columns
-    return _resolve_match_poll(payload, proposal, match)
+    # is_new_yes=False: a No is never a Yes-notify trigger.
+    return _resolve_match_poll(payload, proposal, match, me=me, is_new_yes=False)
 
 
 def _handle_schedule_proposal_set(payload):
@@ -3396,7 +3411,8 @@ def _handle_schedule_poll_respond(payload):
 
         if joining_yes and notify_ids:
             _notify_poll_yes(notify_ids, clicker_id, display, when, len(yes),
-                             len(roster) or None, _lfg_jump_url(payload))
+                             len(roster) or None, _lfg_jump_url(payload),
+                             pending=_poll_pending_names(roster, yes, no) if roster else None)
 
     # Everyone on the roster has answered -> close. A poll with no roster has no
     # completion condition and closes only via the Close button.
@@ -3509,15 +3525,19 @@ def _poll_close_response(when, proposer_id, yes, no, notify_ids, label, author,
 
 
 def _notify_poll_yes(notify_ids, actor_id, actor_name, when, yes_count, total,
-                     jump_url):
+                     jump_url, pending=None):
     """DM the subscribers that someone confirmed. The actor is excluded — they
-    just clicked, so telling them is noise."""
+    just clicked, so telling them is noise.
+
+    `pending` names who still hasn't answered, so the DM can say who rather
+    than a bare count -- omitted (None/empty) for a roster-less poll, which
+    has no pending concept at all."""
     targets = [i for i in notify_ids if str(i) != str(actor_id)]
     if not targets:
         return
     notify_schedule_poll_task.delay(
         targets, "yes", int(when.timestamp()), actor_name=actor_name,
-        yes_count=yes_count, total=total, jump_url=jump_url)
+        yes_count=yes_count, total=total, jump_url=jump_url, pending=pending)
 
 
 def _notify_poll_closed(notify_ids, when, no_entries, *, scheduled, closed_by=None,

@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.8] - 2026-9-13 Better Notifications
+
+### Bug Fixes
+- Subscribing to a scheduling poll now notifies on every new "Yes" answer instead of just poll close.
+
 ## [1.13.7] - 2026-9-10 Brazen Bot Bugs
 
 ### New Features

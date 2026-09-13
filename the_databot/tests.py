@@ -8841,6 +8841,27 @@ class SchedulePollNotifyDMTests(TestCase):
         self.assertIn("3 confirmed so far", content)
         self.assertNotIn(" of ", content)
 
+    def test_a_yes_with_pending_names_them_instead_of_the_tally(self):
+        content = self._send(event="yes", when_ts=self.WHEN, actor_name="Amy",
+                             yes_count=3, total=5, pending=["Ben", "Cy"])
+        self.assertIn("waiting on **Ben** and **Cy**", content)
+        self.assertNotIn("3 of 5 players confirmed", content)
+
+    def test_a_yes_with_no_pending_falls_back_to_the_tally(self):
+        """Empty/None pending -- a roster-less poll has no pending concept at
+        all -- keeps today's bare count wording."""
+        content = self._send(event="yes", when_ts=self.WHEN, actor_name="Amy",
+                             yes_count=3, total=5, pending=None)
+        self.assertIn("3 of 5 players confirmed", content)
+        self.assertNotIn("waiting on", content)
+
+    def test_a_yes_with_a_long_pending_list_is_summarized(self):
+        content = self._send(
+            event="yes", when_ts=self.WHEN, actor_name="Amy", yes_count=1,
+            total=6, pending=["A", "B", "C", "D", "E"])
+        self.assertIn("+ 1 more", content)
+        self.assertNotIn("**E**", content)
+
     def test_the_time_is_a_discord_timestamp_not_a_fixed_string(self):
         """Each recipient must read it in their OWN timezone."""
         self.assertIn(f"<t:{self.WHEN}:", self._send(
@@ -9376,6 +9397,98 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(self.proposal.status, ScheduleProposal.Status.OPEN)
         self.assertIn(self.teammate.pk,
                       self.proposal.rejected_by.values_list("pk", flat=True))
+
+    # ── notify on each Yes, not just at close ──────────────────────────────
+
+    def _notify_payload(self, **kw):
+        """A Confirm payload carrying a 🔔 subscriber (the host) in its embed,
+        same shape test_the_last_voter_is_excluded_from_the_result_dm uses."""
+        payload = self._payload(**kw)
+        payload["message"] = {"id": "m", "embeds": [{"fields": [{
+            "name": di.POLL_NOTIFY_FIELD,
+            "value": f"<@{self.host.discord_id}>", "inline": False}]}]}
+        return payload
+
+    def test_a_new_yes_notifies_subscribers_while_the_poll_is_still_open(self):
+        """A third roster player keeps the poll open after this Yes, so the
+        bell should fire now rather than waiting for a close that hasn't
+        happened yet."""
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        self.host = Profile.objects.create(discord="host", discord_id="7")
+        with mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            self._body(di._handle_schedule_proposal_confirm(
+                self._notify_payload()))
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.OPEN)
+        delay.assert_called_once()
+        args, kwargs = delay.call_args
+        self.assertEqual(args[1], "yes")
+        self.assertIn(str(self.host.discord_id), args[0])
+
+    def test_the_clicker_is_excluded_from_their_own_yes_notification(self):
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        self.host = Profile.objects.create(discord="host", discord_id="7")
+        payload = self._notify_payload()
+        payload["message"]["embeds"][0]["fields"][0]["value"] = (
+            f"<@{self.host.discord_id}> <@{self.teammate.discord_id}>")
+        with mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            self._body(di._handle_schedule_proposal_confirm(payload))
+        targets = delay.call_args.args[0]
+        self.assertNotIn(str(self.teammate.discord_id), targets)
+        self.assertIn(str(self.host.discord_id), targets)
+
+    def test_a_repeat_yes_click_does_not_renotify(self):
+        """already-confirmed + roster still incomplete short-circuits to the
+        ephemeral reply before _resolve_match_poll runs at all."""
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        self.host = Profile.objects.create(discord="host", discord_id="7")
+        with mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            self._body(di._handle_schedule_proposal_confirm(
+                self._notify_payload(user_id=self.player.discord_id,
+                                     username="player")))
+        delay.assert_not_called()
+
+    def test_a_no_click_never_sends_a_yes_notification(self):
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        self.host = Profile.objects.create(discord="host", discord_id="7")
+        with mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            self._body(di._handle_schedule_proposal_reject(
+                self._notify_payload(action="sched_poll_no")))
+        delay.assert_not_called()
+
+    def test_the_completing_yes_click_only_gets_the_closed_notification(self):
+        """A 2-player roster: the teammate's Yes completes it, so this click
+        must fall straight to the close branch -- not a "yes" DM followed by
+        a "closed" one."""
+        self.host = Profile.objects.create(discord="host", discord_id="7")
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
+                mock.patch.object(di, "_announce_schedule_to_channel"), \
+                mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            self._body(di._handle_schedule_proposal_confirm(
+                self._notify_payload()))
+        delay.assert_called_once()
+        self.assertEqual(delay.call_args.args[1], "closed")
+
+    def test_a_yes_notification_names_who_is_still_pending(self):
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        self.host = Profile.objects.create(discord="host", discord_id="7")
+        with mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            self._body(di._handle_schedule_proposal_confirm(
+                self._notify_payload()))
+        kwargs = delay.call_args.kwargs
+        self.assertEqual(kwargs["pending"], [third.display_name or third.discord])
+
+    def test_no_bell_subscribers_sends_nothing(self):
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        with mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        delay.assert_not_called()
 
     def test_an_agreed_proposal_is_still_swept(self):
         """AGREED is live, so it must not survive a time set another way."""

@@ -290,13 +290,18 @@ def _summarize_names(names, limit=_DM_NAME_MAX):
 @shared_task
 def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
                               yes_count=0, total=None, declined=None,
-                              scheduled=False, jump_url=None, confirmed=None):
+                              scheduled=False, jump_url=None, confirmed=None,
+                              pending=None):
     """DM the 🔔 subscribers of a /schedule poll.
 
     `event` is "yes" (someone just confirmed, with a running count) or "closed"
     (the final result). The actor is excluded by the CALLER, as in the lfg notify
     tasks. Raw-id DMs -- a subscriber need not have a Profile at all, which is
     also why the notify list lives in the embed rather than an M2M.
+
+    `pending` names who still hasn't answered, for a "yes" event on a rostered
+    poll -- a roster-less poll has no such list, so it falls back to the bare
+    count.
 
     The time is re-rendered as a Discord timestamp from the epoch so each
     recipient reads it in their OWN timezone; a preformatted string would show
@@ -310,8 +315,11 @@ def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
 
     if event == "yes":
         who = f"**{actor_name}**" if actor_name else "Someone"
-        tally = (f" — {yes_count} of {total} players confirmed." if total
-                 else f" — {yes_count} confirmed so far.")
+        if pending:
+            tally = f" — waiting on {_summarize_names(pending)}."
+        else:
+            tally = (f" — {yes_count} of {total} players confirmed." if total
+                     else f" — {yes_count} confirmed so far.")
         content = f"{who} confirmed for {when}.{tally}{link}"
     else:
         if scheduled:

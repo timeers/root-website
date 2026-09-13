@@ -3205,3 +3205,24 @@ class MatchSeat(models.Model):
     series = models.ForeignKey(MatchSeries, on_delete=models.CASCADE)
     stage_participant = models.ForeignKey(StageParticipant, on_delete=models.CASCADE)
     seat_number = models.IntegerField(null=True, blank=True)
+
+# Only meaningful with a guild linked AND the bot in it: the reminder posts
+# into the player group's thread, and remind_upcoming_matches re-checks both
+# at send time.
+class ScheduledGameReminder(models.Model):
+    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE)
+    match_reminder_minutes = models.PositiveIntegerField(
+        verbose_name="Match Reminder Lead Time (minutes)",
+        default=60,
+        help_text=(
+            "Ping players this many minutes before their game starts in the Discord thread."
+        ),
+    )
+    reminder_text = models.CharField(
+        max_length=100,
+        default="your match starts soon",
+        verbose_name="Match Reminder Text",
+        help_text=(
+            "Customize the message that appears between the player tags and the start time."
+        ),
+    )
