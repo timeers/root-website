@@ -6,7 +6,6 @@ from django.contrib.auth.signals import user_logged_in
 from django.core.exceptions import ValidationError
 from django.db import connection
 from django.db.models import Prefetch
-from django.db.models.signals import post_save
 from django.template.loader import render_to_string
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
@@ -31,7 +30,7 @@ from the_warroom.services.box_score_import import (
     resolve_participant_player, resolve_participant_players,
     validate_participants,
 )
-from the_gatehouse.signals import handle_image_resize, user_logged_in_handler
+from the_gatehouse.signals import user_logged_in_handler
 from the_warroom.forms import GameCreateForm
 from the_databot.tasks import create_match_threads_task
 from the_warroom.services.grouping import GroupingService
@@ -819,10 +818,6 @@ class UndraftedPrefillTests(TestCase):
     drafted faction no seat took."""
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
 
         self.designer = Profile.objects.create(discord="undp", discord_id="900")
         self.factions = [
@@ -936,7 +931,6 @@ class CreateGameThreadsEndpointTests(TestCase):
         # supports, and none of it is under test here.
         user_logged_in.disconnect(user_logged_in_handler)
         self.addCleanup(user_logged_in.connect, user_logged_in_handler)
-        post_save.disconnect(handle_image_resize, sender=Profile)
         self.guild = DiscordGuild.objects.create(guild_id="910100", name="Threads Guild",
                                                  bot_member=True)
         # The endpoint gates on Tournament.has_permission (designer/moderator/admin),
@@ -956,9 +950,6 @@ class CreateGameThreadsEndpointTests(TestCase):
             round=self.round, group_number=1, name="Group A")
         self.series = MatchSeries.objects.create(
             round=self.round, player_group=self.group, number_of_games=1)
-
-    def tearDown(self):
-        post_save.connect(handle_image_resize, sender=Profile)
 
     def _url(self, tournament=None, stage=None, round=None):
         return reverse('round-create-game-threads', kwargs={
@@ -1047,14 +1038,10 @@ class GuildOnEveryClassificationTests(TestCase):
     it. Every classification may now link one."""
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
         self.guild_a = DiscordGuild.objects.create(guild_id="930100", name="A")
         self.guild_b = DiscordGuild.objects.create(guild_id="930200", name="B")
         self.user = User.objects.create_user(username="cls", password="pw")
         self.user.profile.guilds.add(self.guild_a, self.guild_b)
-
-    def tearDown(self):
-        post_save.connect(handle_image_resize, sender=Profile)
 
     def test_player_settings_form_offers_guild_for_every_type(self):
         from the_warroom.forms import TournamentPlayerSettingsForm
@@ -1094,15 +1081,11 @@ class ResultsChannelAnnounceTests(TestCase):
     TEXT = [{"id": CHANNEL, "name": "results"}]
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
         self.guild = DiscordGuild.objects.create(guild_id="940100", name="Res Guild",
                                                  bot_member=True)
         self.recorder = Profile.objects.create(discord="rec", display_name="Recorder Rita")
         self.tournament = Tournament.objects.create(
             name="Res Cup", guild=self.guild, results_channel=self.CHANNEL)
-
-    def tearDown(self):
-        post_save.connect(handle_image_resize, sender=Profile)
 
     def _post(self, message, **kwargs):
         from the_databot import tasks
@@ -1163,7 +1146,6 @@ class ResultsChannelViewAnnounceTests(TestCase):
     CHANNEL = "200000000000000022"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
         user_logged_in.disconnect(user_logged_in_handler)
 
         self.guild = DiscordGuild.objects.create(guild_id="950100", name="Res Guild",
@@ -1204,7 +1186,6 @@ class ResultsChannelViewAnnounceTests(TestCase):
         self.client.force_login(self.user)
 
     def tearDown(self):
-        post_save.connect(handle_image_resize, sender=Profile)
         user_logged_in.connect(user_logged_in_handler)
 
     def _payload(self, **extra):
@@ -1864,7 +1845,6 @@ class MatchLinkGameTests(TestCase):
     """
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
         user_logged_in.disconnect(user_logged_in_handler)
 
         self.user = User.objects.create_user(username="mod", password="x")
@@ -1905,7 +1885,6 @@ class MatchLinkGameTests(TestCase):
         self.client.force_login(self.user)
 
     def tearDown(self):
-        post_save.connect(handle_image_resize, sender=Profile)
         user_logged_in.connect(user_logged_in_handler)
 
     def _seat(self, profile, seat_number):
@@ -2407,7 +2386,6 @@ class BoxScoreImportResolveTests(TestCase):
     """
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
         self.designer = Profile.objects.create(discord="designer")
         self.marquise = Faction.objects.create(title="Marquise", type="M", reach=10,
                                                animal="cat", designer=self.designer)
@@ -2421,9 +2399,6 @@ class BoxScoreImportResolveTests(TestCase):
                                         designer=self.designer)
         self.map = Map.objects.create(title="Autumn", clearings=12, designer=self.designer)
         self.player = Profile.objects.create(discord="alice")
-
-    def tearDown(self):
-        post_save.connect(handle_image_resize, sender=Profile)
 
     def _buckets(self, factions=None, players=None):
         return {
@@ -2668,12 +2643,6 @@ class LFGThreadTurnsDataTests(TestCase):
     """`LFGThread.turns_data` -- storage for a thread's box score, and the
     validation that keeps the record form able to trust it."""
 
-    def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
-
-    def tearDown(self):
-        post_save.connect(handle_image_resize, sender=Profile)
-
     def test_a_malformed_box_score_is_refused_on_clean(self):
         thread = LFGThread(thread_id="t-bad")
         thread.turns_data = [{'turn_order': 1, 'turns': [{'turn': 0, 'score': 5}]}]
@@ -2701,8 +2670,6 @@ class BoxScoreUploadApiTests(TestCase):
     """
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.alice = Profile.objects.create(discord='ttsalice', discord_id='801',
                                             display_name='Alice')
         self.bob = Profile.objects.create(discord='ttsbob', discord_id='802',
@@ -3156,8 +3123,6 @@ class BoxScoreUploadTestModeTokenTests(TestCase):
     prompt no scripted client can answer."""
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.alice = Profile.objects.create(discord='testalice', discord_id='901',
                                             display_name='Alice')
         self.bob = Profile.objects.create(discord='testbob', discord_id='902',
@@ -3914,8 +3879,6 @@ class ParticipantResolutionTests(TestCase):
     STEAM = "76561198000000201"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.alice = Profile.objects.create(discord="resalice", discord_id="801")
         self.bob = Profile.objects.create(discord="resbob", discord_id="802")
         # Slugs are always lowercase; the box score may not be.
@@ -4004,8 +3967,6 @@ class AssumedSteamIdWriteTests(TestCase):
     STEAM = "76561198000000301"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.alice = Profile.objects.create(discord="wralice", discord_id="811")
         self.bob = Profile.objects.create(discord="wrbob", discord_id="812")
 

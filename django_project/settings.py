@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
 import os
+import sys
 from pathlib import Path
 import json
 from django.utils.translation import gettext_lazy as _
@@ -269,6 +270,29 @@ STATIC_URL = '/static/'
 
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 MEDIA_URL = '/media/'
+
+# Tests must NEVER write to the repo's own media/. Two post_save signals touch
+# MEDIA_ROOT on nearly every save -- handle_image_resize rewrites an image in
+# place, and generate_small_images (registered with no sender, so it fires for
+# every model in the project) creates a new file per image field. media/
+# default_images/ is TRACKED, 108 files, and Faction.save()/Vagabond.save()
+# assign one of those defaults whenever a test omits a picture. The result was
+# committed images changing under unrelated work: default_images/animals/
+# fox.webp has been landing in commits repeatedly, sometimes truncated to zero
+# bytes.
+#
+# Guarded on sys.argv rather than split into a settings_test module: this suite
+# is run as a plain `manage.py test`, and a --settings=... module would protect
+# only whoever remembers to pass it. That is the same opt-in failure as the
+# per-test signal disconnects this replaces -- they covered 2 of the 14
+# registered senders and none of generate_small_images.
+#
+# mkdtemp is deliberately NOT cleaned up: the run's uploads stay available for
+# post-mortem, and the OS reaps its temp dir. A fresh directory per run also
+# means no test can depend on a file another one left behind.
+if 'test' in sys.argv:
+    import tempfile
+    MEDIA_ROOT = tempfile.mkdtemp(prefix='test_media_')
 
 # Storage backends. In production, hash static filenames (e.g.
 # forge_editor.4f2a9c1b.js) so changing a file changes its URL and browsers are

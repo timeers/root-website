@@ -503,6 +503,13 @@ def generate_small_images(sender, instance, **kwargs):
         if not original_field or not hasattr(original_field, 'path') or not os.path.exists(original_field.path):
             continue
 
+        # Never build a small copy of a shipped default. The default is identical
+        # for every object using it, so this would write a fresh uuid-named file
+        # per object for an image that never varies -- litter in MEDIA_ROOT in
+        # production, and the reason test runs left stray files in the repo.
+        if original_field.name.startswith('default_images/'):
+            continue
+
         # Check if small image already exists and is newer
         if small_field and hasattr(small_field, 'path') and os.path.exists(small_field.path):
             image_time = os.path.getmtime(original_field.path)

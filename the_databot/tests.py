@@ -5,7 +5,6 @@ from unittest import mock, skipUnless
 from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_logged_in
 from django.core.cache import cache
-from django.db.models.signals import post_save
 from django.test import TestCase, RequestFactory, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -32,7 +31,7 @@ from the_databot.models import (
 )
 from the_gatehouse import views
 from the_gatehouse.services.steam_openid import read_link_token
-from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
+from the_gatehouse.signals import user_logged_in_handler
 from the_databot.services import discord_commands as dc
 from the_databot.services.lfg_game import (
     rolled_components, boxscore_components, seated_profiles,
@@ -2665,8 +2664,6 @@ class LFGCancelPermissionTests(TestCase):
     OTHER = "830000000000000022"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.guild = DiscordGuild.objects.create(guild_id="830000000000000099",
                                                  name="LFG Guild")
 
@@ -4596,13 +4593,6 @@ class DraftLFGSeatingTests(TestCase):
     THREAD_ID = "thread-900"
 
     def setUp(self):
-        # Saving a Faction fires handle_image_resize, which rewrites the animal's
-        # image IN PLACE under media/ — for a stock animal that's the shared
-        # default_images file, which repeated test runs then truncate. Nothing here
-        # tests image handling, so disconnect it for the duration.
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
-
         designer = Profile.objects.create(discord="draftdesigner", discord_id="800")
         # Enough official/Stable factions for a 6-player draft (needs players + 1),
         # all Militant so 2-player drafts (Militant-only) work from the same pool.
@@ -4881,8 +4871,6 @@ class DraftClearTests(TestCase):
     def setUp(self):
         # See DraftLFGSeatingTests.setUp -- saving a Faction rewrites the shared
         # default image in place, and nothing here tests image handling.
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
 
         designer = Profile.objects.create(discord="cleardesigner", discord_id="820")
         self.factions = [
@@ -5452,8 +5440,6 @@ class MatchThreadCaptureTests(TestCase):
     THREAD_ID = "1303834523347456040"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
 
         self.guild = DiscordGuild.objects.create(
             guild_id=self.GUILD_ID, name="Capture Guild")
@@ -5543,8 +5529,6 @@ class LFGCaptureTests(TestCase):
     THREAD_ID = "thread-cap-1"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
 
         self.designer = Profile.objects.create(discord="capdesigner", discord_id="700")
         self.factions = [
@@ -5698,8 +5682,6 @@ class LFGCaptureTests(TestCase):
     def _vagabond(self, title):
         """A saved Vagabond. `animal` is required: Vagabond.save() routes through
         animal_default_picture, which lowercases it."""
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
         return Vagabond.objects.create(
             title=title, animal="Fox", designer=self.designer,
             status=StatusChoices.STABLE, official=True)
@@ -5856,8 +5838,6 @@ class PickCommandTests(TestCase):
     OWNER = "111111111111111111"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
 
         self.designer = Profile.objects.create(discord="pickcmd", discord_id="750")
         self.factions = [
@@ -6164,8 +6144,6 @@ class PickCommandTests(TestCase):
                          self.factions[1])
 
     def test_picking_the_vagabond_faction_attaches_its_drafted_vagabond(self):
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
         players = self._roster(2)
         vb = Vagabond.objects.create(
             title="Pick Ranger", animal="Fox", designer=self.designer,
@@ -6296,8 +6274,6 @@ class PickCommandTests(TestCase):
     def test_the_undrafted_row_carries_its_vagabond(self):
         """The leftover renders through _pick_seat_detail like a taken seat --
         this is the case that runs it against an LFGDraftPick, not an LFGSeat."""
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
         vb = Vagabond.objects.create(
             title="Undrafted Panel Ranger", animal="Fox", designer=self.designer,
             status=StatusChoices.STABLE, official=True)
@@ -6331,10 +6307,6 @@ class PickVagabondFollowUpTests(TestCase):
     OWNER = "111111111111111111"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
 
         self.designer = Profile.objects.create(discord="pkvb", discord_id="790")
         # The real slug is load-bearing: the follow-up is keyed off it.
@@ -6513,10 +6485,6 @@ class PickCaptainsFollowUpTests(TestCase):
     OWNER = "111111111111111111"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
 
         self.designer = Profile.objects.create(discord="pkcap", discord_id="800")
         self.knaves = Faction.objects.create(
@@ -6758,10 +6726,6 @@ class PickSessionLifecycleTests(TestCase):
     OWNER = "111111111111111111"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
 
         self.designer = Profile.objects.create(discord="pklife", discord_id="810")
         self.factions = [
@@ -6980,8 +6944,6 @@ class PickSeatChoiceTests(TestCase):
     OWNER = "111111111111111111"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
         designer = Profile.objects.create(discord="pkchoice", discord_id="780")
         self.factions = [
             Faction.objects.create(
@@ -7091,8 +7053,6 @@ class PickFreeOrderTests(TestCase):
     OWNER = "111111111111111111"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
         self.designer = Profile.objects.create(discord="pkfree", discord_id="820")
         self.factions = [
             Faction.objects.create(
@@ -7356,8 +7316,6 @@ class PickFreeFollowUpTests(TestCase):
     OWNER = "111111111111111111"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
         self.designer = Profile.objects.create(discord="pkff", discord_id="830")
         self.vagabond_faction = Faction.objects.create(
             title="Vagabond", animal="Fox", designer=self.designer,
@@ -7840,8 +7798,6 @@ class RosterGuardedCommandTests(TestCase):
     OUTSIDER = "999888777666555444"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
         self.guild = DiscordGuild.objects.create(
             guild_id=self.GUILD_ID, name="Guard Guild")
         designer = Profile.objects.create(discord="guarddz", discord_id="700")
@@ -8018,8 +7974,6 @@ class PickCommandGroupThreadTests(TestCase):
     OWNER = "111111111111111111"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
 
         self.guild = DiscordGuild.objects.create(
             guild_id=self.GUILD_ID, name="Pick Guild")
@@ -8231,8 +8185,6 @@ class PickedFactionsByProfileTests(TestCase):
     seat-number join could attach a faction to the wrong player."""
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
 
         self.designer = Profile.objects.create(discord="pickdesigner", discord_id="730")
         self.factions = [
@@ -8347,8 +8299,6 @@ class RandomOptionsPanelTests(TestCase):
     def setUp(self):
         # Saving a Faction rewrites the stock animal image in place; nothing here
         # tests image handling. Same guard DraftLFGSeatingTests uses.
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
 
         designer = Profile.objects.create(discord="fandesigner", discord_id="700")
         for i in range(3):
@@ -11694,10 +11644,6 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
 
     def setUp(self):
         super().setUp()
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
 
         self.designer = Profile.objects.create(discord="bsdesigner", discord_id="900")
         self.map = Map.objects.create(title="Autumn Board", clearings=12,
@@ -12688,8 +12634,6 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         when it was eligible to be played -- so any divergence here is the field
         being narrowed (or blanked) by something the active list escaped."""
         from the_keep.models import Vagabond
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
         caps = [Vagabond.objects.create(title=f"Discard Cap {i}", animal="Fox",
                                         designer=self.designer, captain=True,
                                         status=StatusChoices.STABLE, official=True)
@@ -12980,8 +12924,6 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         are both kind "Faction"), and the ROLLS are what make the form's
         undrafted_* fields offer it at all."""
         from the_keep.models import Vagabond
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
         vb = Vagabond.objects.create(title="Undrafted VB", animal="Fox",
                                      designer=self.designer,
                                      status=StatusChoices.STABLE, official=True)
@@ -13018,8 +12960,6 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         from the_keep.models import Vagabond
         # Same reason setUp does it for Faction/Profile: the resize signal
         # rewrites the shared default image on disk, dirtying the working tree.
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
         caps = [Vagabond.objects.create(title=f"Cap {i}", animal="Fox",
                                         designer=self.designer, captain=True,
                                         status=StatusChoices.STABLE, official=True)
@@ -13769,8 +13709,6 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
 
     def setUp(self):
         super().setUp()
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.player = Profile.objects.create(discord="tokplayer",
                                              discord_id=self.AUTHOR)
         self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
@@ -14103,8 +14041,6 @@ class BoxScoreUploadSweepTests(TestCase):
     """
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.player = Profile.objects.create(discord="sweeper", discord_id="960")
         # A DISTINCT issuer, on the roster but not the only member: the reminder
         # pings the issuer rather than the roster, and if one profile were both
@@ -14273,8 +14209,6 @@ class BoxScoreMatchRosterTests(TestCase):
     """
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.a = Profile.objects.create(discord="mra", discord_id="9001")
         self.b = Profile.objects.create(discord="mrb", discord_id="9002")
         self.c = Profile.objects.create(discord="mrc", discord_id="9003")
@@ -14357,8 +14291,6 @@ class BoxScoreRosterGuardTests(TestCase):
 
     def setUp(self):
         super().setUp()
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
 
         self.player = Profile.objects.create(discord="guardplayer",
                                              discord_id=self.PLAYER_ID)

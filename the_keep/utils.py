@@ -3,6 +3,7 @@ import unicodedata
 import logging
 import os
 import math
+import tempfile
 import uuid
 import string
 
@@ -330,11 +331,20 @@ def resize_image_in_place(image_field, max_size=None, quality=85):
     """
     if not image_field or not image_field.name:
         return
-    
+
+    # Never touch a shipped default. They are pre-optimized, TRACKED in git, and
+    # shared by every object that has no image of its own -- so re-encoding one
+    # rewrites a committed file for everybody, on EVERY save of any object
+    # pointing at it. delete_old_image applies the same rule to deletion; this
+    # applies it before any write, which is also why the conversion branch below
+    # no longer needs its own default_images check.
+    if image_field.name.startswith('default_images/'):
+        return
+
     path = image_field.path
     if not os.path.exists(path):
         return
-    
+
     try:
         img = Image.open(path)
         
@@ -359,27 +369,44 @@ def resize_image_in_place(image_field, max_size=None, quality=85):
             else:
                 img = img.convert("RGB")
         
-        # Change extension to .webp if needed
+        # Encode to a TEMP file beside the target, then move it into place.
+        #
+        # Never encode straight to the destination. Both branches below can name
+        # a path that is the file we are still reading from: the rename branch
+        # because splitting ".webp" off and re-adding it yields the SAME path,
+        # and the optimize branch because it targets `path` outright. Saving
+        # there truncates the source mid-read, and the except clause swallows
+        # whatever goes wrong -- which is how zero-byte images reached commits.
+        #
+        # img.load() forces Pillow to read the pixels now, while the original is
+        # still intact: Image.open is lazy, so without it the decode would happen
+        # during the save, from a file that may already be gone.
+        img.load()
+        base_path = os.path.splitext(path)[0]
+        new_path = f"{base_path}.webp"
+        fd, tmp_path = tempfile.mkstemp(
+            dir=os.path.dirname(new_path) or '.', suffix='.webp')
+        os.close(fd)
+        try:
+            img.save(tmp_path, format="WEBP", quality=quality, method=6)
+            # Atomic within a filesystem, and tmp_path is in the same directory,
+            # so the destination is either the old file or the complete new one --
+            # never a half-written one.
+            os.replace(tmp_path, new_path)
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            raise
+
         if not is_webp:
-            base_path = os.path.splitext(path)[0]
-            new_path = f"{base_path}.webp"
-            
-            # Save as WebP
-            img.save(new_path, format="WEBP", quality=quality, method=6)
-            
-            # Update the image_field to point to new file
-            old_name = image_field.name
-            new_name = old_name.rsplit('.', 1)[0] + '.webp'
-            image_field.name = new_name
-            
-            # Delete old file
-            if os.path.exists(path) and path != new_path and not image_field.name.startswith('default_images/'):
+            # Point the field at the new extension.
+            image_field.name = image_field.name.rsplit('.', 1)[0] + '.webp'
+
+            # Drop the pre-conversion file, unless os.replace already consumed it
+            # (path == new_path when the name was .webp all along).
+            if path != new_path and os.path.exists(path):
                 os.remove(path)
 
-        else:
-            # Already WebP, just save optimized version
-            img.save(path, format="WEBP", quality=quality, method=6)
-            
     except Exception:
         logger.exception("Failed to resize/convert image %s", path)
 
