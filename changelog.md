@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.8] - 2026-9-13 Better Notifications
+## [1.13.8] - 2026-9-14 Better Notifications
 
 ### New Features
 - You can now set up multiple reminders via the Databot for scheduled games
