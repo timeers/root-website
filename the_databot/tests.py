@@ -15,8 +15,9 @@ from kombu.exceptions import OperationalError as KombuOperationalError
 from datetime import datetime, timedelta, timezone as dt_timezone
 from zoneinfo import ZoneInfo
 from the_warroom.models import (
-    Effort, Game, Match, MatchSeat, MatchSeries, PlayerGroup, Round, Stage,
-    StageParticipant, Tournament, TournamentPlayer, CompetitionStatus,
+    Effort, Game, Match, MatchReminderSent, MatchSeat, MatchSeries, PlayerGroup,
+    Round, ScheduledGameReminder, Stage, StageParticipant, Tournament,
+    TournamentPlayer, CompetitionStatus,
 )
 from the_keep.models import (
     StatusChoices, Faction, Map, Deck, Vagabond, Language, Law, LawGroup,
@@ -1565,15 +1566,32 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
             response = di._handle_schedule_free(payload)
         return self._body(response)["data"], enqueue
 
-    def test_confirming_posts_publicly_with_the_disclaimer(self):
-        _data, enqueue = self._confirm()
+    def test_confirming_posts_publicly(self):
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        _data, enqueue = self._confirm(when=when)
         message = enqueue.call_args.args[0][1]
         # No EPHEMERAL flag: an ephemeral "public" post would be visible only to the
         # proposer, which looks like the feature silently doing nothing.
         self.assertNotIn("flags", message)
         embed = message["embeds"][0]
-        self.assertIn(di.SCHEDULE_UNLINKED_NOTE, embed["description"])
         self.assertIn("🕐", embed["title"])
+        # The time the proposer picked actually reaches the post.
+        self.assertIn(f"<t:{int(when.timestamp())}:", embed["description"])
+
+    def test_the_public_post_carries_no_disclaimer_or_proposer(self):
+        """The public embed is deliberately MINIMAL -- just the title and the
+        time. The unlinked note and the "Suggested by" line were dropped from it
+        so a suggested time reads as a timestamp rather than a scheduled game.
+
+        Not a lost warning: the note still rides on the EPHEMERAL preview the
+        proposer confirms from (see the two tests above), which is where it can
+        change their mind. Repeating it publicly only added noise to a message
+        whose whole point is being short.
+        """
+        _data, enqueue = self._confirm()
+        embed = enqueue.call_args.args[0][1]["embeds"][0]
+        self.assertNotIn(di.SCHEDULE_UNLINKED_NOTE, embed["description"])
+        self.assertNotIn("Suggested by", embed["description"])
 
     def test_the_bare_post_has_no_confirm_buttons(self):
         _data, enqueue = self._confirm(kind="bare")
@@ -1768,6 +1786,41 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
         when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
         data = self._click("sched_poll_close", "88888888", when=when)
         self.assertIn("started this poll", data["content"])
+
+    def test_the_poll_does_not_repeat_the_proposer_in_its_description(self):
+        """The embed's author already names and pictures that person, so the
+        "Suggested by" sentence was the same fact twice."""
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        embed = self._poll_embed(when)
+        self.assertNotIn("Suggested by", embed["description"])
+        self.assertNotIn(f"<@{self.player.discord_id}>", embed["description"])
+
+    def test_the_close_gate_survives_the_dropped_line(self):
+        """That line was also where _poll_embed_meta read the proposer back from.
+        The custom_id carries it too, which is what keeps Close host-gated once
+        the description no longer says who proposed."""
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        allowed = self._click("sched_poll_close", self.player.discord_id, when=when)
+        self.assertEqual(allowed["components"], [])
+
+        refused = self._click("sched_poll_close", "88888888", when=when)
+        self.assertIn("started this poll", refused["content"])
+
+    def test_a_poll_posted_before_the_line_was_dropped_still_closes(self):
+        """Backwards compatibility: polls already live in Discord carry the old
+        description, and _poll_embed_meta must keep parsing it. Their buttons are
+        identical, so the only thing being proved here is that the legacy regex
+        still matches rather than the poll going unclosable."""
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        legacy = self._poll_embed(when)
+        legacy["description"] = (
+            f"{di.format_discord_timestamp(when)}\n"
+            f"{di.format_discord_timestamp_code(when)}\n"
+            f"Suggested by <@{self.player.discord_id}>.")
+
+        parsed_when, proposer, _label, _author = di._poll_embed_meta(legacy)
+        self.assertEqual(proposer, str(self.player.discord_id))
+        self.assertIsNotNone(parsed_when)
 
     def test_closing_clears_the_notify_field(self):
         when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
@@ -2561,7 +2614,8 @@ class LFGCancelNotifyTests(TestCase):
         if custom_id is not ...:
             payload["data"] = {"custom_id": custom_id}
         else:
-            payload["data"] = {"custom_id": di.encode_custom_id("lfg_cancel", self.HOST)}
+            payload["data"] = {"custom_id": di.encode_custom_id(
+                "lfg_cancel", self.HOST, di.PICK_OPEN)}
         return payload
 
     def _cancel(self, *args, **kwargs):
@@ -2597,6 +2651,114 @@ class LFGCancelNotifyTests(TestCase):
         delay, data = self._cancel("<@111>", custom_id=None)
         self.assertEqual(data["embeds"][0]["footer"]["text"], "✖ Game was cancelled.")
         self.assertEqual(sorted(delay.call_args.args[0]), ["111"])
+
+
+class LFGCancelPermissionTests(TestCase):
+    """Who may press ✖ Cancel: the host, or a guild moderator.
+
+    The dispatcher's owner-lock admits exactly one snowflake and so cannot
+    express that union -- which is why ✖ carries PICK_OPEN and authorizes itself,
+    the same shape the schedule poll's Close button uses.
+    """
+
+    HOST = "830000000000000011"
+    OTHER = "830000000000000022"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+        self.guild = DiscordGuild.objects.create(guild_id="830000000000000099",
+                                                 name="LFG Guild")
+
+    def _payload(self, clicker):
+        embed = {
+            "title": "Looking for Game", "description": "a game",
+            "fields": [
+                {"name": di.LFG_PLAYERS_FIELD, "value": f"Tim (<@{self.HOST}>)",
+                 "inline": False},
+                {"name": di.LFG_NOTIFY_FIELD, "value": f"<@{self.HOST}> <@111>",
+                 "inline": False},
+            ],
+        }
+        return {
+            "channel_id": "chan", "guild_id": self.guild.guild_id,
+            "member": {"nick": "Clicker", "user": {"id": clicker}},
+            "message": {"id": "msg", "content": "", "embeds": [embed]},
+            "data": {"custom_id": di.encode_custom_id(
+                "lfg_cancel", self.HOST, di.PICK_OPEN)},
+        }
+
+    def _cancel(self, clicker):
+        with mock.patch.object(di.notify_lfg_cancelled_task, "delay") as delay:
+            response = di._handle_lfg_cancel(self._payload(clicker))
+        return delay, json.loads(response.content)["data"]
+
+    def _moderator(self, discord_id, *, admin=False, moderates=True):
+        profile = Profile.objects.create(discord=f"mod{discord_id}",
+                                         discord_id=discord_id)
+        if admin:
+            profile.group = "A"
+            profile.save(update_fields=["group"])
+        if moderates:
+            self.guild.guild_moderators.add(profile)
+        return profile
+
+    def test_the_host_can_cancel(self):
+        _delay, data = self._cancel(self.HOST)
+        self.assertEqual(data["components"], [])
+        self.assertEqual(data["embeds"][0]["footer"]["text"], "✖ Game was cancelled.")
+
+    def test_a_guild_moderator_can_cancel(self):
+        """The whole point: a moderator clears an abandoned post whose host is by
+        definition not answering."""
+        self._moderator(self.OTHER)
+        _delay, data = self._cancel(self.OTHER)
+        self.assertEqual(data["components"], [])
+        self.assertIn("cancelled", data["embeds"][0]["footer"]["text"])
+
+    def test_a_site_admin_can_cancel(self):
+        """The other half of can_moderate_guild -- admin without being in this
+        guild's guild_moderators."""
+        self._moderator(self.OTHER, admin=True, moderates=False)
+        _delay, data = self._cancel(self.OTHER)
+        self.assertEqual(data["components"], [])
+
+    def test_an_outsider_cannot_cancel(self):
+        """Refused, naming BOTH classes -- and still pointing at Join, which is
+        what a would-be player reaching for the adjacent ✖ actually wanted."""
+        Profile.objects.create(discord="nobody", discord_id=self.OTHER)
+        _delay, data = self._cancel(self.OTHER)
+        self.assertIn("host or a moderator", data["content"])
+        self.assertIn('press "Join"', data["content"])
+
+    def test_a_stranger_with_no_profile_cannot_cancel(self):
+        """No Profile at all -- can_moderate_guild never gets a chance to run."""
+        _delay, data = self._cancel(self.OTHER)
+        self.assertIn("host or a moderator", data["content"])
+
+    def test_a_moderator_cancel_names_who_did_it(self):
+        """Closing someone else's post must not read as the host giving up."""
+        self._moderator(self.OTHER)
+        _delay, data = self._cancel(self.OTHER)
+        self.assertIn("Clicker", data["embeds"][0]["footer"]["text"])
+
+    def test_a_moderator_cancel_still_dms_the_host(self):
+        """The host did NOT cancel this one, so they are exactly who needs
+        telling. Only whoever clicked is excluded."""
+        self._moderator(self.OTHER)
+        delay, _data = self._cancel(self.OTHER)
+        delay.assert_called_once()
+        self.assertIn(self.HOST, delay.call_args.args[0])
+
+    def test_start_is_still_host_only(self):
+        """Scoped to ✖. ✔ Start keeps the dispatcher lock, so its custom_id must
+        still END in the host snowflake -- that suffix IS the enforcement."""
+        data = di._lfg_message_data(
+            None, self.HOST, "a game", "Tim", title="Looking for Game")
+        ids = {di.decode_custom_id(b["custom_id"])[0]: b["custom_id"]
+               for b in data["components"][0]["components"]}
+        self.assertTrue(ids["lfg_start"].endswith(f":{self.HOST}"))
+        self.assertTrue(ids["lfg_cancel"].endswith(f":{di.PICK_OPEN}"))
 
 
 class LFGEmbedTitleTests(TestCase):
@@ -3352,6 +3514,20 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
         return reverse("guild-tournament-channels",
                        args=[self.guild.guild_id, pk or self.tournament.pk])
 
+    # The match-reminder formset rides on this same form, so every POST carries
+    # its management form exactly as the rendered page does. These tests are
+    # about the CHANNEL fields, so they always send zero reminder rows.
+    NO_REMINDERS = {
+        "reminders-TOTAL_FORMS": "0",
+        "reminders-INITIAL_FORMS": "0",
+        "reminders-MIN_NUM_FORMS": "0",
+        "reminders-MAX_NUM_FORMS": "1000",
+    }
+
+    def _post(self, data, **kwargs):
+        return self.client.post(self._url(**kwargs),
+                                {**self.NO_REMINDERS, **data})
+
     def test_get_returns_form_with_both_lists_kept_separate(self):
         response = self._with_discord(lambda: self.client.get(self._url()))
         self.assertEqual(response.status_code, 200)
@@ -3361,7 +3537,7 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
         self.assertContains(response, "matches")
 
     def test_valid_post_saves_all_three_and_signals_success(self):
-        response = self._with_discord(lambda: self.client.post(self._url(), {
+        response = self._with_discord(lambda: self._post({
             "results_channel": self.TEXT[0]["id"],
             "schedule_channel": self.TEXT[1]["id"],
             "game_threads_channel": self.FORUM[0]["id"],
@@ -3378,7 +3554,7 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
         self.assertContains(response, "#results")
 
     def test_channel_outside_the_guild_is_rejected(self):
-        response = self._with_discord(lambda: self.client.post(self._url(), {
+        response = self._with_discord(lambda: self._post({
             "results_channel": "999000000000000099",
         }))
         self.assertEqual(response.status_code, 422)
@@ -3388,7 +3564,7 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
     def test_text_channel_cannot_be_saved_as_the_game_threads_forum(self):
         """The two lists really are kept separate — a text channel in the forum field
         would break thread creation at runtime, so it must fail at save time."""
-        response = self._with_discord(lambda: self.client.post(self._url(), {
+        response = self._with_discord(lambda: self._post({
             "game_threads_channel": self.TEXT[0]["id"],
         }))
         self.assertEqual(response.status_code, 422)
@@ -3409,7 +3585,7 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
         for p in patches:
             p.start()
         try:
-            response = self.client.post(self._url(), {
+            response = self._post({
                 "results_channel": "999000000000000099",
             })
             self.assertEqual(response.status_code, 200)
@@ -3422,7 +3598,7 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
     def test_an_empty_channel_list_still_rejects(self):
         """An empty list is a SUCCESSFUL fetch of a guild with no such channels — it
         must reject, unlike None. Guards against a falsy-vs-None mixup in clean()."""
-        response = self._with_discord(lambda: self.client.post(self._url(), {
+        response = self._with_discord(lambda: self._post({
             "results_channel": "999000000000000099",
         }), text=[], forum=[])
         self.assertEqual(response.status_code, 422)
@@ -3442,13 +3618,13 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
         try:
             # Text fetch failed -> an unknown text channel is accepted.
             # Forum fetch worked -> a bad forum channel is still rejected.
-            response = self.client.post(self._url(), {
+            response = self._post({
                 "results_channel": "999000000000000099",
                 "game_threads_channel": self.TEXT[0]["id"],
             })
             self.assertEqual(response.status_code, 422)
 
-            response = self.client.post(self._url(), {
+            response = self._post({
                 "results_channel": "999000000000000099",
                 "game_threads_channel": self.FORUM[0]["id"],
             })
@@ -3464,7 +3640,7 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
         self.tournament.game_threads_channel = self.FORUM[0]["id"]
         self.tournament.save()
 
-        response = self._with_discord(lambda: self.client.post(self._url(), {
+        response = self._with_discord(lambda: self._post({
             "results_channel": "", "schedule_channel": "", "game_threads_channel": "",
         }))
         self.assertEqual(response.status_code, 200)
@@ -8816,6 +8992,111 @@ class SchedulePollOpenTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(embed["author"]["name"], "player")
 
 
+class MatchPollEarlyCloseDMTests(ScheduleFixtureMixin, TestCase):
+    """A MATCH poll closed early reports both sides.
+
+    Its caller used to hand the renderer a hardcoded [] for declines and nothing
+    at all for confirmations, so the DM could only ever describe a fraction of
+    what had happened -- the same root cause as the "nobody could make it" bug.
+    """
+
+    def setUp(self):
+        self.build(populate_group=True)
+
+    def _close(self):
+        proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_by=self.player,
+            proposed_time=timezone.now() + timedelta(days=3),
+            channel_id="555000111", message_id="m", guild_id=self.guild.guild_id)
+        proposal.roster.set([self.player, self.outsider])
+        proposal.confirmed_by.set([self.player])
+        proposal.rejected_by.set([self.outsider])
+
+        payload = {
+            "channel_id": "555000111", "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": self.player.discord_id,
+                                "username": "player"}},
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_poll_close", proposal.pk, "g")},
+            "message": {"id": "m", "components": [], "embeds": [{
+                "title": "🗓 Proposed time",
+                "description": di.format_discord_timestamp(proposal.proposed_time),
+                "fields": [{"name": di.POLL_NOTIFY_FIELD,
+                            "value": "<@111>", "inline": False}],
+            }]},
+        }
+        with mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            di._handle_match_poll_close(payload)
+        return delay
+
+    def test_a_match_poll_closed_early_after_a_decline_names_both(self):
+        delay = self._close()
+        delay.assert_called_once()
+        kwargs = delay.call_args.kwargs
+        self.assertTrue(kwargs["early"])
+        self.assertEqual(kwargs["confirmed"], ["player"])
+        self.assertEqual(kwargs["declined"], ["outsider"])
+
+
+class PollFieldOrderTests(TestCase):
+    """The response columns read Yes → Pending → No.
+
+    Pending sits between the two settled answers so the row reads as a
+    progression. poll_response_fields is the ONLY definition of that order, and
+    every reader looks fields up by name, so this is the one place it can drift.
+    """
+
+    def _names(self, **kwargs):
+        from the_databot.services.lfg_game import poll_response_fields
+        return [f["name"] for f in poll_response_fields(**kwargs)]
+
+    def test_the_poll_lists_yes_then_pending_then_no(self):
+        self.assertEqual(
+            self._names(yes_value="a", no_value="b", pending_value="c"),
+            [di.POLL_YES_FIELD, di.POLL_PENDING_FIELD, di.POLL_NO_FIELD])
+
+    def test_a_rosterless_poll_still_omits_pending(self):
+        """None drops the column entirely -- an empty Pending would claim we are
+        waiting on someone in particular. The reorder must not turn the absence
+        into a blank middle column."""
+        self.assertEqual(self._names(yes_value="a", no_value="b"),
+                         [di.POLL_YES_FIELD, di.POLL_NO_FIELD])
+
+    def test_a_closed_poll_keeps_yes_before_no(self):
+        """What the closed branch actually passes: pending None, stacked. The
+        reorder is invisible here, which is the point -- it must not disturb the
+        two fields that remain."""
+        self.assertEqual(
+            self._names(yes_value="a", no_value="b", columns=False),
+            [di.POLL_YES_FIELD, di.POLL_NO_FIELD])
+
+    def test_poll_state_still_parses_after_the_reorder(self):
+        """State recovery reads an echoed embed back by field NAME, so it is
+        order-independent by construction. Round-trip it to prove that, since a
+        positional reader would have broken silently."""
+        when = timezone.now() + timedelta(days=3)
+        data = di._schedule_poll_data(
+            when, "830000000000000001",
+            yes=[{"id": "111", "name": "Amy"}],
+            no=[{"id": "222", "name": "Ben"}],
+            pending=["Cy"], kind="match")
+        embed = data["embeds"][0]
+
+        # The rendered order is the new one...
+        names = [f["name"] for f in embed["fields"]]
+        self.assertTrue(names[0].startswith(di.POLL_YES_FIELD))
+        self.assertTrue(names[1].startswith(di.POLL_PENDING_FIELD))
+        self.assertTrue(names[2].startswith(di.POLL_NO_FIELD))
+
+        # ...and Yes/No still come back attached to the right people, which is
+        # what a positional reader would have got wrong.
+        yes, no, _notify, pending = di._poll_state(embed)
+        self.assertEqual([e["name"] for e in yes], ["Amy"])
+        self.assertEqual([e["name"] for e in no], ["Ben"])
+        # Not None: the column was rendered, so the roster tri-state survives.
+        self.assertIsNotNone(pending)
+
+
 class SchedulePollNotifyDMTests(TestCase):
     """The 🔔 DMs. Same shape as the lfg notify tasks: raw ids, actor excluded by
     the caller, never raising."""
@@ -8840,6 +9121,27 @@ class SchedulePollNotifyDMTests(TestCase):
                              yes_count=3, total=None)
         self.assertIn("3 confirmed so far", content)
         self.assertNotIn(" of ", content)
+
+    def test_a_yes_with_pending_names_them_instead_of_the_tally(self):
+        content = self._send(event="yes", when_ts=self.WHEN, actor_name="Amy",
+                             yes_count=3, total=5, pending=["Ben", "Cy"])
+        self.assertIn("waiting on **Ben** and **Cy**", content)
+        self.assertNotIn("3 of 5 players confirmed", content)
+
+    def test_a_yes_with_no_pending_falls_back_to_the_tally(self):
+        """Empty/None pending -- a roster-less poll has no pending concept at
+        all -- keeps today's bare count wording."""
+        content = self._send(event="yes", when_ts=self.WHEN, actor_name="Amy",
+                             yes_count=3, total=5, pending=None)
+        self.assertIn("3 of 5 players confirmed", content)
+        self.assertNotIn("waiting on", content)
+
+    def test_a_yes_with_a_long_pending_list_is_summarized(self):
+        content = self._send(
+            event="yes", when_ts=self.WHEN, actor_name="Amy", yes_count=1,
+            total=6, pending=["A", "B", "C", "D", "E"])
+        self.assertIn("+ 1 more", content)
+        self.assertNotIn("**E**", content)
 
     def test_the_time_is_a_discord_timestamp_not_a_fixed_string(self):
         """Each recipient must read it in their OWN timezone."""
@@ -8881,18 +9183,91 @@ class SchedulePollNotifyDMTests(TestCase):
                              declined=["Ben"], confirmed=[], total=None)
         self.assertIn("nobody could make it", content.lower())
 
-    def test_an_early_close_reports_the_count(self):
+    def test_a_completed_close_reports_the_count(self):
         """"before everyone responded" was wrong wherever no roster existed --
         nobody was ever expected to answer. The count says the same thing and
-        reads correctly either way."""
+        reads correctly either way.
+
+        Named for the COMPLETED path: no `early` flag, so this is a poll that ran
+        its course. The early-close wording is "was closed early with ...", which
+        deliberately does not contain this substring."""
         content = self._send(event="closed", when_ts=self.WHEN, yes_count=3)
         self.assertIn("closed with 3 confirmed", content)
         self.assertNotIn("before everyone responded", content)
 
-    def test_an_early_close_with_a_roster_shows_the_denominator(self):
+    def test_a_completed_close_with_a_roster_shows_the_denominator(self):
         content = self._send(event="closed", when_ts=self.WHEN,
                              yes_count=3, total=5)
         self.assertIn("closed with 3 of 5 confirmed", content)
+
+    # ── closed EARLY: the poll was stopped before the roster finished ──
+
+    def test_an_early_close_with_confirms_and_declines_names_both(self):
+        """THE REPORTED BUG. A poll closed early with people who could make it
+        was reported as "nobody could make it" -- the renderer read an empty
+        `confirmed` (which the caller had simply not passed) as nobody."""
+        content = self._send(event="closed", when_ts=self.WHEN, early=True,
+                             confirmed=["Amy", "Cy"], declined=["Ben"],
+                             yes_count=2, total=5)
+        self.assertIn("closed early", content)
+        self.assertIn("**Amy** and **Cy** can make it", content)
+        self.assertIn("**Ben** couldn't", content)
+        self.assertNotIn("nobody", content.lower())
+
+    def test_an_early_close_with_only_confirms_says_who_can_make_it(self):
+        content = self._send(event="closed", when_ts=self.WHEN, early=True,
+                             confirmed=["Amy", "Cy"], yes_count=2, total=5)
+        self.assertIn("**Amy** and **Cy** can make it", content)
+        self.assertIn("No time was scheduled", content)
+        self.assertNotIn("nobody", content.lower())
+
+    def test_an_early_close_with_no_confirms_says_so(self):
+        """Names the decliner without claiming nobody was ever available --
+        the poll was stopped, so the rest were never asked."""
+        content = self._send(event="closed", when_ts=self.WHEN, early=True,
+                             declined=["Ben"], yes_count=0, total=5)
+        self.assertIn("**Ben** couldn't make it", content)
+        self.assertIn("nobody else had confirmed", content)
+
+    def test_an_early_close_with_no_names_falls_back_to_counts(self):
+        content = self._send(event="closed", when_ts=self.WHEN, early=True,
+                             yes_count=3, total=5)
+        self.assertIn("was closed early with 3 of 5 confirmed", content)
+
+    def test_nobody_could_make_it_requires_zero_confirmations(self):
+        """The regression guard for the root cause. `confirmed` is empty ONLY
+        because this caller didn't pass it -- yes_count says two people
+        confirmed, so the message must not claim nobody could.
+
+        Fails against the old code, which tested `elif declined:` with no regard
+        for whether anyone had confirmed."""
+        content = self._send(event="closed", when_ts=self.WHEN,
+                             declined=["Ben"], confirmed=[], yes_count=2,
+                             total=None)
+        self.assertNotIn("nobody", content.lower())
+        self.assertIn("2 confirmed", content)
+
+    def test_a_completed_poll_with_no_confirmations_still_says_nobody(self):
+        """The branch is still reachable and still correct -- when it is TRUE."""
+        content = self._send(event="closed", when_ts=self.WHEN,
+                             declined=["Ben"], confirmed=[], yes_count=0,
+                             total=None)
+        self.assertIn("nobody could make it", content.lower())
+
+    def test_a_rostered_decline_is_unchanged(self):
+        """Row 6 verbatim: one decline vetoes a rostered poll, and the decliner
+        is the actionable part."""
+        content = self._send(event="closed", when_ts=self.WHEN,
+                             declined=["Ben"], confirmed=["Amy"],
+                             yes_count=1, total=5)
+        self.assertIn("**Ben** couldn't make it", content)
+        self.assertIn("no time was scheduled", content)
+        self.assertIn("/schedule set", content)
+
+    def test_the_everyone_confirmed_message_is_unchanged(self):
+        content = self._send(event="closed", when_ts=self.WHEN, scheduled=True,
+                             confirmed=["Amy", "Cy"], yes_count=2, total=2)
+        self.assertIn("everyone confirmed", content)
 
 
 class ScheduleWriteRuleTests(ScheduleFixtureMixin, TestCase):
@@ -9376,6 +9751,98 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(self.proposal.status, ScheduleProposal.Status.OPEN)
         self.assertIn(self.teammate.pk,
                       self.proposal.rejected_by.values_list("pk", flat=True))
+
+    # ── notify on each Yes, not just at close ──────────────────────────────
+
+    def _notify_payload(self, **kw):
+        """A Confirm payload carrying a 🔔 subscriber (the host) in its embed,
+        same shape test_the_last_voter_is_excluded_from_the_result_dm uses."""
+        payload = self._payload(**kw)
+        payload["message"] = {"id": "m", "embeds": [{"fields": [{
+            "name": di.POLL_NOTIFY_FIELD,
+            "value": f"<@{self.host.discord_id}>", "inline": False}]}]}
+        return payload
+
+    def test_a_new_yes_notifies_subscribers_while_the_poll_is_still_open(self):
+        """A third roster player keeps the poll open after this Yes, so the
+        bell should fire now rather than waiting for a close that hasn't
+        happened yet."""
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        self.host = Profile.objects.create(discord="host", discord_id="7")
+        with mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            self._body(di._handle_schedule_proposal_confirm(
+                self._notify_payload()))
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.OPEN)
+        delay.assert_called_once()
+        args, kwargs = delay.call_args
+        self.assertEqual(args[1], "yes")
+        self.assertIn(str(self.host.discord_id), args[0])
+
+    def test_the_clicker_is_excluded_from_their_own_yes_notification(self):
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        self.host = Profile.objects.create(discord="host", discord_id="7")
+        payload = self._notify_payload()
+        payload["message"]["embeds"][0]["fields"][0]["value"] = (
+            f"<@{self.host.discord_id}> <@{self.teammate.discord_id}>")
+        with mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            self._body(di._handle_schedule_proposal_confirm(payload))
+        targets = delay.call_args.args[0]
+        self.assertNotIn(str(self.teammate.discord_id), targets)
+        self.assertIn(str(self.host.discord_id), targets)
+
+    def test_a_repeat_yes_click_does_not_renotify(self):
+        """already-confirmed + roster still incomplete short-circuits to the
+        ephemeral reply before _resolve_match_poll runs at all."""
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        self.host = Profile.objects.create(discord="host", discord_id="7")
+        with mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            self._body(di._handle_schedule_proposal_confirm(
+                self._notify_payload(user_id=self.player.discord_id,
+                                     username="player")))
+        delay.assert_not_called()
+
+    def test_a_no_click_never_sends_a_yes_notification(self):
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        self.host = Profile.objects.create(discord="host", discord_id="7")
+        with mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            self._body(di._handle_schedule_proposal_reject(
+                self._notify_payload(action="sched_poll_no")))
+        delay.assert_not_called()
+
+    def test_the_completing_yes_click_only_gets_the_closed_notification(self):
+        """A 2-player roster: the teammate's Yes completes it, so this click
+        must fall straight to the close branch -- not a "yes" DM followed by
+        a "closed" one."""
+        self.host = Profile.objects.create(discord="host", discord_id="7")
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
+                mock.patch.object(di, "_announce_schedule_to_channel"), \
+                mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            self._body(di._handle_schedule_proposal_confirm(
+                self._notify_payload()))
+        delay.assert_called_once()
+        self.assertEqual(delay.call_args.args[1], "closed")
+
+    def test_a_yes_notification_names_who_is_still_pending(self):
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        self.host = Profile.objects.create(discord="host", discord_id="7")
+        with mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            self._body(di._handle_schedule_proposal_confirm(
+                self._notify_payload()))
+        kwargs = delay.call_args.kwargs
+        self.assertEqual(kwargs["pending"], [third.display_name or third.discord])
+
+    def test_no_bell_subscribers_sends_nothing(self):
+        third = Profile.objects.create(discord="third", discord_id="6")
+        self.proposal.roster.add(third)
+        with mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            self._body(di._handle_schedule_proposal_confirm(self._payload()))
+        delay.assert_not_called()
 
     def test_an_agreed_proposal_is_still_swept(self):
         """AGREED is live, so it must not survive a time set another way."""
@@ -14477,9 +14944,21 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         # defaults False -- and False is itself one of the gates below.
         self.guild.bot_member = True
         self.guild.save(update_fields=["bot_member"])
-        self.tournament.match_reminder_minutes = 60
-        self.tournament.save(update_fields=["match_reminder_minutes"])
+        self.reminder = self._remind(self.tournament, 60)
         self._schedule(self.match, minutes=30)
+
+    def _remind(self, tournament, minutes, text=None):
+        """Configure one reminder. Reminders are rows now, so 'off' is no rows."""
+        kwargs = {"tournament": tournament, "match_reminder_minutes": minutes}
+        if text is not None:
+            kwargs["reminder_text"] = text
+        return ScheduledGameReminder.objects.create(**kwargs)
+
+    def _sent_count(self, match=None):
+        qs = MatchReminderSent.objects.all()
+        if match is not None:
+            qs = qs.filter(match=match)
+        return qs.count()
 
     def _schedule(self, match, minutes):
         match.scheduled_time = timezone.now() + timedelta(minutes=minutes)
@@ -14499,8 +14978,7 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         delay = self._sweep()
         self.assertEqual(delay.call_count, 1)
         self.assertEqual(delay.call_args.args[0], "555000111")
-        self.match.refresh_from_db()
-        self.assertIsNotNone(self.match.reminder_sent_at)
+        self.assertEqual(self._sent_count(self.match), 1)
 
     def test_pings_are_allowed_to_notify(self):
         """Without allowed_mentions the <@id>s render as blue text and notify
@@ -14527,10 +15005,10 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         self.group.save(update_fields=["group_moderator"])
         content = self._content(self._sweep())
         self.assertIn(f"with <@{mod.discord_id}> moderating", content)
-        # After the label, before the time -- and the players still lead.
+        # LAST, after the time -- and the players still lead.
         self.assertLess(content.index(f"<@{self.player.discord_id}>"),
                         content.index("moderating"))
-        self.assertLess(content.index("moderating"), content.index("<t:"))
+        self.assertLess(content.index("<t:"), content.index("moderating"))
 
     def test_an_unlinked_moderator_is_named_not_mentioned(self):
         """Same rule the roster uses: no snowflake means no ping, but they are
@@ -14544,13 +15022,15 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         self.assertNotIn("<@None>", content)
 
     def test_no_moderator_leaves_the_sentence_unchanged(self):
-        """The clause must vanish entirely, not leave a dangling "with"."""
+        """The clause must vanish entirely, not leave a dangling "with" or the
+        double space a naive join would leave where it used to sit."""
         self.group.group_moderator = None
         self.group.save(update_fields=["group_moderator"])
         content = self._content(self._sweep())
-        self.assertIn("starts soon — ", content)
         self.assertNotIn("moderating", content)
         self.assertNotIn(" with ", content)
+        self.assertNotIn("  ", content)
+        self.assertFalse(content.endswith(" "))
 
     def test_the_moderator_costs_no_extra_query(self):
         """This queryset is hand-tuned with select_related + .only(); reading a
@@ -14564,8 +15044,7 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
             baseline = len(ctx.captured_queries)
         # A second match in its own series must not scale the query count with
         # the number of matches -- that is what the prefetching is protecting.
-        self.match.reminder_sent_at = None
-        self.match.save(update_fields=["reminder_sent_at"])
+        self.match.reminders_sent.all().delete()
         with mock.patch.object(tasks.post_channel_message_task, "delay"):
             with CaptureQueriesContext(connection) as ctx:
                 tasks.remind_upcoming_matches()
@@ -14583,12 +15062,12 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         self.series.save(update_fields=["number_of_games"])
         Match.objects.create(round=self.round, series=self.series, match_number=2)
         content = self._content(self._sweep())
-        self.assertIn("game 1 of 3", content)
+        self.assertIn("(1 of 3)", content)
 
     # --- the gates ------------------------------------------------------
     def test_no_reminder_when_unconfigured(self):
-        self.tournament.match_reminder_minutes = None
-        self.tournament.save(update_fields=["match_reminder_minutes"])
+        """No rows is the off switch -- there is no 'blank' value any more."""
+        self.tournament.reminders.all().delete()
         self.assertEqual(self._sweep().call_count, 0)
 
     def test_no_reminder_when_bot_not_in_guild(self):
@@ -14614,8 +15093,7 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         self.group.discord_thread = "https://discord.com/channels/999999/555000111"
         self.group.save(update_fields=["discord_thread"])
         self._sweep()
-        self.match.refresh_from_db()
-        self.assertIsNone(self.match.reminder_sent_at)
+        self.assertEqual(self._sent_count(self.match), 0)
 
     def test_no_reminder_without_a_scheduled_time(self):
         Match.objects.filter(pk=self.match.pk).update(scheduled_time=None)
@@ -14652,8 +15130,7 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
     def test_outside_the_window_is_not_sent_and_stays_unclaimed(self):
         self._schedule(self.match, minutes=90)
         self.assertEqual(self._sweep().call_count, 0)
-        self.match.refresh_from_db()
-        self.assertIsNone(self.match.reminder_sent_at)
+        self.assertEqual(self._sent_count(self.match), 0)
 
     def test_a_match_already_started_is_never_reminded(self):
         Match.objects.filter(pk=self.match.pk).update(
@@ -14664,15 +15141,15 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         """The test that justifies the whole design: one sweep, two leads. A
         single fixed cutoff cannot satisfy both."""
         # This tournament: lead 120, match at +60 -> INSIDE its window.
-        self.tournament.match_reminder_minutes = 120
-        self.tournament.save(update_fields=["match_reminder_minutes"])
+        self.reminder.match_reminder_minutes = 120
+        self.reminder.save(update_fields=["match_reminder_minutes"])
         self._schedule(self.match, minutes=60)
 
         # A second tournament: lead 30, match also at +60 -> OUTSIDE its window.
         guild2 = DiscordGuild.objects.create(
             guild_id="900200", name="Other Guild", bot_member=True)
-        t2 = Tournament.objects.create(
-            name="Other Tournament", guild=guild2, match_reminder_minutes=30)
+        t2 = Tournament.objects.create(name="Other Tournament", guild=guild2)
+        self._remind(t2, 30)
         stage2 = Stage.objects.create(tournament=t2, name="S", order=1)
         round2 = Round.objects.create(stage=stage2, round_number=1)
         group2 = PlayerGroup.objects.create(
@@ -14693,18 +15170,84 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(self._sweep().call_count, 0)
 
     def test_nothing_configured_anywhere_returns_immediately(self):
-        Tournament.objects.update(match_reminder_minutes=None)
+        ScheduledGameReminder.objects.all().delete()
         with self.assertNumQueries(1):
             result = tasks.remind_upcoming_matches()
         self.assertEqual(result, {"sent": 0, "skipped": 0})
+
+    # --- several reminders on one series --------------------------------
+    #
+    # The reason the claim had to stop being a single timestamp on the match:
+    # one flag cannot say "the 60-minute ping went out, the 10-minute has not".
+    def test_two_reminders_both_fire_when_both_are_due(self):
+        self._remind(self.tournament, 45)       # match is at +30, so both due
+        delay = self._sweep()
+        self.assertEqual(delay.call_count, 2)
+        self.assertEqual(self._sent_count(self.match), 2)
+
+    def test_a_later_reminder_still_fires_after_an_earlier_one(self):
+        """THE regression the old single timestamp made impossible: the 60 fires
+        now, and the 10 fires on a later sweep once its own window opens."""
+        self._remind(self.tournament, 10)
+        self.assertEqual(self._sweep().call_count, 1)   # only the 60 is due
+        self.assertEqual(self._sent_count(self.match), 1)
+
+        self._schedule(self.match, minutes=5)           # now inside the 10 too
+        self.assertEqual(self._sweep().call_count, 2)
+
+    def test_neither_reminder_fires_twice(self):
+        self._remind(self.tournament, 45)
+        self.assertEqual(self._sweep().call_count, 2)
+        self.assertEqual(self._sweep().call_count, 0)
+        self.assertEqual(self._sent_count(self.match), 2)
+
+    def test_each_reminder_sends_its_own_text(self):
+        self.reminder.reminder_text = "one hour warning"
+        self.reminder.save(update_fields=["reminder_text"])
+        self._remind(self.tournament, 45, text="forty five warning")
+        delay = self._sweep()
+        contents = [c.args[1] for c in delay.call_args_list]
+        self.assertTrue(any("one hour warning" in c for c in contents))
+        self.assertTrue(any("forty five warning" in c for c in contents))
+
+    def test_a_fully_reminded_match_is_not_rescanned(self):
+        """Once every reminder has gone out the match drops out of the candidate
+        query, rather than being re-fetched every sweep for the rest of its lead
+        time and relying on the constraint to reject the duplicate."""
+        self._sweep()
+        with mock.patch.object(tasks.post_channel_message_task, "delay"):
+            with CaptureQueriesContext(connection) as ctx:
+                tasks.remind_upcoming_matches()
+        selects = [q["sql"] for q in ctx.captured_queries
+                   if q["sql"].lstrip().upper().startswith("SELECT")]
+        self.assertFalse(
+            any("the_warroom_matchseat" in q for q in selects),
+            "a fully-reminded match was still loaded and walked")
+
+    # --- message shape --------------------------------------------------
+    def test_the_user_owns_the_wording(self):
+        """No em-dash and no "starts soon" wrapped around the text: the layout
+        is pings, game number, text, time, moderator."""
+        self.reminder.reminder_text = "saddle up"
+        self.reminder.save(update_fields=["reminder_text"])
+        content = self._content(self._sweep())
+        self.assertIn("saddle up", content)
+        self.assertNotIn("—", content)
+        self.assertNotIn("starts soon", content)
+        self.assertLess(content.index("saddle up"), content.index("<t:"))
+
+    def test_a_single_game_series_has_no_game_number(self):
+        content = self._content(self._sweep())
+        self.assertNotIn(" of ", content)
+        self.assertNotIn("(", content.split("<t:")[0])
 
     # --- efficiency -----------------------------------------------------
     def test_reads_do_not_grow_with_the_number_of_matches(self):
         """The load-bearing efficiency test.
 
-        Exactly ONE query per match is legitimate: the UPDATE that claims the row
-        (the compare-and-swap giving at-most-once delivery). Everything else --
-        every SELECT -- must be constant, so this counts reads and writes
+        Exactly ONE query per reminder sent is legitimate: the INSERT that claims
+        it (the unique constraint giving at-most-once delivery). Everything else
+        -- every SELECT -- must be constant, so this counts reads and writes
         separately rather than asserting a single magic total.
 
         A regression here means a deferred field got read (Django silently issues
@@ -14733,14 +15276,14 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
                 round=self.round, player_group=group, number_of_games=1)
             match = Match.objects.create(round=self.round, series=series)
             self._schedule(match, minutes=30)
-        Match.objects.update(reminder_sent_at=None)
+        MatchReminderSent.objects.all().delete()
 
         reads_five, writes_five = sweep_counts()
         self.assertEqual(
             reads_one, reads_five,
             f"SELECT count scales with match count ({reads_one} -> {reads_five}): "
             "an N+1 crept in")
-        # One claim per match, and nothing else.
+        # One claim per reminder sent, and nothing else.
         self.assertEqual(writes_five, 5)
 
     def test_reads_do_not_grow_on_the_seat_only_path(self):
@@ -14772,7 +15315,7 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
                 series=series, stage_participant=self.participant, seat_number=1)
             match = Match.objects.create(round=self.round, series=series)
             self._schedule(match, minutes=30)
-        Match.objects.update(reminder_sent_at=None)
+        MatchReminderSent.objects.all().delete()
 
         five = sweep_reads()
         self.assertEqual(

@@ -1833,11 +1833,11 @@ class DismissNotificationTests(_NoLoginSignalMixin, TestCase):
 
 
 class TournamentGuildChannelsFormReminderTests(TestCase):
-    """match_reminder_minutes on the Edit Guild series-channels form.
+    """The match-reminder formset on the Edit Guild series-channels form.
 
-    The form's clean() walks an explicit list of CHANNEL fields, so it never
-    touches this one -- these tests pin down that a blank input stores NULL
-    (rather than 0 or ""), since NULL is what switches reminders off.
+    Reminders are rows rather than a field now, so "off" is no rows and a
+    series can carry several. The channels form's clean() walks an explicit
+    list of CHANNEL fields and never touches these.
     """
 
     def setUp(self):
@@ -1847,28 +1847,136 @@ class TournamentGuildChannelsFormReminderTests(TestCase):
         self.tournament = Tournament.objects.create(
             name="Form Tournament", guild=self.guild)
 
-    def _form(self, value):
-        from the_gatehouse.forms import TournamentGuildChannelsForm
-        return TournamentGuildChannelsForm(
-            {"results_channel": "", "schedule_channel": "",
-             "game_threads_channel": "", "game_threads_tag": "",
-             "match_reminder_minutes": value},
-            instance=self.tournament, guild=self.guild)
+    def _formset(self, rows, initial=0):
+        """`rows` is a list of (minutes, text, delete) tuples."""
+        from the_gatehouse.forms import make_reminder_formset
+        data = {
+            "reminders-TOTAL_FORMS": str(len(rows)),
+            "reminders-INITIAL_FORMS": str(initial),
+            "reminders-MIN_NUM_FORMS": "0",
+            "reminders-MAX_NUM_FORMS": "1000",
+        }
+        for i, (minutes, text, delete) in enumerate(rows):
+            data[f"reminders-{i}-match_reminder_minutes"] = minutes
+            data[f"reminders-{i}-reminder_text"] = text
+            if delete:
+                data[f"reminders-{i}-DELETE"] = "on"
+            existing = list(self.tournament.reminders.order_by("pk"))
+            if i < initial:
+                data[f"reminders-{i}-id"] = str(existing[i].pk)
+        return make_reminder_formset(data, instance=self.tournament)
 
-    def test_blank_stores_null_not_zero(self):
-        form = self._form("")
-        self.assertTrue(form.is_valid(), form.errors)
-        form.save()
-        self.tournament.refresh_from_db()
-        self.assertIsNone(self.tournament.match_reminder_minutes)
+    def test_no_rows_means_no_reminders(self):
+        formset = self._formset([])
+        self.assertTrue(formset.is_valid(), formset.errors)
+        formset.save()
+        self.assertEqual(self.tournament.reminders.count(), 0)
 
-    def test_a_value_is_stored(self):
-        form = self._form("45")
-        self.assertTrue(form.is_valid(), form.errors)
-        form.save()
-        self.tournament.refresh_from_db()
-        self.assertEqual(self.tournament.match_reminder_minutes, 45)
+    def test_a_row_is_stored(self):
+        formset = self._formset([("45", "kickoff soon", False)])
+        self.assertTrue(formset.is_valid(), formset.errors)
+        formset.save()
+        reminder = self.tournament.reminders.get()
+        self.assertEqual(reminder.match_reminder_minutes, 45)
+        self.assertEqual(reminder.reminder_text, "kickoff soon")
+
+    def test_several_rows_are_stored(self):
+        """The whole point of the change: more than one reminder per series."""
+        formset = self._formset([("60", "an hour out", False),
+                                 ("10", "ten minutes out", False)])
+        self.assertTrue(formset.is_valid(), formset.errors)
+        formset.save()
+        self.assertEqual(
+            sorted(self.tournament.reminders.values_list(
+                "match_reminder_minutes", flat=True)),
+            [10, 60])
+
+    def test_zero_is_a_real_lead_time(self):
+        """0 means "ping at start time" -- with rows it is no longer the
+        ambiguous value NULL had to stand in for."""
+        formset = self._formset([("0", "starting now", False)])
+        self.assertTrue(formset.is_valid(), formset.errors)
+        formset.save()
+        self.assertEqual(self.tournament.reminders.get().match_reminder_minutes, 0)
 
     def test_negative_is_rejected(self):
         """PositiveIntegerField -- a negative lead time is meaningless."""
-        self.assertFalse(self._form("-5").is_valid())
+        self.assertFalse(self._formset([("-5", "nope", False)]).is_valid())
+
+    def test_delete_removes_the_row(self):
+        from the_warroom.models import ScheduledGameReminder
+        ScheduledGameReminder.objects.create(
+            tournament=self.tournament, match_reminder_minutes=30)
+        formset = self._formset([("30", "gone", True)], initial=1)
+        self.assertTrue(formset.is_valid(), formset.errors)
+        formset.save()
+        self.assertEqual(self.tournament.reminders.count(), 0)
+
+    def test_two_rows_at_the_same_lead_are_rejected(self):
+        """The unique constraint, surfaced as a form error rather than a 500."""
+        formset = self._formset([("30", "first", False), ("30", "second", False)])
+        self.assertFalse(formset.is_valid())
+
+
+class ReminderModalSaveTests(_NoLoginSignalMixin, TestCase):
+    """The reminders through the REAL modal endpoint, which saves them in the
+    same request as the channels. The formset tests above cover the rows in
+    isolation; these cover the two committing (or refusing) together."""
+
+    def setUp(self):
+        super().setUp()
+        from the_warroom.models import Tournament
+        self.user = User.objects.create_user(username="remmod", password="pw")
+        self.profile = Profile.objects.get(user=self.user)
+        self.guild = DiscordGuild.objects.create(guild_id="911000", name="G")
+        self.guild.guild_moderators.add(self.profile)
+        self.tournament = Tournament.objects.create(name="T", guild=self.guild)
+        self.client.force_login(self.user)
+        self.url = reverse('guild-tournament-channels',
+                           args=[self.guild.guild_id, self.tournament.pk])
+
+    def _post(self, rows, initial=0, results_channel=""):
+        data = {"results_channel": results_channel, "schedule_channel": "",
+                "game_threads_channel": "", "game_threads_tag": "",
+                "reminders-TOTAL_FORMS": str(len(rows)),
+                "reminders-INITIAL_FORMS": str(initial),
+                "reminders-MIN_NUM_FORMS": "0", "reminders-MAX_NUM_FORMS": "1000"}
+        existing = list(self.tournament.reminders.order_by("pk"))
+        for i, (minutes, text, delete) in enumerate(rows):
+            data[f"reminders-{i}-match_reminder_minutes"] = minutes
+            data[f"reminders-{i}-reminder_text"] = text
+            if delete:
+                data[f"reminders-{i}-DELETE"] = "on"
+            if i < initial:
+                data[f"reminders-{i}-id"] = str(existing[i].pk)
+        return self.client.post(self.url, data, HTTP_HX_REQUEST="true")
+
+    def test_get_renders_the_formset(self):
+        response = self.client.get(self.url, HTTP_HX_REQUEST="true")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"TOTAL_FORMS", response.content)
+
+    def test_saving_two_reminders_through_the_modal(self):
+        response = self._post([("60", "hour out", False), ("10", "ten out", False)])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.tournament.reminders.count(), 2)
+
+    def test_an_invalid_row_returns_422_and_saves_nothing(self):
+        response = self._post([("-5", "bad", False)])
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(self.tournament.reminders.count(), 0)
+
+    def test_one_bad_row_rolls_back_the_good_ones_beside_it(self):
+        """Both or neither. The formset is saved as a unit, so a single invalid
+        row must leave NOTHING written -- not the valid rows submitted with it,
+        and not the edit to an existing row."""
+        self._post([("60", "keep me", False)])
+        self.assertEqual(self.tournament.reminders.count(), 1)
+
+        response = self._post(
+            [("60", "edited", False), ("-5", "bad", False)], initial=1)
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(self.tournament.reminders.count(), 1)
+        # The edit to the surviving row was rolled back with the bad one.
+        self.assertEqual(self.tournament.reminders.get().reminder_text, "keep me")

@@ -30,7 +30,7 @@ from the_warroom.models import (Tournament, Round, Effort, Game, EloSystem,
                                  effort_counts_for_tournament_q)
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
-from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm, TournamentGuildChannelsForm, PlayerScheduleForm
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm, TournamentGuildChannelsForm, PlayerScheduleForm, make_reminder_formset
 from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, PlayerSchedule, general_schedule_for, schedules_for
 from the_databot.models import GuildLFGRole
 from the_databot.services.discordservice import (get_guild_roles, get_guild_forum_channels,
@@ -2309,7 +2309,10 @@ def edit_guild(request, guild_id):
     # Series linked to this guild, each pre-rendered into row context so the template
     # needs no per-field dict lookups. The channel-name lookup is skipped entirely when
     # no series are linked, so guilds without any pay nothing for this card.
-    guild_tournaments = list(guild.tournaments.all().order_by('name'))
+    # prefetch the reminders: _tournament_row_ctx lists them per row, which is one
+    # query per series without this.
+    guild_tournaments = list(
+        guild.tournaments.all().prefetch_related('reminders').order_by('name'))
     channel_names = guild_channel_names(guild) if guild_tournaments else {}
     tournament_rows = [_tournament_row_ctx(t, guild, channel_names)
                        for t in guild_tournaments]
@@ -2621,7 +2624,15 @@ def _tournament_row_ctx(tournament, guild, channel_names):
         name = channel_names.get(channel_id)
         return f'{prefix}{name}' if name else channel_id
 
-    minutes = tournament.match_reminder_minutes
+    # Reminders are ROWS now, so the line lists every configured lead time. No rows
+    # means reminders are off and the whole line is dropped by the filter below.
+    # 0 is a real value ("at start time"), which is why this builds from the row
+    # list rather than testing truthiness on a number.
+    leads = [r.match_reminder_minutes for r in tournament.reminders.all()]
+    reminder_text = ', '.join(
+        ngettext('%(count)d minute before', '%(count)d minutes before', m)
+        % {'count': m} for m in leads) if leads else None
+
     # (label, value, tag) -- `tag` is the forum tag NAME shown after the value with a
     # tag icon, and is None on every row that has no tag concept.
     channels = [
@@ -2635,13 +2646,8 @@ def _tournament_row_ctx(tournament, guild, channel_names):
         # Not a channel, but it lives on the same form for the same reason (it only
         # works with a guild the bot is in), so it belongs in the same summary.
         # Carries its unit: a bare "30" beside three channel names reads as an id.
-        # NULL means reminders are off and is dropped by the filter below -- 0 is a
-        # real value ("at start time"), which is why this tests `is not None`
-        # rather than truthiness.
-        (_('Match reminder'),
-         ngettext('%(count)d minute before', '%(count)d minutes before', minutes)
-         % {'count': minutes} if minutes is not None else None,
-         None),
+        (ngettext('Match reminder', 'Match reminders', len(leads)),
+         reminder_text, None),
     ]
     return {'tournament': tournament, 'guild': guild,
             'channels': [(lbl, val, tag) for lbl, val, tag in channels if val]}
@@ -2662,13 +2668,20 @@ def hx_save_tournament_channels(request, guild_id, pk):
         edit_form = TournamentGuildChannelsForm(instance=tournament, guild=guild)
         return render(request, 'the_gatehouse/partials/tournament_channels_form.html',
                       {'form': edit_form, 'tournament': tournament, 'guild': guild,
+                       'formset': make_reminder_formset(instance=tournament),
                        'field_ctx': _tournament_channel_context(guild, edit_form)})
     if request.method != 'POST':
         return JsonResponse({'error': 'POST required'}, status=405)
 
     form = TournamentGuildChannelsForm(request.POST, instance=tournament, guild=guild)
-    if form.is_valid():
-        obj = form.save()
+    formset = make_reminder_formset(request.POST, instance=tournament)
+    # BOTH must validate before EITHER is written: a bad reminder row must not
+    # leave the channels saved and the modal reopened showing an error, which
+    # would read as though nothing had been saved at all.
+    if form.is_valid() and formset.is_valid():
+        with transaction.atomic():
+            obj = form.save()
+            formset.save()
         # The modal body gets a short "saved" stub; the row is refreshed out-of-band so
         # the displayed channel names update. HX-Trigger closes the modal client-side
         # (see static/js/tournament_channels_modal.js). No refresh_guild_commands here —
@@ -2679,6 +2692,7 @@ def hx_save_tournament_channels(request, guild_id, pk):
         return response
     return render(request, 'the_gatehouse/partials/tournament_channels_form.html',
                   {'form': form, 'tournament': tournament, 'guild': guild,
+                   'formset': formset,
                    'field_ctx': _tournament_channel_context(guild, form)}, status=422)
 
 

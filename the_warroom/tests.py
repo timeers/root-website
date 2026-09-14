@@ -36,8 +36,9 @@ from the_warroom.forms import GameCreateForm
 from the_databot.tasks import create_match_threads_task
 from the_warroom.services.grouping import GroupingService
 from the_warroom.models import (
-    CompetitionStatus, Effort, Game, Match, MatchSeat, MatchSeries, PlayerGroup,
-    Round, Stage, StageParticipant, Tournament, TournamentPlayer,
+    CompetitionStatus, Effort, Game, Match, MatchReminderSent, MatchSeat,
+    MatchSeries, PlayerGroup, Round, ScheduledGameReminder, Stage,
+    StageParticipant, Tournament, TournamentPlayer,
 )
 from the_warroom.views import (
     _can_record_match, user_can_record_in_round, _prefill_undrafted,
@@ -1103,25 +1104,39 @@ class ResultsChannelAnnounceTests(TestCase):
     def tearDown(self):
         post_save.connect(handle_image_resize, sender=Profile)
 
-    def _post(self, message):
+    def _post(self, message, **kwargs):
         from the_databot import tasks
         from the_warroom.services.channel_posts import post_to_tournament_channel
         with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                         return_value=self.TEXT), \
              mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
-            sent = post_to_tournament_channel(self.tournament, 'results_channel', message)
+            sent = post_to_tournament_channel(self.tournament, 'results_channel',
+                                              message, **kwargs)
         return sent, delay
 
-    def test_message_names_the_recorder_and_links_the_game(self):
+    def test_the_content_reaches_the_task_unchanged(self):
+        """This class builds its own message, so it tests the TRANSPORT: what the
+        caller hands over is what gets queued. The view's wording is covered by
+        ResultsChannelViewAnnounceTests, which drives the real view."""
         msg = (f'Game recorded by {self.recorder.name}. '
-               f'See results [here](https://example.com/game/1/).')
+               f'See the results [here](https://example.com/game/1/).')
         sent, delay = self._post(msg)
         self.assertTrue(sent)
         content = delay.call_args.args[1]
         self.assertIn("Game recorded by Recorder Rita.", content)
-        self.assertIn("See results [here]", content)
-        # A plain name, never a mention: these posts set no allowed_mentions.
-        self.assertNotIn("<@", content)
+        self.assertIn("See the results [here]", content)
+
+    def test_allowed_mentions_is_forwarded_when_given(self):
+        """Required for any content carrying a mention: without it the task posts
+        no allowed_mentions key, and Discord's default notifies everyone named."""
+        _sent, delay = self._post("hi", allowed_mentions={"parse": []})
+        self.assertEqual(delay.call_args.kwargs["allowed_mentions"], {"parse": []})
+
+    def test_omitting_allowed_mentions_posts_exactly_as_before(self):
+        """Every pre-existing caller passes nothing, and must keep queueing a bare
+        (channel, content) call -- the parameter is additive, not a behaviour change."""
+        _sent, delay = self._post("hi")
+        self.assertNotIn("allowed_mentions", delay.call_args.kwargs)
 
     def test_profile_name_falls_back_when_no_display_name(self):
         bare = Profile.objects.create(discord="justdiscord")
@@ -1248,7 +1263,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         args = announce.call_args.args
         self.assertEqual(args[0], self.tournament)
         self.assertEqual(args[1], 'results_channel')
-        self.assertIn('See results [here]', args[2])
+        self.assertIn('See the results [here]', args[2])
 
     def test_game_outside_a_tournament_does_not_announce(self):
         """A round with no tournament resolves to None and is skipped."""
@@ -1355,6 +1370,104 @@ class ResultsChannelViewAnnounceTests(TestCase):
 
         announce.assert_called_once()
         thread_post.delay.assert_called_once()
+
+    # ── naming the game, linking its thread, tagging its recorder ──
+
+    def _match_with_thread(self, thread_guild=None):
+        """A match whose group thread URL points at `thread_guild` (default: the
+        tournament's own guild, which match_thread_id requires)."""
+        guild_id = thread_guild or self.guild.guild_id
+        group = PlayerGroup.objects.create(
+            round=self.round,
+            discord_thread=f"https://discord.com/channels/{guild_id}"
+                           f"/400000000000000044")
+        series = MatchSeries.objects.create(round=self.round, player_group=group)
+        match = Match.objects.create(round=self.round, series=series)
+        self._seat(series, self.profile, 1)
+        self._seat(series, self.opponent, 2)
+        return match, group
+
+    def test_the_recorder_is_tagged_without_pinging(self):
+        """BOTH halves are the feature. A <@id> with no allowed_mentions is a
+        ping -- Discord's default parses every mention -- so asserting only the
+        tag would let the notification regress silently."""
+        self.profile.discord_id = "700000000000000007"
+        self.profile.save(update_fields=["discord_id"])
+
+        _, announce, _ = self._record_committed(
+            reverse('record-game'), self._payload())
+
+        self.assertIn(f"<@{self.profile.discord_id}>", announce.call_args.args[2])
+        self.assertEqual(announce.call_args.kwargs["allowed_mentions"],
+                         {"parse": []})
+
+    def test_a_recorder_without_a_discord_id_falls_back_to_a_plain_name(self):
+        """discord_id is null AND blank. A literal "<@>" would make Discord
+        reject the whole payload with a 400, so the guard is load-bearing."""
+        self.assertFalse(self.profile.discord_id)
+        _, announce, _ = self._record_committed(
+            reverse('record-game'), self._payload())
+
+        content = announce.call_args.args[2]
+        self.assertIn(f"recorded by {self.profile.name}.", content)
+        self.assertNotIn("<@", content)
+
+    def test_a_match_game_links_the_group_thread(self):
+        match, group = self._match_with_thread()
+        url = f"{reverse('record-game')}?match={match.pk}"
+        _, announce, _ = self._record_committed(
+            url, self._payload(match_id=match.pk, nickname="Grand Final"))
+
+        self.assertIn(f"[Grand Final]({group.discord_thread})",
+                      announce.call_args.args[2])
+
+    def test_an_lfg_game_links_the_lfg_thread(self):
+        role = GuildLFGRole.objects.create(guild=self.guild, name="TTS LFG",
+                                           tournament=self.tournament)
+        thread = LFGThread.objects.create(thread_id="300000000000000033",
+                                          guild=self.guild, lfg_role=role,
+                                          host=self.profile)
+        thread.players.add(self.profile, self.opponent)
+
+        url = f"{reverse('record-game')}?lfg={thread.pk}"
+        _, announce, _ = self._record_committed(
+            url, self._payload(lfg_id=thread.pk, nickname="Friday Night"))
+
+        self.assertIn(f"[Friday Night]({thread.thread_url()})",
+                      announce.call_args.args[2])
+
+    def test_a_game_with_no_thread_names_it_without_a_link(self):
+        """A standalone game still gets its NAME -- an improvement on the bare
+        word "Game" -- just no link to jump to."""
+        _, announce, _ = self._record_committed(
+            reverse('record-game'), self._payload(nickname="Ladder Game"))
+
+        content = announce.call_args.args[2]
+        self.assertTrue(content.startswith("Ladder Game recorded by"), content)
+        self.assertNotIn("](https://discord.com", content)
+
+    def test_a_thread_url_in_the_wrong_guild_is_not_linked(self):
+        """The schedule announcement interpolates discord_thread raw; this one
+        gates on match_thread_id, so a stale or mistyped URL degrades to the
+        unlinked name rather than publishing a link into another server."""
+        match, group = self._match_with_thread(thread_guild="999999999999999999")
+        url = f"{reverse('record-game')}?match={match.pk}"
+        _, announce, _ = self._record_committed(
+            url, self._payload(match_id=match.pk, nickname="Grand Final"))
+
+        content = announce.call_args.args[2]
+        self.assertNotIn(group.discord_thread, content)
+        self.assertTrue(content.startswith("Grand Final recorded by"), content)
+
+    def test_a_game_with_no_nickname_falls_back_to_a_platform_name(self):
+        """Game.nickname is null AND blank. Mirrors the rich-message title's own
+        fallback, so both announcements for one game agree on its name."""
+        _, announce, _ = self._record_committed(
+            reverse('record-game'), self._payload())
+
+        self.assertTrue(
+            announce.call_args.args[2].startswith("Tabletop Simulator Game recorded by"),
+            announce.call_args.args[2])
 
 
 class MatchModeSeatOrderTests(ResultsChannelViewAnnounceTests):
@@ -3059,12 +3172,13 @@ class BoxScoreUploadTestModeTokenTests(TestCase):
         return {'turn_order': turn_order, 'player': profile.slug,
                 'player_steam_id': steam_id, 'turns': [{'turn': 1, 'score': 3}]}
 
-    def _post(self, doc, token_raw):
+    def _post(self, doc, token_raw, raw_body=None):
+        body = raw_body if raw_body is not None else json.dumps(doc)
         with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay'), \
                 mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay') as prompt, \
                 mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
             response = self.client.post(
-                reverse('api-boxscore-upload'), data=json.dumps(doc),
+                reverse('api-boxscore-upload'), data=body,
                 content_type='application/json',
                 HTTP_AUTHORIZATION=f'Game-Token {token_raw}')
         return response, prompt
@@ -3073,6 +3187,42 @@ class BoxScoreUploadTestModeTokenTests(TestCase):
         from datetime import timedelta
         return BoxScoreUploadToken.issue(
             self.thread, profile=None, test_mode=True, ttl=timedelta(days=30))
+
+    def test_a_malformed_upload_does_not_burn_a_test_token(self):
+        """A test token survives an unreadable file, exactly as it survives a
+        successful one.
+
+        The BoxScoreImportError handler used to retire the token with no
+        test_mode guard, so ONE bad paste killed a 30-day admin token for good --
+        and every attempt after that answered `token_used`, which describes a
+        token somebody spent rather than one thrown away on their behalf.
+        """
+        token, raw = self._token()
+        bad = self._post(None, raw, raw_body='not json at all')[0]
+        self.assertEqual(bad.status_code, 400)
+        self.assertEqual(bad.json()['error'], 'invalid_box_score')
+
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.ISSUED)
+
+        # The point of surviving: the SAME token still works afterwards.
+        doc = {'participants': [self._seat(1, self.alice, self.ALICE_STEAM),
+                                self._seat(2, self.bob, self.BOB_STEAM)]}
+        good = self._post(doc, raw)[0]
+        self.assertEqual(good.status_code, 200)
+        self.assertEqual(good.json()['status'], 'applied')
+
+    def test_a_malformed_upload_still_cancels_a_normal_token(self):
+        """The other side of the guard. A single-use token is spent either way,
+        and its payload is cleared -- which is what keeps _boxscore_restorable's
+        payload__isnull=False filter honest."""
+        token, raw = BoxScoreUploadToken.issue(self.thread, self.alice)
+        response = self._post(None, raw, raw_body='not json at all')[0]
+        self.assertEqual(response.status_code, 400)
+
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.CANCELLED)
+        self.assertIsNone(token.payload)
 
     def test_a_test_token_can_be_used_more_than_once(self):
         _t, raw = self._token()
@@ -3128,6 +3278,29 @@ class BoxScoreUploadTestModeTokenTests(TestCase):
         self.assertEqual(self.thread.seats.count(), 3)
         self.assertTrue(all(s.profile_id == self.alice.pk
                             for s in self.thread.seats.all()))
+
+    def test_a_test_token_ignores_the_match_roster_check_too(self):
+        """A match thread re-checks the roster balance a SECOND time inside
+        _boxscore_apply (match_roster), independently of the upload-time
+        check and of Gate 2 -- test_mode has to skip both or an off-roster
+        test upload still fails with 'not in this match'.
+
+        Driven in-process rather than through the HTTP view: series_id is set
+        on the instance only, never saved, the same way
+        test_a_match_threads_roster_is_never_touched avoids standing up a real
+        Round/Stage/MatchSeries just to make the FK truthy."""
+        from the_databot import discord_interactions as di
+        stranger = Profile.objects.create(discord='teststranger2', discord_id='904')
+        self.thread.series_id = 1     # truthy: the branch only checks series_id
+        token, _raw = self._token()
+        raw_body = json.dumps({'participants': [
+            self._seat(1, stranger, '76561198000000197'),
+        ]}).encode()
+        with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay'), \
+                mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
+                mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
+            result = di.boxscore_upload_from_api(self.thread, raw_body, token)
+        self.assertEqual(result['status'], 'applied')
 
 
 class _AvailabilityFixtureMixin:
@@ -3886,14 +4059,101 @@ class AssumedSteamIdWriteTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Match.save() re-arms reminder_sent_at when the scheduled time moves.
+# Match.save() re-arms the reminders when the scheduled time moves -- i.e. it
+# deletes the MatchReminderSent rows, so the sweep announces the NEW time.
 #
-# Every real caller passes update_fields=["scheduled_time"], and update_fields
-# restricts which COLUMNS the UPDATE writes -- so a save() override that only
-# assigns the field is silently discarded on its way to the database. These
-# tests therefore go through the REAL call shape and assert against the stored
-# row, never the in-memory instance (which would pass even with that bug).
+# Every real caller passes update_fields=["scheduled_time"], so these tests go
+# through the REAL call shape and assert against stored rows, never the
+# in-memory instance (which would pass even if nothing reached the database).
 # ---------------------------------------------------------------------------
+class RoundMatchesUrlTests(TestCase):
+    """Round/Match/MatchSeries agree on where a round's matches live.
+
+    Round.get_matches_url() knew only two of the four tournament layouts, which
+    did NOT 404 -- it silently rendered the wrong page, because
+    round_matches_page resolves its stage with get_single_stage() and in simple
+    mode both the hidden stage and the round exist. The first two tests here are
+    those regressions; the rest pin the delegation that keeps one copy of the
+    branching.
+    """
+
+    def _layout(self, *, use_stages, use_rounds):
+        """A tournament/stage/round/series in one of the four layouts."""
+        tournament = Tournament.objects.create(
+            name=f"T {use_stages}-{use_rounds}", use_stages=use_stages)
+        stage = Stage.objects.create(tournament=tournament, name="S1", order=1,
+                                     use_rounds=use_rounds)
+        round_obj = Round.objects.create(stage=stage, round_number=1)
+        series = MatchSeries.objects.create(round=round_obj, number_of_games=1)
+        return tournament, stage, round_obj, series
+
+    def test_simple_matches_mode_uses_the_tournament_page(self):
+        """No stages + a hidden stage with no rounds. Previously returned a
+        round-scoped URL, leaking a round the layout says does not exist."""
+        tournament, _stage, round_obj, _series = self._layout(
+            use_stages=False, use_rounds=False)
+        self.assertTrue(tournament._is_simple_matches_mode())
+        self.assertEqual(
+            round_obj.get_matches_url(),
+            reverse('tournament-matches-page', kwargs={'slug': tournament.slug}))
+
+    def test_a_stage_without_rounds_uses_the_stage_page(self):
+        """Previously returned a round_slug for a round the stage never shows."""
+        tournament, stage, round_obj, _series = self._layout(
+            use_stages=True, use_rounds=False)
+        self.assertEqual(
+            round_obj.get_matches_url(),
+            reverse('stage-matches-page', kwargs={
+                'tournament_slug': tournament.slug, 'stage_slug': stage.slug}))
+
+    def test_a_tournament_without_stages_uses_the_simple_round_page(self):
+        tournament, _stage, round_obj, _series = self._layout(
+            use_stages=False, use_rounds=True)
+        self.assertEqual(
+            round_obj.get_matches_url(),
+            reverse('round-matches-simple', kwargs={
+                'tournament_slug': tournament.slug, 'round_slug': round_obj.slug}))
+
+    def test_the_full_hierarchy_uses_the_round_page(self):
+        tournament, stage, round_obj, _series = self._layout(
+            use_stages=True, use_rounds=True)
+        self.assertEqual(
+            round_obj.get_matches_url(),
+            reverse('round-matches-page', kwargs={
+                'tournament_slug': tournament.slug, 'stage_slug': stage.slug,
+                'round_slug': round_obj.slug}))
+
+    def test_a_stageless_round_does_not_raise(self):
+        """Round.stage is nullable, which is why get_tournament() exists. The old
+        self.stage.tournament raised AttributeError here."""
+        tournament = Tournament.objects.create(name="Stageless", use_stages=False)
+        round_obj = Round.objects.create(round_number=1, tournament=tournament)
+        self.assertTrue(round_obj.get_matches_url())   # must not raise
+
+    def test_match_and_round_agree_in_every_layout(self):
+        """Match.get_matches_url() defers to the round, so the two cannot drift."""
+        for use_stages in (False, True):
+            for use_rounds in (False, True):
+                with self.subTest(use_stages=use_stages, use_rounds=use_rounds):
+                    _t, _s, round_obj, series = self._layout(
+                        use_stages=use_stages, use_rounds=use_rounds)
+                    match = Match.objects.create(round=round_obj, series=series)
+                    self.assertEqual(match.get_matches_url(),
+                                     round_obj.get_matches_url())
+
+    def test_a_series_url_is_its_rounds_url(self):
+        _t, _s, round_obj, series = self._layout(use_stages=True, use_rounds=True)
+        Match.objects.create(round=round_obj, series=series)
+        self.assertEqual(series.get_matches_url(), round_obj.get_matches_url())
+
+    def test_a_series_with_no_matches_still_has_a_url(self):
+        """A bye, or a bracket slot nobody is drawn into. Going through a
+        representative Match would answer None for exactly these."""
+        _t, _s, round_obj, series = self._layout(use_stages=True, use_rounds=True)
+        self.assertFalse(series.matches.exists())
+        self.assertEqual(series.get_matches_url(), round_obj.get_matches_url())
+
+
 class MatchReminderResetTests(TestCase):
 
     def setUp(self):
@@ -3905,52 +4165,64 @@ class MatchReminderResetTests(TestCase):
             round=self.round, group_number=1, name="Group A")
         self.series = MatchSeries.objects.create(
             round=self.round, player_group=self.group, number_of_games=1)
+        self.reminder = ScheduledGameReminder.objects.create(
+            tournament=self.tournament, match_reminder_minutes=60)
         self.start = timezone.now() + timedelta(hours=2)
         self.match = Match.objects.create(
             round=self.round, series=self.series, scheduled_time=self.start)
         self._mark_reminded()
 
     def _mark_reminded(self):
-        """Claim the row the way the sweep does -- .update(), not save()."""
+        """Claim it the way the sweep does."""
         self.sent_at = timezone.now()
-        Match.objects.filter(pk=self.match.pk).update(reminder_sent_at=self.sent_at)
+        MatchReminderSent.objects.create(
+            match=self.match, reminder=self.reminder, sent_at=self.sent_at)
         self.match.refresh_from_db()
 
     def _stored(self):
-        return Match.objects.get(pk=self.match.pk).reminder_sent_at
+        return MatchReminderSent.objects.filter(match=self.match).count()
 
     def test_rescheduling_rearms_the_reminder(self):
         self.match.scheduled_time = self.start + timedelta(hours=1)
         self.match.save(update_fields=["scheduled_time"])
-        self.assertIsNone(self._stored())
+        self.assertEqual(self._stored(), 0)
 
     def test_clearing_the_time_rearms_the_reminder(self):
         """The /schedule clear path."""
         self.match.scheduled_time = None
         self.match.save(update_fields=["scheduled_time"])
-        self.assertIsNone(self._stored())
+        self.assertEqual(self._stored(), 0)
 
     def test_saving_an_unchanged_time_keeps_the_claim(self):
         """Otherwise any unrelated save would re-send a reminder already given."""
         self.match.name = "Renamed"
         self.match.save(update_fields=["name"])
-        self.assertEqual(self._stored(), self.sent_at)
+        self.assertEqual(self._stored(), 1)
 
     def test_a_full_save_also_rearms(self):
-        """A bare save() passes no update_fields at all -- the widening branch
-        must not be the only thing that clears the flag."""
+        """A bare save() passes no update_fields at all -- it can still move the
+        time, so it must not be skipped by the update_fields guard."""
         self.match.scheduled_time = self.start + timedelta(hours=3)
         self.match.save()
-        self.assertIsNone(self._stored())
+        self.assertEqual(self._stored(), 0)
 
-    def test_no_extra_query_when_no_reminder_is_outstanding(self):
-        """The stored-row comparison is guarded on reminder_sent_at, so an
-        ordinary match pays nothing for this feature."""
-        Match.objects.filter(pk=self.match.pk).update(reminder_sent_at=None)
+    def test_a_save_that_cannot_move_the_time_costs_no_extra_query(self):
+        """The guard is `scheduled_time in update_fields`: a save that does not
+        write that column cannot need a re-arm, so it must not pay for the
+        lookup. (Only the UPDATE itself.)"""
+        match = Match.objects.get(pk=self.match.pk)
+        match.name = "Renamed"
+        with self.assertNumQueries(1):
+            match.save(update_fields=["name"])
+
+    def test_rearming_costs_nothing_when_there_is_nothing_to_clear(self):
+        """A match that was never reminded still reschedules cleanly -- the
+        DELETE simply matches no rows."""
+        MatchReminderSent.objects.all().delete()
         match = Match.objects.get(pk=self.match.pk)
         match.scheduled_time = self.start + timedelta(hours=4)
-        with self.assertNumQueries(1):
-            match.save(update_fields=["scheduled_time"])
+        match.save(update_fields=["scheduled_time"])
+        self.assertEqual(self._stored(), 0)
 
     def test_a_rescheduled_match_is_reminded_again(self):
         """End to end: the reset is only worth anything if the sweep then picks
@@ -3961,8 +4233,7 @@ class MatchReminderResetTests(TestCase):
         guild = DiscordGuild.objects.create(
             guild_id="900300", name="Reset Guild", bot_member=True)
         self.tournament.guild = guild
-        self.tournament.match_reminder_minutes = 60
-        self.tournament.save(update_fields=["guild", "match_reminder_minutes"])
+        self.tournament.save(update_fields=["guild"])
         self.group.discord_thread = "https://discord.com/channels/900300/4242"
         self.group.save(update_fields=["discord_thread"])
 

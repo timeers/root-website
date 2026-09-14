@@ -613,10 +613,41 @@ class GuildLFGRoleForm(forms.ModelForm):
         return cleaned
 
 
+def make_reminder_formset(*args, **kwargs):
+    """The match-reminder rows edited alongside a series' channels.
+
+    Built HERE rather than as a module-level constant: inlineformset_factory
+    resolves both models when it runs, and doing that at import time is the same
+    the_warroom <-> the_gatehouse cycle TournamentGuildChannelsForm.Meta dodges
+    with apps.get_model (see its comment) -- and it could also run before the app
+    registry is ready.
+
+    extra=0 because rows are added client-side from the empty_form template;
+    can_delete gives each row the X that removes it on the next save.
+    """
+    formset_cls = forms.inlineformset_factory(
+        apps.get_model('the_warroom', 'Tournament'),
+        apps.get_model('the_warroom', 'ScheduledGameReminder'),
+        fields=['match_reminder_minutes', 'reminder_text'],
+        extra=0,
+        can_delete=True,
+        widgets={
+            # min=0, not 1: 0 is a real lead time meaning "ping at start time".
+            'match_reminder_minutes': forms.NumberInput(
+                attrs={'class': 'form-control', 'min': 0}),
+            'reminder_text': forms.TextInput(attrs={'class': 'form-control'}),
+        },
+    )
+    return formset_cls(*args, **kwargs)
+
+
 class TournamentGuildChannelsForm(forms.ModelForm):
-    """The Discord channels a series posts into -- plus its match-reminder lead time,
-    which is guild plumbing for the same reason: it only works with a guild the bot is
-    in. Edited from the Edit Guild page rather than any tournament form.
+    """The Discord channels a series posts into. Guild plumbing, edited from the Edit
+    Guild page rather than any tournament form.
+
+    Match reminders sit on the same form for the same reason -- they only work with a
+    guild the bot is in -- but are rows rather than a field, so they ride as a separate
+    formset (make_reminder_formset) that the view saves in the same transaction.
 
     All fields are rendered as live dropdowns by tournament_channels_form_fields.html and
     bind normally by name. results/schedule are TEXT channels; game_threads is a FORUM
@@ -629,7 +660,7 @@ class TournamentGuildChannelsForm(forms.ModelForm):
         # (GuildLFGRoleForm dodges the same problem with a function-local import).
         model = apps.get_model('the_warroom', 'Tournament')
         fields = ['results_channel', 'schedule_channel', 'game_threads_channel',
-                  'game_threads_tag', 'match_reminder_minutes']
+                  'game_threads_tag']
 
     def __init__(self, *args, guild=None, **kwargs):
         # `guild` is not a form field — it's the guild whose channels are valid choices,

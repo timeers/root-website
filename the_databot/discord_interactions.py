@@ -2483,10 +2483,10 @@ def _handle_schedule_proposal_confirm(payload):
         return _ephemeral(_already_confirmed_text(proposal, me))
 
     proposal.rejected_by.remove(me)   # answering moves you between the columns
-    return _resolve_match_poll(payload, proposal, match)
+    return _resolve_match_poll(payload, proposal, match, me=me, is_new_yes=not already)
 
 
-def _resolve_match_poll(payload, proposal, match):
+def _resolve_match_poll(payload, proposal, match, me=None, is_new_yes=False):
     """Re-render a match poll after a vote, closing it if that was the last one.
 
     The single place the poll's outcome is decided, shared by Yes and No so the
@@ -2498,10 +2498,24 @@ def _resolve_match_poll(payload, proposal, match):
 
     all_responded is the CLOSE condition and all_confirmed the WRITE condition;
     they differ exactly when someone declined, which is the whole point of a poll
-    that no longer dies on the first rejection."""
+    that no longer dies on the first rejection.
+
+    `me`/`is_new_yes` are Confirm-only: a genuinely new Yes (never a repeat
+    click, never a No) DMs the 🔔 subscribers immediately, same as the embed
+    poll's per-click notify. Scoped to the "still waiting" branch below, so the
+    click that completes the roster falls through to the close branch instead
+    and is never double-notified."""
     notify_ids = _poll_notify_ids_from_payload(payload)
 
     if not proposal.all_responded():
+        if is_new_yes and notify_ids:
+            pending = [p.display_name or p.discord or p.slug or "—"
+                      for p in proposal.pending_profiles()]
+            _notify_poll_yes(
+                notify_ids, _interaction_user_id(payload),
+                me.display_name or me.discord or me.slug or "—", proposal.proposed_time,
+                proposal.confirmed_by.count(), proposal.roster.count() or None,
+                _lfg_jump_url(payload), pending=pending)
         return JsonResponse({
             "type": RESPONSE_UPDATE_MESSAGE,
             "data": _schedule_proposal_data(
@@ -2524,7 +2538,11 @@ def _resolve_match_poll(payload, proposal, match):
             _notify_poll_closed(notify_ids, proposal.proposed_time,
                                 _proposal_entries(declined), scheduled=False,
                                 closed_by=str(_interaction_user_id(payload)),
-                                jump_url=_lfg_jump_url(payload))
+                                jump_url=_lfg_jump_url(payload),
+                                yes_entries=_proposal_entries(
+                                    proposal.confirmed_by.all()),
+                                yes_count=proposal.confirmed_by.count(),
+                                total=proposal.roster.count() or None)
         return JsonResponse({
             "type": RESPONSE_UPDATE_MESSAGE,
             "data": _schedule_rejected_data(
@@ -2567,7 +2585,11 @@ def _resolve_match_poll(payload, proposal, match):
         _notify_poll_closed(notify_ids, proposal.proposed_time, [],
                             scheduled=True,
                             closed_by=str(_interaction_user_id(payload)),
-                            jump_url=_lfg_jump_url(payload))
+                            jump_url=_lfg_jump_url(payload),
+                            yes_entries=_proposal_entries(
+                                proposal.confirmed_by.all()),
+                            yes_count=proposal.confirmed_by.count(),
+                            total=proposal.roster.count() or None)
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": _schedule_finalized_data(proposal, match),
@@ -2657,7 +2679,8 @@ def _handle_schedule_proposal_reject(payload):
     # answers -- see _resolve_match_poll.
     proposal.rejected_by.add(me)
     proposal.confirmed_by.remove(me)   # answering moves you between the columns
-    return _resolve_match_poll(payload, proposal, match)
+    # is_new_yes=False: a No is never a Yes-notify trigger.
+    return _resolve_match_poll(payload, proposal, match, me=me, is_new_yes=False)
 
 
 def _handle_schedule_proposal_set(payload):
@@ -2860,7 +2883,16 @@ def _schedule_poll_data(when, proposer_id, *, yes, no, notify_ids=(),
     # _poll_embed_meta re-reads this poll's instant from the FIRST `<t:` in the
     # description on every click, and that has to be the line above.
     lines.append(format_discord_timestamp_code(when))
-    lines.append(f"Suggested by <@{proposer_id}>.")
+    # No "Suggested by" line: the embed's `author` already shows that person's
+    # name and avatar, so the sentence was the same fact twice.
+    #
+    # It was ALSO a state store -- _poll_embed_meta parsed the proposer's
+    # snowflake back out of this description on every click, since an embed-mode
+    # poll has no row. That still works for polls posted before this change and
+    # must keep working (see the regex there), but it is no longer the source for
+    # new ones: _poll_buttons writes the proposer into every embed-mode
+    # custom_id, and match mode reads it off the ScheduleProposal. The parse is
+    # now purely backwards compatibility.
     if kind != "match":
         lines.append(SCHEDULE_UNLINKED_NOTE)
 
@@ -3235,10 +3267,16 @@ def _handle_match_poll_close(payload):
     if notify_ids:
         # A match poll always HAS a roster, so the DM always carries a
         # denominator -- unlike an embed poll in a bare channel.
-        _notify_poll_closed(notify_ids, proposal.proposed_time, [],
-                            scheduled=False,
+        # Both response lists, not just the count: a match poll can be closed
+        # early AFTER someone declined, and passing [] for the declines left that
+        # out of the message entirely. yes_entries likewise -- without it the
+        # renderer cannot say who is available.
+        _notify_poll_closed(notify_ids, proposal.proposed_time,
+                            _proposal_entries(proposal.rejected_by.all()),
+                            scheduled=False, early=True,
                             closed_by=str(_interaction_user_id(payload)),
                             jump_url=_lfg_jump_url(payload),
+                            yes_entries=_proposal_entries(proposal.confirmed_by.all()),
                             yes_count=proposal.confirmed_by.count(),
                             total=len(_match_roster(match)))
     embed = schedule_closed_embed(
@@ -3306,7 +3344,14 @@ def _poll_embed_meta(embed):
     The poll is stateless in embed mode, so everything needed to re-render comes
     back off the message. The timestamp is parsed from the `<t:unix:F>` the
     description opens with rather than carried in the custom_id, which is capped
-    at 100 chars and ':'-delimited."""
+    at 100 chars and ':'-delimited.
+
+    proposer_id answers None for any poll rendered since the "Suggested by" line
+    was dropped as duplicate of the embed author -- the callers all fall back to
+    the snowflake in the custom_id (`embed_proposer or proposer_id`), which is
+    where it has actually lived all along. The regex stays for polls posted
+    BEFORE that change, whose buttons are identical but whose description is the
+    only place their proposer was written down."""
     description = embed.get("description", "")
     ts_match = re.search(r"<t:(\d+):", description)
     when = None
@@ -3396,7 +3441,8 @@ def _handle_schedule_poll_respond(payload):
 
         if joining_yes and notify_ids:
             _notify_poll_yes(notify_ids, clicker_id, display, when, len(yes),
-                             len(roster) or None, _lfg_jump_url(payload))
+                             len(roster) or None, _lfg_jump_url(payload),
+                             pending=_poll_pending_names(roster, yes, no) if roster else None)
 
     # Everyone on the roster has answered -> close. A poll with no roster has no
     # completion condition and closes only via the Close button.
@@ -3443,7 +3489,7 @@ def _handle_schedule_poll_close(payload):
     proposer_id = embed_proposer or proposer_id
 
     clicker_id = str(_interaction_user_id(payload))
-    if proposer_id and clicker_id != proposer_id and not _poll_closer_is_staff(payload):
+    if proposer_id and clicker_id != proposer_id and not _clicker_is_guild_staff(payload):
         return _ephemeral("Only the person who started this poll can close it.")
 
     yes, no, notify_ids, pending = _poll_state(embed)
@@ -3453,11 +3499,18 @@ def _handle_schedule_poll_close(payload):
         jump_url=_lfg_jump_url(payload))
 
 
-def _poll_closer_is_staff(payload):
-    """Whether a non-proposer may close: a guild moderator or site admin.
+def _clicker_is_guild_staff(payload):
+    """Whether whoever clicked is a guild moderator or site admin.
 
-    Embed-mode polls have no Match, so there is no can_schedule to consult --
-    guild moderation is the only staff signal available here."""
+    The one "is this clicker staff here?" question, asked straight from a
+    component payload -- unlike _thread_staff_override, which needs a resolved
+    Profile and a PlayerGroup. Used where a button must admit more than the one
+    snowflake the dispatcher's owner-lock can express: a poll's Close (the
+    proposer or staff) and /lfg's ✖ Cancel (the host or staff).
+
+    Guild moderation is the only staff signal available on these paths -- an
+    embed-mode poll has no Match and an LFG post has no tournament, so there is
+    no can_schedule to consult."""
     # Lazy + cross-app: the_gatehouse.views imports the_databot.tasks and
     # discordservice at module scope, so a top-level import here would close
     # the cycle.
@@ -3493,6 +3546,9 @@ def _poll_close_response(when, proposer_id, yes, no, notify_ids, label, author,
         _notify_poll_closed(
             notify_ids, when, no, scheduled=agreed, closed_by=closed_by,
             jump_url=jump_url, yes_count=len(yes), yes_entries=yes,
+            # The same test `agreed` makes above: reason "closed" is the Close
+            # button, everything else is the roster finishing on its own.
+            early=(reason == "closed"),
             # None when there is no roster, so the DM omits the denominator --
             # the same tri-state the footer reads.
             total=(len(yes) + len(pending) + len(no)
@@ -3509,19 +3565,24 @@ def _poll_close_response(when, proposer_id, yes, no, notify_ids, label, author,
 
 
 def _notify_poll_yes(notify_ids, actor_id, actor_name, when, yes_count, total,
-                     jump_url):
+                     jump_url, pending=None):
     """DM the subscribers that someone confirmed. The actor is excluded — they
-    just clicked, so telling them is noise."""
+    just clicked, so telling them is noise.
+
+    `pending` names who still hasn't answered, so the DM can say who rather
+    than a bare count -- omitted (None/empty) for a roster-less poll, which
+    has no pending concept at all."""
     targets = [i for i in notify_ids if str(i) != str(actor_id)]
     if not targets:
         return
     notify_schedule_poll_task.delay(
         targets, "yes", int(when.timestamp()), actor_name=actor_name,
-        yes_count=yes_count, total=total, jump_url=jump_url)
+        yes_count=yes_count, total=total, jump_url=jump_url, pending=pending)
 
 
 def _notify_poll_closed(notify_ids, when, no_entries, *, scheduled, closed_by=None,
-                        jump_url=None, yes_count=0, total=None, yes_entries=()):
+                        jump_url=None, yes_count=0, total=None, yes_entries=(),
+                        early=False):
     """DM the subscribers the final result.
 
     `closed_by` is whoever's click ENDED the poll -- the person who pressed Close,
@@ -3531,7 +3592,14 @@ def _notify_poll_closed(notify_ids, when, no_entries, *, scheduled, closed_by=No
     Deliberately not the host. A moderator may close a poll they did not start,
     and an auto-close is triggered by whichever player happens to answer last --
     so excluding the proposer would both spam the closer and silently drop the
-    host from a result they are still subscribed to."""
+    host from a result they are still subscribed to.
+
+    `early` is True when Close ended the poll before the roster finished.
+
+    PASS yes_entries AND yes_count, always. Every caller supplying one and not
+    the other is what produced a close message claiming nobody could make it for
+    a poll people had confirmed: yes_entries defaulted to empty and the renderer
+    read that as "nobody" -- see notify_schedule_poll_task's docstring."""
     targets = [i for i in notify_ids if str(i) != str(closed_by or "")]
     if not targets:
         return
@@ -3541,7 +3609,7 @@ def _notify_poll_closed(notify_ids, when, no_entries, *, scheduled, closed_by=No
         # Who CAN make it. A poll with no roster books nothing, so a decline
         # vetoes nothing there and this is the only meaningful result to report.
         confirmed=[e["name"] for e in yes_entries],
-        scheduled=scheduled,
+        scheduled=scheduled, early=early,
         jump_url=jump_url, yes_count=yes_count, total=total)
 
 
@@ -7616,9 +7684,13 @@ def boxscore_upload_from_api(thread, raw, token):
                             skip_roster_check=token.test_mode)
 
     if body is None:
+        # match_roster re-checks the SAME roster balance _boxscore_roster_mismatch
+        # already skipped above -- omitted here too for a test_mode token, or
+        # this second check would silently reinstate what the first one waived.
+        match_roster = (None if token.test_mode else
+                        _boxscore_match_roster(thread, thread.thread_id))
         lines, applied_notes = _boxscore_apply(
-            thread, pending, thread.thread_id,
-            _boxscore_match_roster(thread, thread.thread_id))
+            thread, pending, thread.thread_id, match_roster)
         # A test_mode token stays ISSUED so it can be reused for the next
         # test upload -- everything else still retires normally.
         if not token.test_mode:
@@ -9476,13 +9548,19 @@ def _lfg_set_notify_ids(embed, ids):
         fields[idx]["value"] = value
 
 
-# Extra sentence appended to the dispatcher's owner-lock refusal, per component.
+# Extra sentence appended to a permission refusal, per component.
 #
-# That refusal is ONE string shared by ~46 owner-locked custom_ids, so it can only
-# say what is true of all of them. The join gates are where the generic answer is
-# unhelpful: /lfg's ✖ and ✔ and /adset's Start sit immediately beside Join, and a
-# player reaching for one of them almost always meant to join or leave. Naming the
-# button they want turns a dead end into a direction.
+# The dispatcher's owner-lock refusal is ONE string shared by ~46 owner-locked
+# custom_ids, so it can only say what is true of all of them. The join gates are
+# where the generic answer is unhelpful: /lfg's ✖ and ✔ and /adset's Start sit
+# immediately beside Join, and a player reaching for one of them almost always
+# meant to join or leave. Naming the button they want turns a dead end into a
+# direction.
+#
+# lfg_cancel is NOT owner-locked any more -- it admits moderators too, which the
+# lock cannot express, so _handle_lfg_cancel writes its own refusal and appends
+# this itself. The hint is still right for it: the reason a non-host lands there
+# is unchanged, and ✖ still sits beside Join.
 #
 # Keyed by custom_id ACTION; anything absent just gets the bare refusal. Kept here
 # beside the row that builds the /lfg buttons so a label change finds this text.
@@ -9518,16 +9596,25 @@ def _lfg_message_data(author, owner, description, players_value,
             {"name": LFG_PLAYERS_FIELD, "value": players_value, "inline": False},
         ],
     }
-    # Join and 🔔 end in the non-snowflake "g" marker so the dispatcher owner-lock
-    # does NOT fire — anyone may click them (they toggle: Join = join/leave, 🔔 =
-    # subscribe/unsubscribe; the owner rides in a non-last arg so those handlers can
-    # still identify the host). ✖ Cancel and ✔ Start end in the owner snowflake, so
-    # the dispatcher owner-locks them — only the host can cancel or start.
+    # Join, 🔔 and ✖ Cancel end in the non-snowflake PICK_OPEN marker so the
+    # dispatcher owner-lock does NOT fire; the owner rides in a non-last arg so
+    # those handlers can still identify the host.
+    #
+    #   Join / 🔔 — anyone may click (they toggle: join/leave, subscribe/unsub).
+    #   ✖ Cancel  — the host OR a guild moderator, which is why it cannot use the
+    #               lock: that admits exactly one snowflake and cannot express a
+    #               union. _handle_lfg_cancel makes the check instead, the same
+    #               way the schedule poll's Close button does.
+    #
+    # ✔ Start still ends in the owner snowflake and so is dispatcher-locked:
+    # starting a game is the host's alone, and a moderator clearing an abandoned
+    # post wants ✖, not to start a game they aren't in.
     row = action_row(
-        button("Join", encode_custom_id("lfg_join", owner, "g"), style=STYLE_PRIMARY),
-        button("Notify", encode_custom_id("lfg_notify", owner, "g"),
+        button("Join", encode_custom_id("lfg_join", owner, PICK_OPEN), style=STYLE_PRIMARY),
+        button("Notify", encode_custom_id("lfg_notify", owner, PICK_OPEN),
                style=STYLE_SECONDARY, emoji={"name": "🔔"}),
-        button("", encode_custom_id("lfg_cancel", owner), style=STYLE_DANGER, emoji={"name": "✖"}),
+        button("", encode_custom_id("lfg_cancel", owner, PICK_OPEN),
+               style=STYLE_DANGER, emoji={"name": "✖"}),
         button("", encode_custom_id("lfg_start", owner), style=STYLE_SUCCESS, emoji={"name": "✔"}),
     )
     data = {"embeds": [embed], "components": [row]}
@@ -9784,33 +9871,57 @@ def _handle_lfg_notify(payload):
 
 
 def _handle_lfg_cancel(payload):
-    """✖ Cancel (owner-only, enforced by the dispatcher owner-lock): remove the
-    buttons, note the game was cancelled, and DM everyone who subscribed to 🔔 so
-    they don't keep waiting on a game that isn't happening. Players leave via the
-    Join toggle."""
+    """✖ Cancel: remove the buttons, note the game was cancelled, and DM everyone
+    who subscribed to 🔔 so they don't keep waiting on a game that isn't
+    happening. Players leave via the Join toggle.
+
+    The host OR a guild moderator, authorized HERE rather than by the dispatcher.
+    The owner-lock admits exactly one snowflake and so cannot express that union
+    -- the same reason the schedule poll's Close button opts out. A moderator
+    needs this to clear an abandoned post, whose host is by definition not
+    answering.
+    """
     embed = (payload.get("message", {}).get("embeds") or [{}])[0]
 
-    # The host, read off this button's own custom_id (`lfg_cancel:{owner}`), the
-    # same way ✔ Start does. The clicker only equals the host because the
-    # dispatcher owner-locks this button, so the custom_id is what actually means
-    # "host". Defensive .get chain with an `or ""`, not payload["data"]: a missing
-    # OR null custom_id must cost only the host exclusion, never the cancel the
-    # host just asked for.
+    # The host, read off this button's own custom_id (`lfg_cancel:{owner}:g`).
+    # Index 0, NOT -1: the trailing PICK_OPEN marker is what keeps the dispatcher
+    # lock off, so the last arg is that sentinel. Same position /lfg's Join reads
+    # its owner from. Defensive .get chain with an `or ""`, not payload["data"]: a
+    # missing OR null custom_id must cost only the host exclusion, never the
+    # cancel that was just asked for.
     _action, id_args = decode_custom_id(
         (payload.get("data") or {}).get("custom_id") or "")
-    host_id = id_args[-1] if id_args else None
+    host_id = id_args[0] if id_args else None
 
-    # Read the subscribers BEFORE _lfg_set_notify_ids wipes them below. The host is
-    # excluded -- they're the one who just cancelled.
-    notify_ids = list(_lfg_ids_in_field(embed, LFG_NOTIFY_FIELD) - {host_id})
+    # The check the owner-lock used to make, widened by one class. Skipped when
+    # the custom_id gave us no host -- consistent with the exclusion above, and
+    # the alternative is refusing a cancel nobody can then perform.
+    clicker_id = _interaction_user_id(payload)
+    if host_id and clicker_id and clicker_id != host_id:
+        if not _clicker_is_guild_staff(payload):
+            return _ephemeral("Only the host or a moderator can cancel this game."
+                              + OWNER_LOCK_HINTS.get("lfg_cancel", ""))
+
+    # Read the subscribers BEFORE _lfg_set_notify_ids wipes them below. Whoever
+    # cancelled is excluded -- they already know. That is usually the host, but a
+    # moderator cancelling leaves the HOST subscribed, which is correct: they are
+    # exactly who needs telling their game was closed.
+    notify_ids = list(_lfg_ids_in_field(embed, LFG_NOTIFY_FIELD)
+                      - {clicker_id or host_id})
     if notify_ids:
         notify_lfg_cancelled_task.delay(
             notify_ids, _lfg_member_display_name(payload),
             embed.get("description", ""), _lfg_jump_url(payload))
 
     # Status subtext goes in the embed footer (small text at the very bottom).
-    # Use the monochrome ✖ to match the Cancel button glyph.
-    embed["footer"] = {"text": "✖ Game was cancelled."}
+    # Use the monochrome ✖ to match the Cancel button glyph. A moderator's cancel
+    # names them: closing someone else's post should not read as the host giving
+    # up on their own game.
+    if host_id and clicker_id and clicker_id != host_id:
+        embed["footer"] = {
+            "text": f"✖ Game was cancelled by {_lfg_member_display_name(payload)}."}
+    else:
+        embed["footer"] = {"text": "✖ Game was cancelled."}
     # The Notify list is only useful while recruiting; drop it once cancelled.
     _lfg_set_notify_ids(embed, [])
     return JsonResponse({

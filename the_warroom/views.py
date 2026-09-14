@@ -64,7 +64,8 @@ from the_gatehouse.forms import PlayerCreateForm
 from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
 from the_databot.tasks import post_channel_message_task, create_match_threads_task
 from the_gatehouse.utils import get_uuid, build_absolute_uri, get_int_param, NameConvention, generate_name
-from the_warroom.services.channel_posts import post_to_tournament_channel, match_thread_id
+from the_warroom.services.channel_posts import (
+    post_to_tournament_channel, match_thread_id, game_thread_url)
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
 
 from the_tavern.forms import GameCommentCreateForm
@@ -2346,13 +2347,36 @@ def manage_game(request, id=None):
                         # recorder is nullable (league-imported games have none) and
                         # is only assigned on CREATE, so fall back to whoever is
                         # submitting -- this branch only runs on a live submission.
-                        _who = (parent.recorder.name if parent.recorder
-                                else user.profile.name)
-                        _res_msg = (f'Game recorded by {_who}. '
-                                    f'See results [here]({_res_site}{parent.get_absolute_url()}).')
+                        # The PROFILE, not its name: the mention below needs the row.
+                        _recorder = parent.recorder or user.profile
+                        # A tag rather than a plain name, suppressed to a name chip by
+                        # the allowed_mentions below. The truthiness guard is not
+                        # cosmetic: discord_id is null AND blank, and a literal "<@>"
+                        # makes Discord reject the whole payload with a 400.
+                        _who = (f'<@{_recorder.discord_id}>' if _recorder.discord_id
+                                else _recorder.name)
+                        # Name the game and link the thread it was played in, the way
+                        # the schedule announcement names a match -- "Game recorded
+                        # by" read identically for every post in the channel. Same
+                        # expression as the rich-message title above, so both
+                        # announcements for one game call it the same thing.
+                        _game_name = parent.nickname if parent.nickname else f"{parent.platform} Game"
+                        _thread_url = game_thread_url(
+                            match=match if match_mode else None,
+                            lfg_thread=lfgthread if lfg_mode else None,
+                            tournament=_tournament)
+                        _subject = (f'[{_game_name}]({_thread_url})' if _thread_url
+                                    else _game_name)
+                        _res_msg = (f'{_subject} recorded by {_who}. '
+                                    f'See the results [here]({_res_site}{parent.get_absolute_url()}).')
+                        # parse: [] renders the mention without notifying anyone --
+                        # omitting allowed_mentions entirely would let Discord's
+                        # default ping the recorder about their own submission.
                         transaction.on_commit(
                             lambda t=_tournament, msg=_res_msg:
-                                post_to_tournament_channel(t, 'results_channel', msg))
+                                post_to_tournament_channel(
+                                    t, 'results_channel', msg,
+                                    allowed_mentions={"parse": []}))
                 _vlog.warning(f"[manage_game] total before redirect: {_time.time()-_t0:.3f}s")
 
                 return redirect(parent.get_absolute_url())

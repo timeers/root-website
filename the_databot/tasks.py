@@ -290,13 +290,31 @@ def _summarize_names(names, limit=_DM_NAME_MAX):
 @shared_task
 def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
                               yes_count=0, total=None, declined=None,
-                              scheduled=False, jump_url=None, confirmed=None):
+                              scheduled=False, jump_url=None, confirmed=None,
+                              pending=None, early=False):
     """DM the 🔔 subscribers of a /schedule poll.
 
     `event` is "yes" (someone just confirmed, with a running count) or "closed"
     (the final result). The actor is excluded by the CALLER, as in the lfg notify
     tasks. Raw-id DMs -- a subscriber need not have a Profile at all, which is
     also why the notify list lives in the embed rather than an M2M.
+
+    `pending` names who still hasn't answered, for a "yes" event on a rostered
+    poll -- a roster-less poll has no such list, so it falls back to the bare
+    count.
+
+    `early` means somebody pressed Close before the roster finished. Without it
+    every close read as though everyone had answered, which is wrong in the one
+    case where people are still expected to reply.
+
+    `confirmed` / `declined` are NAMES, for reporting only. `confirmed` being
+    empty is ambiguous by construction -- it means either nobody confirmed OR the
+    caller did not supply the list -- so it must NEVER be the test for "nobody
+    could make it". `yes_count` is the authority on whether anyone confirmed, and
+    is what that branch reads. Reporting "nobody could make it" off an empty
+    `confirmed` is the exact bug this contract exists to prevent: three of the
+    four callers used to omit it, so the same poll produced different messages
+    depending only on which path closed it.
 
     The time is re-rendered as a Discord timestamp from the epoch so each
     recipient reads it in their OWN timezone; a preformatted string would show
@@ -310,12 +328,45 @@ def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
 
     if event == "yes":
         who = f"**{actor_name}**" if actor_name else "Someone"
-        tally = (f" — {yes_count} of {total} players confirmed." if total
-                 else f" — {yes_count} confirmed so far.")
+        if pending:
+            tally = f" — waiting on {_summarize_names(pending)}."
+        else:
+            tally = (f" — {yes_count} of {total} players confirmed." if total
+                     else f" — {yes_count} confirmed so far.")
         content = f"{who} confirmed for {when}.{tally}{link}"
     else:
+        # The count, shared by both "we only have numbers" branches. total=None
+        # means there was nobody to compare against -- the same convention the
+        # "yes" branch above uses.
+        tally = (f"{yes_count} of {total} confirmed" if total
+                 else f"{yes_count} confirmed")
+
         if scheduled:
             content = f"The poll for {when} closed — everyone confirmed. ✅{link}"
+        elif early:
+            # Closed before the roster finished. These come FIRST so a poll that
+            # was cut short can never fall through to a branch whose wording
+            # assumes everyone answered -- which is how a poll with confirmations
+            # ended up reported as "nobody could make it".
+            #
+            # "No time was scheduled" is stated outright rather than implied: an
+            # early close never books anything, however many people said yes.
+            if confirmed and declined:
+                content = (f"The poll for {when} was closed early — "
+                           f"{_summarize_names(confirmed)} can make it; "
+                           f"{_summarize_names(declined)} couldn't. "
+                           f"No time was scheduled.{link}")
+            elif confirmed:
+                content = (f"The poll for {when} was closed early — "
+                           f"{_summarize_names(confirmed)} can make it. "
+                           f"No time was scheduled.{link}")
+            elif declined:
+                content = (f"The poll for {when} was closed early — "
+                           f"{_summarize_names(declined)} couldn't make it, and "
+                           f"nobody else had confirmed. No time was scheduled.{link}")
+            else:
+                content = (f"The poll for {when} was closed early with "
+                           f"{tally}.{link}")
         elif declined and total is not None:
             # A poll with a roster: every player had to agree, so one decline
             # means no time could be set. `total is not None` IS that test --
@@ -329,15 +380,14 @@ def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
             # vetoes nothing. Who CAN make it is the actual result.
             content = (f"The poll for {when} closed — "
                        f"{_summarize_names(confirmed)} can make it.{link}")
-        elif declined:
+        elif declined and not yes_count:
+            # `not yes_count`, NOT `not confirmed`: an empty `confirmed` may mean
+            # the caller simply didn't pass the names (see this task's docstring),
+            # and claiming nobody was available on that basis is precisely the
+            # bug. The count is the only trustworthy witness, so a poll with
+            # confirmations falls through to report them below instead.
             content = f"The poll for {when} closed — nobody could make it.{link}"
         else:
-            # The count replaces "before everyone responded" -- it says the same
-            # thing precisely, and reads correctly whether or not a roster
-            # exists. total=None means there was nobody to compare against, the
-            # same convention the "yes" branch above uses.
-            tally = (f"{yes_count} of {total} confirmed" if total
-                     else f"{yes_count} confirmed")
             content = f"The poll for {when} closed with {tally}.{link}"
 
     for uid in notify_ids:
@@ -1205,8 +1255,8 @@ def sweep_boxscore_upload_tokens(remind_within_minutes=60, prune_after_days=None
 
 @shared_task
 def remind_upcoming_matches():
-    """Ping each upcoming match's players in their group's Discord thread, once,
-    `Tournament.match_reminder_minutes` before it starts.
+    """Ping each upcoming match's players in their group's Discord thread, once
+    per configured `ScheduledGameReminder`, that many minutes before it starts.
 
     Runs on a schedule created in Django admin (django_celery_beat) -- this project
     uses DatabaseScheduler, so there is no beat_schedule in code to register it.
@@ -1214,15 +1264,20 @@ def remind_upcoming_matches():
     LATENESS of a reminder, which is why the message carries a <t:...> timestamp
     rather than a hardcoded "in N minutes".
 
-    THE WINDOW IS PER-TOURNAMENT, so one `scheduled_time__lte` bound can't select
+    THE WINDOW IS PER-REMINDER, so one `scheduled_time__lte` bound can't select
     the rows. Rather than express `scheduled_time - interval(minutes)` in SQL --
     which compiles differently on Postgres (prod) and SQLite (dev), the same
     portability trap group_roster avoids for NULL ordering -- take the MAX
     configured lead as a coarse outer bound in one cheap query, then apply each
-    match's own window in Python.
+    reminder's own window in Python.
+
+    A series may configure several reminders (60 minutes before AND 10), so the
+    at-most-once claim is a MatchReminderSent row per (match, reminder) rather
+    than a single flag on the match.
     """
-    from django.db.models import Max, Prefetch
-    from the_warroom.models import (Match, Tournament, TournamentPlayer,
+    from django.db.models import Count, Max, Prefetch
+    from the_warroom.models import (Match, MatchReminderSent,
+                                    ScheduledGameReminder, TournamentPlayer,
                                     CompetitionStatus)
     from the_warroom.services.channel_posts import match_reminder_thread_id
     from the_databot.services.lfg_game import group_roster
@@ -1234,11 +1289,13 @@ def remind_upcoming_matches():
     # bot in its guild must not widen the candidate window for everyone else.
     # Deliberately NOT narrowed to tournaments that have stages: this only needs
     # to be an upper bound, and a too-wide bound is merely wasteful, never wrong.
-    max_window = Tournament.objects.filter(
-        match_reminder_minutes__isnull=False,
-        guild__bot_member=True,
+    max_window = ScheduledGameReminder.objects.filter(
+        tournament__guild__bot_member=True,
     ).aggregate(longest=Max('match_reminder_minutes'))['longest']
-    if not max_window:
+    # `is None` rather than falsiness: 0 is a real lead ("ping at start time"),
+    # and treating it as "nothing configured" would silently disable exactly
+    # that setting. None means the aggregate found no rows at all.
+    if max_window is None:
         return {"sent": 0, "skipped": 0}
 
     # Round.tournament is a LEGACY link and is deliberately not consulted: a
@@ -1247,13 +1304,26 @@ def remind_upcoming_matches():
     # because the OR could select a row via one tournament while the lead time
     # below is read from another.
     candidates = (Match.objects
-                  .filter(round__stage__tournament__match_reminder_minutes__isnull=False,
+                  .filter(round__stage__tournament__reminders__isnull=False,
                           round__stage__tournament__guild__bot_member=True,
-                          reminder_sent_at__isnull=True,
                           game__isnull=True,
                           scheduled_time__gt=now,
                           scheduled_time__lte=now + timedelta(minutes=max_window))
+                  # The reminders join above multiplies rows -- one per reminder
+                  # -- so without this a series with three reminders yields the
+                  # same match three times and the loop below claims it thrice.
+                  .distinct()
                   .exclude(status=CompetitionStatus.COMPLETED)
+                  # Replaces the old `reminder_sent_at__isnull=True`: drop matches
+                  # whose every reminder has already gone out, so a match stops
+                  # being re-fetched every 5-10 minutes for the rest of its lead
+                  # time once it is fully reminded. Counted with DISTINCT because
+                  # the two joins multiply each other.
+                  .annotate(
+                      _reminder_count=Count(
+                          'round__stage__tournament__reminders', distinct=True),
+                      _sent_count=Count('reminders_sent', distinct=True))
+                  .exclude(_sent_count__gte=F('_reminder_count'))
                   # A group with no thread can never be reminded, so drop those in
                   # SQL rather than loading them to throw away. discord_thread is
                   # blank=True WITHOUT null=True -- unlinked is "", so an __isnull
@@ -1274,7 +1344,7 @@ def remind_upcoming_matches():
                                   # otherwise, which is the whole thing this
                                   # queryset is built to avoid.
                                   'series__player_group__group_moderator')
-                  .only('scheduled_time', 'reminder_sent_at', 'status',
+                  .only('scheduled_time', 'status',
                         'match_number', 'series_id', 'round_id',
                         'series__number_of_games', 'series__player_group_id',
                         'series__player_group__discord_thread',
@@ -1287,7 +1357,6 @@ def remind_upcoming_matches():
                         'series__player_group__group_moderator__discord',
                         'round__stage_id',
                         'round__stage__tournament_id',
-                        'round__stage__tournament__match_reminder_minutes',
                         'round__stage__tournament__guild_id',
                         'round__stage__tournament__guild__guild_id',
                         'round__stage__tournament__guild__bot_member')
@@ -1307,6 +1376,10 @@ def remind_upcoming_matches():
                   # queryset that ignores the cache entirely).
                   .prefetch_related(
                       'series__matches',
+                      # The per-match loop reads every reminder and every sent
+                      # record; both are 1 query per match without these.
+                      'round__stage__tournament__reminders',
+                      'reminders_sent',
                       Prefetch(
                           'series__player_group__tournament_players',
                           queryset=TournamentPlayer.objects.select_related('profile')),
@@ -1314,40 +1387,42 @@ def remind_upcoming_matches():
                       '__tournament_player__profile')
                   .order_by('scheduled_time'))
 
+    # Both counts are REMINDERS, not matches -- a match with two due reminders
+    # adds two. They stopped being the same number when a series gained the
+    # ability to configure more than one.
     sent = skipped = 0
     for match in candidates:
         # Read the tournament off the STAGE, matching the filter exactly. NOT
         # get_tournament(): that falls back to the legacy Round.tournament FK, so
         # on a round carrying both FKs it could hand back a different tournament
-        # than the one the query selected on -- and then the lead time, the guild
+        # than the one the query selected on -- and then the lead times, the guild
         # and the bot_member check would all belong to the wrong series.
         tournament = match.round.stage.tournament
-        lead = tournament.match_reminder_minutes
-        if not lead:
-            continue
-        # This match's OWN window -- max_window above is the loosest possible
-        # bound; this is the exact test.
-        if match.scheduled_time > now + timedelta(minutes=lead):
+
+        # Which reminders are DUE now, and not already sent. Both reads hit the
+        # prefetch caches rather than the database.
+        already = {r.reminder_id for r in match.reminders_sent.all()}
+        due = [r for r in tournament.reminders.all()
+               if r.pk not in already
+               # This reminder's OWN window -- max_window above is the loosest
+               # possible bound; this is the exact test.
+               and match.scheduled_time <= now + timedelta(
+                   minutes=r.match_reminder_minutes)]
+        if not due:
             continue
 
         thread_id = match_reminder_thread_id(match, tournament)
         if not thread_id:
             # An unparseable URL, a thread in ANOTHER guild, or the bot is no
             # longer in this one. (Unlinked groups were already excluded in SQL.)
-            # Leave the row UNCLAIMED: fixing the link should still earn a
+            # Leave them UNCLAIMED: fixing the link should still earn a
             # reminder while there is still time.
-            skipped += 1
+            skipped += len(due)
             continue
 
-        # Claim BEFORE sending: at-most-once. A duplicate ping to a whole roster
-        # is worse than a missed one, and the site still shows the schedule.
-        # Compare-and-swap rather than select_for_update -- the same one-statement
-        # claim link_group_thread and the token sweep use, with no transaction.
-        claimed = Match.objects.filter(
-            pk=match.pk, reminder_sent_at__isnull=True).update(reminder_sent_at=now)
-        if not claimed:
-            continue                      # another worker got here first
-
+        # Everything below here is the same for every reminder on this match, so
+        # it is built ONCE rather than per reminder.
+        #
         # Hand the prefetched seats in: group_roster's fallback would otherwise
         # query MatchSeat.objects directly, which cannot see a prefetch cache and
         # costs a query per match on the seat-only path (a group whose M2M was
@@ -1361,10 +1436,10 @@ def remind_upcoming_matches():
         mentions = [f"<@{p.discord_id}>" if p.discord_id else str(p) for p in roster]
         pings = " ".join(mentions)
 
-        # The group's moderator, when it has one, named after the label so the
-        # players read who is running their game. Mentioned by the SAME rule as a
-        # player -- snowflake when linked, plain name when not -- and folded into
-        # the same allowed_mentions, so a linked moderator is notified too.
+        # The group's moderator, when it has one, named LAST so the players read
+        # the time first. Mentioned by the SAME rule as a player -- snowflake
+        # when linked, plain name when not -- and folded into the same
+        # allowed_mentions, so a linked moderator is notified too.
         #
         # Deliberately NOT added to `mentions`: they are not on the roster, and
         # leading with them would read as though they were playing.
@@ -1372,20 +1447,46 @@ def remind_upcoming_matches():
         moderating = ""
         if moderator is not None:
             who = f"<@{moderator.discord_id}>" if moderator.discord_id else str(moderator)
-            moderating = f" with {who} moderating"
+            moderating = f"with {who} moderating"
 
         when = format_discord_timestamp(match.scheduled_time)
+        # series_position is None for a single-game series, so this segment
+        # simply drops out there -- no separate "more than one game" test.
         position = match.series_position
-        label = (f"game {position} of {match.series.number_of_games}"
-                 if position else "your match")
-        content = (f"{pings} {label} starts soon{moderating} — {when}".strip() if pings
-                   else f"{label.capitalize()} starts soon{moderating} — {when}")
+        game_number = (f"({position} of {match.series.number_of_games})"
+                       if position else "")
 
-        # parse: ["users"] so this actually notifies. Without it the mentions
-        # render as blue text and ping nobody, which is the entire feature.
-        post_channel_message_task.delay(
-            thread_id, content, allowed_mentions={"parse": ["users"]})
-        sent += 1
+        for reminder in due:
+            # Claim BEFORE sending: at-most-once. A duplicate ping to a whole
+            # roster is worse than a missed one, and the site still shows the
+            # schedule. The unique constraint is the claim -- the same
+            # one-statement, no-transaction approach the old compare-and-swap
+            # used, now per (match, reminder).
+            try:
+                MatchReminderSent.objects.create(
+                    match=match, reminder=reminder, sent_at=now)
+            except IntegrityError:
+                continue              # another worker got here first
 
-    logger.info("remind_upcoming_matches: sent=%d skipped=%d", sent, skipped)
+            # The user owns the wording: no em-dash and no "starts soon" wrapped
+            # around it. Joined from non-empty segments rather than one f-string
+            # so an absent ping, game number or moderator leaves no double space.
+            #
+            # The text is capitalized ONLY when it opens the line -- i.e. there
+            # are no pings and no game number in front of it. "(2 of 3) your
+            # match starts soon" must not become "(2 of 3) Your match...".
+            text = reminder.reminder_text
+            if not pings and not game_number:
+                text = text.capitalize()
+            content = " ".join(
+                s for s in (pings, game_number, text, when, moderating) if s)
+
+            # parse: ["users"] so this actually notifies. Without it the mentions
+            # render as blue text and ping nobody, which is the entire feature.
+            post_channel_message_task.delay(
+                thread_id, content, allowed_mentions={"parse": ["users"]})
+            sent += 1
+
+    logger.info("remind_upcoming_matches: reminders sent=%d skipped=%d",
+                sent, skipped)
     return {"sent": sent, "skipped": skipped}
