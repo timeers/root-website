@@ -8992,6 +8992,111 @@ class SchedulePollOpenTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(embed["author"]["name"], "player")
 
 
+class MatchPollEarlyCloseDMTests(ScheduleFixtureMixin, TestCase):
+    """A MATCH poll closed early reports both sides.
+
+    Its caller used to hand the renderer a hardcoded [] for declines and nothing
+    at all for confirmations, so the DM could only ever describe a fraction of
+    what had happened -- the same root cause as the "nobody could make it" bug.
+    """
+
+    def setUp(self):
+        self.build(populate_group=True)
+
+    def _close(self):
+        proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_by=self.player,
+            proposed_time=timezone.now() + timedelta(days=3),
+            channel_id="555000111", message_id="m", guild_id=self.guild.guild_id)
+        proposal.roster.set([self.player, self.outsider])
+        proposal.confirmed_by.set([self.player])
+        proposal.rejected_by.set([self.outsider])
+
+        payload = {
+            "channel_id": "555000111", "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": self.player.discord_id,
+                                "username": "player"}},
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_poll_close", proposal.pk, "g")},
+            "message": {"id": "m", "components": [], "embeds": [{
+                "title": "🗓 Proposed time",
+                "description": di.format_discord_timestamp(proposal.proposed_time),
+                "fields": [{"name": di.POLL_NOTIFY_FIELD,
+                            "value": "<@111>", "inline": False}],
+            }]},
+        }
+        with mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
+            di._handle_match_poll_close(payload)
+        return delay
+
+    def test_a_match_poll_closed_early_after_a_decline_names_both(self):
+        delay = self._close()
+        delay.assert_called_once()
+        kwargs = delay.call_args.kwargs
+        self.assertTrue(kwargs["early"])
+        self.assertEqual(kwargs["confirmed"], ["player"])
+        self.assertEqual(kwargs["declined"], ["outsider"])
+
+
+class PollFieldOrderTests(TestCase):
+    """The response columns read Yes → Pending → No.
+
+    Pending sits between the two settled answers so the row reads as a
+    progression. poll_response_fields is the ONLY definition of that order, and
+    every reader looks fields up by name, so this is the one place it can drift.
+    """
+
+    def _names(self, **kwargs):
+        from the_databot.services.lfg_game import poll_response_fields
+        return [f["name"] for f in poll_response_fields(**kwargs)]
+
+    def test_the_poll_lists_yes_then_pending_then_no(self):
+        self.assertEqual(
+            self._names(yes_value="a", no_value="b", pending_value="c"),
+            [di.POLL_YES_FIELD, di.POLL_PENDING_FIELD, di.POLL_NO_FIELD])
+
+    def test_a_rosterless_poll_still_omits_pending(self):
+        """None drops the column entirely -- an empty Pending would claim we are
+        waiting on someone in particular. The reorder must not turn the absence
+        into a blank middle column."""
+        self.assertEqual(self._names(yes_value="a", no_value="b"),
+                         [di.POLL_YES_FIELD, di.POLL_NO_FIELD])
+
+    def test_a_closed_poll_keeps_yes_before_no(self):
+        """What the closed branch actually passes: pending None, stacked. The
+        reorder is invisible here, which is the point -- it must not disturb the
+        two fields that remain."""
+        self.assertEqual(
+            self._names(yes_value="a", no_value="b", columns=False),
+            [di.POLL_YES_FIELD, di.POLL_NO_FIELD])
+
+    def test_poll_state_still_parses_after_the_reorder(self):
+        """State recovery reads an echoed embed back by field NAME, so it is
+        order-independent by construction. Round-trip it to prove that, since a
+        positional reader would have broken silently."""
+        when = timezone.now() + timedelta(days=3)
+        data = di._schedule_poll_data(
+            when, "830000000000000001",
+            yes=[{"id": "111", "name": "Amy"}],
+            no=[{"id": "222", "name": "Ben"}],
+            pending=["Cy"], kind="match")
+        embed = data["embeds"][0]
+
+        # The rendered order is the new one...
+        names = [f["name"] for f in embed["fields"]]
+        self.assertTrue(names[0].startswith(di.POLL_YES_FIELD))
+        self.assertTrue(names[1].startswith(di.POLL_PENDING_FIELD))
+        self.assertTrue(names[2].startswith(di.POLL_NO_FIELD))
+
+        # ...and Yes/No still come back attached to the right people, which is
+        # what a positional reader would have got wrong.
+        yes, no, _notify, pending = di._poll_state(embed)
+        self.assertEqual([e["name"] for e in yes], ["Amy"])
+        self.assertEqual([e["name"] for e in no], ["Ben"])
+        # Not None: the column was rendered, so the roster tri-state survives.
+        self.assertIsNotNone(pending)
+
+
 class SchedulePollNotifyDMTests(TestCase):
     """The 🔔 DMs. Same shape as the lfg notify tasks: raw ids, actor excluded by
     the caller, never raising."""
@@ -9078,18 +9183,91 @@ class SchedulePollNotifyDMTests(TestCase):
                              declined=["Ben"], confirmed=[], total=None)
         self.assertIn("nobody could make it", content.lower())
 
-    def test_an_early_close_reports_the_count(self):
+    def test_a_completed_close_reports_the_count(self):
         """"before everyone responded" was wrong wherever no roster existed --
         nobody was ever expected to answer. The count says the same thing and
-        reads correctly either way."""
+        reads correctly either way.
+
+        Named for the COMPLETED path: no `early` flag, so this is a poll that ran
+        its course. The early-close wording is "was closed early with ...", which
+        deliberately does not contain this substring."""
         content = self._send(event="closed", when_ts=self.WHEN, yes_count=3)
         self.assertIn("closed with 3 confirmed", content)
         self.assertNotIn("before everyone responded", content)
 
-    def test_an_early_close_with_a_roster_shows_the_denominator(self):
+    def test_a_completed_close_with_a_roster_shows_the_denominator(self):
         content = self._send(event="closed", when_ts=self.WHEN,
                              yes_count=3, total=5)
         self.assertIn("closed with 3 of 5 confirmed", content)
+
+    # ── closed EARLY: the poll was stopped before the roster finished ──
+
+    def test_an_early_close_with_confirms_and_declines_names_both(self):
+        """THE REPORTED BUG. A poll closed early with people who could make it
+        was reported as "nobody could make it" -- the renderer read an empty
+        `confirmed` (which the caller had simply not passed) as nobody."""
+        content = self._send(event="closed", when_ts=self.WHEN, early=True,
+                             confirmed=["Amy", "Cy"], declined=["Ben"],
+                             yes_count=2, total=5)
+        self.assertIn("closed early", content)
+        self.assertIn("**Amy** and **Cy** can make it", content)
+        self.assertIn("**Ben** couldn't", content)
+        self.assertNotIn("nobody", content.lower())
+
+    def test_an_early_close_with_only_confirms_says_who_can_make_it(self):
+        content = self._send(event="closed", when_ts=self.WHEN, early=True,
+                             confirmed=["Amy", "Cy"], yes_count=2, total=5)
+        self.assertIn("**Amy** and **Cy** can make it", content)
+        self.assertIn("No time was scheduled", content)
+        self.assertNotIn("nobody", content.lower())
+
+    def test_an_early_close_with_no_confirms_says_so(self):
+        """Names the decliner without claiming nobody was ever available --
+        the poll was stopped, so the rest were never asked."""
+        content = self._send(event="closed", when_ts=self.WHEN, early=True,
+                             declined=["Ben"], yes_count=0, total=5)
+        self.assertIn("**Ben** couldn't make it", content)
+        self.assertIn("nobody else had confirmed", content)
+
+    def test_an_early_close_with_no_names_falls_back_to_counts(self):
+        content = self._send(event="closed", when_ts=self.WHEN, early=True,
+                             yes_count=3, total=5)
+        self.assertIn("was closed early with 3 of 5 confirmed", content)
+
+    def test_nobody_could_make_it_requires_zero_confirmations(self):
+        """The regression guard for the root cause. `confirmed` is empty ONLY
+        because this caller didn't pass it -- yes_count says two people
+        confirmed, so the message must not claim nobody could.
+
+        Fails against the old code, which tested `elif declined:` with no regard
+        for whether anyone had confirmed."""
+        content = self._send(event="closed", when_ts=self.WHEN,
+                             declined=["Ben"], confirmed=[], yes_count=2,
+                             total=None)
+        self.assertNotIn("nobody", content.lower())
+        self.assertIn("2 confirmed", content)
+
+    def test_a_completed_poll_with_no_confirmations_still_says_nobody(self):
+        """The branch is still reachable and still correct -- when it is TRUE."""
+        content = self._send(event="closed", when_ts=self.WHEN,
+                             declined=["Ben"], confirmed=[], yes_count=0,
+                             total=None)
+        self.assertIn("nobody could make it", content.lower())
+
+    def test_a_rostered_decline_is_unchanged(self):
+        """Row 6 verbatim: one decline vetoes a rostered poll, and the decliner
+        is the actionable part."""
+        content = self._send(event="closed", when_ts=self.WHEN,
+                             declined=["Ben"], confirmed=["Amy"],
+                             yes_count=1, total=5)
+        self.assertIn("**Ben** couldn't make it", content)
+        self.assertIn("no time was scheduled", content)
+        self.assertIn("/schedule set", content)
+
+    def test_the_everyone_confirmed_message_is_unchanged(self):
+        content = self._send(event="closed", when_ts=self.WHEN, scheduled=True,
+                             confirmed=["Amy", "Cy"], yes_count=2, total=2)
+        self.assertIn("everyone confirmed", content)
 
 
 class ScheduleWriteRuleTests(ScheduleFixtureMixin, TestCase):

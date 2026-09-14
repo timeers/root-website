@@ -291,7 +291,7 @@ def _summarize_names(names, limit=_DM_NAME_MAX):
 def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
                               yes_count=0, total=None, declined=None,
                               scheduled=False, jump_url=None, confirmed=None,
-                              pending=None):
+                              pending=None, early=False):
     """DM the 🔔 subscribers of a /schedule poll.
 
     `event` is "yes" (someone just confirmed, with a running count) or "closed"
@@ -302,6 +302,19 @@ def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
     `pending` names who still hasn't answered, for a "yes" event on a rostered
     poll -- a roster-less poll has no such list, so it falls back to the bare
     count.
+
+    `early` means somebody pressed Close before the roster finished. Without it
+    every close read as though everyone had answered, which is wrong in the one
+    case where people are still expected to reply.
+
+    `confirmed` / `declined` are NAMES, for reporting only. `confirmed` being
+    empty is ambiguous by construction -- it means either nobody confirmed OR the
+    caller did not supply the list -- so it must NEVER be the test for "nobody
+    could make it". `yes_count` is the authority on whether anyone confirmed, and
+    is what that branch reads. Reporting "nobody could make it" off an empty
+    `confirmed` is the exact bug this contract exists to prevent: three of the
+    four callers used to omit it, so the same poll produced different messages
+    depending only on which path closed it.
 
     The time is re-rendered as a Discord timestamp from the epoch so each
     recipient reads it in their OWN timezone; a preformatted string would show
@@ -322,8 +335,38 @@ def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
                      else f" — {yes_count} confirmed so far.")
         content = f"{who} confirmed for {when}.{tally}{link}"
     else:
+        # The count, shared by both "we only have numbers" branches. total=None
+        # means there was nobody to compare against -- the same convention the
+        # "yes" branch above uses.
+        tally = (f"{yes_count} of {total} confirmed" if total
+                 else f"{yes_count} confirmed")
+
         if scheduled:
             content = f"The poll for {when} closed — everyone confirmed. ✅{link}"
+        elif early:
+            # Closed before the roster finished. These come FIRST so a poll that
+            # was cut short can never fall through to a branch whose wording
+            # assumes everyone answered -- which is how a poll with confirmations
+            # ended up reported as "nobody could make it".
+            #
+            # "No time was scheduled" is stated outright rather than implied: an
+            # early close never books anything, however many people said yes.
+            if confirmed and declined:
+                content = (f"The poll for {when} was closed early — "
+                           f"{_summarize_names(confirmed)} can make it; "
+                           f"{_summarize_names(declined)} couldn't. "
+                           f"No time was scheduled.{link}")
+            elif confirmed:
+                content = (f"The poll for {when} was closed early — "
+                           f"{_summarize_names(confirmed)} can make it. "
+                           f"No time was scheduled.{link}")
+            elif declined:
+                content = (f"The poll for {when} was closed early — "
+                           f"{_summarize_names(declined)} couldn't make it, and "
+                           f"nobody else had confirmed. No time was scheduled.{link}")
+            else:
+                content = (f"The poll for {when} was closed early with "
+                           f"{tally}.{link}")
         elif declined and total is not None:
             # A poll with a roster: every player had to agree, so one decline
             # means no time could be set. `total is not None` IS that test --
@@ -337,15 +380,14 @@ def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
             # vetoes nothing. Who CAN make it is the actual result.
             content = (f"The poll for {when} closed — "
                        f"{_summarize_names(confirmed)} can make it.{link}")
-        elif declined:
+        elif declined and not yes_count:
+            # `not yes_count`, NOT `not confirmed`: an empty `confirmed` may mean
+            # the caller simply didn't pass the names (see this task's docstring),
+            # and claiming nobody was available on that basis is precisely the
+            # bug. The count is the only trustworthy witness, so a poll with
+            # confirmations falls through to report them below instead.
             content = f"The poll for {when} closed — nobody could make it.{link}"
         else:
-            # The count replaces "before everyone responded" -- it says the same
-            # thing precisely, and reads correctly whether or not a roster
-            # exists. total=None means there was nobody to compare against, the
-            # same convention the "yes" branch above uses.
-            tally = (f"{yes_count} of {total} confirmed" if total
-                     else f"{yes_count} confirmed")
             content = f"The poll for {when} closed with {tally}.{link}"
 
     for uid in notify_ids:

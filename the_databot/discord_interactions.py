@@ -2538,7 +2538,11 @@ def _resolve_match_poll(payload, proposal, match, me=None, is_new_yes=False):
             _notify_poll_closed(notify_ids, proposal.proposed_time,
                                 _proposal_entries(declined), scheduled=False,
                                 closed_by=str(_interaction_user_id(payload)),
-                                jump_url=_lfg_jump_url(payload))
+                                jump_url=_lfg_jump_url(payload),
+                                yes_entries=_proposal_entries(
+                                    proposal.confirmed_by.all()),
+                                yes_count=proposal.confirmed_by.count(),
+                                total=proposal.roster.count() or None)
         return JsonResponse({
             "type": RESPONSE_UPDATE_MESSAGE,
             "data": _schedule_rejected_data(
@@ -2581,7 +2585,11 @@ def _resolve_match_poll(payload, proposal, match, me=None, is_new_yes=False):
         _notify_poll_closed(notify_ids, proposal.proposed_time, [],
                             scheduled=True,
                             closed_by=str(_interaction_user_id(payload)),
-                            jump_url=_lfg_jump_url(payload))
+                            jump_url=_lfg_jump_url(payload),
+                            yes_entries=_proposal_entries(
+                                proposal.confirmed_by.all()),
+                            yes_count=proposal.confirmed_by.count(),
+                            total=proposal.roster.count() or None)
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": _schedule_finalized_data(proposal, match),
@@ -3259,10 +3267,16 @@ def _handle_match_poll_close(payload):
     if notify_ids:
         # A match poll always HAS a roster, so the DM always carries a
         # denominator -- unlike an embed poll in a bare channel.
-        _notify_poll_closed(notify_ids, proposal.proposed_time, [],
-                            scheduled=False,
+        # Both response lists, not just the count: a match poll can be closed
+        # early AFTER someone declined, and passing [] for the declines left that
+        # out of the message entirely. yes_entries likewise -- without it the
+        # renderer cannot say who is available.
+        _notify_poll_closed(notify_ids, proposal.proposed_time,
+                            _proposal_entries(proposal.rejected_by.all()),
+                            scheduled=False, early=True,
                             closed_by=str(_interaction_user_id(payload)),
                             jump_url=_lfg_jump_url(payload),
+                            yes_entries=_proposal_entries(proposal.confirmed_by.all()),
                             yes_count=proposal.confirmed_by.count(),
                             total=len(_match_roster(match)))
     embed = schedule_closed_embed(
@@ -3532,6 +3546,9 @@ def _poll_close_response(when, proposer_id, yes, no, notify_ids, label, author,
         _notify_poll_closed(
             notify_ids, when, no, scheduled=agreed, closed_by=closed_by,
             jump_url=jump_url, yes_count=len(yes), yes_entries=yes,
+            # The same test `agreed` makes above: reason "closed" is the Close
+            # button, everything else is the roster finishing on its own.
+            early=(reason == "closed"),
             # None when there is no roster, so the DM omits the denominator --
             # the same tri-state the footer reads.
             total=(len(yes) + len(pending) + len(no)
@@ -3564,7 +3581,8 @@ def _notify_poll_yes(notify_ids, actor_id, actor_name, when, yes_count, total,
 
 
 def _notify_poll_closed(notify_ids, when, no_entries, *, scheduled, closed_by=None,
-                        jump_url=None, yes_count=0, total=None, yes_entries=()):
+                        jump_url=None, yes_count=0, total=None, yes_entries=(),
+                        early=False):
     """DM the subscribers the final result.
 
     `closed_by` is whoever's click ENDED the poll -- the person who pressed Close,
@@ -3574,7 +3592,14 @@ def _notify_poll_closed(notify_ids, when, no_entries, *, scheduled, closed_by=No
     Deliberately not the host. A moderator may close a poll they did not start,
     and an auto-close is triggered by whichever player happens to answer last --
     so excluding the proposer would both spam the closer and silently drop the
-    host from a result they are still subscribed to."""
+    host from a result they are still subscribed to.
+
+    `early` is True when Close ended the poll before the roster finished.
+
+    PASS yes_entries AND yes_count, always. Every caller supplying one and not
+    the other is what produced a close message claiming nobody could make it for
+    a poll people had confirmed: yes_entries defaulted to empty and the renderer
+    read that as "nobody" -- see notify_schedule_poll_task's docstring."""
     targets = [i for i in notify_ids if str(i) != str(closed_by or "")]
     if not targets:
         return
@@ -3584,7 +3609,7 @@ def _notify_poll_closed(notify_ids, when, no_entries, *, scheduled, closed_by=No
         # Who CAN make it. A poll with no roster books nothing, so a decline
         # vetoes nothing there and this is the only meaningful result to report.
         confirmed=[e["name"] for e in yes_entries],
-        scheduled=scheduled,
+        scheduled=scheduled, early=early,
         jump_url=jump_url, yes_count=yes_count, total=total)
 
 

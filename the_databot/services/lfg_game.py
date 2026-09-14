@@ -629,9 +629,11 @@ POLL_PENDING_FIELD = "⏳ Pending"
 POLL_NOTIFY_FIELD = "🔔 Notify"
 
 # Discord renders up to three inline fields side by side. That is exactly the
-# three response lists, which is why Pending is the last of them -- a fourth
-# inline field would wrap to a new row and break the column illusion.
-_POLL_COLUMN_FIELDS = (POLL_YES_FIELD, POLL_NO_FIELD, POLL_PENDING_FIELD)
+# three response lists -- a fourth inline field would wrap to a new row and break
+# the column illusion. Pending sits BETWEEN Yes and No: the columns then read as
+# a progression (answered yes, not answered yet, answered no) rather than
+# stranding the still-waiting list after the settled ones.
+_POLL_COLUMN_FIELDS = (POLL_YES_FIELD, POLL_PENDING_FIELD, POLL_NO_FIELD)
 
 
 def poll_count_label(name, entries):
@@ -651,10 +653,18 @@ def poll_response_fields(yes_value, no_value, pending_value=None, *, columns=Tru
     someone in particular.
 
     `columns=False` stacks them, for a closed poll where the alignment the
-    columns protect no longer matters and a full-width list reads better."""
+    columns protect no longer matters and a full-width list reads better.
+
+    Yes -> Pending -> No, which is why the arguments are NOT in render order:
+    pending_value keeps its trailing-optional position so every existing caller
+    passing two positional values still means (yes, no). The order here is the
+    only definition of it -- callers never assemble the list themselves, and
+    every reader looks fields up by NAME (see _poll_field_lookup), so changing
+    it is safe."""
     fields = []
-    for name, value in ((POLL_YES_FIELD, yes_value), (POLL_NO_FIELD, no_value),
-                        (POLL_PENDING_FIELD, pending_value)):
+    for name, value in ((POLL_YES_FIELD, yes_value),
+                        (POLL_PENDING_FIELD, pending_value),
+                        (POLL_NO_FIELD, no_value)):
         if value is None:
             continue
         fields.append({"name": name, "value": value, "inline": columns})
