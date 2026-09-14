@@ -5,6 +5,9 @@
 ### New Features
 - You can now set up multiple reminders via the Databot for scheduled games
 
+### Improvements
+- Player count and roster errors from TTS boxscore upload are passed to Discord instead of blocking the upload
+
 ### Bug Fixes
 - Subscribing to a scheduling poll now notifies on every new "Yes" answer instead of just poll close.
 

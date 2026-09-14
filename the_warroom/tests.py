@@ -3060,12 +3060,13 @@ class BoxScoreUploadTestModeTokenTests(TestCase):
         return {'turn_order': turn_order, 'player': profile.slug,
                 'player_steam_id': steam_id, 'turns': [{'turn': 1, 'score': 3}]}
 
-    def _post(self, doc, token_raw):
+    def _post(self, doc, token_raw, raw_body=None):
+        body = raw_body if raw_body is not None else json.dumps(doc)
         with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay'), \
                 mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay') as prompt, \
                 mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
             response = self.client.post(
-                reverse('api-boxscore-upload'), data=json.dumps(doc),
+                reverse('api-boxscore-upload'), data=body,
                 content_type='application/json',
                 HTTP_AUTHORIZATION=f'Game-Token {token_raw}')
         return response, prompt
@@ -3074,6 +3075,42 @@ class BoxScoreUploadTestModeTokenTests(TestCase):
         from datetime import timedelta
         return BoxScoreUploadToken.issue(
             self.thread, profile=None, test_mode=True, ttl=timedelta(days=30))
+
+    def test_a_malformed_upload_does_not_burn_a_test_token(self):
+        """A test token survives an unreadable file, exactly as it survives a
+        successful one.
+
+        The BoxScoreImportError handler used to retire the token with no
+        test_mode guard, so ONE bad paste killed a 30-day admin token for good --
+        and every attempt after that answered `token_used`, which describes a
+        token somebody spent rather than one thrown away on their behalf.
+        """
+        token, raw = self._token()
+        bad = self._post(None, raw, raw_body='not json at all')[0]
+        self.assertEqual(bad.status_code, 400)
+        self.assertEqual(bad.json()['error'], 'invalid_box_score')
+
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.ISSUED)
+
+        # The point of surviving: the SAME token still works afterwards.
+        doc = {'participants': [self._seat(1, self.alice, self.ALICE_STEAM),
+                                self._seat(2, self.bob, self.BOB_STEAM)]}
+        good = self._post(doc, raw)[0]
+        self.assertEqual(good.status_code, 200)
+        self.assertEqual(good.json()['status'], 'applied')
+
+    def test_a_malformed_upload_still_cancels_a_normal_token(self):
+        """The other side of the guard. A single-use token is spent either way,
+        and its payload is cleared -- which is what keeps _boxscore_restorable's
+        payload__isnull=False filter honest."""
+        token, raw = BoxScoreUploadToken.issue(self.thread, self.alice)
+        response = self._post(None, raw, raw_body='not json at all')[0]
+        self.assertEqual(response.status_code, 400)
+
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.CANCELLED)
+        self.assertIsNone(token.payload)
 
     def test_a_test_token_can_be_used_more_than_once(self):
         _t, raw = self._token()
@@ -3917,6 +3954,94 @@ class AssumedSteamIdWriteTests(TestCase):
 # through the REAL call shape and assert against stored rows, never the
 # in-memory instance (which would pass even if nothing reached the database).
 # ---------------------------------------------------------------------------
+class RoundMatchesUrlTests(TestCase):
+    """Round/Match/MatchSeries agree on where a round's matches live.
+
+    Round.get_matches_url() knew only two of the four tournament layouts, which
+    did NOT 404 -- it silently rendered the wrong page, because
+    round_matches_page resolves its stage with get_single_stage() and in simple
+    mode both the hidden stage and the round exist. The first two tests here are
+    those regressions; the rest pin the delegation that keeps one copy of the
+    branching.
+    """
+
+    def _layout(self, *, use_stages, use_rounds):
+        """A tournament/stage/round/series in one of the four layouts."""
+        tournament = Tournament.objects.create(
+            name=f"T {use_stages}-{use_rounds}", use_stages=use_stages)
+        stage = Stage.objects.create(tournament=tournament, name="S1", order=1,
+                                     use_rounds=use_rounds)
+        round_obj = Round.objects.create(stage=stage, round_number=1)
+        series = MatchSeries.objects.create(round=round_obj, number_of_games=1)
+        return tournament, stage, round_obj, series
+
+    def test_simple_matches_mode_uses_the_tournament_page(self):
+        """No stages + a hidden stage with no rounds. Previously returned a
+        round-scoped URL, leaking a round the layout says does not exist."""
+        tournament, _stage, round_obj, _series = self._layout(
+            use_stages=False, use_rounds=False)
+        self.assertTrue(tournament._is_simple_matches_mode())
+        self.assertEqual(
+            round_obj.get_matches_url(),
+            reverse('tournament-matches-page', kwargs={'slug': tournament.slug}))
+
+    def test_a_stage_without_rounds_uses_the_stage_page(self):
+        """Previously returned a round_slug for a round the stage never shows."""
+        tournament, stage, round_obj, _series = self._layout(
+            use_stages=True, use_rounds=False)
+        self.assertEqual(
+            round_obj.get_matches_url(),
+            reverse('stage-matches-page', kwargs={
+                'tournament_slug': tournament.slug, 'stage_slug': stage.slug}))
+
+    def test_a_tournament_without_stages_uses_the_simple_round_page(self):
+        tournament, _stage, round_obj, _series = self._layout(
+            use_stages=False, use_rounds=True)
+        self.assertEqual(
+            round_obj.get_matches_url(),
+            reverse('round-matches-simple', kwargs={
+                'tournament_slug': tournament.slug, 'round_slug': round_obj.slug}))
+
+    def test_the_full_hierarchy_uses_the_round_page(self):
+        tournament, stage, round_obj, _series = self._layout(
+            use_stages=True, use_rounds=True)
+        self.assertEqual(
+            round_obj.get_matches_url(),
+            reverse('round-matches-page', kwargs={
+                'tournament_slug': tournament.slug, 'stage_slug': stage.slug,
+                'round_slug': round_obj.slug}))
+
+    def test_a_stageless_round_does_not_raise(self):
+        """Round.stage is nullable, which is why get_tournament() exists. The old
+        self.stage.tournament raised AttributeError here."""
+        tournament = Tournament.objects.create(name="Stageless", use_stages=False)
+        round_obj = Round.objects.create(round_number=1, tournament=tournament)
+        self.assertTrue(round_obj.get_matches_url())   # must not raise
+
+    def test_match_and_round_agree_in_every_layout(self):
+        """Match.get_matches_url() defers to the round, so the two cannot drift."""
+        for use_stages in (False, True):
+            for use_rounds in (False, True):
+                with self.subTest(use_stages=use_stages, use_rounds=use_rounds):
+                    _t, _s, round_obj, series = self._layout(
+                        use_stages=use_stages, use_rounds=use_rounds)
+                    match = Match.objects.create(round=round_obj, series=series)
+                    self.assertEqual(match.get_matches_url(),
+                                     round_obj.get_matches_url())
+
+    def test_a_series_url_is_its_rounds_url(self):
+        _t, _s, round_obj, series = self._layout(use_stages=True, use_rounds=True)
+        Match.objects.create(round=round_obj, series=series)
+        self.assertEqual(series.get_matches_url(), round_obj.get_matches_url())
+
+    def test_a_series_with_no_matches_still_has_a_url(self):
+        """A bye, or a bracket slot nobody is drawn into. Going through a
+        representative Match would answer None for exactly these."""
+        _t, _s, round_obj, series = self._layout(use_stages=True, use_rounds=True)
+        self.assertFalse(series.matches.exists())
+        self.assertEqual(series.get_matches_url(), round_obj.get_matches_url())
+
+
 class MatchReminderResetTests(TestCase):
 
     def setUp(self):

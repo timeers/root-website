@@ -385,6 +385,24 @@ class BoxScoreUploadView(APIView):
     creates a Game. Anything the file gets wrong is resolved by the same
     Confirm/Cancel gates, posted into the Discord thread -- so TTS never has to
     render an error or assume the file is clean.
+
+    THE CONTRACT the TTS client is written against: this endpoint answers with an
+    error for exactly three things, and every one of them is something no button
+    in Discord could fix.
+
+      1. The token -- missing, unknown, already used, or expired (401).
+      2. The game is already recorded (409). Checked before the token is claimed
+         and before anything is parsed, so there is nothing staged to ask about,
+         and no answer could unsave a Game. Points at editing it on the site.
+      3. The file cannot be read (400 invalid_box_score, or 413 too_large) --
+         not UTF-8, not JSON, no participants list, a malformed turn, seat
+         numbers that aren't 1..N.
+
+    EVERYTHING ELSE IS A GATE. A roster that disagrees with the match, a player
+    nobody can identify, a seat count the thread doesn't expect: those get HTTP
+    200 with status "pending_confirmation" and a prompt in the thread, because a
+    human can resolve them and nobody is listening at the TTS end. A client that
+    treats a 200 as "done" will be wrong -- read `status`.
     """
     authentication_classes = []          # the token is not a login; see below
     permission_classes = []              # authorization IS the token
@@ -462,8 +480,15 @@ class BoxScoreUploadView(APIView):
         except BoxScoreImportError as exc:
             # Structural problems fail SYNCHRONOUSLY so the object can report them
             # at the table rather than posting a confusing thread prompt.
-            BoxScoreUploadToken.objects.filter(pk=token.pk).update(
-                status=BoxScoreUploadToken.Status.CANCELLED, payload=None)
+            #
+            # A test_mode token is NOT burned, matching the claim above: it stays
+            # ISSUED so it can be pasted in again. Without this guard one
+            # malformed upload retired a reusable admin token forever, and every
+            # later attempt answered `token_used` -- which describes a token
+            # somebody spent, not one that was thrown away on their behalf.
+            if not token.test_mode:
+                BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+                    status=BoxScoreUploadToken.Status.CANCELLED, payload=None)
             return _upload_error('invalid_box_score', str(exc),
                                  status.HTTP_400_BAD_REQUEST)
 

@@ -1873,7 +1873,37 @@ class Round(models.Model):
         })
 
     def get_matches_url(self):
-        tournament = self.stage.tournament
+        """URL of the page that lists this round's matches, accounting for the
+        variable tournament layout: a stage may skip rounds, and a tournament may
+        skip stages.
+
+        The full four-way branch, not the two-way one this used to be. The two
+        missing branches did not 404 -- they silently rendered the WRONG page.
+        round_matches_page resolves its stage with get_single_stage(), so in
+        simple-matches mode the hidden stage and the round both exist and the
+        reader landed on a round-scoped page for a tournament whose own nav tab
+        calls itself Matches. _is_simple_matches_mode() names itself "the one
+        source of truth for this layout test ... so the routing can't drift into
+        a redirect loop"; not deferring to it here WAS that drift.
+
+        get_tournament() rather than self.stage.tournament: `stage` is nullable,
+        and that accessor exists precisely to fall back to the direct FK.
+        """
+        tournament = self.get_tournament()
+        stage = self.stage
+
+        # Simplified layout -- no stages and the hidden stage has no rounds, so
+        # matches live at the tournament level. Must precede the stage branch:
+        # both match here, and the stage URL would leak the hidden stage's slug.
+        if tournament._is_simple_matches_mode():
+            return reverse('tournament-matches-page', kwargs={'slug': tournament.slug})
+        # Stage without rounds -- matches live at the stage level.
+        if stage and not stage.use_rounds:
+            return reverse('stage-matches-page', kwargs={
+                'tournament_slug': tournament.slug,
+                'stage_slug': stage.slug,
+            })
+        # Tournament without stages -- simplified round URL (no stage_slug).
         if not tournament.use_stages:
             return reverse('round-matches-simple', kwargs={
                 'tournament_slug': tournament.slug,
@@ -1881,7 +1911,7 @@ class Round(models.Model):
             })
         return reverse('round-matches-page', kwargs={
             'tournament_slug': tournament.slug,
-            'stage_slug': self.stage.slug,
+            'stage_slug': stage.slug,
             'round_slug': self.slug
         })
 
@@ -2065,6 +2095,16 @@ class MatchSeries(models.Model):
         # Alternatively, check if all matches are complete
         return all(match.status == CompetitionStatus.COMPLETED for match in self.matches.all())
 
+    def get_matches_url(self):
+        """URL of the page listing this series' matches.
+
+        Via the round rather than a representative Match: `round` is non-null, so
+        this answers even for a series with no Match rows yet -- a bye, or a
+        bracket slot nobody has been drawn into. Going through self.matches would
+        return None for exactly those, which is when a link is still useful.
+        """
+        return self.round.get_matches_url()
+
 
 class Match(models.Model):
     """A single match slot in a tournament bracket. Always belongs to a MatchSeries —
@@ -2234,37 +2274,15 @@ class Match(models.Model):
         return EditPermission(False)
 
     def get_matches_url(self):
-        """URL of the page that lists this match, accounting for the variable
-        tournament layout: a stage may skip rounds, and a tournament may skip
-        stages. Mirrors the branching in Round.get_absolute_url(); extends
-        Round.get_matches_url() with the stage-level (no-rounds) case."""
-        round = self.round
-        tournament = round.get_tournament()
-        stage = round.stage
+        """URL of the page that lists this match.
 
-        # Simplified layout — no stages and the hidden stage has no rounds, so
-        # matches live at the tournament level. Must precede the stage branch:
-        # both match here, and the stage URL would leak the hidden stage's slug.
-        if tournament._is_simple_matches_mode():
-            return reverse('tournament-matches-page', kwargs={'slug': tournament.slug})
-        # Stage without rounds — matches live at the stage level.
-        if stage and not stage.use_rounds:
-            return reverse('stage-matches-page', kwargs={
-                'tournament_slug': tournament.slug,
-                'stage_slug': stage.slug,
-            })
-        # Tournament without stages — simplified round URL (no stage_slug).
-        if not tournament.use_stages:
-            return reverse('round-matches-simple', kwargs={
-                'tournament_slug': tournament.slug,
-                'round_slug': round.slug,
-            })
-        # Full hierarchy.
-        return reverse('round-matches-page', kwargs={
-            'tournament_slug': tournament.slug,
-            'stage_slug': stage.slug,
-            'round_slug': round.slug,
-        })
+        Defers to the round: a match's matches page IS its round's, and the
+        layout branching (stage-without-rounds, tournament-without-stages,
+        simple-matches mode) belongs in one place. It lived here for a while
+        because Round's version knew only two of the four layouts; now that it
+        knows all four, keeping a second copy is how the two drift apart again.
+        """
+        return self.round.get_matches_url()
 
     def __str__(self):
         return self.name or f"Match {self.id}"
