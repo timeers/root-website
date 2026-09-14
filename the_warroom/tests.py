@@ -1104,25 +1104,39 @@ class ResultsChannelAnnounceTests(TestCase):
     def tearDown(self):
         post_save.connect(handle_image_resize, sender=Profile)
 
-    def _post(self, message):
+    def _post(self, message, **kwargs):
         from the_databot import tasks
         from the_warroom.services.channel_posts import post_to_tournament_channel
         with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                         return_value=self.TEXT), \
              mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
-            sent = post_to_tournament_channel(self.tournament, 'results_channel', message)
+            sent = post_to_tournament_channel(self.tournament, 'results_channel',
+                                              message, **kwargs)
         return sent, delay
 
-    def test_message_names_the_recorder_and_links_the_game(self):
+    def test_the_content_reaches_the_task_unchanged(self):
+        """This class builds its own message, so it tests the TRANSPORT: what the
+        caller hands over is what gets queued. The view's wording is covered by
+        ResultsChannelViewAnnounceTests, which drives the real view."""
         msg = (f'Game recorded by {self.recorder.name}. '
-               f'See results [here](https://example.com/game/1/).')
+               f'See the results [here](https://example.com/game/1/).')
         sent, delay = self._post(msg)
         self.assertTrue(sent)
         content = delay.call_args.args[1]
         self.assertIn("Game recorded by Recorder Rita.", content)
-        self.assertIn("See results [here]", content)
-        # A plain name, never a mention: these posts set no allowed_mentions.
-        self.assertNotIn("<@", content)
+        self.assertIn("See the results [here]", content)
+
+    def test_allowed_mentions_is_forwarded_when_given(self):
+        """Required for any content carrying a mention: without it the task posts
+        no allowed_mentions key, and Discord's default notifies everyone named."""
+        _sent, delay = self._post("hi", allowed_mentions={"parse": []})
+        self.assertEqual(delay.call_args.kwargs["allowed_mentions"], {"parse": []})
+
+    def test_omitting_allowed_mentions_posts_exactly_as_before(self):
+        """Every pre-existing caller passes nothing, and must keep queueing a bare
+        (channel, content) call -- the parameter is additive, not a behaviour change."""
+        _sent, delay = self._post("hi")
+        self.assertNotIn("allowed_mentions", delay.call_args.kwargs)
 
     def test_profile_name_falls_back_when_no_display_name(self):
         bare = Profile.objects.create(discord="justdiscord")
@@ -1249,7 +1263,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         args = announce.call_args.args
         self.assertEqual(args[0], self.tournament)
         self.assertEqual(args[1], 'results_channel')
-        self.assertIn('See results [here]', args[2])
+        self.assertIn('See the results [here]', args[2])
 
     def test_game_outside_a_tournament_does_not_announce(self):
         """A round with no tournament resolves to None and is skipped."""
@@ -1356,6 +1370,104 @@ class ResultsChannelViewAnnounceTests(TestCase):
 
         announce.assert_called_once()
         thread_post.delay.assert_called_once()
+
+    # ── naming the game, linking its thread, tagging its recorder ──
+
+    def _match_with_thread(self, thread_guild=None):
+        """A match whose group thread URL points at `thread_guild` (default: the
+        tournament's own guild, which match_thread_id requires)."""
+        guild_id = thread_guild or self.guild.guild_id
+        group = PlayerGroup.objects.create(
+            round=self.round,
+            discord_thread=f"https://discord.com/channels/{guild_id}"
+                           f"/400000000000000044")
+        series = MatchSeries.objects.create(round=self.round, player_group=group)
+        match = Match.objects.create(round=self.round, series=series)
+        self._seat(series, self.profile, 1)
+        self._seat(series, self.opponent, 2)
+        return match, group
+
+    def test_the_recorder_is_tagged_without_pinging(self):
+        """BOTH halves are the feature. A <@id> with no allowed_mentions is a
+        ping -- Discord's default parses every mention -- so asserting only the
+        tag would let the notification regress silently."""
+        self.profile.discord_id = "700000000000000007"
+        self.profile.save(update_fields=["discord_id"])
+
+        _, announce, _ = self._record_committed(
+            reverse('record-game'), self._payload())
+
+        self.assertIn(f"<@{self.profile.discord_id}>", announce.call_args.args[2])
+        self.assertEqual(announce.call_args.kwargs["allowed_mentions"],
+                         {"parse": []})
+
+    def test_a_recorder_without_a_discord_id_falls_back_to_a_plain_name(self):
+        """discord_id is null AND blank. A literal "<@>" would make Discord
+        reject the whole payload with a 400, so the guard is load-bearing."""
+        self.assertFalse(self.profile.discord_id)
+        _, announce, _ = self._record_committed(
+            reverse('record-game'), self._payload())
+
+        content = announce.call_args.args[2]
+        self.assertIn(f"recorded by {self.profile.name}.", content)
+        self.assertNotIn("<@", content)
+
+    def test_a_match_game_links_the_group_thread(self):
+        match, group = self._match_with_thread()
+        url = f"{reverse('record-game')}?match={match.pk}"
+        _, announce, _ = self._record_committed(
+            url, self._payload(match_id=match.pk, nickname="Grand Final"))
+
+        self.assertIn(f"[Grand Final]({group.discord_thread})",
+                      announce.call_args.args[2])
+
+    def test_an_lfg_game_links_the_lfg_thread(self):
+        role = GuildLFGRole.objects.create(guild=self.guild, name="TTS LFG",
+                                           tournament=self.tournament)
+        thread = LFGThread.objects.create(thread_id="300000000000000033",
+                                          guild=self.guild, lfg_role=role,
+                                          host=self.profile)
+        thread.players.add(self.profile, self.opponent)
+
+        url = f"{reverse('record-game')}?lfg={thread.pk}"
+        _, announce, _ = self._record_committed(
+            url, self._payload(lfg_id=thread.pk, nickname="Friday Night"))
+
+        self.assertIn(f"[Friday Night]({thread.thread_url()})",
+                      announce.call_args.args[2])
+
+    def test_a_game_with_no_thread_names_it_without_a_link(self):
+        """A standalone game still gets its NAME -- an improvement on the bare
+        word "Game" -- just no link to jump to."""
+        _, announce, _ = self._record_committed(
+            reverse('record-game'), self._payload(nickname="Ladder Game"))
+
+        content = announce.call_args.args[2]
+        self.assertTrue(content.startswith("Ladder Game recorded by"), content)
+        self.assertNotIn("](https://discord.com", content)
+
+    def test_a_thread_url_in_the_wrong_guild_is_not_linked(self):
+        """The schedule announcement interpolates discord_thread raw; this one
+        gates on match_thread_id, so a stale or mistyped URL degrades to the
+        unlinked name rather than publishing a link into another server."""
+        match, group = self._match_with_thread(thread_guild="999999999999999999")
+        url = f"{reverse('record-game')}?match={match.pk}"
+        _, announce, _ = self._record_committed(
+            url, self._payload(match_id=match.pk, nickname="Grand Final"))
+
+        content = announce.call_args.args[2]
+        self.assertNotIn(group.discord_thread, content)
+        self.assertTrue(content.startswith("Grand Final recorded by"), content)
+
+    def test_a_game_with_no_nickname_falls_back_to_a_platform_name(self):
+        """Game.nickname is null AND blank. Mirrors the rich-message title's own
+        fallback, so both announcements for one game agree on its name."""
+        _, announce, _ = self._record_committed(
+            reverse('record-game'), self._payload())
+
+        self.assertTrue(
+            announce.call_args.args[2].startswith("Tabletop Simulator Game recorded by"),
+            announce.call_args.args[2])
 
 
 class MatchModeSeatOrderTests(ResultsChannelViewAnnounceTests):

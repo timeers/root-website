@@ -72,6 +72,45 @@ def match_reminder_thread_id(match, tournament):
         return None
     return match_thread_id(match, tournament=tournament)
 
+
+def game_thread_url(match=None, lfg_thread=None, tournament=None):
+    """The Discord thread URL a recorded game came from, or None when there
+    isn't one to link.
+
+    A recorded game reaches its results announcement by one of three routes, and
+    only two of them have a thread: a tournament match (the player group's), an
+    LFG game (the thread's own), or a standalone game that merely picked a round
+    (none). Returning None for the third lets the caller drop the link rather
+    than be handed a dangling label.
+
+    Takes already-loaded objects rather than ids: this module keeps every
+    the_databot import inside a function (see resolve_tournament_channel and
+    post_to_tournament_channel below), and resolving these here would mean
+    importing LFGThread at module scope.
+
+    The match URL is VALIDATED, which the schedule announcement's version of this
+    is not -- it interpolates PlayerGroup.discord_thread raw. That field is typed
+    in by a moderator, so a mistyped or stale URL would publish a link into an
+    unrelated server. match_thread_id anchors the URL shape and proves the guild
+    is this tournament's before the URL is trusted.
+
+    An LFG thread needs no such check: thread_url() BUILDS the URL from the
+    thread's own guild rather than echoing a typed one, and answers None when the
+    thread has no guild.
+    """
+    if lfg_thread is not None:
+        return lfg_thread.thread_url()
+    if match is None:
+        return None
+    # A property delegating to series.player_group, which is nullable -- so this
+    # can legitimately answer None even though Match.series never is.
+    group = getattr(match, 'player_group', None)
+    url = (getattr(group, 'discord_thread', '') or '').strip()
+    if not url:
+        return None
+    return url if match_thread_id(match, tournament=tournament) else None
+
+
 # field name -> is it a forum channel? (game threads are forum posts; the other two are
 # ordinary text channels). Used to pick which channel list the id is verified against,
 # so a text channel can never satisfy the forum-only field or vice versa.
@@ -116,17 +155,29 @@ def resolve_tournament_channel(tournament, field):
     return channel_id
 
 
-def post_to_tournament_channel(tournament, field, content):
+def post_to_tournament_channel(tournament, field, content, allowed_mentions=None):
     """Queue `content` into one of a tournament's channels. Returns True if queued.
 
     Skips silently (returning False) whenever resolve_tournament_channel refuses -- no
     guild, unset field, or an unverified channel. Callers running inside a transaction
     must wrap this in transaction.on_commit: the Celery worker would otherwise be able
     to read -- or announce -- a row the transaction goes on to roll back.
+
+    `allowed_mentions` is REQUIRED of any caller whose content contains a mention.
+    Omitting it posts with no allowed_mentions key at all, and Discord's default is
+    to parse and notify every mention present -- so a <@id> added to a message that
+    leaves this None pings that person. Pass {"parse": []} to render a tag that
+    notifies nobody, which is what naming someone in an announcement wants.
+
+    Defaults to None so every existing caller keeps posting exactly as before.
     """
     channel_id = resolve_tournament_channel(tournament, field)
     if not channel_id:
         return False
     from the_databot.tasks import post_channel_message_task
-    post_channel_message_task.delay(channel_id, content)
+    if allowed_mentions is not None:
+        post_channel_message_task.delay(channel_id, content,
+                                        allowed_mentions=allowed_mentions)
+    else:
+        post_channel_message_task.delay(channel_id, content)
     return True
