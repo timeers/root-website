@@ -14,6 +14,7 @@
 - Subscribing to a scheduling poll now notifies on every new "Yes" answer instead of just poll close.
 - Removed "suggested by X" line as it duplicated info from the message author
 - Notifications for closed polls were occasionally showing the incorrect end status
+- New box score upload replaces Hirelings and Landmarks instead of adding to them
 
 ## [1.13.7] - 2026-9-10 Brazen Bot Bugs
 

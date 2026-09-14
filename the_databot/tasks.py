@@ -759,16 +759,22 @@ def record_lfg_components_task(channel_id, items, source="", draft=None,
     """Record components surfaced inside an LFG thread (from /random, /map, /deck,
     other lookups, /draft). No-op when the channel isn't a known LFG thread.
 
-    `source` tags where the items came from (random / lookup / draft). `draft`,
-    when given, REPLACES the thread's current draft: {"players", "platform",
-    "drafted_by": <discord id>, "picks": [{"faction","vagabond","captains",
-    "order"}]}. Everything on the wire is slugs and ids — Celery serializes as
-    JSON, so model instances would raise EncodeError in the caller.
+    `source` tags where the items came from (random / lookup / draft / pick /
+    boxscore). `draft`, when given, REPLACES the thread's current draft:
+    {"players", "platform", "drafted_by": <discord id>, "picks": [{"faction",
+    "vagabond","captains","order"}]}. Everything on the wire is slugs and ids —
+    Celery serializes as JSON, so model instances would raise EncodeError in
+    the caller.
 
     `source` and `draft` are keyword-defaulted so the other capture call sites
     keep working and so tasks enqueued by older code still deserialize.
+
+    source="boxscore" always proceeds, even with empty items and no draft: a
+    re-upload must still clear the thread's previous boxscore rolls below, so
+    an empty-items run (a corrected file with fewer components than before)
+    can't be treated the same as a no-op.
     """
-    if not channel_id or not (items or draft):
+    if not channel_id or not (items or draft or source == "boxscore"):
         return
     # select_for_update still earns its place: the map/deck update below is a
     # read-modify-write, and the draft replacement must not interleave with a
@@ -809,6 +815,17 @@ def record_lfg_components_task(channel_id, items, source="", draft=None,
         posts_by_slug = {}
         if slugs:
             posts_by_slug = {p.slug: p for p in Post.objects.filter(slug__in=slugs)}
+
+        # A re-upload replaces the box score's component set rather than adding
+        # to it -- otherwise a corrected file (a changed landmark, a fixed
+        # tweak list, or even one with NO components at all) leaves stale rows
+        # from a previous upload offered/prefilled on the record-game form.
+        # Scoped to this source only: /random, /draft, /pick and the lookups
+        # share the same log and their history isn't this call's to drop (same
+        # scoping _draft_clear and the pick-clear code use for their own
+        # sources).
+        if source == "boxscore":
+            LFGRoll.objects.filter(thread=thread, source="boxscore").delete()
 
         rolls = []
         for it in items:

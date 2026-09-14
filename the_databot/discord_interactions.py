@@ -351,14 +351,20 @@ def _capture_lfg_components(channel_id, items, source="", draft=None,
     (no-op in the worker when the channel isn't a known LFG thread). `items` is a
     list of {"kind","slug","title"}. Safe to call with a falsy channel_id.
 
-    `source` tags the originating command (random / lookup / draft). `draft`
-    carries a full draft to replace the thread's current one. Both must be
-    JSON-serializable -- slugs and ids only, never model instances.
+    `source` tags the originating command (random / lookup / draft / pick /
+    boxscore). `draft` carries a full draft to replace the thread's current
+    one. Both must be JSON-serializable -- slugs and ids only, never model
+    instances.
 
     Deliberately fire-and-forget: a capture failure must never damage a draft or
     lookup that already succeeded.
+
+    Always enqueued for source="boxscore", even with empty items/undrafted: a
+    re-upload must still clear the thread's previous boxscore rolls, which the
+    task -- not this function -- is what actually does the clearing.
     """
-    if channel_id and (items or draft or (undrafted and any(undrafted.values()))):
+    if channel_id and (items or draft or (undrafted and any(undrafted.values()))
+                       or source == "boxscore"):
         record_lfg_components_task.delay(channel_id, items, source=source,
                                          draft=draft, undrafted=undrafted)
 
@@ -7582,12 +7588,14 @@ def _boxscore_apply(thread, pending, channel_id, match_roster=None):
     # box score.
     # `undrafted` rides along: it is not a roll (nothing distinguishes an
     # undrafted faction from a seated one in the log) but it is written by the
-    # same task, onto the thread's own columns. Guarded on BOTH, so a file naming
-    # only an undrafted faction -- no map, deck or components -- still stores it.
+    # same task, onto the thread's own columns.
+    # Unconditional (not gated on items/undrafted like other captures): a
+    # re-upload must clear the thread's PREVIOUS boxscore rolls even when this
+    # file has none of its own, or a corrected file with fewer components than
+    # the last one would leave the old ones stuck prefilling the record form.
     undrafted = pending.get("undrafted")
-    if items or (undrafted and any(undrafted.values())):
-        _capture_lfg_components(channel_id, items, source="boxscore",
-                                undrafted=undrafted)
+    _capture_lfg_components(channel_id, items, source="boxscore",
+                            undrafted=undrafted)
 
     return lines, notes
 

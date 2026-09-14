@@ -291,8 +291,23 @@ MEDIA_URL = '/media/'
 # post-mortem, and the OS reaps its temp dir. A fresh directory per run also
 # means no test can depend on a file another one left behind.
 if 'test' in sys.argv:
+    import shutil
     import tempfile
+
+    _REAL_MEDIA_ROOT = MEDIA_ROOT
     MEDIA_ROOT = tempfile.mkdtemp(prefix='test_media_')
+
+    # Seed the COPY with the shipped defaults. An empty media root would be
+    # isolated but not realistic: check_for_image() (the_keep/models.py) lists
+    # default_images/<folder>/ on disk to resolve an animal picture, so without
+    # these every Faction/Vagabond save falls back to a "default_default.png"
+    # that does not exist, and the suite prints "Specified folder does not
+    # exist." hundreds of times. Copying is ~9MB once per run and makes the
+    # isolated tree behave exactly like production -- writes just land on
+    # throwaway copies.
+    _defaults = os.path.join(_REAL_MEDIA_ROOT, 'default_images')
+    if os.path.isdir(_defaults):
+        shutil.copytree(_defaults, os.path.join(MEDIA_ROOT, 'default_images'))
 
 # Storage backends. In production, hash static filenames (e.g.
 # forge_editor.4f2a9c1b.js) so changing a file changes its URL and browsers are

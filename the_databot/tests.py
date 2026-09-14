@@ -5585,6 +5585,57 @@ class LFGCaptureTests(TestCase):
         record_lfg_components_task(self.THREAD_ID, [self._item("Deck", self.deck)])
         self.assertEqual(self.thread.roll_log.count(), 2)
 
+    def test_boxscore_reupload_replaces_rather_than_accumulating(self):
+        """Unlike a plain capture, a boxscore re-upload is the whole file's
+        component set, not an addition to what an earlier upload found -- a
+        corrected file must not leave the old landmark/hireling/tweak/faction
+        sitting alongside the new one."""
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Faction", self.factions[0]), self._item("Map", self.map)],
+            source="boxscore")
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Faction", self.factions[1])],
+            source="boxscore")
+
+        rolls = list(self.thread.roll_log.filter(source="boxscore"))
+        self.assertEqual([(r.kind, r.slug) for r in rolls],
+                         [("Faction", self.factions[1].slug)])
+
+    def test_boxscore_reupload_with_no_components_still_clears_the_old_ones(self):
+        """A corrected file can legitimately name fewer components than the
+        last upload -- including none at all -- and the empty-items call must
+        not be treated as a no-op that leaves the stale rows behind."""
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Faction", self.factions[0])],
+            source="boxscore")
+        record_lfg_components_task(self.THREAD_ID, [], source="boxscore")
+
+        self.assertEqual(self.thread.roll_log.filter(source="boxscore").count(), 0)
+
+    def test_boxscore_reupload_does_not_clear_other_sources(self):
+        """/random, /draft, /pick and the lookups share the same log -- a
+        boxscore re-upload must only ever touch its own rows."""
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Faction", self.factions[0])],
+            source="random")
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Faction", self.factions[1])],
+            source="boxscore")
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Faction", self.factions[2])],
+            source="boxscore")
+
+        self.assertEqual(
+            [(r.kind, r.slug, r.source) for r in self.thread.roll_log.all()],
+            [("Faction", self.factions[0].slug, "random"),
+             ("Faction", self.factions[2].slug, "boxscore")])
+
     # ── draft ───────────────────────────────────────────────────────────────
     def _draft_payload(self, factions, **kw):
         payload = {"players": 2, "platform": "Tabletop Simulator",
