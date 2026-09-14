@@ -1787,6 +1787,41 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
         data = self._click("sched_poll_close", "88888888", when=when)
         self.assertIn("started this poll", data["content"])
 
+    def test_the_poll_does_not_repeat_the_proposer_in_its_description(self):
+        """The embed's author already names and pictures that person, so the
+        "Suggested by" sentence was the same fact twice."""
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        embed = self._poll_embed(when)
+        self.assertNotIn("Suggested by", embed["description"])
+        self.assertNotIn(f"<@{self.player.discord_id}>", embed["description"])
+
+    def test_the_close_gate_survives_the_dropped_line(self):
+        """That line was also where _poll_embed_meta read the proposer back from.
+        The custom_id carries it too, which is what keeps Close host-gated once
+        the description no longer says who proposed."""
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        allowed = self._click("sched_poll_close", self.player.discord_id, when=when)
+        self.assertEqual(allowed["components"], [])
+
+        refused = self._click("sched_poll_close", "88888888", when=when)
+        self.assertIn("started this poll", refused["content"])
+
+    def test_a_poll_posted_before_the_line_was_dropped_still_closes(self):
+        """Backwards compatibility: polls already live in Discord carry the old
+        description, and _poll_embed_meta must keep parsing it. Their buttons are
+        identical, so the only thing being proved here is that the legacy regex
+        still matches rather than the poll going unclosable."""
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        legacy = self._poll_embed(when)
+        legacy["description"] = (
+            f"{di.format_discord_timestamp(when)}\n"
+            f"{di.format_discord_timestamp_code(when)}\n"
+            f"Suggested by <@{self.player.discord_id}>.")
+
+        parsed_when, proposer, _label, _author = di._poll_embed_meta(legacy)
+        self.assertEqual(proposer, str(self.player.discord_id))
+        self.assertIsNotNone(parsed_when)
+
     def test_closing_clears_the_notify_field(self):
         when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
         embed = self._poll_embed(when, notify=["77777777"])

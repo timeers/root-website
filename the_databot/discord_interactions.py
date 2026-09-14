@@ -2875,7 +2875,16 @@ def _schedule_poll_data(when, proposer_id, *, yes, no, notify_ids=(),
     # _poll_embed_meta re-reads this poll's instant from the FIRST `<t:` in the
     # description on every click, and that has to be the line above.
     lines.append(format_discord_timestamp_code(when))
-    lines.append(f"Suggested by <@{proposer_id}>.")
+    # No "Suggested by" line: the embed's `author` already shows that person's
+    # name and avatar, so the sentence was the same fact twice.
+    #
+    # It was ALSO a state store -- _poll_embed_meta parsed the proposer's
+    # snowflake back out of this description on every click, since an embed-mode
+    # poll has no row. That still works for polls posted before this change and
+    # must keep working (see the regex there), but it is no longer the source for
+    # new ones: _poll_buttons writes the proposer into every embed-mode
+    # custom_id, and match mode reads it off the ScheduleProposal. The parse is
+    # now purely backwards compatibility.
     if kind != "match":
         lines.append(SCHEDULE_UNLINKED_NOTE)
 
@@ -3321,7 +3330,14 @@ def _poll_embed_meta(embed):
     The poll is stateless in embed mode, so everything needed to re-render comes
     back off the message. The timestamp is parsed from the `<t:unix:F>` the
     description opens with rather than carried in the custom_id, which is capped
-    at 100 chars and ':'-delimited."""
+    at 100 chars and ':'-delimited.
+
+    proposer_id answers None for any poll rendered since the "Suggested by" line
+    was dropped as duplicate of the embed author -- the callers all fall back to
+    the snowflake in the custom_id (`embed_proposer or proposer_id`), which is
+    where it has actually lived all along. The regex stays for polls posted
+    BEFORE that change, whose buttons are identical but whose description is the
+    only place their proposer was written down."""
     description = embed.get("description", "")
     ts_match = re.search(r"<t:(\d+):", description)
     when = None
