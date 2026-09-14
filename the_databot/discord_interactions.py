@@ -3475,7 +3475,7 @@ def _handle_schedule_poll_close(payload):
     proposer_id = embed_proposer or proposer_id
 
     clicker_id = str(_interaction_user_id(payload))
-    if proposer_id and clicker_id != proposer_id and not _poll_closer_is_staff(payload):
+    if proposer_id and clicker_id != proposer_id and not _clicker_is_guild_staff(payload):
         return _ephemeral("Only the person who started this poll can close it.")
 
     yes, no, notify_ids, pending = _poll_state(embed)
@@ -3485,11 +3485,18 @@ def _handle_schedule_poll_close(payload):
         jump_url=_lfg_jump_url(payload))
 
 
-def _poll_closer_is_staff(payload):
-    """Whether a non-proposer may close: a guild moderator or site admin.
+def _clicker_is_guild_staff(payload):
+    """Whether whoever clicked is a guild moderator or site admin.
 
-    Embed-mode polls have no Match, so there is no can_schedule to consult --
-    guild moderation is the only staff signal available here."""
+    The one "is this clicker staff here?" question, asked straight from a
+    component payload -- unlike _thread_staff_override, which needs a resolved
+    Profile and a PlayerGroup. Used where a button must admit more than the one
+    snowflake the dispatcher's owner-lock can express: a poll's Close (the
+    proposer or staff) and /lfg's ✖ Cancel (the host or staff).
+
+    Guild moderation is the only staff signal available on these paths -- an
+    embed-mode poll has no Match and an LFG post has no tournament, so there is
+    no can_schedule to consult."""
     # Lazy + cross-app: the_gatehouse.views imports the_databot.tasks and
     # discordservice at module scope, so a top-level import here would close
     # the cycle.
@@ -9516,13 +9523,19 @@ def _lfg_set_notify_ids(embed, ids):
         fields[idx]["value"] = value
 
 
-# Extra sentence appended to the dispatcher's owner-lock refusal, per component.
+# Extra sentence appended to a permission refusal, per component.
 #
-# That refusal is ONE string shared by ~46 owner-locked custom_ids, so it can only
-# say what is true of all of them. The join gates are where the generic answer is
-# unhelpful: /lfg's ✖ and ✔ and /adset's Start sit immediately beside Join, and a
-# player reaching for one of them almost always meant to join or leave. Naming the
-# button they want turns a dead end into a direction.
+# The dispatcher's owner-lock refusal is ONE string shared by ~46 owner-locked
+# custom_ids, so it can only say what is true of all of them. The join gates are
+# where the generic answer is unhelpful: /lfg's ✖ and ✔ and /adset's Start sit
+# immediately beside Join, and a player reaching for one of them almost always
+# meant to join or leave. Naming the button they want turns a dead end into a
+# direction.
+#
+# lfg_cancel is NOT owner-locked any more -- it admits moderators too, which the
+# lock cannot express, so _handle_lfg_cancel writes its own refusal and appends
+# this itself. The hint is still right for it: the reason a non-host lands there
+# is unchanged, and ✖ still sits beside Join.
 #
 # Keyed by custom_id ACTION; anything absent just gets the bare refusal. Kept here
 # beside the row that builds the /lfg buttons so a label change finds this text.
@@ -9558,16 +9571,25 @@ def _lfg_message_data(author, owner, description, players_value,
             {"name": LFG_PLAYERS_FIELD, "value": players_value, "inline": False},
         ],
     }
-    # Join and 🔔 end in the non-snowflake "g" marker so the dispatcher owner-lock
-    # does NOT fire — anyone may click them (they toggle: Join = join/leave, 🔔 =
-    # subscribe/unsubscribe; the owner rides in a non-last arg so those handlers can
-    # still identify the host). ✖ Cancel and ✔ Start end in the owner snowflake, so
-    # the dispatcher owner-locks them — only the host can cancel or start.
+    # Join, 🔔 and ✖ Cancel end in the non-snowflake PICK_OPEN marker so the
+    # dispatcher owner-lock does NOT fire; the owner rides in a non-last arg so
+    # those handlers can still identify the host.
+    #
+    #   Join / 🔔 — anyone may click (they toggle: join/leave, subscribe/unsub).
+    #   ✖ Cancel  — the host OR a guild moderator, which is why it cannot use the
+    #               lock: that admits exactly one snowflake and cannot express a
+    #               union. _handle_lfg_cancel makes the check instead, the same
+    #               way the schedule poll's Close button does.
+    #
+    # ✔ Start still ends in the owner snowflake and so is dispatcher-locked:
+    # starting a game is the host's alone, and a moderator clearing an abandoned
+    # post wants ✖, not to start a game they aren't in.
     row = action_row(
-        button("Join", encode_custom_id("lfg_join", owner, "g"), style=STYLE_PRIMARY),
-        button("Notify", encode_custom_id("lfg_notify", owner, "g"),
+        button("Join", encode_custom_id("lfg_join", owner, PICK_OPEN), style=STYLE_PRIMARY),
+        button("Notify", encode_custom_id("lfg_notify", owner, PICK_OPEN),
                style=STYLE_SECONDARY, emoji={"name": "🔔"}),
-        button("", encode_custom_id("lfg_cancel", owner), style=STYLE_DANGER, emoji={"name": "✖"}),
+        button("", encode_custom_id("lfg_cancel", owner, PICK_OPEN),
+               style=STYLE_DANGER, emoji={"name": "✖"}),
         button("", encode_custom_id("lfg_start", owner), style=STYLE_SUCCESS, emoji={"name": "✔"}),
     )
     data = {"embeds": [embed], "components": [row]}
@@ -9824,33 +9846,57 @@ def _handle_lfg_notify(payload):
 
 
 def _handle_lfg_cancel(payload):
-    """✖ Cancel (owner-only, enforced by the dispatcher owner-lock): remove the
-    buttons, note the game was cancelled, and DM everyone who subscribed to 🔔 so
-    they don't keep waiting on a game that isn't happening. Players leave via the
-    Join toggle."""
+    """✖ Cancel: remove the buttons, note the game was cancelled, and DM everyone
+    who subscribed to 🔔 so they don't keep waiting on a game that isn't
+    happening. Players leave via the Join toggle.
+
+    The host OR a guild moderator, authorized HERE rather than by the dispatcher.
+    The owner-lock admits exactly one snowflake and so cannot express that union
+    -- the same reason the schedule poll's Close button opts out. A moderator
+    needs this to clear an abandoned post, whose host is by definition not
+    answering.
+    """
     embed = (payload.get("message", {}).get("embeds") or [{}])[0]
 
-    # The host, read off this button's own custom_id (`lfg_cancel:{owner}`), the
-    # same way ✔ Start does. The clicker only equals the host because the
-    # dispatcher owner-locks this button, so the custom_id is what actually means
-    # "host". Defensive .get chain with an `or ""`, not payload["data"]: a missing
-    # OR null custom_id must cost only the host exclusion, never the cancel the
-    # host just asked for.
+    # The host, read off this button's own custom_id (`lfg_cancel:{owner}:g`).
+    # Index 0, NOT -1: the trailing PICK_OPEN marker is what keeps the dispatcher
+    # lock off, so the last arg is that sentinel. Same position /lfg's Join reads
+    # its owner from. Defensive .get chain with an `or ""`, not payload["data"]: a
+    # missing OR null custom_id must cost only the host exclusion, never the
+    # cancel that was just asked for.
     _action, id_args = decode_custom_id(
         (payload.get("data") or {}).get("custom_id") or "")
-    host_id = id_args[-1] if id_args else None
+    host_id = id_args[0] if id_args else None
 
-    # Read the subscribers BEFORE _lfg_set_notify_ids wipes them below. The host is
-    # excluded -- they're the one who just cancelled.
-    notify_ids = list(_lfg_ids_in_field(embed, LFG_NOTIFY_FIELD) - {host_id})
+    # The check the owner-lock used to make, widened by one class. Skipped when
+    # the custom_id gave us no host -- consistent with the exclusion above, and
+    # the alternative is refusing a cancel nobody can then perform.
+    clicker_id = _interaction_user_id(payload)
+    if host_id and clicker_id and clicker_id != host_id:
+        if not _clicker_is_guild_staff(payload):
+            return _ephemeral("Only the host or a moderator can cancel this game."
+                              + OWNER_LOCK_HINTS.get("lfg_cancel", ""))
+
+    # Read the subscribers BEFORE _lfg_set_notify_ids wipes them below. Whoever
+    # cancelled is excluded -- they already know. That is usually the host, but a
+    # moderator cancelling leaves the HOST subscribed, which is correct: they are
+    # exactly who needs telling their game was closed.
+    notify_ids = list(_lfg_ids_in_field(embed, LFG_NOTIFY_FIELD)
+                      - {clicker_id or host_id})
     if notify_ids:
         notify_lfg_cancelled_task.delay(
             notify_ids, _lfg_member_display_name(payload),
             embed.get("description", ""), _lfg_jump_url(payload))
 
     # Status subtext goes in the embed footer (small text at the very bottom).
-    # Use the monochrome ✖ to match the Cancel button glyph.
-    embed["footer"] = {"text": "✖ Game was cancelled."}
+    # Use the monochrome ✖ to match the Cancel button glyph. A moderator's cancel
+    # names them: closing someone else's post should not read as the host giving
+    # up on their own game.
+    if host_id and clicker_id and clicker_id != host_id:
+        embed["footer"] = {
+            "text": f"✖ Game was cancelled by {_lfg_member_display_name(payload)}."}
+    else:
+        embed["footer"] = {"text": "✖ Game was cancelled."}
     # The Notify list is only useful while recruiting; drop it once cancelled.
     _lfg_set_notify_ids(embed, [])
     return JsonResponse({

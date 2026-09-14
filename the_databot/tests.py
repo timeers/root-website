@@ -2614,7 +2614,8 @@ class LFGCancelNotifyTests(TestCase):
         if custom_id is not ...:
             payload["data"] = {"custom_id": custom_id}
         else:
-            payload["data"] = {"custom_id": di.encode_custom_id("lfg_cancel", self.HOST)}
+            payload["data"] = {"custom_id": di.encode_custom_id(
+                "lfg_cancel", self.HOST, di.PICK_OPEN)}
         return payload
 
     def _cancel(self, *args, **kwargs):
@@ -2650,6 +2651,114 @@ class LFGCancelNotifyTests(TestCase):
         delay, data = self._cancel("<@111>", custom_id=None)
         self.assertEqual(data["embeds"][0]["footer"]["text"], "✖ Game was cancelled.")
         self.assertEqual(sorted(delay.call_args.args[0]), ["111"])
+
+
+class LFGCancelPermissionTests(TestCase):
+    """Who may press ✖ Cancel: the host, or a guild moderator.
+
+    The dispatcher's owner-lock admits exactly one snowflake and so cannot
+    express that union -- which is why ✖ carries PICK_OPEN and authorizes itself,
+    the same shape the schedule poll's Close button uses.
+    """
+
+    HOST = "830000000000000011"
+    OTHER = "830000000000000022"
+
+    def setUp(self):
+        post_save.disconnect(handle_image_resize, sender=Profile)
+        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
+        self.guild = DiscordGuild.objects.create(guild_id="830000000000000099",
+                                                 name="LFG Guild")
+
+    def _payload(self, clicker):
+        embed = {
+            "title": "Looking for Game", "description": "a game",
+            "fields": [
+                {"name": di.LFG_PLAYERS_FIELD, "value": f"Tim (<@{self.HOST}>)",
+                 "inline": False},
+                {"name": di.LFG_NOTIFY_FIELD, "value": f"<@{self.HOST}> <@111>",
+                 "inline": False},
+            ],
+        }
+        return {
+            "channel_id": "chan", "guild_id": self.guild.guild_id,
+            "member": {"nick": "Clicker", "user": {"id": clicker}},
+            "message": {"id": "msg", "content": "", "embeds": [embed]},
+            "data": {"custom_id": di.encode_custom_id(
+                "lfg_cancel", self.HOST, di.PICK_OPEN)},
+        }
+
+    def _cancel(self, clicker):
+        with mock.patch.object(di.notify_lfg_cancelled_task, "delay") as delay:
+            response = di._handle_lfg_cancel(self._payload(clicker))
+        return delay, json.loads(response.content)["data"]
+
+    def _moderator(self, discord_id, *, admin=False, moderates=True):
+        profile = Profile.objects.create(discord=f"mod{discord_id}",
+                                         discord_id=discord_id)
+        if admin:
+            profile.group = "A"
+            profile.save(update_fields=["group"])
+        if moderates:
+            self.guild.guild_moderators.add(profile)
+        return profile
+
+    def test_the_host_can_cancel(self):
+        _delay, data = self._cancel(self.HOST)
+        self.assertEqual(data["components"], [])
+        self.assertEqual(data["embeds"][0]["footer"]["text"], "✖ Game was cancelled.")
+
+    def test_a_guild_moderator_can_cancel(self):
+        """The whole point: a moderator clears an abandoned post whose host is by
+        definition not answering."""
+        self._moderator(self.OTHER)
+        _delay, data = self._cancel(self.OTHER)
+        self.assertEqual(data["components"], [])
+        self.assertIn("cancelled", data["embeds"][0]["footer"]["text"])
+
+    def test_a_site_admin_can_cancel(self):
+        """The other half of can_moderate_guild -- admin without being in this
+        guild's guild_moderators."""
+        self._moderator(self.OTHER, admin=True, moderates=False)
+        _delay, data = self._cancel(self.OTHER)
+        self.assertEqual(data["components"], [])
+
+    def test_an_outsider_cannot_cancel(self):
+        """Refused, naming BOTH classes -- and still pointing at Join, which is
+        what a would-be player reaching for the adjacent ✖ actually wanted."""
+        Profile.objects.create(discord="nobody", discord_id=self.OTHER)
+        _delay, data = self._cancel(self.OTHER)
+        self.assertIn("host or a moderator", data["content"])
+        self.assertIn('press "Join"', data["content"])
+
+    def test_a_stranger_with_no_profile_cannot_cancel(self):
+        """No Profile at all -- can_moderate_guild never gets a chance to run."""
+        _delay, data = self._cancel(self.OTHER)
+        self.assertIn("host or a moderator", data["content"])
+
+    def test_a_moderator_cancel_names_who_did_it(self):
+        """Closing someone else's post must not read as the host giving up."""
+        self._moderator(self.OTHER)
+        _delay, data = self._cancel(self.OTHER)
+        self.assertIn("Clicker", data["embeds"][0]["footer"]["text"])
+
+    def test_a_moderator_cancel_still_dms_the_host(self):
+        """The host did NOT cancel this one, so they are exactly who needs
+        telling. Only whoever clicked is excluded."""
+        self._moderator(self.OTHER)
+        delay, _data = self._cancel(self.OTHER)
+        delay.assert_called_once()
+        self.assertIn(self.HOST, delay.call_args.args[0])
+
+    def test_start_is_still_host_only(self):
+        """Scoped to ✖. ✔ Start keeps the dispatcher lock, so its custom_id must
+        still END in the host snowflake -- that suffix IS the enforcement."""
+        data = di._lfg_message_data(
+            None, self.HOST, "a game", "Tim", title="Looking for Game")
+        ids = {di.decode_custom_id(b["custom_id"])[0]: b["custom_id"]
+               for b in data["components"][0]["components"]}
+        self.assertTrue(ids["lfg_start"].endswith(f":{self.HOST}"))
+        self.assertTrue(ids["lfg_cancel"].endswith(f":{di.PICK_OPEN}"))
 
 
 class LFGEmbedTitleTests(TestCase):
