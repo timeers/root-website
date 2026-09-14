@@ -1566,15 +1566,32 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
             response = di._handle_schedule_free(payload)
         return self._body(response)["data"], enqueue
 
-    def test_confirming_posts_publicly_with_the_disclaimer(self):
-        _data, enqueue = self._confirm()
+    def test_confirming_posts_publicly(self):
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        _data, enqueue = self._confirm(when=when)
         message = enqueue.call_args.args[0][1]
         # No EPHEMERAL flag: an ephemeral "public" post would be visible only to the
         # proposer, which looks like the feature silently doing nothing.
         self.assertNotIn("flags", message)
         embed = message["embeds"][0]
-        self.assertIn(di.SCHEDULE_UNLINKED_NOTE, embed["description"])
         self.assertIn("🕐", embed["title"])
+        # The time the proposer picked actually reaches the post.
+        self.assertIn(f"<t:{int(when.timestamp())}:", embed["description"])
+
+    def test_the_public_post_carries_no_disclaimer_or_proposer(self):
+        """The public embed is deliberately MINIMAL -- just the title and the
+        time. The unlinked note and the "Suggested by" line were dropped from it
+        so a suggested time reads as a timestamp rather than a scheduled game.
+
+        Not a lost warning: the note still rides on the EPHEMERAL preview the
+        proposer confirms from (see the two tests above), which is where it can
+        change their mind. Repeating it publicly only added noise to a message
+        whose whole point is being short.
+        """
+        _data, enqueue = self._confirm()
+        embed = enqueue.call_args.args[0][1]["embeds"][0]
+        self.assertNotIn(di.SCHEDULE_UNLINKED_NOTE, embed["description"])
+        self.assertNotIn("Suggested by", embed["description"])
 
     def test_the_bare_post_has_no_confirm_buttons(self):
         _data, enqueue = self._confirm(kind="bare")
