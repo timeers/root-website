@@ -1,0 +1,56 @@
+{% load i18n %}
+{% comment %} One match-reminder row inside the series-channels form.
+
+Rendered both for real rows and (from a <template>) as the blank row the Add button
+clones, so everything here must work with formset.empty_form's __prefix__ placeholders
+untouched -- no {{ forloop.counter }} or hardcoded index.
+
+The row never saves on its own: the X ticks this form's DELETE checkbox and hides the
+row, and the modal's Save button commits the lot. The checkbox is hidden rather than
+removed because the formset needs it submitted to know the row is going.
+{% endcomment %}
+<div class="reminder-row border rounded p-2 mb-2">
+    {# id, so an edited row updates instead of creating a duplicate. #}
+    {{ reminder_form.id }}
+
+    {% if reminder_form.non_field_errors %}
+        <div class="alert alert-danger py-1 px-2 small mb-2">
+            {{ reminder_form.non_field_errors|striptags }}
+        </div>
+    {% endif %}
+
+    <div class="d-flex align-items-start gap-2">
+        <div style="width: 8rem;">
+            <label class="form-label small mb-1" for="{{ reminder_form.match_reminder_minutes.id_for_label }}">
+                {% trans 'Minutes before' %}
+            </label>
+            {{ reminder_form.match_reminder_minutes }}
+            {% if reminder_form.match_reminder_minutes.errors %}
+                <div class="text-danger small mt-1">
+                    {{ reminder_form.match_reminder_minutes.errors|striptags }}
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="flex-grow-1">
+            <label class="form-label small mb-1" for="{{ reminder_form.reminder_text.id_for_label }}">
+                {% trans 'Message' %}
+            </label>
+            {{ reminder_form.reminder_text }}
+            {% if reminder_form.reminder_text.errors %}
+                <div class="text-danger small mt-1">
+                    {{ reminder_form.reminder_text.errors|striptags }}
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="pt-4">
+            <button type="button" class="btn btn-sm btn-outline-danger remove-reminder-btn"
+                    title="{% trans 'Remove this reminder' %}">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+    </div>
+
+    <div class="d-none">{{ reminder_form.DELETE }}</div>
+</div>

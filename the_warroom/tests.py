@@ -36,8 +36,9 @@ from the_warroom.forms import GameCreateForm
 from the_databot.tasks import create_match_threads_task
 from the_warroom.services.grouping import GroupingService
 from the_warroom.models import (
-    CompetitionStatus, Effort, Game, Match, MatchSeat, MatchSeries, PlayerGroup,
-    Round, Stage, StageParticipant, Tournament, TournamentPlayer,
+    CompetitionStatus, Effort, Game, Match, MatchReminderSent, MatchSeat,
+    MatchSeries, PlayerGroup, Round, ScheduledGameReminder, Stage,
+    StageParticipant, Tournament, TournamentPlayer,
 )
 from the_warroom.views import (
     _can_record_match, user_can_record_in_round, _prefill_undrafted,
@@ -3909,13 +3910,12 @@ class AssumedSteamIdWriteTests(TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Match.save() re-arms reminder_sent_at when the scheduled time moves.
+# Match.save() re-arms the reminders when the scheduled time moves -- i.e. it
+# deletes the MatchReminderSent rows, so the sweep announces the NEW time.
 #
-# Every real caller passes update_fields=["scheduled_time"], and update_fields
-# restricts which COLUMNS the UPDATE writes -- so a save() override that only
-# assigns the field is silently discarded on its way to the database. These
-# tests therefore go through the REAL call shape and assert against the stored
-# row, never the in-memory instance (which would pass even with that bug).
+# Every real caller passes update_fields=["scheduled_time"], so these tests go
+# through the REAL call shape and assert against stored rows, never the
+# in-memory instance (which would pass even if nothing reached the database).
 # ---------------------------------------------------------------------------
 class MatchReminderResetTests(TestCase):
 
@@ -3928,52 +3928,64 @@ class MatchReminderResetTests(TestCase):
             round=self.round, group_number=1, name="Group A")
         self.series = MatchSeries.objects.create(
             round=self.round, player_group=self.group, number_of_games=1)
+        self.reminder = ScheduledGameReminder.objects.create(
+            tournament=self.tournament, match_reminder_minutes=60)
         self.start = timezone.now() + timedelta(hours=2)
         self.match = Match.objects.create(
             round=self.round, series=self.series, scheduled_time=self.start)
         self._mark_reminded()
 
     def _mark_reminded(self):
-        """Claim the row the way the sweep does -- .update(), not save()."""
+        """Claim it the way the sweep does."""
         self.sent_at = timezone.now()
-        Match.objects.filter(pk=self.match.pk).update(reminder_sent_at=self.sent_at)
+        MatchReminderSent.objects.create(
+            match=self.match, reminder=self.reminder, sent_at=self.sent_at)
         self.match.refresh_from_db()
 
     def _stored(self):
-        return Match.objects.get(pk=self.match.pk).reminder_sent_at
+        return MatchReminderSent.objects.filter(match=self.match).count()
 
     def test_rescheduling_rearms_the_reminder(self):
         self.match.scheduled_time = self.start + timedelta(hours=1)
         self.match.save(update_fields=["scheduled_time"])
-        self.assertIsNone(self._stored())
+        self.assertEqual(self._stored(), 0)
 
     def test_clearing_the_time_rearms_the_reminder(self):
         """The /schedule clear path."""
         self.match.scheduled_time = None
         self.match.save(update_fields=["scheduled_time"])
-        self.assertIsNone(self._stored())
+        self.assertEqual(self._stored(), 0)
 
     def test_saving_an_unchanged_time_keeps_the_claim(self):
         """Otherwise any unrelated save would re-send a reminder already given."""
         self.match.name = "Renamed"
         self.match.save(update_fields=["name"])
-        self.assertEqual(self._stored(), self.sent_at)
+        self.assertEqual(self._stored(), 1)
 
     def test_a_full_save_also_rearms(self):
-        """A bare save() passes no update_fields at all -- the widening branch
-        must not be the only thing that clears the flag."""
+        """A bare save() passes no update_fields at all -- it can still move the
+        time, so it must not be skipped by the update_fields guard."""
         self.match.scheduled_time = self.start + timedelta(hours=3)
         self.match.save()
-        self.assertIsNone(self._stored())
+        self.assertEqual(self._stored(), 0)
 
-    def test_no_extra_query_when_no_reminder_is_outstanding(self):
-        """The stored-row comparison is guarded on reminder_sent_at, so an
-        ordinary match pays nothing for this feature."""
-        Match.objects.filter(pk=self.match.pk).update(reminder_sent_at=None)
+    def test_a_save_that_cannot_move_the_time_costs_no_extra_query(self):
+        """The guard is `scheduled_time in update_fields`: a save that does not
+        write that column cannot need a re-arm, so it must not pay for the
+        lookup. (Only the UPDATE itself.)"""
+        match = Match.objects.get(pk=self.match.pk)
+        match.name = "Renamed"
+        with self.assertNumQueries(1):
+            match.save(update_fields=["name"])
+
+    def test_rearming_costs_nothing_when_there_is_nothing_to_clear(self):
+        """A match that was never reminded still reschedules cleanly -- the
+        DELETE simply matches no rows."""
+        MatchReminderSent.objects.all().delete()
         match = Match.objects.get(pk=self.match.pk)
         match.scheduled_time = self.start + timedelta(hours=4)
-        with self.assertNumQueries(1):
-            match.save(update_fields=["scheduled_time"])
+        match.save(update_fields=["scheduled_time"])
+        self.assertEqual(self._stored(), 0)
 
     def test_a_rescheduled_match_is_reminded_again(self):
         """End to end: the reset is only worth anything if the sweep then picks
@@ -3984,8 +3996,7 @@ class MatchReminderResetTests(TestCase):
         guild = DiscordGuild.objects.create(
             guild_id="900300", name="Reset Guild", bot_member=True)
         self.tournament.guild = guild
-        self.tournament.match_reminder_minutes = 60
-        self.tournament.save(update_fields=["guild", "match_reminder_minutes"])
+        self.tournament.save(update_fields=["guild"])
         self.group.discord_thread = "https://discord.com/channels/900300/4242"
         self.group.save(update_fields=["discord_thread"])
 

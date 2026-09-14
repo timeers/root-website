@@ -15,8 +15,9 @@ from kombu.exceptions import OperationalError as KombuOperationalError
 from datetime import datetime, timedelta, timezone as dt_timezone
 from zoneinfo import ZoneInfo
 from the_warroom.models import (
-    Effort, Game, Match, MatchSeat, MatchSeries, PlayerGroup, Round, Stage,
-    StageParticipant, Tournament, TournamentPlayer, CompetitionStatus,
+    Effort, Game, Match, MatchReminderSent, MatchSeat, MatchSeries, PlayerGroup,
+    Round, ScheduledGameReminder, Stage, StageParticipant, Tournament,
+    TournamentPlayer, CompetitionStatus,
 )
 from the_keep.models import (
     StatusChoices, Faction, Map, Deck, Vagabond, Language, Law, LawGroup,
@@ -3352,6 +3353,20 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
         return reverse("guild-tournament-channels",
                        args=[self.guild.guild_id, pk or self.tournament.pk])
 
+    # The match-reminder formset rides on this same form, so every POST carries
+    # its management form exactly as the rendered page does. These tests are
+    # about the CHANNEL fields, so they always send zero reminder rows.
+    NO_REMINDERS = {
+        "reminders-TOTAL_FORMS": "0",
+        "reminders-INITIAL_FORMS": "0",
+        "reminders-MIN_NUM_FORMS": "0",
+        "reminders-MAX_NUM_FORMS": "1000",
+    }
+
+    def _post(self, data, **kwargs):
+        return self.client.post(self._url(**kwargs),
+                                {**self.NO_REMINDERS, **data})
+
     def test_get_returns_form_with_both_lists_kept_separate(self):
         response = self._with_discord(lambda: self.client.get(self._url()))
         self.assertEqual(response.status_code, 200)
@@ -3361,7 +3376,7 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
         self.assertContains(response, "matches")
 
     def test_valid_post_saves_all_three_and_signals_success(self):
-        response = self._with_discord(lambda: self.client.post(self._url(), {
+        response = self._with_discord(lambda: self._post({
             "results_channel": self.TEXT[0]["id"],
             "schedule_channel": self.TEXT[1]["id"],
             "game_threads_channel": self.FORUM[0]["id"],
@@ -3378,7 +3393,7 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
         self.assertContains(response, "#results")
 
     def test_channel_outside_the_guild_is_rejected(self):
-        response = self._with_discord(lambda: self.client.post(self._url(), {
+        response = self._with_discord(lambda: self._post({
             "results_channel": "999000000000000099",
         }))
         self.assertEqual(response.status_code, 422)
@@ -3388,7 +3403,7 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
     def test_text_channel_cannot_be_saved_as_the_game_threads_forum(self):
         """The two lists really are kept separate — a text channel in the forum field
         would break thread creation at runtime, so it must fail at save time."""
-        response = self._with_discord(lambda: self.client.post(self._url(), {
+        response = self._with_discord(lambda: self._post({
             "game_threads_channel": self.TEXT[0]["id"],
         }))
         self.assertEqual(response.status_code, 422)
@@ -3409,7 +3424,7 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
         for p in patches:
             p.start()
         try:
-            response = self.client.post(self._url(), {
+            response = self._post({
                 "results_channel": "999000000000000099",
             })
             self.assertEqual(response.status_code, 200)
@@ -3422,7 +3437,7 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
     def test_an_empty_channel_list_still_rejects(self):
         """An empty list is a SUCCESSFUL fetch of a guild with no such channels — it
         must reject, unlike None. Guards against a falsy-vs-None mixup in clean()."""
-        response = self._with_discord(lambda: self.client.post(self._url(), {
+        response = self._with_discord(lambda: self._post({
             "results_channel": "999000000000000099",
         }), text=[], forum=[])
         self.assertEqual(response.status_code, 422)
@@ -3442,13 +3457,13 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
         try:
             # Text fetch failed -> an unknown text channel is accepted.
             # Forum fetch worked -> a bad forum channel is still rejected.
-            response = self.client.post(self._url(), {
+            response = self._post({
                 "results_channel": "999000000000000099",
                 "game_threads_channel": self.TEXT[0]["id"],
             })
             self.assertEqual(response.status_code, 422)
 
-            response = self.client.post(self._url(), {
+            response = self._post({
                 "results_channel": "999000000000000099",
                 "game_threads_channel": self.FORUM[0]["id"],
             })
@@ -3464,7 +3479,7 @@ class TournamentChannelModalViewTests(_NoLoginSignalMixin, TestCase):
         self.tournament.game_threads_channel = self.FORUM[0]["id"]
         self.tournament.save()
 
-        response = self._with_discord(lambda: self.client.post(self._url(), {
+        response = self._with_discord(lambda: self._post({
             "results_channel": "", "schedule_channel": "", "game_threads_channel": "",
         }))
         self.assertEqual(response.status_code, 200)
@@ -14590,9 +14605,21 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         # defaults False -- and False is itself one of the gates below.
         self.guild.bot_member = True
         self.guild.save(update_fields=["bot_member"])
-        self.tournament.match_reminder_minutes = 60
-        self.tournament.save(update_fields=["match_reminder_minutes"])
+        self.reminder = self._remind(self.tournament, 60)
         self._schedule(self.match, minutes=30)
+
+    def _remind(self, tournament, minutes, text=None):
+        """Configure one reminder. Reminders are rows now, so 'off' is no rows."""
+        kwargs = {"tournament": tournament, "match_reminder_minutes": minutes}
+        if text is not None:
+            kwargs["reminder_text"] = text
+        return ScheduledGameReminder.objects.create(**kwargs)
+
+    def _sent_count(self, match=None):
+        qs = MatchReminderSent.objects.all()
+        if match is not None:
+            qs = qs.filter(match=match)
+        return qs.count()
 
     def _schedule(self, match, minutes):
         match.scheduled_time = timezone.now() + timedelta(minutes=minutes)
@@ -14612,8 +14639,7 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         delay = self._sweep()
         self.assertEqual(delay.call_count, 1)
         self.assertEqual(delay.call_args.args[0], "555000111")
-        self.match.refresh_from_db()
-        self.assertIsNotNone(self.match.reminder_sent_at)
+        self.assertEqual(self._sent_count(self.match), 1)
 
     def test_pings_are_allowed_to_notify(self):
         """Without allowed_mentions the <@id>s render as blue text and notify
@@ -14640,10 +14666,10 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         self.group.save(update_fields=["group_moderator"])
         content = self._content(self._sweep())
         self.assertIn(f"with <@{mod.discord_id}> moderating", content)
-        # After the label, before the time -- and the players still lead.
+        # LAST, after the time -- and the players still lead.
         self.assertLess(content.index(f"<@{self.player.discord_id}>"),
                         content.index("moderating"))
-        self.assertLess(content.index("moderating"), content.index("<t:"))
+        self.assertLess(content.index("<t:"), content.index("moderating"))
 
     def test_an_unlinked_moderator_is_named_not_mentioned(self):
         """Same rule the roster uses: no snowflake means no ping, but they are
@@ -14657,13 +14683,15 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         self.assertNotIn("<@None>", content)
 
     def test_no_moderator_leaves_the_sentence_unchanged(self):
-        """The clause must vanish entirely, not leave a dangling "with"."""
+        """The clause must vanish entirely, not leave a dangling "with" or the
+        double space a naive join would leave where it used to sit."""
         self.group.group_moderator = None
         self.group.save(update_fields=["group_moderator"])
         content = self._content(self._sweep())
-        self.assertIn("starts soon — ", content)
         self.assertNotIn("moderating", content)
         self.assertNotIn(" with ", content)
+        self.assertNotIn("  ", content)
+        self.assertFalse(content.endswith(" "))
 
     def test_the_moderator_costs_no_extra_query(self):
         """This queryset is hand-tuned with select_related + .only(); reading a
@@ -14677,8 +14705,7 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
             baseline = len(ctx.captured_queries)
         # A second match in its own series must not scale the query count with
         # the number of matches -- that is what the prefetching is protecting.
-        self.match.reminder_sent_at = None
-        self.match.save(update_fields=["reminder_sent_at"])
+        self.match.reminders_sent.all().delete()
         with mock.patch.object(tasks.post_channel_message_task, "delay"):
             with CaptureQueriesContext(connection) as ctx:
                 tasks.remind_upcoming_matches()
@@ -14696,12 +14723,12 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         self.series.save(update_fields=["number_of_games"])
         Match.objects.create(round=self.round, series=self.series, match_number=2)
         content = self._content(self._sweep())
-        self.assertIn("game 1 of 3", content)
+        self.assertIn("(1 of 3)", content)
 
     # --- the gates ------------------------------------------------------
     def test_no_reminder_when_unconfigured(self):
-        self.tournament.match_reminder_minutes = None
-        self.tournament.save(update_fields=["match_reminder_minutes"])
+        """No rows is the off switch -- there is no 'blank' value any more."""
+        self.tournament.reminders.all().delete()
         self.assertEqual(self._sweep().call_count, 0)
 
     def test_no_reminder_when_bot_not_in_guild(self):
@@ -14727,8 +14754,7 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         self.group.discord_thread = "https://discord.com/channels/999999/555000111"
         self.group.save(update_fields=["discord_thread"])
         self._sweep()
-        self.match.refresh_from_db()
-        self.assertIsNone(self.match.reminder_sent_at)
+        self.assertEqual(self._sent_count(self.match), 0)
 
     def test_no_reminder_without_a_scheduled_time(self):
         Match.objects.filter(pk=self.match.pk).update(scheduled_time=None)
@@ -14765,8 +14791,7 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
     def test_outside_the_window_is_not_sent_and_stays_unclaimed(self):
         self._schedule(self.match, minutes=90)
         self.assertEqual(self._sweep().call_count, 0)
-        self.match.refresh_from_db()
-        self.assertIsNone(self.match.reminder_sent_at)
+        self.assertEqual(self._sent_count(self.match), 0)
 
     def test_a_match_already_started_is_never_reminded(self):
         Match.objects.filter(pk=self.match.pk).update(
@@ -14777,15 +14802,15 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         """The test that justifies the whole design: one sweep, two leads. A
         single fixed cutoff cannot satisfy both."""
         # This tournament: lead 120, match at +60 -> INSIDE its window.
-        self.tournament.match_reminder_minutes = 120
-        self.tournament.save(update_fields=["match_reminder_minutes"])
+        self.reminder.match_reminder_minutes = 120
+        self.reminder.save(update_fields=["match_reminder_minutes"])
         self._schedule(self.match, minutes=60)
 
         # A second tournament: lead 30, match also at +60 -> OUTSIDE its window.
         guild2 = DiscordGuild.objects.create(
             guild_id="900200", name="Other Guild", bot_member=True)
-        t2 = Tournament.objects.create(
-            name="Other Tournament", guild=guild2, match_reminder_minutes=30)
+        t2 = Tournament.objects.create(name="Other Tournament", guild=guild2)
+        self._remind(t2, 30)
         stage2 = Stage.objects.create(tournament=t2, name="S", order=1)
         round2 = Round.objects.create(stage=stage2, round_number=1)
         group2 = PlayerGroup.objects.create(
@@ -14806,18 +14831,84 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(self._sweep().call_count, 0)
 
     def test_nothing_configured_anywhere_returns_immediately(self):
-        Tournament.objects.update(match_reminder_minutes=None)
+        ScheduledGameReminder.objects.all().delete()
         with self.assertNumQueries(1):
             result = tasks.remind_upcoming_matches()
         self.assertEqual(result, {"sent": 0, "skipped": 0})
+
+    # --- several reminders on one series --------------------------------
+    #
+    # The reason the claim had to stop being a single timestamp on the match:
+    # one flag cannot say "the 60-minute ping went out, the 10-minute has not".
+    def test_two_reminders_both_fire_when_both_are_due(self):
+        self._remind(self.tournament, 45)       # match is at +30, so both due
+        delay = self._sweep()
+        self.assertEqual(delay.call_count, 2)
+        self.assertEqual(self._sent_count(self.match), 2)
+
+    def test_a_later_reminder_still_fires_after_an_earlier_one(self):
+        """THE regression the old single timestamp made impossible: the 60 fires
+        now, and the 10 fires on a later sweep once its own window opens."""
+        self._remind(self.tournament, 10)
+        self.assertEqual(self._sweep().call_count, 1)   # only the 60 is due
+        self.assertEqual(self._sent_count(self.match), 1)
+
+        self._schedule(self.match, minutes=5)           # now inside the 10 too
+        self.assertEqual(self._sweep().call_count, 2)
+
+    def test_neither_reminder_fires_twice(self):
+        self._remind(self.tournament, 45)
+        self.assertEqual(self._sweep().call_count, 2)
+        self.assertEqual(self._sweep().call_count, 0)
+        self.assertEqual(self._sent_count(self.match), 2)
+
+    def test_each_reminder_sends_its_own_text(self):
+        self.reminder.reminder_text = "one hour warning"
+        self.reminder.save(update_fields=["reminder_text"])
+        self._remind(self.tournament, 45, text="forty five warning")
+        delay = self._sweep()
+        contents = [c.args[1] for c in delay.call_args_list]
+        self.assertTrue(any("one hour warning" in c for c in contents))
+        self.assertTrue(any("forty five warning" in c for c in contents))
+
+    def test_a_fully_reminded_match_is_not_rescanned(self):
+        """Once every reminder has gone out the match drops out of the candidate
+        query, rather than being re-fetched every sweep for the rest of its lead
+        time and relying on the constraint to reject the duplicate."""
+        self._sweep()
+        with mock.patch.object(tasks.post_channel_message_task, "delay"):
+            with CaptureQueriesContext(connection) as ctx:
+                tasks.remind_upcoming_matches()
+        selects = [q["sql"] for q in ctx.captured_queries
+                   if q["sql"].lstrip().upper().startswith("SELECT")]
+        self.assertFalse(
+            any("the_warroom_matchseat" in q for q in selects),
+            "a fully-reminded match was still loaded and walked")
+
+    # --- message shape --------------------------------------------------
+    def test_the_user_owns_the_wording(self):
+        """No em-dash and no "starts soon" wrapped around the text: the layout
+        is pings, game number, text, time, moderator."""
+        self.reminder.reminder_text = "saddle up"
+        self.reminder.save(update_fields=["reminder_text"])
+        content = self._content(self._sweep())
+        self.assertIn("saddle up", content)
+        self.assertNotIn("—", content)
+        self.assertNotIn("starts soon", content)
+        self.assertLess(content.index("saddle up"), content.index("<t:"))
+
+    def test_a_single_game_series_has_no_game_number(self):
+        content = self._content(self._sweep())
+        self.assertNotIn(" of ", content)
+        self.assertNotIn("(", content.split("<t:")[0])
 
     # --- efficiency -----------------------------------------------------
     def test_reads_do_not_grow_with_the_number_of_matches(self):
         """The load-bearing efficiency test.
 
-        Exactly ONE query per match is legitimate: the UPDATE that claims the row
-        (the compare-and-swap giving at-most-once delivery). Everything else --
-        every SELECT -- must be constant, so this counts reads and writes
+        Exactly ONE query per reminder sent is legitimate: the INSERT that claims
+        it (the unique constraint giving at-most-once delivery). Everything else
+        -- every SELECT -- must be constant, so this counts reads and writes
         separately rather than asserting a single magic total.
 
         A regression here means a deferred field got read (Django silently issues
@@ -14846,14 +14937,14 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
                 round=self.round, player_group=group, number_of_games=1)
             match = Match.objects.create(round=self.round, series=series)
             self._schedule(match, minutes=30)
-        Match.objects.update(reminder_sent_at=None)
+        MatchReminderSent.objects.all().delete()
 
         reads_five, writes_five = sweep_counts()
         self.assertEqual(
             reads_one, reads_five,
             f"SELECT count scales with match count ({reads_one} -> {reads_five}): "
             "an N+1 crept in")
-        # One claim per match, and nothing else.
+        # One claim per reminder sent, and nothing else.
         self.assertEqual(writes_five, 5)
 
     def test_reads_do_not_grow_on_the_seat_only_path(self):
@@ -14885,7 +14976,7 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
                 series=series, stage_participant=self.participant, seat_number=1)
             match = Match.objects.create(round=self.round, series=series)
             self._schedule(match, minutes=30)
-        Match.objects.update(reminder_sent_at=None)
+        MatchReminderSent.objects.all().delete()
 
         five = sweep_reads()
         self.assertEqual(

@@ -824,12 +824,15 @@ class Tournament(models.Model):
         return self.require_participant_schedule_confirmation
 
     def sends_match_reminders(self):
-        """True when this series pings players before a match. Requires reminders
-        configured AND a guild the bot can post in -- the thread post would 403
-        otherwise. Mirrors the gates in remind_upcoming_matches, which filters in
-        the queryset rather than calling this (one query beats one per row)."""
-        return bool(self.match_reminder_minutes
-                    and self.guild_id and self.guild.bot_member)
+        """True when this series pings players before a match. Requires at least one
+        reminder configured AND a guild the bot can post in -- the thread post would
+        403 otherwise. Mirrors the gates in remind_upcoming_matches, which filters in
+        the queryset rather than calling this (one query beats one per row).
+
+        No rows is the "off" switch, so this tests existence rather than a value --
+        0 minutes is a real reminder ("at start time"), not an absent one."""
+        return bool(self.guild_id and self.guild.bot_member
+                    and self.reminders.exists())
 
     def players_can_record_standalone(self):
         """Registered players may record standalone games for rounds (REGISTERED, GUILD)."""
@@ -2098,9 +2101,11 @@ class Match(models.Model):
             models.Index(fields=['series', 'scheduled_time'],
                          name='match_series_sched_idx'),
             # Serves remind_upcoming_matches' candidate scan, which selects on a
-            # scheduled_time range plus reminder_sent_at IS NULL. The index above
-            # leads on series, so it can't serve a bare scheduled_time range.
-            models.Index(fields=['scheduled_time', 'reminder_sent_at'],
+            # scheduled_time range. The index above leads on series, so it can't
+            # serve a bare scheduled_time range. Which reminders have already
+            # gone out is now MatchReminderSent's own unique index, not a column
+            # here, so this no longer carries a second field.
+            models.Index(fields=['scheduled_time'],
                          name='match_sched_reminder_idx'),
         ]
 
@@ -2117,7 +2122,7 @@ class Match(models.Model):
                 self.name = group_name
 
         # A reminder already sent describes a time that no longer applies, so a
-        # reschedule must re-arm the flag -- otherwise the new time is never
+        # reschedule must re-arm it -- otherwise the new time is never
         # announced. Done HERE rather than at each caller because every path that
         # writes scheduled_time must do it, and this codebase has already
         # forgotten that once for _cancel_open_proposals (see the "this one was
@@ -2125,22 +2130,32 @@ class Match(models.Model):
         #
         # Compare against the stored row rather than tracking state on the
         # instance: the writers use update_fields, and several load the row fresh.
-        # The read is guarded by reminder_sent_at, so it costs nothing on a
-        # creation or on the overwhelming majority of saves.
-        if self.pk and self.reminder_sent_at is not None:
-            previous = (Match.objects.filter(pk=self.pk)
-                        .values_list('scheduled_time', flat=True).first())
-            if previous != self.scheduled_time:
-                self.reminder_sent_at = None
-                # REQUIRED, not defensive: update_fields restricts which COLUMNS
-                # the UPDATE writes, so without widening it the reset above is
-                # silently dropped -- and every real caller passes
-                # update_fields=["scheduled_time"].
-                update_fields = kwargs.get('update_fields')
-                if update_fields is not None:
-                    kwargs['update_fields'] = set(update_fields) | {'reminder_sent_at'}
+        #
+        # The old column-based version guarded this read on `reminder_sent_at is
+        # not None`, which is gone. `scheduled_time in update_fields` is the
+        # replacement guard and is stricter: the only saves that can possibly
+        # need a re-arm are the ones writing that column, so an ordinary save
+        # still costs no extra query. A save with update_fields=None (a full
+        # save) can also move the time, so it is not skipped.
+        rearm = False
+        if self.pk:
+            update_fields = kwargs.get('update_fields')
+            touches_time = (update_fields is None
+                            or 'scheduled_time' in set(update_fields))
+            if touches_time:
+                previous = (Match.objects.filter(pk=self.pk)
+                            .values_list('scheduled_time', flat=True).first())
+                rearm = previous != self.scheduled_time
 
         super().save(*args, **kwargs)
+
+        # AFTER the save, not before: these are related rows, not a column on
+        # this one, so update_fields cannot carry them and there is nothing to
+        # widen. Deleting after means a failed save leaves the sent records
+        # alone, matching the old behaviour where the column reset rode along
+        # with the UPDATE and was rolled back with it.
+        if rearm:
+            self.reminders_sent.all().delete()
 
     def clean(self):
         # Ensure game belongs to the same round as the match
@@ -3210,12 +3225,21 @@ class MatchSeat(models.Model):
 # into the player group's thread, and remind_upcoming_matches re-checks both
 # at send time.
 class ScheduledGameReminder(models.Model):
-    tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE)
+    """One pre-match ping. A series may have several -- 60 minutes before AND
+    10 minutes before -- so this is a row per reminder rather than a field on
+    Tournament. No rows means the series sends none; that is the "off" switch,
+    which is why 0 can be a real value here (ping at start time) where the old
+    single field had to reserve NULL for "off"."""
+
+    tournament = models.ForeignKey(
+        Tournament, on_delete=models.CASCADE, related_name='reminders')
     match_reminder_minutes = models.PositiveIntegerField(
         verbose_name="Match Reminder Lead Time (minutes)",
         default=60,
         help_text=(
-            "Ping players this many minutes before their game starts in the Discord thread."
+            "How long before the scheduled start this ping is sent. Each "
+            "reminder you add is sent separately, so 60 and 10 means two "
+            "pings. Use 0 to ping at the start time."
         ),
     )
     reminder_text = models.CharField(
@@ -3223,6 +3247,60 @@ class ScheduledGameReminder(models.Model):
         default="your match starts soon",
         verbose_name="Match Reminder Text",
         help_text=(
-            "Customize the message that appears between the player tags and the start time."
+            "Your wording for this ping. The message is assembled as: player "
+            "tags, the game number when the series has more than one game, "
+            "this text, the start time, then the moderator. Nothing else is "
+            "added around it, so write it as a full phrase."
         ),
     )
+
+    class Meta:
+        # Longest lead first, so the list reads in the order the pings go out.
+        ordering = ['-match_reminder_minutes']
+        constraints = [
+            # Two rows at the same lead time would ping the roster twice for
+            # one moment. The form can't express it and neither can the DB.
+            models.UniqueConstraint(
+                fields=['tournament', 'match_reminder_minutes'],
+                name='uniq_reminder_per_lead'),
+        ]
+
+    def __str__(self):
+        return f"{self.match_reminder_minutes}m before ({self.tournament})"
+
+
+class MatchReminderSent(models.Model):
+    """One row per reminder actually posted for one match.
+
+    THE at-most-once claim: the unique constraint below is what stops two
+    workers both pinging a roster, the same job Match.reminder_sent_at used to
+    do with a compare-and-swap. It had to become a table because one timestamp
+    cannot say "the 60-minute ping went out but the 10-minute one has not".
+
+    Cleared by Match.save() when scheduled_time moves -- a reminder already
+    sent describes a time that no longer applies.
+    """
+
+    match = models.ForeignKey(
+        Match, on_delete=models.CASCADE, related_name='reminders_sent')
+    reminder = models.ForeignKey(
+        ScheduledGameReminder, on_delete=models.CASCADE,
+        related_name='sent_records')
+    # Written explicitly from the sweep's own `now`, NOT auto_now_add: one pass
+    # stamps every reminder it sends identically, and a test can set it.
+    sent_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['match', 'reminder'], name='uniq_match_reminder_sent'),
+        ]
+        indexes = [
+            # Nothing reads this today. It is here for a future age-based
+            # prune (sent_at__lt=cutoff), which is far cheaper to index now
+            # than to migrate onto a table already holding live rows.
+            models.Index(fields=['sent_at'], name='match_reminder_sent_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.reminder} -> {self.match}"

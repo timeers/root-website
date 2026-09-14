@@ -144,23 +144,46 @@ stale the moment a different series' form was opened. {% endcomment %}
         </div>
     </div>
 
-    {% comment %} ----- Match reminder -----
-    Not a channel: the lead time in minutes for the pre-match ping, posted into the
-    match's OWN thread (PlayerGroup.discord_thread) rather than any channel named
-    above. It lives here because it shares the same prerequisite as the fields above
-    -- a linked guild the bot is in. Blank/absent means no reminders.
+    {% comment %} ----- Match reminders -----
+    Not channels: the pre-match pings, posted into the match's OWN thread
+    (PlayerGroup.discord_thread) rather than any channel named above. They live here
+    because they share the same prerequisite as the fields above -- a linked guild the
+    bot is in. No rows means no reminders.
+
+    A FORMSET, not fields: a series may have several reminders. Rows are added
+    client-side by cloning #reminder-empty-form (see tournament_channels_modal.js), so
+    adding one costs no round-trip. Nothing here saves on its own -- the X ticks the
+    row's DELETE box and everything commits with the modal's Save button, which is why
+    these are plain inputs rather than a nested <form> (HTML forbids that anyway).
     {% endcomment %}
     <div class="mb-3">
-        <label class="form-label" for="id_match_reminder_minutes">{% trans 'Match reminder' %}</label>
-        {% if form.match_reminder_minutes.errors %}
-            <div class="alert alert-danger py-2">{{ form.match_reminder_minutes.errors|striptags }}</div>
+        <label class="form-label">{% trans 'Match reminders' %}</label>
+
+        {{ formset.management_form }}
+        {% if formset.non_form_errors %}
+            <div class="alert alert-danger py-2">{{ formset.non_form_errors|striptags }}</div>
         {% endif %}
-        <input type="number" min="1" name="match_reminder_minutes" id="id_match_reminder_minutes"
-               class="form-control" value="{{ form.match_reminder_minutes.value|default_if_none:'' }}"
-               placeholder="{% trans 'No reminders' %}">
+
+        <div id="reminder-rows">
+            {% for reminder_form in formset %}
+                {% include 'the_gatehouse/partials/reminder_form_row.html' with reminder_form=reminder_form %}
+            {% endfor %}
+        </div>
+
+        <button type="button" class="btn btn-sm btn-outline-success mt-1" id="add-reminder-btn">
+            <i class="bi bi-plus-circle me-1"></i>{% trans 'Add reminder' %}
+        </button>
+
         <div class="form-text text-muted">
-            {% trans "Ping players X minutes before their game starts in the Discord thread. Blank sends none." %}
+            {% trans "Each reminder pings the players in the game's thread. Add more than one to ping at several times." %}
         </div>
     </div>
 
 </div>
+
+{% comment %} The blank row cloned by "Add reminder". Kept out of #reminder-rows and
+inside a <template> so its inputs are never submitted, and its __prefix__ placeholders
+are rewritten to the new index on clone. {% endcomment %}
+<template id="reminder-empty-form">
+    {% include 'the_gatehouse/partials/reminder_form_row.html' with reminder_form=formset.empty_form %}
+</template>

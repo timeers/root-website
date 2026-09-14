@@ -2,6 +2,9 @@
 
 ## [1.13.8] - 2026-9-13 Better Notifications
 
+### New Features
+- You can now set up multiple reminders via the Databot for scheduled games
+
 ### Bug Fixes
 - Subscribing to a scheduling poll now notifies on every new "Yes" answer instead of just poll close.
 
