@@ -15095,6 +15095,22 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         self._sweep()
         self.assertEqual(self._sent_count(self.match), 0)
 
+    def test_an_unremindable_match_collapses_nothing(self):
+        """The collapse runs BELOW the thread check, so an unremindable match
+        claims nothing -- neither the one that would have been sent nor the ones
+        that would have been suppressed. Collapsing above it would burn every
+        reminder for a match that was never remindable, and would report one
+        skipped instead of two."""
+        self._remind(self.tournament, 45)       # two reminders, both due
+        self.group.discord_thread = "https://discord.com/channels/999999/555000111"
+        self.group.save(update_fields=["discord_thread"])
+
+        with mock.patch.object(tasks.post_channel_message_task, "delay"):
+            result = tasks.remind_upcoming_matches()
+
+        self.assertEqual(result, {"sent": 0, "skipped": 2, "collapsed": 0})
+        self.assertEqual(self._sent_count(self.match), 0)
+
     def test_no_reminder_without_a_scheduled_time(self):
         Match.objects.filter(pk=self.match.pk).update(scheduled_time=None)
         self.assertEqual(self._sweep().call_count, 0)
@@ -15173,42 +15189,72 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         ScheduledGameReminder.objects.all().delete()
         with self.assertNumQueries(1):
             result = tasks.remind_upcoming_matches()
-        self.assertEqual(result, {"sent": 0, "skipped": 0})
+        self.assertEqual(result, {"sent": 0, "skipped": 0, "collapsed": 0})
 
     # --- several reminders on one series --------------------------------
     #
     # The reason the claim had to stop being a single timestamp on the match:
     # one flag cannot say "the 60-minute ping went out, the 10-minute has not".
-    def test_two_reminders_both_fire_when_both_are_due(self):
+    def test_two_reminders_due_at_once_send_only_one_ping(self):
+        """A match sitting inside BOTH windows must not be pinged twice in one
+        sweep. Both are claimed so neither fires again; only the tighter is sent.
+
+        This previously asserted two pings. With reminder_text at its shared
+        default those two messages are byte-identical, which is the spam this
+        collapse exists to stop."""
         self._remind(self.tournament, 45)       # match is at +30, so both due
         delay = self._sweep()
-        self.assertEqual(delay.call_count, 2)
+        self.assertEqual(delay.call_count, 1)
         self.assertEqual(self._sent_count(self.match), 2)
+
+    def test_the_tightest_due_reminder_is_the_one_sent(self):
+        """At +30 the 45 describes reality and the 60 describes a moment that
+        already passed unannounced, so the 45 is the honest one."""
+        self.reminder.reminder_text = "one hour warning"
+        self.reminder.save(update_fields=["reminder_text"])
+        self._remind(self.tournament, 45, text="forty five warning")
+        content = self._content(self._sweep())
+        self.assertIn("forty five warning", content)
+        self.assertNotIn("one hour warning", content)
+
+    def test_collapsed_reminders_are_counted(self):
+        self._remind(self.tournament, 45)
+        with mock.patch.object(tasks.post_channel_message_task, "delay"):
+            result = tasks.remind_upcoming_matches()
+        self.assertEqual(result, {"sent": 1, "skipped": 0, "collapsed": 1})
 
     def test_a_later_reminder_still_fires_after_an_earlier_one(self):
         """THE regression the old single timestamp made impossible: the 60 fires
-        now, and the 10 fires on a later sweep once its own window opens."""
+        now, and the 10 fires on a later sweep once its own window opens.
+
+        Each sweep sends exactly one -- _sweep() hands back a FRESH mock, so
+        these counts are per-sweep, not cumulative."""
         self._remind(self.tournament, 10)
         self.assertEqual(self._sweep().call_count, 1)   # only the 60 is due
         self.assertEqual(self._sent_count(self.match), 1)
 
+        # Rescheduling re-arms: Match.save() deletes the sent records, so both
+        # reminders are due again and the tighter 10 is the one that goes out.
         self._schedule(self.match, minutes=5)           # now inside the 10 too
-        self.assertEqual(self._sweep().call_count, 2)
+        self.assertEqual(self._sweep().call_count, 1)
+        self.assertEqual(self._sent_count(self.match), 2)
 
     def test_neither_reminder_fires_twice(self):
         self._remind(self.tournament, 45)
-        self.assertEqual(self._sweep().call_count, 2)
+        self.assertEqual(self._sweep().call_count, 1)
         self.assertEqual(self._sweep().call_count, 0)
         self.assertEqual(self._sent_count(self.match), 2)
 
-    def test_each_reminder_sends_its_own_text(self):
-        self.reminder.reminder_text = "one hour warning"
-        self.reminder.save(update_fields=["reminder_text"])
-        self._remind(self.tournament, 45, text="forty five warning")
-        delay = self._sweep()
-        contents = [c.args[1] for c in delay.call_args_list]
-        self.assertTrue(any("one hour warning" in c for c in contents))
-        self.assertTrue(any("forty five warning" in c for c in contents))
+    def test_a_reminder_that_is_not_yet_due_is_not_collapsed(self):
+        """The collapse only ever touches reminders due in THIS sweep. A window
+        that hasn't opened must stay pending, not be silently claimed -- that is
+        the difference between one ping per sweep and one ping ever."""
+        self._remind(self.tournament, 5)        # match is at +30; not due yet
+        self.assertEqual(self._sweep().call_count, 1)
+        self.assertEqual(self._sent_count(self.match), 1)
+
+        self._schedule(self.match, minutes=3)   # re-arms, now inside both
+        self.assertEqual(self._sweep().call_count, 1)
 
     def test_a_fully_reminded_match_is_not_rescanned(self):
         """Once every reminder has gone out the match drops out of the candidate

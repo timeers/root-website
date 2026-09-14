@@ -647,23 +647,6 @@ class Tournament(models.Model):
             "directly. Only applies when players are allowed to record matches."
         ),
     )
-    # Minutes before a match's scheduled_time to ping its players in the group's
-    # Discord thread. NULL (the default) means this series sends no reminders --
-    # the "off" switch needs no extra flag, since 0 would ambiguously mean
-    # "remind at start time".
-    #
-    # Only meaningful with a guild linked AND the bot in it: the reminder posts
-    # into the player group's thread, and remind_upcoming_matches re-checks both
-    # at send time.
-    match_reminder_minutes = models.PositiveIntegerField(
-        null=True, blank=True,
-        verbose_name="Match Reminder Lead Time (minutes)",
-        help_text=(
-            "Ping players this many minutes before their game starts in the "
-            "Discord thread. Leave blank to send no reminders. Requires a linked "
-            "Discord server the bot is in, and a thread linked to the player group."
-        ),
-    )
     # Player management handled via TournamentPlayer
     # Use get_players_queryset(), get_waitlist_players_queryset(), get_eliminated_players_queryset()
     publicly_visible = models.BooleanField(default=False)
@@ -2125,11 +2108,6 @@ class Match(models.Model):
         default=CompetitionStatus.PENDING
     )
     scheduled_time = models.DateTimeField(null=True, blank=True)
-    # When the pre-match reminder was posted, claiming this match so the sweep
-    # never pings twice. Cleared by save() whenever scheduled_time changes -- a
-    # reminder already sent describes a time that no longer applies.
-    # Not editable: only remind_upcoming_matches and save() ever write it.
-    reminder_sent_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         ordering = ['round', 'match_number']
@@ -2143,8 +2121,8 @@ class Match(models.Model):
             # Serves remind_upcoming_matches' candidate scan, which selects on a
             # scheduled_time range. The index above leads on series, so it can't
             # serve a bare scheduled_time range. Which reminders have already
-            # gone out is now MatchReminderSent's own unique index, not a column
-            # here, so this no longer carries a second field.
+            # gone out is MatchReminderSent's own unique index, which is why this
+            # one carries no second field.
             models.Index(fields=['scheduled_time'],
                          name='match_sched_reminder_idx'),
         ]
@@ -2171,11 +2149,9 @@ class Match(models.Model):
         # Compare against the stored row rather than tracking state on the
         # instance: the writers use update_fields, and several load the row fresh.
         #
-        # The old column-based version guarded this read on `reminder_sent_at is
-        # not None`, which is gone. `scheduled_time in update_fields` is the
-        # replacement guard and is stricter: the only saves that can possibly
-        # need a re-arm are the ones writing that column, so an ordinary save
-        # still costs no extra query. A save with update_fields=None (a full
+        # `scheduled_time in update_fields` is the guard: the only saves that can
+        # possibly need a re-arm are the ones writing that column, so an ordinary
+        # save still costs no extra query. A save with update_fields=None (a full
         # save) can also move the time, so it is not skipped.
         rearm = False
         if self.pk:
@@ -3291,9 +3267,9 @@ class MatchReminderSent(models.Model):
     """One row per reminder actually posted for one match.
 
     THE at-most-once claim: the unique constraint below is what stops two
-    workers both pinging a roster, the same job Match.reminder_sent_at used to
-    do with a compare-and-swap. It had to become a table because one timestamp
-    cannot say "the 60-minute ping went out but the 10-minute one has not".
+    workers both pinging a roster. A table rather than a timestamp on the match
+    because one timestamp cannot say "the 60-minute ping went out but the
+    10-minute one has not".
 
     Cleared by Match.save() when scheduled_time moves -- a reminder already
     sent describes a time that no longer applies.

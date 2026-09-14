@@ -1274,6 +1274,12 @@ def remind_upcoming_matches():
     A series may configure several reminders (60 minutes before AND 10), so the
     at-most-once claim is a MatchReminderSent row per (match, reminder) rather
     than a single flag on the match.
+
+    AT MOST ONE PING PER MATCH PER SWEEP. Several reminders can come due in the
+    same pass -- a match scheduled inside more than one window, or leads spaced
+    closer together than the sweep interval -- and firing them all posts the same
+    sentence repeatedly. The tightest is sent and the rest are claimed so they
+    cannot fire later; `collapsed` in the result counts those.
     """
     from django.db.models import Count, Max, Prefetch
     from the_warroom.models import (Match, MatchReminderSent,
@@ -1296,7 +1302,7 @@ def remind_upcoming_matches():
     # and treating it as "nothing configured" would silently disable exactly
     # that setting. None means the aggregate found no rows at all.
     if max_window is None:
-        return {"sent": 0, "skipped": 0}
+        return {"sent": 0, "skipped": 0, "collapsed": 0}
 
     # Round.tournament is a LEGACY link and is deliberately not consulted: a
     # match's tournament is round.stage.tournament. Older code (_schedulable_
@@ -1314,11 +1320,10 @@ def remind_upcoming_matches():
                   # same match three times and the loop below claims it thrice.
                   .distinct()
                   .exclude(status=CompetitionStatus.COMPLETED)
-                  # Replaces the old `reminder_sent_at__isnull=True`: drop matches
-                  # whose every reminder has already gone out, so a match stops
-                  # being re-fetched every 5-10 minutes for the rest of its lead
-                  # time once it is fully reminded. Counted with DISTINCT because
-                  # the two joins multiply each other.
+                  # Drop matches whose every reminder has already gone out, so a
+                  # match stops being re-fetched every 5-10 minutes for the rest
+                  # of its lead time once it is fully reminded. Counted with
+                  # DISTINCT because the two joins multiply each other.
                   .annotate(
                       _reminder_count=Count(
                           'round__stage__tournament__reminders', distinct=True),
@@ -1387,10 +1392,11 @@ def remind_upcoming_matches():
                       '__tournament_player__profile')
                   .order_by('scheduled_time'))
 
-    # Both counts are REMINDERS, not matches -- a match with two due reminders
-    # adds two. They stopped being the same number when a series gained the
-    # ability to configure more than one.
-    sent = skipped = 0
+    # All three counts are REMINDERS, not matches -- a match with two due
+    # reminders adds two. They stopped being the same number when a series gained
+    # the ability to configure more than one. `collapsed` counts reminders
+    # suppressed because a tighter one went out for the same match in this sweep.
+    sent = skipped = collapsed = 0
     for match in candidates:
         # Read the tournament off the STAGE, matching the filter exactly. NOT
         # get_tournament(): that falls back to the legacy Round.tournament FK, so
@@ -1419,6 +1425,43 @@ def remind_upcoming_matches():
             # reminder while there is still time.
             skipped += len(due)
             continue
+
+        # ONE ping per match per sweep. The due test above is open-ended on the
+        # early side -- it selects every reminder whose window has OPENED, not
+        # only the one that opened most recently -- so a match scheduled INSIDE
+        # several windows (booked 8 minutes out with 60/30/10 configured) has all
+        # three due in this single pass. reminder_text defaults to the same
+        # sentence for every row, so that lands as the identical message three
+        # times in one second.
+        #
+        # The TIGHTEST is the one worth sending: at T-8m the 10-minute reminder
+        # describes reality, while the 60-minute one describes a moment that
+        # already passed unannounced.
+        #
+        # min(), not the last of the queryset's ordering: which reminder gets
+        # sent is a correctness property of this function and must not depend on
+        # a Meta.ordering in another app. uniq_reminder_per_lead forbids two rows
+        # at one lead, so the minimum is unambiguous.
+        #
+        # AFTER the thread check, never before: that branch reports len(due) and
+        # deliberately leaves everything unclaimed so fixing a broken thread link
+        # still earns a ping. Narrowing earlier would undercount it and burn
+        # reminders for a match that was never remindable.
+        send = min(due, key=lambda r: r.match_reminder_minutes)
+        collapsed_now = [r for r in due if r.pk != send.pk]
+        due = [send]
+
+        # Claim the ones being suppressed so they cannot fire on a later sweep --
+        # without this the burst is merely deferred, not prevented. Same
+        # create-or-IntegrityError claim the send loop uses below; a lost race
+        # means another worker owns that pair, so it is not counted here.
+        for reminder in collapsed_now:
+            try:
+                MatchReminderSent.objects.create(
+                    match=match, reminder=reminder, sent_at=now)
+            except IntegrityError:
+                continue
+            collapsed += 1
 
         # Everything below here is the same for every reminder on this match, so
         # it is built ONCE rather than per reminder.
@@ -1487,6 +1530,7 @@ def remind_upcoming_matches():
                 thread_id, content, allowed_mentions={"parse": ["users"]})
             sent += 1
 
-    logger.info("remind_upcoming_matches: reminders sent=%d skipped=%d",
-                sent, skipped)
-    return {"sent": sent, "skipped": skipped}
+    logger.info(
+        "remind_upcoming_matches: reminders sent=%d skipped=%d collapsed=%d",
+        sent, skipped, collapsed)
+    return {"sent": sent, "skipped": skipped, "collapsed": collapsed}
