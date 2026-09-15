@@ -284,6 +284,29 @@ class WeeklyAvailabilitySubmissionTests(_SurveyTestBase):
             profile=self.profile, tournament=self.tournament)
         self.assertEqual(schedule.available_hours, [])
 
+    def test_a_week_specific_row_does_not_break_the_lookup(self):
+        """A player who ALSO has a week-specific row for this tournament (set via
+        the /availability navigator) must not make the standing-row lookup match
+        two rows -- update_or_create pins week_start=None explicitly for exactly
+        this reason."""
+        from datetime import date
+        PlayerSchedule.objects.create(
+            profile=self.profile, tournament=self.tournament, week_start=None,
+            available_hours=[1, 2, 3])
+        PlayerSchedule.objects.create(
+            profile=self.profile, tournament=self.tournament, week_start=date(2026, 9, 14),
+            available_hours=[9, 9])
+
+        response = self._post([14])
+        self.assertEqual(response.status_code, 302)
+
+        standing = PlayerSchedule.objects.get(
+            profile=self.profile, tournament=self.tournament, week_start=None)
+        self.assertEqual(standing.available_hours, [14])  # default _post tz is UTC
+        week_row = PlayerSchedule.objects.get(
+            profile=self.profile, tournament=self.tournament, week_start=date(2026, 9, 14))
+        self.assertEqual(week_row.available_hours, [9, 9])  # untouched
+
     def test_an_invalid_timezone_falls_back_rather_than_erroring(self):
         response = self._post([10], tz='Not/AZone')
         self.assertEqual(response.status_code, 302)

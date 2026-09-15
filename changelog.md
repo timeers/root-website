@@ -1,10 +1,12 @@
 # Changelog
 
-## [1.13.8] - 2026-9-14 Better Notifications
+## [1.13.8] - 2026-9-14 Better Notifications and Schedules
 
 ### New Features
 - You can now set up multiple reminders via the Databot for scheduled games
 - Beta version of /lfg with edit description button
+- Customize your availability by week 
+- Choose to display your timezone when comparing availability (set from the manage availability page)
 
 ### Improvements
 - Player count and roster errors from TTS boxscore upload are passed to Discord instead of blocking the upload

@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from the_keep.models import Post, Faction, Vagabond, Deck, Map
 from the_warroom.models import Game
-from the_gatehouse.models import DiscordGuild, Profile, UserNotification, MessageChoices
+from the_gatehouse.models import DiscordGuild, Profile, UserNotification, MessageChoices, PlayerSchedule
 from .models import BotUsage, GuildLFGRole, LFGThread, LFGRoll, LFGDraft, LFGDraftPick
 
 from .services.discordservice import (send_discord_dm, sync_bot_guilds,
@@ -1052,6 +1052,38 @@ def cleanup_stale_schedule_proposals(max_age_days=14):
         status=ScheduleProposal.Status.CANCELLED, resolved_at=now)
     strip_schedule_proposal_messages_task.delay(ids, "expired")
     logger.info("Retired %d stale schedule proposals", len(ids))
+    return len(ids)
+
+
+@shared_task
+def cleanup_expired_player_schedules(retain_weeks=3, limit=None, dry_run=False):
+    """Delete week-specific PlayerSchedule rows (week_start is not NULL) whose
+    week ended more than `retain_weeks` weeks ago. Standing rows (week_start=NULL,
+    general or tournament-wide) are never touched -- they have no expiry.
+
+    retain_weeks=3 default: enough to look back at "what was I available last
+    week" without keeping data with no further use once a week has fully passed.
+
+    dry_run returns the count without deleting; limit caps a single run,
+    oldest-first, for a cautious first pass.
+
+    Runs on a schedule created in Django admin (django_celery_beat) -- this
+    project uses DatabaseScheduler, so there is no beat_schedule in code."""
+    cutoff = timezone.now().date() - timedelta(weeks=retain_weeks + 1)
+    qs = (PlayerSchedule.objects.filter(week_start__isnull=False, week_start__lt=cutoff)
+          .order_by('week_start'))
+    ids = list(qs.values_list('pk', flat=True))
+    if limit:
+        ids = ids[:int(limit)]
+    if not ids:
+        return 0
+    if dry_run:
+        logger.info("cleanup_expired_player_schedules DRY RUN: would delete %d rows "
+                    "(retain_weeks=%s)", len(ids), retain_weeks)
+        return len(ids)
+    PlayerSchedule.objects.filter(pk__in=ids).delete()
+    logger.info("cleanup_expired_player_schedules: deleted %d rows (retain_weeks=%s)",
+               len(ids), retain_weeks)
     return len(ids)
 
 

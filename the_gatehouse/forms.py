@@ -748,10 +748,20 @@ class PlayerScheduleForm(forms.Form):
     # against the schedules this player actually has.
     schedule_target = forms.CharField(required=False, widget=forms.HiddenInput)
 
+    # ISO date (Monday) of the week being edited, or '' for the standing/general
+    # template. Same round-trip-through-POST role as schedule_target, just for the
+    # other axis. The view resolves and re-validates it against the navigation
+    # bounds server-side -- never trusts this beyond "which row did the arrows say."
+    week_start = forms.CharField(required=False, widget=forms.HiddenInput)
+
     timezone = forms.ChoiceField(
         label=_('Timezone'),
         help_text=_("Times on this page are shown in this timezone. Saving also "
                     "updates the timezone used by the Discord bot."))
+
+    display_timezone = forms.BooleanField(
+        required=False,
+        label=_('Display my timezone to others when comparing availability'))
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -788,6 +798,22 @@ class PlayerScheduleForm(forms.Form):
         from the_databot.services.time_parsing import valid_timezone
         drawn = self.cleaned_data.get('drawn_timezone')
         return drawn if valid_timezone(drawn) else ''
+
+    def clean_week_start(self):
+        """Parse the hidden field into a date, or None for the standing/general
+        template. Malformed input is dropped to the general case rather than
+        failing the submission -- this field is machine-written, so a bad value
+        means a client bug, and the view's own bounds-check is the real guard
+        against a crafted request anyway.
+        """
+        from datetime import date
+        raw = (self.cleaned_data.get('week_start') or '').strip()
+        if not raw:
+            return None
+        try:
+            return date.fromisoformat(raw)
+        except ValueError:
+            return None
 
     def clean_available_hours(self):
         """Parse the hidden field into a deduped, sorted list of local hour-of-week ints.

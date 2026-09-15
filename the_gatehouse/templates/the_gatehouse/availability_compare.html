@@ -168,6 +168,9 @@ is nothing worth indexing. {% endcomment %}
                         <i class="bi bi-person-circle"></i>
                       {% endif %}
                       <span class="text-truncate">{{ p.profile.display_name }}</span>
+                      {% if p.profile.display_timezone and p.profile.timezone %}
+                        <span class="badge text-bg-light" title="{{ p.profile.timezone }}">{{ p.profile.timezone_code }}</span>
+                      {% endif %}
                       {% if p.is_viewer %}<span class="badge text-bg-secondary">{% trans 'You' %}</span>{% endif %}
                     </label>
                     {% if p.hour_count %}

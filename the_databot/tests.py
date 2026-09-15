@@ -25,6 +25,7 @@ from the_keep.models import (
 from the_gatehouse.models import (
     DiscordGuild, Profile, DEFAULT_PROFILE_IMAGE,
     UserNotification, MessageChoices, GUILDS_REFRESH_MAX_AGE,
+    PlayerSchedule,
 )
 from the_databot.models import (
     GuildLFGRole, LFGThread, ScheduleProposal,
@@ -11514,6 +11515,87 @@ class LFGThreadCleanupTaskTests(TestCase):
             tasks.cleanup_stale_lfg_threads(recorded_after_days=0,
                                             stale_after_days=9999), 1)
         self.assertEqual(LFGThread.objects.count(), 1)
+
+
+class PlayerScheduleCleanupTaskTests(TestCase):
+    """cleanup_expired_player_schedules: purges old WEEK-SPECIFIC rows only,
+    standing (week_start=NULL) rows are never touched regardless of age."""
+
+    def setUp(self):
+        self.profile = Profile.objects.create(
+            discord="cleanupplayer", discord_id="970000000000000001")
+
+    def _week_row(self, weeks_ago, **kw):
+        week = timezone.now().date() - timedelta(weeks=weeks_ago)
+        return PlayerSchedule.objects.create(
+            profile=self.profile, week_start=week, available_hours=[1, 2], **kw)
+
+    def test_a_row_older_than_the_retention_window_is_deleted(self):
+        from the_databot import tasks
+        self._week_row(weeks_ago=10, tournament=None)
+        self.assertEqual(tasks.cleanup_expired_player_schedules(retain_weeks=3), 1)
+        self.assertFalse(PlayerSchedule.objects.filter(week_start__isnull=False).exists())
+
+    def test_a_row_inside_the_retention_window_survives(self):
+        from the_databot import tasks
+        self._week_row(weeks_ago=1, tournament=None)
+        self.assertEqual(tasks.cleanup_expired_player_schedules(retain_weeks=3), 0)
+        self.assertEqual(PlayerSchedule.objects.filter(week_start__isnull=False).count(), 1)
+
+    def test_a_standing_row_is_never_touched_regardless_of_age(self):
+        from the_databot import tasks
+        standing = PlayerSchedule.objects.create(
+            profile=self.profile, tournament=None, week_start=None,
+            available_hours=[1, 2, 3])
+        standing.updated_at = timezone.now() - timedelta(days=1000)
+        standing.save(update_fields=["updated_at"])
+        self._week_row(weeks_ago=10, tournament=None)
+
+        tasks.cleanup_expired_player_schedules(retain_weeks=3)
+
+        self.assertTrue(PlayerSchedule.objects.filter(pk=standing.pk).exists())
+
+    def test_dry_run_reports_without_deleting(self):
+        from the_databot import tasks
+        self._week_row(weeks_ago=10, tournament=None)
+        self.assertEqual(
+            tasks.cleanup_expired_player_schedules(retain_weeks=3, dry_run=True), 1)
+        self.assertEqual(PlayerSchedule.objects.filter(week_start__isnull=False).count(), 1)
+
+    def test_limit_caps_a_run_oldest_first(self):
+        from the_databot import tasks
+        oldest = self._week_row(weeks_ago=20, tournament=None)
+        self._week_row(weeks_ago=15, tournament=None)
+        self._week_row(weeks_ago=10, tournament=None)
+        self.assertEqual(
+            tasks.cleanup_expired_player_schedules(retain_weeks=3, limit=1), 1)
+        self.assertFalse(PlayerSchedule.objects.filter(pk=oldest.pk).exists())
+        self.assertEqual(PlayerSchedule.objects.filter(week_start__isnull=False).count(), 2)
+
+    def test_nothing_to_delete_returns_zero(self):
+        from the_databot import tasks
+        self.assertEqual(tasks.cleanup_expired_player_schedules(), 0)
+
+    def test_retention_boundary_is_not_off_by_one(self):
+        """retain_weeks=3 keeps a row through day 28 after week_start (3 full
+        weeks), and deletes starting day 29 -- "3 weeks past the week's end"."""
+        from the_databot import tasks
+        # week_start 28 days ago: the week's own 7 days + exactly 3 retained
+        # weeks after it (21 days) = 28 days -- still within the window.
+        still_in_window = PlayerSchedule.objects.create(
+            profile=self.profile, tournament=None,
+            week_start=timezone.now().date() - timedelta(days=28),
+            available_hours=[1],
+        )
+        # One day further -> past the window.
+        past_window = PlayerSchedule.objects.create(
+            profile=self.profile, tournament=None,
+            week_start=timezone.now().date() - timedelta(days=29),
+            available_hours=[1],
+        )
+        tasks.cleanup_expired_player_schedules(retain_weeks=3)
+        self.assertTrue(PlayerSchedule.objects.filter(pk=still_in_window.pk).exists())
+        self.assertFalse(PlayerSchedule.objects.filter(pk=past_window.pk).exists())
 
 
 class LFGThreadLastActivityTests(TestCase):

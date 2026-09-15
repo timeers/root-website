@@ -188,9 +188,16 @@ def _save_response_availability(survey, survey_response):
         if not survey.has_availability_questions():
             return
         hours = sorted(survey_response.get_combined_availability_hours())
+        # week_start=None is explicit and load-bearing: a survey response is
+        # always the player's STANDING availability for the tournament, never a
+        # specific calendar week (see the module docstring). Without it, a player
+        # who also has a week-specific row for this tournament (set via the
+        # /availability navigator) would make this lookup match two rows and
+        # raise MultipleObjectsReturned.
         PlayerSchedule.objects.update_or_create(
             profile_id=survey_response.profile_id,
             tournament_id=survey.series_id,
+            week_start=None,
             defaults={'available_hours': hours},
         )
     except Exception:

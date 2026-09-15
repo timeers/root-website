@@ -6,7 +6,7 @@ the_databot/tests.py alongside the code they exercise.
 import io
 import shutil
 import tempfile
-from datetime import datetime, timedelta, timezone as dt_timezone
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 from zoneinfo import ZoneInfo
 from unittest import mock
 
@@ -34,12 +34,14 @@ from the_keep.models import Faction, StatusChoices
 from the_warroom.models import Game, Effort
 from the_gatehouse.models import (DiscordGuild, Profile, DEFAULT_PROFILE_IMAGE,
                                   GUILDS_REFRESH_MAX_AGE, PlayerSchedule,
-                                  general_schedule_for, schedule_for)
+                                  general_schedule_for, schedule_for, schedules_for)
 from the_gatehouse.services.availability import (local_to_utc_hours, utc_to_local_hours,
                                                  hours_to_bitmask, overlap_count,
                                                  format_hour_12, hour_labels,
                                                  availability_matrix, overlap_summary,
-                                                 heat_bucket, reachable_buckets)
+                                                 heat_bucket, reachable_buckets,
+                                                 week_start_for, local_week_to_utc_weeks,
+                                                 utc_weeks_to_local_week)
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler
 from the_gatehouse.services.discord_oauth import update_discord_avatar
@@ -1510,6 +1512,452 @@ class AvailabilityTournamentSelectorTests(_NoLoginSignalMixin, TestCase):
             'action': 'save',
         })
         self.assertIn(f'tournament={self.tournament.slug}', response['Location'])
+
+
+class WeekStartForTests(TestCase):
+    """Monday-of-the-week boundary arithmetic."""
+
+    def test_monday_maps_to_itself(self):
+        self.assertEqual(week_start_for(date(2026, 9, 14)), date(2026, 9, 14))
+
+    def test_sunday_maps_back_to_the_same_week(self):
+        self.assertEqual(week_start_for(date(2026, 9, 20)), date(2026, 9, 14))
+
+    def test_every_day_of_the_week_maps_to_the_same_monday(self):
+        monday = date(2026, 9, 14)
+        for offset in range(7):
+            with self.subTest(offset=offset):
+                self.assertEqual(week_start_for(monday + timedelta(days=offset)), monday)
+
+
+class PlayerSchedulePrecedenceTests(TestCase):
+    """schedule_for/schedules_for's precedence chain, including the
+    existence-not-truthiness bug fix: a row that EXISTS wins even if empty."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='precedence', password='pw')
+        self.profile = self.user.profile
+        from the_warroom.models import Tournament
+        self.tournament = Tournament.objects.create(name='Precedence Cup', is_active=True)
+        self.week = date(2026, 9, 14)
+
+    def test_absent_row_falls_through_every_level(self):
+        self.assertIsNone(schedule_for(self.profile))
+
+    def test_general_standing_is_the_final_fallback(self):
+        general = general_schedule_for(self.profile)
+        general.available_hours = [1, 2, 3]
+        general.save(update_fields=['available_hours'])
+        result = schedule_for(self.profile, tournament=self.tournament, week_start=self.week)
+        self.assertEqual(result.pk, general.pk)
+
+    def test_tournament_standing_beats_general_standing(self):
+        general_schedule_for(self.profile)
+        tournament_row = PlayerSchedule.objects.create(
+            profile=self.profile, tournament=self.tournament, week_start=None,
+            available_hours=[5],
+        )
+        result = schedule_for(self.profile, tournament=self.tournament)
+        self.assertEqual(result.pk, tournament_row.pk)
+
+    def test_week_general_beats_tournament_standing(self):
+        PlayerSchedule.objects.create(
+            profile=self.profile, tournament=self.tournament, week_start=None,
+            available_hours=[5],
+        )
+        week_general_row = PlayerSchedule.objects.create(
+            profile=self.profile, tournament=None, week_start=self.week,
+            available_hours=[6],
+        )
+        result = schedule_for(self.profile, tournament=self.tournament, week_start=self.week)
+        self.assertEqual(result.pk, week_general_row.pk)
+
+    def test_week_tournament_beats_everything(self):
+        PlayerSchedule.objects.create(
+            profile=self.profile, tournament=None, week_start=self.week,
+            available_hours=[6],
+        )
+        most_specific = PlayerSchedule.objects.create(
+            profile=self.profile, tournament=self.tournament, week_start=self.week,
+            available_hours=[7],
+        )
+        result = schedule_for(self.profile, tournament=self.tournament, week_start=self.week)
+        self.assertEqual(result.pk, most_specific.pk)
+
+    def test_empty_tournament_row_beats_general_not_the_old_buggy_way(self):
+        """Regression guard: the OLD code filtered on `if hours`, so an empty
+        tournament row fell through to general. That must no longer happen."""
+        general = general_schedule_for(self.profile)
+        general.available_hours = [1, 2, 3]
+        general.save(update_fields=['available_hours'])
+        empty_tournament_row = PlayerSchedule.objects.create(
+            profile=self.profile, tournament=self.tournament, week_start=None,
+            available_hours=[],
+        )
+        result = schedule_for(self.profile, tournament=self.tournament)
+        self.assertEqual(result.pk, empty_tournament_row.pk)
+        self.assertEqual(result.available_hours, [])
+
+    def test_empty_week_row_beats_a_non_empty_standing_row(self):
+        general = general_schedule_for(self.profile)
+        general.available_hours = [1, 2, 3]
+        general.save(update_fields=['available_hours'])
+        empty_week_row = PlayerSchedule.objects.create(
+            profile=self.profile, tournament=None, week_start=self.week,
+            available_hours=[],
+        )
+        result = schedule_for(self.profile, week_start=self.week)
+        self.assertEqual(result.pk, empty_week_row.pk)
+
+    def test_bulk_matches_single_profile_precedence(self):
+        general = general_schedule_for(self.profile)
+        general.available_hours = [1, 2, 3]
+        general.save(update_fields=['available_hours'])
+        empty_row = PlayerSchedule.objects.create(
+            profile=self.profile, tournament=self.tournament, week_start=None,
+            available_hours=[],
+        )
+        bulk = schedules_for([self.profile.id], tournament=self.tournament)
+        self.assertEqual(bulk[self.profile.id], [])
+
+    def test_bulk_without_week_start_is_unchanged_for_normal_rows(self):
+        """Regression guard for every untouched caller: no week_start passed ->
+        identical 2-level behaviour to before, for a profile with no empty rows."""
+        general = general_schedule_for(self.profile)
+        general.available_hours = [1, 2]
+        general.save(update_fields=['available_hours'])
+        tournament_row = PlayerSchedule.objects.create(
+            profile=self.profile, tournament=self.tournament, week_start=None,
+            available_hours=[3, 4],
+        )
+        bulk = schedules_for([self.profile.id], tournament=self.tournament)
+        self.assertEqual(bulk[self.profile.id], [3, 4])
+
+    def test_bulk_resolves_multiple_profiles_at_different_levels(self):
+        other_user = User.objects.create_user(username='precedence2', password='pw')
+        other_profile = other_user.profile
+
+        general_schedule_for(self.profile).available_hours = [1]
+        PlayerSchedule.objects.filter(profile=self.profile, tournament=None, week_start=None).update(
+            available_hours=[1])
+        PlayerSchedule.objects.create(
+            profile=other_profile, tournament=self.tournament, week_start=self.week,
+            available_hours=[2],
+        )
+        bulk = schedules_for(
+            [self.profile.id, other_profile.id], tournament=self.tournament, week_start=self.week,
+        )
+        self.assertEqual(bulk[self.profile.id], [1])
+        self.assertEqual(bulk[other_profile.id], [2])
+
+    def test_profile_with_no_row_at_any_level_is_absent_from_bulk_result(self):
+        other_user = User.objects.create_user(username='precedence3', password='pw')
+        other_profile = other_user.profile
+        general_schedule_for(self.profile).available_hours = [1]
+        PlayerSchedule.objects.filter(profile=self.profile, tournament=None, week_start=None).update(
+            available_hours=[1])
+        bulk = schedules_for([self.profile.id, other_profile.id])
+        self.assertIn(self.profile.id, bulk)
+        self.assertNotIn(other_profile.id, bulk)
+
+
+class UtcWeekBoundarySplitTests(TestCase):
+    """local_week_to_utc_weeks / utc_weeks_to_local_week: the highest-risk new
+    logic, since it replaces wrap-around with a real cross-week split."""
+
+    WEEK = date(2026, 9, 14)  # a Monday
+
+    def test_a_zone_at_utc_produces_no_split(self):
+        hours = list(range(0, 24))  # Monday, all 24 local hours
+        result = local_week_to_utc_weeks(hours, 'UTC', self.WEEK)
+        self.assertEqual(list(result.keys()), [self.WEEK])
+        self.assertEqual(len(result[self.WEEK]), 24)
+
+    def test_a_zone_mid_week_produces_no_split(self):
+        """An offset far enough from UTC to shift hours, but not far enough to
+        push the WEEK's own boundary hours (Monday 00:00, Sunday 23:00) across a
+        UTC week line -- only hours actually near the edge should ever split."""
+        hours = [12, 13, 14]  # midday, nowhere near either boundary
+        result = local_week_to_utc_weeks(hours, 'Europe/Berlin', self.WEEK)
+        self.assertEqual(list(result.keys()), [self.WEEK])
+        self.assertEqual(len(result[self.WEEK]), 3)
+
+    def test_far_negative_offset_spills_late_sunday_into_the_next_week(self):
+        """Pago Pago is UTC-11: late Sunday local lands on UTC Monday of the
+        NEXT real week, not wrapped back into the current one."""
+        sunday_23 = 6 * 24 + 23  # Sunday 23:00 local, last hour of WEEK
+        result = local_week_to_utc_weeks([sunday_23], 'Pacific/Pago_Pago', self.WEEK)
+        next_week = self.WEEK + timedelta(weeks=1)
+        self.assertIn(next_week, result)
+        self.assertNotIn(self.WEEK, result)
+
+    def test_far_positive_offset_spills_early_monday_into_the_previous_week(self):
+        """Tonga is UTC+13: early Monday local lands on UTC Sunday of the
+        PREVIOUS real week."""
+        monday_0 = 0  # Monday 00:00 local, first hour of WEEK
+        result = local_week_to_utc_weeks([monday_0], 'Pacific/Tongatapu', self.WEEK)
+        prev_week = self.WEEK - timedelta(weeks=1)
+        self.assertIn(prev_week, result)
+        self.assertNotIn(self.WEEK, result)
+
+    def test_round_trip_reproduces_the_original_selection(self):
+        hours = sorted({0, 1, 2, 23, 24, 100, 143, 144, 167})
+        for tz_name in ('UTC', 'America/New_York', 'Pacific/Pago_Pago', 'Pacific/Tongatapu'):
+            with self.subTest(tz=tz_name):
+                split = local_week_to_utc_weeks(hours, tz_name, self.WEEK)
+                back = utc_weeks_to_local_week(
+                    lambda d: split.get(d, []), tz_name, self.WEEK)
+                self.assertEqual(back, hours)
+
+    def test_a_boundary_splitting_save_persists_two_rows(self):
+        user = User.objects.create_user(username='splitter', password='pw')
+        profile = user.profile
+        hours = [0, 6 * 24 + 23]  # Monday 00:00 and Sunday 23:00 local
+        split = local_week_to_utc_weeks(hours, 'Pacific/Tongatapu', self.WEEK)
+        self.assertEqual(len(split), 2)
+        for utc_week, week_hours in split.items():
+            PlayerSchedule.objects.create(
+                profile=profile, tournament=None, week_start=utc_week,
+                available_hours=week_hours,
+            )
+        self.assertEqual(
+            PlayerSchedule.objects.filter(profile=profile, week_start__isnull=False).count(), 2)
+
+
+class AvailabilityWeekNavigatorTests(_NoLoginSignalMixin, TestCase):
+    """The /availability week navigator: [General] [<] [Week of X] [>], the
+    "Copy from general" seed, and the "No availability" / "Use defaults" actions."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username='navigator', password='pw')
+        self.profile = self.user.profile
+        self.profile.timezone = 'UTC'
+        self.profile.save(update_fields=['timezone'])
+        self.client.force_login(self.user)
+        self.url = reverse('availability')
+        self.today = timezone.now().date()
+        self.current_week = week_start_for(self.today)
+
+    def test_general_view_has_no_week(self):
+        response = self.client.get(self.url)
+        self.assertFalse(response.context['is_week_specific'])
+
+    def test_navigating_to_a_future_week(self):
+        target = self.current_week + timedelta(weeks=2)
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        self.assertTrue(response.context['is_week_specific'])
+        self.assertEqual(response.context['week_start'], target)
+
+    def test_a_week_beyond_the_forward_cap_is_clamped(self):
+        from the_gatehouse.views import AVAILABILITY_WEEKS_FORWARD
+        too_far = self.current_week + timedelta(weeks=AVAILABILITY_WEEKS_FORWARD + 5)
+        response = self.client.get(self.url, {'week': too_far.isoformat()})
+        self.assertEqual(
+            response.context['week_start'],
+            self.current_week + timedelta(weeks=AVAILABILITY_WEEKS_FORWARD),
+        )
+
+    def test_a_week_before_the_current_one_is_clamped_to_today(self):
+        past = self.current_week - timedelta(weeks=3)
+        response = self.client.get(self.url, {'week': past.isoformat()})
+        self.assertEqual(response.context['week_start'], self.current_week)
+
+    def test_a_week_with_no_row_starts_blank_not_prefilled(self):
+        general = general_schedule_for(self.profile)
+        general.available_hours = [1, 2, 3]
+        general.save(update_fields=['available_hours'])
+        target = self.current_week + timedelta(weeks=1)
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        self.assertEqual(response.context['selected_hours'], [])
+
+    def test_saving_a_week_specific_row_does_not_touch_the_general_row(self):
+        general = general_schedule_for(self.profile)
+        general.available_hours = [1, 2]
+        general.save(update_fields=['available_hours'])
+        target = self.current_week + timedelta(weeks=1)
+
+        self.client.post(self.url, {
+            'timezone': 'UTC', 'drawn_timezone': 'UTC',
+            'available_hours': '10,11',
+            'week_start': target.isoformat(),
+            'action': 'save',
+        })
+        general.refresh_from_db()
+        self.assertEqual(general.available_hours, [1, 2])
+        week_row = PlayerSchedule.objects.get(
+            profile=self.profile, tournament=None, week_start=target)
+        self.assertEqual(week_row.available_hours, [10, 11])
+
+    def test_arrow_navigation_moves_by_seven_days(self):
+        target = self.current_week + timedelta(weeks=1)
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        self.assertEqual(response.context['next_week'], target + timedelta(days=7))
+        self.assertEqual(response.context['prev_week'], target - timedelta(days=7))
+
+    def test_no_availability_action_creates_an_empty_row_that_sticks(self):
+        general = general_schedule_for(self.profile)
+        general.available_hours = [1, 2, 3]
+        general.save(update_fields=['available_hours'])
+        target = self.current_week + timedelta(weeks=1)
+
+        self.client.post(self.url, {
+            'timezone': 'UTC', 'drawn_timezone': 'UTC',
+            'available_hours': '',
+            'week_start': target.isoformat(),
+            'action': 'no_availability',
+        })
+        row = PlayerSchedule.objects.get(profile=self.profile, tournament=None, week_start=target)
+        self.assertEqual(row.available_hours, [])
+        # Subsequent reads resolve to the empty row, NOT the general fallback.
+        self.assertEqual(schedule_for(self.profile, week_start=target).pk, row.pk)
+
+    def test_use_defaults_action_deletes_the_row_and_falls_back(self):
+        general = general_schedule_for(self.profile)
+        general.available_hours = [1, 2, 3]
+        general.save(update_fields=['available_hours'])
+        target = self.current_week + timedelta(weeks=1)
+        PlayerSchedule.objects.create(
+            profile=self.profile, tournament=None, week_start=target, available_hours=[9],
+        )
+
+        self.client.post(self.url, {
+            'timezone': 'UTC', 'drawn_timezone': 'UTC',
+            'available_hours': '',
+            'week_start': target.isoformat(),
+            'action': 'use_defaults',
+        })
+        self.assertFalse(
+            PlayerSchedule.objects.filter(
+                profile=self.profile, tournament=None, week_start=target).exists()
+        )
+        self.assertEqual(schedule_for(self.profile, week_start=target).pk, general.pk)
+
+    def test_no_availability_and_use_defaults_leave_different_db_state(self):
+        """The two actions must diverge in STORAGE, not just in a momentary UI
+        state: one leaves an empty row, the other leaves no row at all."""
+        target = self.current_week + timedelta(weeks=1)
+
+        self.client.post(self.url, {
+            'timezone': 'UTC', 'drawn_timezone': 'UTC', 'available_hours': '',
+            'week_start': target.isoformat(), 'action': 'no_availability',
+        })
+        self.assertTrue(
+            PlayerSchedule.objects.filter(
+                profile=self.profile, tournament=None, week_start=target).exists()
+        )
+
+        self.client.post(self.url, {
+            'timezone': 'UTC', 'drawn_timezone': 'UTC', 'available_hours': '',
+            'week_start': target.isoformat(), 'action': 'use_defaults',
+        })
+        self.assertFalse(
+            PlayerSchedule.objects.filter(
+                profile=self.profile, tournament=None, week_start=target).exists()
+        )
+
+
+class TimezoneCodeTests(TestCase):
+    """time_parsing.timezone_code and Profile.timezone_code."""
+
+    def test_known_zone_returns_a_short_code(self):
+        from the_databot.services.time_parsing import timezone_code
+        code = timezone_code('America/New_York', at=datetime(2026, 1, 1, tzinfo=dt_timezone.utc))
+        self.assertEqual(code, 'EST')
+
+    def test_dst_changes_the_code_for_the_same_zone(self):
+        from the_databot.services.time_parsing import timezone_code
+        winter = timezone_code('America/New_York', at=datetime(2026, 1, 1, tzinfo=dt_timezone.utc))
+        summer = timezone_code('America/New_York', at=datetime(2026, 7, 1, tzinfo=dt_timezone.utc))
+        self.assertNotEqual(winter, summer)
+
+    def test_unknown_zone_returns_empty_string_not_an_exception(self):
+        from the_databot.services.time_parsing import timezone_code
+        self.assertEqual(timezone_code('Not/AZone'), '')
+        self.assertEqual(timezone_code(''), '')
+        self.assertEqual(timezone_code(None), '')
+
+    def test_profile_property_is_blank_with_no_timezone_set(self):
+        user = User.objects.create_user(username='tzcode1', password='pw')
+        self.assertEqual(user.profile.timezone_code, '')
+
+    def test_profile_property_reflects_its_timezone(self):
+        user = User.objects.create_user(username='tzcode2', password='pw')
+        user.profile.timezone = 'Asia/Tokyo'
+        user.profile.save(update_fields=['timezone'])
+        self.assertEqual(user.profile.timezone_code, 'JST')
+
+
+class DisplayTimezoneCompareTests(_NoLoginSignalMixin, TestCase):
+    """Profile.display_timezone: opt-in badge on the comparison page, editable
+    from /availability alongside the timezone picker itself."""
+
+    def setUp(self):
+        super().setUp()
+        from the_databot.models import LFGThread
+        self.user = User.objects.create_user(username='badgeowner', password='pw')
+        self.profile = self.user.profile
+        self.profile.timezone = 'America/New_York'
+        self.profile.save(update_fields=['timezone'])
+        general_schedule_for(self.profile).available_hours = [1]
+        PlayerSchedule.objects.filter(profile=self.profile, tournament=None, week_start=None).update(
+            available_hours=[1])
+        self.thread = LFGThread.objects.create(thread_id='tzbadge-thread-1', host=self.profile)
+        self.thread.players.set([self.profile])
+        self.client.force_login(self.user)
+        self.compare_url = reverse('availability-compare')
+
+    def test_defaults_to_false(self):
+        self.assertFalse(self.profile.display_timezone)
+
+    def test_badge_absent_by_default_even_with_a_timezone_set(self):
+        response = self.client.get(self.compare_url, {'lfg': self.thread.pk})
+        self.assertNotContains(response, 'title="America/New_York"')
+
+    def test_badge_shown_when_opted_in(self):
+        from the_databot.services.time_parsing import timezone_code
+        self.profile.display_timezone = True
+        self.profile.save(update_fields=['display_timezone'])
+        response = self.client.get(self.compare_url, {'lfg': self.thread.pk})
+        self.assertContains(response, 'title="America/New_York"')
+        # EST in winter, EDT in summer -- assert whichever actually applies right
+        # now rather than hard-coding one, since %Z is correctly DST-aware.
+        self.assertContains(response, timezone_code('America/New_York'))
+
+    def test_checkbox_round_trips_through_the_availability_form(self):
+        url = reverse('availability')
+        response = self.client.get(url)
+        self.assertFalse(response.context['form']['display_timezone'].value())
+
+        self.client.post(url, {
+            'timezone': 'America/New_York', 'drawn_timezone': 'America/New_York',
+            'available_hours': '9', 'action': 'save', 'display_timezone': 'on',
+        })
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.display_timezone)
+
+        response = self.client.get(url)
+        self.assertTrue(response.context['form']['display_timezone'].value())
+
+    def test_saving_display_timezone_does_not_clobber_the_timezone_field(self):
+        """The two fields ride in one update_fields save; only one changing must
+        not accidentally drop or skip the other."""
+        self.client.post(reverse('availability'), {
+            'timezone': 'America/New_York', 'drawn_timezone': 'America/New_York',
+            'available_hours': '9', 'action': 'save', 'display_timezone': 'on',
+        })
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'America/New_York')
+        self.assertTrue(self.profile.display_timezone)
+
+        # Now flip only the checkbox off, timezone unchanged.
+        self.client.post(reverse('availability'), {
+            'timezone': 'America/New_York', 'drawn_timezone': 'America/New_York',
+            'available_hours': '9', 'action': 'save',
+        })
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'America/New_York')
+        self.assertFalse(self.profile.display_timezone)
 
 
 class AvailabilityMatrixTests(TestCase):

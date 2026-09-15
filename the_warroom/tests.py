@@ -11,7 +11,7 @@ from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
-from datetime import timedelta
+from datetime import date, timedelta
 
 from the_gatehouse.models import (
     DiscordGuild, Profile, PlayerSchedule, schedules_for,
@@ -3444,11 +3444,14 @@ class SchedulesForTests(_AvailabilityFixtureMixin, TestCase):
         resolved = schedules_for([tp.profile_id], self.tournament)
         self.assertEqual(resolved[tp.profile_id], self.A_HOURS)
 
-    def test_empty_tournament_row_does_not_mask_general(self):
-        """Mirrors schedule_for()'s `and specific.available_hours` condition."""
+    def test_empty_tournament_row_wins_over_general(self):
+        """A row that EXISTS wins at its level even if available_hours is [] -- an
+        explicit "no availability" is a real answer, not the absence of one.
+        (Behaviour changed deliberately: the old code filtered on `if hours`,
+        which let an empty tournament row silently fall back to general.)"""
         tp = self._player("empty", hours=self.A_HOURS, tournament_hours=[])
         resolved = schedules_for([tp.profile_id], self.tournament)
-        self.assertEqual(resolved[tp.profile_id], self.A_HOURS)
+        self.assertEqual(resolved[tp.profile_id], [])
 
     def test_omits_players_with_no_schedule(self):
         tp = self._player("none")
@@ -3540,6 +3543,68 @@ class RecalculateOverlapTests(_AvailabilityFixtureMixin, TestCase):
             group.recalculate_overlap(schedules=schedules)
         # The members query and the save, but no schedule lookup.
         self.assertLessEqual(len(ctx.captured_queries), 4)
+        group.refresh_from_db()
+        self.assertEqual(group.overlap_hours, [11, 12, 13])
+
+    def test_a_round_with_no_start_date_groups_identically_to_before(self):
+        """No round.start_date -> week_start is never resolved -> behaviourally a
+        no-op for every tournament that never touches week-specific availability
+        (this fixture's round has no start_date, matching every existing test
+        above -- this just makes that assumption explicit)."""
+        self.assertIsNone(self.round.start_date)
+        group = self._group_with(
+            self._player("nd1", hours=self.A_HOURS),
+            self._player("nd2", hours=self.B_HOURS),
+        )
+        group.recalculate_overlap()
+        group.refresh_from_db()
+        self.assertEqual(group.overlap_hours, [11, 12, 13])
+
+    def test_week_specific_row_for_the_rounds_week_is_preferred(self):
+        """A player's week-specific override for the ISO week containing
+        round.start_date beats their tournament-standing row -- the one new
+        behaviour this feature adds to grouping."""
+        from the_gatehouse.services.availability import week_start_for
+        from the_gatehouse.models import PlayerSchedule as PS
+
+        self.round.start_date = date(2026, 9, 16)  # a Wednesday
+        self.round.save(update_fields=['start_date'])
+        rounds_week = week_start_for(self.round.start_date)
+
+        p1 = self._player("w1", hours=self.A_HOURS, tournament_hours=self.C_HOURS)
+        # p1's week-specific row (for the round's own week) should beat both
+        # their tournament-standing (C_HOURS) and general (A_HOURS) rows.
+        PS.objects.create(
+            profile=p1.profile, tournament=self.tournament, week_start=rounds_week,
+            available_hours=self.B_HOURS,
+        )
+        p2 = self._player("w2", hours=self.B_HOURS)
+
+        group = self._group_with(p1, p2)
+        group.recalculate_overlap()
+        group.refresh_from_db()
+        # p1 resolves to B_HOURS (week-specific), p2 to B_HOURS (general) -> full overlap.
+        self.assertEqual(group.overlap_hours, self.B_HOURS)
+
+    def test_week_specific_row_for_a_different_week_is_ignored(self):
+        """A week-specific row for some OTHER week must not leak into this
+        round's overlap -- only the round's own week is consulted."""
+        from the_gatehouse.services.availability import week_start_for
+        from the_gatehouse.models import PlayerSchedule as PS
+
+        self.round.start_date = date(2026, 9, 16)
+        self.round.save(update_fields=['start_date'])
+        other_week = week_start_for(self.round.start_date) + timedelta(weeks=5)
+
+        p1 = self._player("ow1", hours=self.A_HOURS)
+        PS.objects.create(
+            profile=p1.profile, tournament=self.tournament, week_start=other_week,
+            available_hours=[0, 1],  # would break the overlap below if consulted
+        )
+        p2 = self._player("ow2", hours=self.B_HOURS)
+
+        group = self._group_with(p1, p2)
+        group.recalculate_overlap()
         group.refresh_from_db()
         self.assertEqual(group.overlap_hours, [11, 12, 13])
 

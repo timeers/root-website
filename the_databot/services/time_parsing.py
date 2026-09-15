@@ -232,6 +232,19 @@ def format_utc_offset(name, at=None):
     return f"UTC{sign}{hours}:{minutes:02d}" if minutes else f"UTC{sign}{hours}"
 
 
+def timezone_code(name, at=None):
+    """Short zone abbreviation ('EST', 'EDT', 'JST') for a zone at a given instant,
+    or "" if unknown. DST-aware via strftime('%Z'), so the same zone correctly
+    returns a different code across a DST boundary -- that's the tzdata behaving
+    correctly, not a bug to normalize away."""
+    try:
+        tzinfo = ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError, KeyError, TypeError):
+        return ""
+    at = at or datetime.now(dt_timezone.utc)
+    return at.astimezone(tzinfo).strftime('%Z')
+
+
 def describe_timezone(name, at=None):
     """`New York (US Eastern) — UTC-4`, or "" when the zone isn't valid.
 

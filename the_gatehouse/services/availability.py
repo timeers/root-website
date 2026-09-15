@@ -122,6 +122,58 @@ def utc_to_local_hours(utc_hours, tz_name):
     return sorted(local_hours)
 
 
+def week_start_for(date):
+    """The Monday (ISO week start) of the calendar week containing `date`."""
+    return date - timedelta(days=date.isoweekday() - 1)
+
+
+def local_week_to_utc_weeks(local_hours, tz_name, week_start):
+    """Local hour-of-week ints for the LOCAL week starting `week_start` (a date)
+    -> {utc_week_start: [utc_hour_of_week ints]}, split across the (up to two)
+    real UTC weeks those hours actually land in.
+
+    Unlike local_to_utc_hours, this does NOT wrap -- a dated week has a real "next
+    week" and "previous week" to spill into, and wrapping would silently misfile
+    hours near the boundary into the wrong calendar week for any timezone far
+    enough from UTC. Used only for week-specific rows; the general/standing row
+    keeps using local_to_utc_hours and the dateless reference week.
+    """
+    tzinfo = _zone_or_utc(tz_name)
+    by_week = {}
+    for hour in _normalize(local_hours):
+        naive = datetime.combine(week_start, datetime.min.time()) + timedelta(hours=hour)
+        local_dt = naive.replace(tzinfo=tzinfo, fold=0)
+        utc_dt = local_dt.astimezone(dt_timezone.utc)
+        utc_week = week_start_for(utc_dt.date())
+        by_week.setdefault(utc_week, set()).add(_hour_of_week(utc_dt))
+    return {week: sorted(hours) for week, hours in by_week.items()}
+
+
+def utc_weeks_to_local_week(get_utc_hours, tz_name, week_start):
+    """The local hour-of-week ints for the LOCAL week starting `week_start`,
+    reassembled from up to three adjacent UTC weeks. `get_utc_hours(week_date)` is
+    a callable ({date: hours}.get, or a DB lookup) returning that UTC week's
+    stored hours (or None/[] if unset) -- kept generic so the caller can
+    batch-fetch the neighbor rows in one query instead of three round-trips.
+
+    Inverse of local_week_to_utc_weeks; used only for week-specific rows.
+    """
+    tzinfo = _zone_or_utc(tz_name)
+    local_hours = set()
+    for neighbor in (week_start - timedelta(weeks=1), week_start, week_start + timedelta(weeks=1)):
+        for hour in _normalize(get_utc_hours(neighbor) or []):
+            utc_dt = (datetime.combine(neighbor, datetime.min.time())
+                     + timedelta(hours=hour)).replace(tzinfo=dt_timezone.utc)
+            local_dt = utc_dt.astimezone(tzinfo)
+            # Keep only hours whose LOCAL date actually falls inside the requested
+            # local week -- a neighbor UTC week mostly contributes nothing; only
+            # its boundary-adjacent hours do.
+            if week_start <= local_dt.date() < week_start + timedelta(weeks=1):
+                local_hours.add((local_dt.date() - week_start).days * HOURS_PER_DAY
+                                + local_dt.hour)
+    return sorted(local_hours)
+
+
 def _hour_of_week(moment):
     """hour-of-week (0-167) for an aware datetime, Monday 00:00 = 0.
 

@@ -46,6 +46,40 @@
         </div>
       {% endif %}
 
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <h2 class="info-card-title h6 mb-2">
+            <i class="bi bi-calendar3-range me-2"></i>{% trans 'Which week' %}
+          </h2>
+          <p class="text-secondary small">
+            {% trans "General applies to any week with nothing more specific set. Pick a real week to set (or override) your availability just for it." %}
+          </p>
+          <div class="d-flex flex-wrap align-items-center gap-2">
+            <a href="{% url 'availability' %}?tournament={{ schedule_target }}"
+               class="databot-btn {% if not is_week_specific %}databot-btn-primary{% else %}databot-btn-outline{% endif %} avail-btn-compact">
+              {% trans 'General' %}
+            </a>
+            <a href="{% if prev_week %}{% url 'availability' %}?tournament={{ schedule_target }}&week={{ prev_week|date:'Y-m-d' }}{% else %}#{% endif %}"
+               class="databot-btn databot-btn-outline avail-btn-compact {% if not prev_week %}disabled{% endif %}"
+               {% if not prev_week %}aria-disabled="true" tabindex="-1"{% endif %}>
+              <i class="bi bi-chevron-left"></i>
+            </a>
+            <span class="fw-bold">
+              {% if is_week_specific %}
+                {% blocktrans with d=week_start|date:'M j, Y' %}Week of {{ d }}{% endblocktrans %}
+              {% else %}
+                {% trans 'General (no specific week)' %}
+              {% endif %}
+            </span>
+            <a href="{% url 'availability' %}?tournament={{ schedule_target }}&week={% if next_week %}{{ next_week|date:'Y-m-d' }}{% else %}{{ default_week|date:'Y-m-d' }}{% endif %}"
+               class="databot-btn databot-btn-outline avail-btn-compact {% if is_week_specific and not next_week %}disabled{% endif %}"
+               {% if is_week_specific and not next_week %}aria-disabled="true" tabindex="-1"{% endif %}>
+              <i class="bi bi-chevron-right"></i>
+            </a>
+          </div>
+        </div>
+      </div>
+
       <form method="POST" id="availability-form">
         {% csrf_token %}
         {# The grid writes the selected LOCAL hour-of-week values here on submit. #}
@@ -57,6 +91,9 @@
         {# Which schedule this grid edits ('' = general). Rides through the timezone round-trip so the re-render can't switch rows underneath the user. #}
         <input type="hidden" name="schedule_target" id="id_schedule_target"
                value="{{ schedule_target }}">
+        {# Which week this grid edits ('' = the standing/general template). #}
+        <input type="hidden" name="week_start" id="id_week_start"
+               value="{% if is_week_specific %}{{ week_start|date:'Y-m-d' }}{% endif %}">
         <input type="hidden" name="action" id="id_action" value="save">
 
         <div class="info-card mb-4">
@@ -104,6 +141,13 @@
               <i class="bi bi-info-circle me-1"></i>
               {% trans 'Your timezone is offset by a partial hour, so each selection is stored to the hour that contains it.' %}
             </p>
+
+            <div class="form-check mt-3">
+              {{ form.display_timezone }}
+              <label class="form-check-label" for="{{ form.display_timezone.id_for_label }}">
+                {% trans 'Display my timezone to others when comparing availability' %}
+              </label>
+            </div>
           </div>
         </div>
 
@@ -119,12 +163,35 @@
                 <span class="badge text-bg-secondary" id="hour-count"
                       data-label="{% trans 'hours selected' %}"></span>
               </div>
-              <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" id="clear-grid">
-                <i class="bi bi-x-circle me-1"></i><span class="d-sm-none">{% trans 'Clear' %}</span><span class="d-none d-sm-inline">{% trans 'Clear all' %}</span>
-              </button>
+              <div class="d-flex flex-wrap gap-2">
+                {% if is_week_specific and not has_own_row %}
+                  <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" id="copy-from-general">
+                    <i class="bi bi-clipboard-plus me-1"></i>{% trans 'Copy from general' %}
+                  </button>
+                {% endif %}
+                <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" id="clear-grid">
+                  <i class="bi bi-x-circle me-1"></i><span class="d-sm-none">{% trans 'Clear' %}</span><span class="d-none d-sm-inline">{% trans 'Clear all' %}</span>
+                </button>
+              </div>
             </div>
 
             {% include 'partials/availability_grid.html' with grid_id='availability-grid' field_id='id_available_hours' count_id='hour-count' clear_id='clear-grid' editable=True %}
+
+            {% if is_week_specific %}
+              <div class="d-flex flex-wrap gap-2 justify-content-end mt-3">
+                <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" id="no-availability-btn">
+                  {% trans 'No availability' %}
+                </button>
+                {% if has_own_row %}
+                  <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" id="use-defaults-btn">
+                    {% trans 'Use defaults' %}
+                  </button>
+                {% endif %}
+              </div>
+              <p class="text-muted small mt-2 mb-0">
+                {% trans '"No availability" means you are free at zero hours this week -- your general availability will NOT be used as a fallback. "Use defaults" removes this week\'s override entirely, so your general (or tournament) availability applies instead.' %}
+              </p>
+            {% endif %}
           </div>
         </div>
 
@@ -149,6 +216,7 @@ partial applies when passed editable=True. Nothing page-specific is left. {% end
 
 {% block scripts %}
 {{ timezone_name|json_script:"saved-timezone" }}
+{{ copy_from_general_hours|json_script:"copy-from-general-hours" }}
 {% comment %} Paint/drag behaviour is shared with WEEKLY_AVAILABILITY survey
 questions and lives in availability_grid.js, which auto-initialises the grid.
 Only this page's own concerns stay here: the timezone picker and form submit.
@@ -173,6 +241,50 @@ Only this page's own concerns stay here: the timezone picker and form submit.
       hours.push(c.dataset.how);
     });
     hiddenField.value = hours.join(',');
+  }
+
+  // ---- Week-specific actions -------------------------------------------------
+  // "Copy from general": a pure client-side repaint, never a save on its own --
+  // the player still has to hit the real Save button. Nothing is written to the
+  // server here, matching the "starts blank" contract for an unsaved week.
+  var copyBtn = document.getElementById('copy-from-general');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', function () {
+      var sourceHours = JSON.parse(
+        document.getElementById('copy-from-general-hours').textContent);
+      var wanted = {};
+      sourceHours.forEach(function (h) { wanted[String(h)] = true; });
+      grid.querySelectorAll('.avail-cell').forEach(function (cell) {
+        var on = !!wanted[cell.dataset.how];
+        cell.classList.toggle('is-selected', on);
+        cell.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      serialize();
+      var countBadge = document.getElementById('hour-count');
+      if (countBadge) {
+        var n = grid.querySelectorAll('.avail-cell.is-selected').length;
+        countBadge.textContent = n + ' ' + (countBadge.dataset.label || 'hours selected');
+      }
+    });
+  }
+
+  // "No availability" and "Use defaults" act immediately (not staged behind
+  // Save): both have an unambiguous target state that doesn't depend on
+  // whatever the grid happens to be showing when clicked.
+  var noAvailBtn = document.getElementById('no-availability-btn');
+  if (noAvailBtn) {
+    noAvailBtn.addEventListener('click', function () {
+      serialize();
+      actionField.value = 'no_availability';
+      form.submit();
+    });
+  }
+  var useDefaultsBtn = document.getElementById('use-defaults-btn');
+  if (useDefaultsBtn) {
+    useDefaultsBtn.addEventListener('click', function () {
+      actionField.value = 'use_defaults';
+      form.submit();
+    });
   }
 
   // ---- Timezone ------------------------------------------------------------

@@ -87,8 +87,8 @@ class DailyUserVisitAdmin(admin.ModelAdmin):
 
 
 class PlayerScheduleAdmin(admin.ModelAdmin):
-    list_display = ['profile', 'tournament', 'hour_count', 'updated_at']
-    list_filter = ('tournament',)
+    list_display = ['profile', 'tournament', 'week_start', 'hour_count', 'updated_at']
+    list_filter = ('tournament', 'week_start')
     search_fields = ('profile__discord', 'profile__display_name')
     # available_hours is a raw list of 0-167 UTC integers -- editable in principle,
     # but the /availability grid is the sane way to change it.
