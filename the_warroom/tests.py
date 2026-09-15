@@ -1229,16 +1229,17 @@ class ResultsChannelViewAnnounceTests(TestCase):
         callbacks -- they otherwise never fire inside TestCase's transaction."""
         with mock.patch('the_warroom.views.post_to_tournament_channel') as announce, \
              mock.patch('the_warroom.views.post_channel_message_task') as thread_post, \
+             mock.patch('the_warroom.views.edit_channel_message_task') as edit_task, \
              mock.patch('the_warroom.views.send_rich_discord_message_task'):
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.client.post(url, payload)
-        return resp, announce, thread_post
+        return resp, announce, thread_post, edit_task
 
     def test_standalone_game_announces(self):
         """The case that never fired before: no match, no LFG thread, just a
         round that belongs to a tournament."""
         url = reverse('record-game')
-        resp, announce, _ = self._record_committed(url, self._payload())
+        resp, announce, _, _ = self._record_committed(url, self._payload())
         self.assertEqual(Game.objects.count(), 1)
         announce.assert_called_once()
         args = announce.call_args.args
@@ -1250,7 +1251,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         """A round with no tournament resolves to None and is skipped."""
         orphan = Round.objects.create(round_number=9, is_active=True)
         url = reverse('record-game')
-        _, announce, _ = self._record_committed(
+        _, announce, _, _ = self._record_committed(
             url, self._payload(round=orphan.pk))
         announce.assert_not_called()
 
@@ -1258,7 +1259,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         """The repost guard: `game_was_final` is read AFTER any rebinding, so a
         second submission against an already-final game stays silent."""
         url = reverse('record-game')
-        _, announce, _ = self._record_committed(url, self._payload())
+        _, announce, _, _ = self._record_committed(url, self._payload())
         announce.assert_called_once()
 
         game = Game.objects.get()
@@ -1270,7 +1271,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
             'form-1-id': efforts[1].pk,
             'nickname': 'renamed',
         })
-        _, announce2, _ = self._record_committed(edit_url, edit_payload)
+        _, announce2, _, _ = self._record_committed(edit_url, edit_payload)
         announce2.assert_not_called()
 
     def test_resubmitting_to_a_match_that_already_has_a_final_game_does_not_repost(self):
@@ -1287,7 +1288,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         self._seat(series, self.opponent, 2)
 
         match_url = f"{reverse('record-game')}?match={match.pk}"
-        _, announce, _ = self._record_committed(match_url, self._payload(
+        _, announce, _, _ = self._record_committed(match_url, self._payload(
             match_id=match.pk))
         announce.assert_called_once()
 
@@ -1299,7 +1300,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         # Same URL, still no `id` in the path -- this is the rebinding path.
         # INITIAL_FORMS must match the saved efforts or the stale-submission
         # guard redirects before the view ever reaches the announce block.
-        _, announce2, _ = self._record_committed(match_url, self._payload(
+        _, announce2, _, _ = self._record_committed(match_url, self._payload(
             match_id=match.pk,
             **{
                 'form-INITIAL_FORMS': '2',
@@ -1321,7 +1322,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         thread.players.add(self.profile, self.opponent)
 
         url = f"{reverse('record-game')}?lfg={thread.pk}"
-        _, announce, thread_post = self._record_committed(
+        _, announce, thread_post, _ = self._record_committed(
             url, self._payload(lfg_id=thread.pk))
 
         announce.assert_called_once()
@@ -1346,7 +1347,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         self._seat(series, self.opponent, 2)
 
         url = f"{reverse('record-game')}?match={match.pk}"
-        _, announce, thread_post = self._record_committed(
+        _, announce, thread_post, _ = self._record_committed(
             url, self._payload(match_id=match.pk))
 
         announce.assert_called_once()
@@ -1375,7 +1376,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         self.profile.discord_id = "700000000000000007"
         self.profile.save(update_fields=["discord_id"])
 
-        _, announce, _ = self._record_committed(
+        _, announce, _, _ = self._record_committed(
             reverse('record-game'), self._payload())
 
         self.assertIn(f"<@{self.profile.discord_id}>", announce.call_args.args[2])
@@ -1386,7 +1387,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         """discord_id is null AND blank. A literal "<@>" would make Discord
         reject the whole payload with a 400, so the guard is load-bearing."""
         self.assertFalse(self.profile.discord_id)
-        _, announce, _ = self._record_committed(
+        _, announce, _, _ = self._record_committed(
             reverse('record-game'), self._payload())
 
         content = announce.call_args.args[2]
@@ -1396,7 +1397,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
     def test_a_match_game_links_the_group_thread(self):
         match, group = self._match_with_thread()
         url = f"{reverse('record-game')}?match={match.pk}"
-        _, announce, _ = self._record_committed(
+        _, announce, _, _ = self._record_committed(
             url, self._payload(match_id=match.pk, nickname="Grand Final"))
 
         self.assertIn(f"[Grand Final]({group.discord_thread})",
@@ -1411,16 +1412,52 @@ class ResultsChannelViewAnnounceTests(TestCase):
         thread.players.add(self.profile, self.opponent)
 
         url = f"{reverse('record-game')}?lfg={thread.pk}"
-        _, announce, _ = self._record_committed(
+        _, announce, _, _ = self._record_committed(
             url, self._payload(lfg_id=thread.pk, nickname="Friday Night"))
 
         self.assertIn(f"[Friday Night]({thread.thread_url()})",
                       announce.call_args.args[2])
 
+    def test_recording_the_game_strips_the_tracked_boxscore_messages_record_line(self):
+        """A boxscore-API upload staged a "record the game" link on some earlier
+        message; once the game is actually recorded, that link is stale and the
+        message should be rewritten back to its stored pre-record-line body."""
+        role = GuildLFGRole.objects.create(guild=self.guild, name="TTS LFG 2",
+                                           tournament=self.tournament)
+        thread = LFGThread.objects.create(
+            thread_id="300000000000000099", guild=self.guild, lfg_role=role,
+            host=self.profile, boxscore_message_id="555444333",
+            boxscore_message_body="Box score uploaded — 2 seats, 1 turns.")
+        thread.players.add(self.profile, self.opponent)
+
+        url = f"{reverse('record-game')}?lfg={thread.pk}"
+        _, _, _, edit_task = self._record_committed(
+            url, self._payload(lfg_id=thread.pk))
+
+        edit_task.delay.assert_called_once_with(
+            thread.thread_id, "555444333",
+            "Box score uploaded — 2 seats, 1 turns.")
+
+    def test_recording_the_game_leaves_no_boxscore_message_untouched(self):
+        """The common case: no boxscore-API upload ever happened for this
+        thread, so there is nothing to edit."""
+        role = GuildLFGRole.objects.create(guild=self.guild, name="TTS LFG 3",
+                                           tournament=self.tournament)
+        thread = LFGThread.objects.create(thread_id="300000000000000098",
+                                          guild=self.guild, lfg_role=role,
+                                          host=self.profile)
+        thread.players.add(self.profile, self.opponent)
+
+        url = f"{reverse('record-game')}?lfg={thread.pk}"
+        _, _, _, edit_task = self._record_committed(
+            url, self._payload(lfg_id=thread.pk))
+
+        edit_task.delay.assert_not_called()
+
     def test_a_game_with_no_thread_names_it_without_a_link(self):
         """A standalone game still gets its NAME -- an improvement on the bare
         word "Game" -- just no link to jump to."""
-        _, announce, _ = self._record_committed(
+        _, announce, _, _ = self._record_committed(
             reverse('record-game'), self._payload(nickname="Ladder Game"))
 
         content = announce.call_args.args[2]
@@ -1433,7 +1470,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         unlinked name rather than publishing a link into another server."""
         match, group = self._match_with_thread(thread_guild="999999999999999999")
         url = f"{reverse('record-game')}?match={match.pk}"
-        _, announce, _ = self._record_committed(
+        _, announce, _, _ = self._record_committed(
             url, self._payload(match_id=match.pk, nickname="Grand Final"))
 
         content = announce.call_args.args[2]
@@ -1443,7 +1480,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
     def test_a_game_with_no_nickname_falls_back_to_a_platform_name(self):
         """Game.nickname is null AND blank. Mirrors the rich-message title's own
         fallback, so both announcements for one game agree on its name."""
-        _, announce, _ = self._record_committed(
+        _, announce, _, _ = self._record_committed(
             reverse('record-game'), self._payload())
 
         self.assertTrue(
@@ -2695,7 +2732,7 @@ class BoxScoreUploadApiTests(TestCase):
 
     def _post(self, doc, token_raw, raw_body=None):
         body = raw_body if raw_body is not None else json.dumps(doc)
-        with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay'), \
+        with mock.patch('the_databot.discord_interactions.post_boxscore_result_task.delay'), \
                 mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay') as prompt, \
                 mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
             response = self.client.post(
@@ -2725,7 +2762,7 @@ class BoxScoreUploadApiTests(TestCase):
         the retry wrapper stays in the picture -- calling the service function
         directly from the request path would lose both the retry and the
         off-request-path posting."""
-        with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay') as post, \
+        with mock.patch('the_databot.discord_interactions.post_boxscore_result_task.delay') as post, \
                 mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
                 mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
             self.client.post(
@@ -2740,7 +2777,7 @@ class BoxScoreUploadApiTests(TestCase):
         _t, raw = self._token()
         post = self._post_capturing_message(self._doc(), raw)
 
-        content = post.call_args.args[1]
+        content = post.call_args.args[2]
         self.assertIn(f'<@{self.alice.discord_id}>', content)
         self.assertIn('your box score was saved', content)
         # BOTH halves are required: allowed_mentions is a filter over what the
@@ -2775,7 +2812,7 @@ class BoxScoreUploadApiTests(TestCase):
         _token, raw = BoxScoreUploadToken.issue(self.thread, ghost)
         post = self._post_capturing_message(self._doc(), raw)
 
-        content = post.call_args.args[1]
+        content = post.call_args.args[2]
         self.assertNotIn('<@', content)
         self.assertIn('Box score uploaded from Tabletop Simulator', content)
         self.assertIsNone(post.call_args.kwargs['allowed_mentions'])
@@ -2985,7 +3022,7 @@ class BoxScoreUploadApiTests(TestCase):
         doc = self._doc()
         doc['participants'][0]['faction'] = 'marquise-de-cat'
         with mock.patch(
-                'the_databot.discord_interactions.post_channel_message_task.delay'
+                'the_databot.discord_interactions.post_boxscore_result_task.delay'
         ) as posted, \
                 mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
                 mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
@@ -2993,7 +3030,7 @@ class BoxScoreUploadApiTests(TestCase):
                 reverse('api-boxscore-upload'), data=json.dumps(doc),
                 content_type='application/json',
                 HTTP_AUTHORIZATION=f'Game-Token {raw}')
-        summary = posted.call_args[0][1] if posted.call_args else ''
+        summary = posted.call_args[0][2] if posted.call_args else ''
         self.assertIn('Seating:', summary)
         self.assertIn('1. Alice', summary)
         # The faction TITLE when the asset exists, else the slug -- this test DB
@@ -3019,7 +3056,7 @@ class BoxScoreUploadApiTests(TestCase):
              'turns': [{'turn': 1, 'score': 4}]},
         ]}
         with mock.patch(
-                'the_databot.discord_interactions.post_channel_message_task.delay'
+                'the_databot.discord_interactions.post_boxscore_result_task.delay'
         ) as posted, \
                 mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
                 mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
@@ -3027,7 +3064,7 @@ class BoxScoreUploadApiTests(TestCase):
                 reverse('api-boxscore-upload'), data=json.dumps(doc),
                 content_type='application/json',
                 HTTP_AUTHORIZATION=f'Game-Token {raw}')
-        summary = posted.call_args[0][1] if posted.call_args else ''
+        summary = posted.call_args[0][2] if posted.call_args else ''
         self.assertIn('1. Alice (4)', summary)
         self.assertIn('2. Bob (9)', summary)
 
@@ -3116,6 +3153,64 @@ class BoxScoreUploadApiTests(TestCase):
         self.assertEqual(set(self.thread.players.values_list('pk', flat=True)),
                          before)
 
+    # ── the tracked success message ──
+
+    def _post_running_result_task(self, doc, token_raw, post_full_return_value):
+        """As _post, but runs post_boxscore_result_task's real body inline (its
+        own .delay is normally mocked to a no-op) so the message-id/body
+        tracking it does actually lands, the same way run_capture=True does
+        for record_lfg_components_task elsewhere."""
+        from the_databot import tasks
+        from the_databot.discord_interactions import post_boxscore_result_task
+        with mock.patch(
+                'the_databot.services.discordservice.post_channel_message_full',
+                return_value=post_full_return_value) as post_full, \
+                mock.patch.object(
+                    post_boxscore_result_task, 'delay',
+                    side_effect=lambda *a, **k: tasks.post_boxscore_result_task(*a, **k)), \
+                mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
+                mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
+            self.client.post(
+                reverse('api-boxscore-upload'), data=json.dumps(doc),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Game-Token {token_raw}')
+        return post_full
+
+    def test_a_clean_upload_tracks_the_posted_message_and_record_link(self):
+        """The message id/body must be recorded on the thread so a later
+        manage_game recording -- or a re-upload -- can rewrite this message."""
+        from the_databot.services.discordservice import THREAD_OK
+        _t, raw = self._token()
+        post_full = self._post_running_result_task(
+            self._doc(), raw, (THREAD_OK, '999888777'))
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.boxscore_message_id, '999888777')
+        content = post_full.call_args.kwargs['content']
+        self.assertIn('Review and record the game', content)
+        # The tracked body has the record line stripped; the POSTED content does not.
+        self.assertNotIn('Review and record the game', self.thread.boxscore_message_body)
+
+    def test_a_reupload_retires_the_previous_boxscore_message(self):
+        """Two clean uploads to the same thread must not both leave a live
+        "record the game" link behind -- the first message gets its link
+        stripped once the second becomes the thread's current one."""
+        from the_databot.services.discordservice import THREAD_OK
+        from the_databot import tasks
+        _t1, raw1 = self._token()
+        self._post_running_result_task(self._doc(), raw1, (THREAD_OK, '111'))
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.boxscore_message_id, '111')
+        first_body = self.thread.boxscore_message_body
+
+        _t2, raw2 = self._token()
+        with mock.patch.object(
+                tasks.edit_channel_message_task, 'delay') as edit:
+            self._post_running_result_task(self._doc(), raw2, (THREAD_OK, '222'))
+        self.thread.refresh_from_db()
+
+        self.assertEqual(self.thread.boxscore_message_id, '222')
+        edit.assert_called_once_with(self.thread.thread_id, '111', first_body)
+
 
 class BoxScoreUploadTestModeTokenTests(TestCase):
     """Admin-minted `test_mode` tokens: reusable, and exempt from the
@@ -3139,7 +3234,7 @@ class BoxScoreUploadTestModeTokenTests(TestCase):
 
     def _post(self, doc, token_raw, raw_body=None):
         body = raw_body if raw_body is not None else json.dumps(doc)
-        with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay'), \
+        with mock.patch('the_databot.discord_interactions.post_boxscore_result_task.delay'), \
                 mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay') as prompt, \
                 mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
             response = self.client.post(
@@ -3261,7 +3356,7 @@ class BoxScoreUploadTestModeTokenTests(TestCase):
         raw_body = json.dumps({'participants': [
             self._seat(1, stranger, '76561198000000197'),
         ]}).encode()
-        with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay'), \
+        with mock.patch('the_databot.discord_interactions.post_boxscore_result_task.delay'), \
                 mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
                 mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
             result = di.boxscore_upload_from_api(self.thread, raw_body, token)

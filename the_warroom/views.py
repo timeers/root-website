@@ -62,7 +62,9 @@ from the_gatehouse.views import (player_required, admin_required,
                                  player_onboard_required, admin_onboard_required)
 from the_gatehouse.forms import PlayerCreateForm
 from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
-from the_databot.tasks import post_channel_message_task, create_match_threads_task
+from the_databot.tasks import (
+    post_channel_message_task, create_match_threads_task, edit_channel_message_task,
+)
 from the_gatehouse.utils import get_uuid, build_absolute_uri, get_int_param, NameConvention, generate_name
 from the_warroom.services.channel_posts import (
     post_to_tournament_channel, match_thread_id, game_thread_url)
@@ -2315,6 +2317,20 @@ def manage_game(request, id=None):
                             transaction.on_commit(
                                 lambda tid=lfgthread.thread_id, msg=_message:
                                     post_channel_message_task.delay(tid, msg))
+
+                        # The boxscore-API success message (if any) still carries a
+                        # "record the game" link at this point -- rewrite it back to
+                        # its stored pre-record-line content now that recording it is
+                        # exactly what just happened. Same on_commit reasoning as
+                        # above: the message being rewritten belongs to a Game this
+                        # transaction might yet roll back.
+                        if (lfgthread.boxscore_message_id
+                                and lfgthread.boxscore_message_body is not None):
+                            transaction.on_commit(
+                                lambda tid=lfgthread.thread_id,
+                                       mid=lfgthread.boxscore_message_id,
+                                       body=lfgthread.boxscore_message_body:
+                                    edit_channel_message_task.delay(tid, mid, body))
 
                     # Same courtesy for a tournament match: announce into the player
                     # group's thread, but only when it demonstrably belongs to the

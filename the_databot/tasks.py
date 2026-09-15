@@ -1174,6 +1174,69 @@ def post_boxscore_prompt_task(token_pk, message_data):
         BoxScoreUploadToken.objects.filter(pk=token_pk).update(message_id=message_id)
 
 
+def _retire_boxscore_message(channel_id, old_message_id, old_body):
+    """Strip the record-game line from a thread's PREVIOUS boxscore message,
+    since a fresh upload is about to replace it as the one true success message.
+    Best-effort and fire-and-forget, same as the manage_game cleanup it mirrors --
+    an old message is cosmetic, never something a failure here should block on.
+    """
+    if old_message_id and old_body is not None:
+        edit_channel_message_task.delay(channel_id, old_message_id, old_body)
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    retry_backoff=True,
+)
+def post_boxscore_result_task(thread_pk, channel_id, content, body_without_record_line,
+                              allowed_mentions=None):
+    """Post a box score's saved-result message and record its id and eventual
+    post-record content on the thread, so manage_game can rewrite this message
+    once the game is actually recorded -- without a GET round-trip at that point.
+
+    A re-upload lands here too, with the thread's PREVIOUS boxscore message (if
+    any) still tracked -- that message is about to stop being the current one,
+    so its own record line is retired first, same as manage_game would.
+    """
+    from the_databot.models import LFGThread
+    from the_databot.services.discordservice import (
+        post_channel_message_full, THREAD_OK, THREAD_ERROR,
+    )
+
+    thread = LFGThread.objects.filter(pk=thread_pk).only(
+        "boxscore_message_id", "boxscore_message_body").first()
+    if thread:
+        _retire_boxscore_message(channel_id,
+                                 thread.boxscore_message_id, thread.boxscore_message_body)
+
+    result, message_id = post_channel_message_full(
+        channel_id, content=content, allowed_mentions=allowed_mentions)
+    if result == THREAD_ERROR:
+        raise RuntimeError(f"transient failure posting boxscore result for thread {thread_pk}")
+    if result == THREAD_OK and message_id:
+        LFGThread.objects.filter(pk=thread_pk).update(
+            boxscore_message_id=message_id,
+            boxscore_message_body=body_without_record_line)
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    retry_backoff=True,
+)
+def edit_channel_message_task(channel_id, message_id, content):
+    """Best-effort: rewrite a boxscore success message to drop its stale "record
+    the game" line once manage_game actually records the game, or once a
+    re-upload replaces it as the thread's current boxscore message.
+    """
+    from the_databot.services.discordservice import edit_channel_message, THREAD_ERROR
+
+    result = edit_channel_message(channel_id, message_id, content=content)
+    if result == THREAD_ERROR:
+        raise RuntimeError(f"transient failure editing boxscore message {message_id}")
+
+
 @shared_task
 def sweep_boxscore_upload_tokens(remind_within_minutes=60, prune_after_days=None):
     """Remind, expire and prune box-score upload tokens.

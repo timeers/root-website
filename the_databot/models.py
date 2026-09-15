@@ -165,6 +165,16 @@ class LFGThread(models.Model):
     # opened must be indistinguishable from one already closed.
     pick_panel_id = models.CharField(max_length=32, blank=True, null=True)
 
+    # Discord message id of the boxscore-upload success message (API/token-backed
+    # uploads only -- the ephemeral /boxscore upload confirm has no durably
+    # editable message), and that message's content with the "record the game"
+    # line already removed. Written once, when the message is posted; used to
+    # rewrite the message once manage_game actually records the game, so the
+    # stale record link doesn't outlive the thing it points at. Both nullable:
+    # most threads never get a boxscore-API message at all.
+    boxscore_message_id = models.CharField(max_length=32, blank=True, null=True)
+    boxscore_message_body = models.TextField(blank=True, null=True)
+
     # `map`/`deck` hold the MOST RECENT of each (whether rolled or selected) — the
     # fields a Game needs directly. The full history lives in the related LFGRoll
     # rows (`roll_log`), which also drive the game form's option narrowing.

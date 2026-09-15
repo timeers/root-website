@@ -56,7 +56,9 @@ from the_databot.tasks import (
     create_lfg_thread_task, record_lfg_components_task, post_interaction_followup_task,
     post_channel_message_task, post_schedule_proposal_task,
     strip_schedule_proposal_messages_task, post_boxscore_prompt_task,
+    post_boxscore_result_task,
 )
+from the_databot.tasks import _retire_boxscore_message
 from the_databot.services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
     build_captain_embed, build_card_embed, build_law_embed, build_help_embed,
@@ -6944,7 +6946,7 @@ def _boxscore_decompose(participants, payload):
     disagree about what a file means. Raises BoxScoreImportError on malformed
     turns; each caller renders that its own way.
     """
-    from the_keep.models import Map, Deck
+    from the_keep.models import Map, Deck, Landmark, Hireling
     from the_warroom.services.box_score_import import normalize_turns
 
     notes = []
@@ -7035,6 +7037,16 @@ def _boxscore_decompose(participants, payload):
             component_titles.append(f"{obj.title} {kind}")
         else:
             notes.append(f"I didn't recognise the {kind.lower()} `{slug}`.")
+
+    # Unlike map/deck, an unrecognised slug here gets no note -- these are
+    # existence-checked again by _boxscore_component_items below (which does
+    # report/skip them for the roll log), and a second warning would just repeat
+    # the first.
+    for key, model in (("landmarks", Landmark), ("hirelings", Hireling)):
+        for slug in (payload.get(key) or []):
+            obj = model.objects.filter(slug=slug).first()
+            if obj:
+                component_titles.append(obj.title)
 
     component_items, undrafted = _boxscore_component_items(participants, payload)
     items += component_items
@@ -7395,11 +7407,16 @@ def _boxscore_seat_lines(seats, header, numbered=True, scores=None):
     if faction_slugs:
         titles = dict(Faction.objects.filter(slug__in=faction_slugs)
                       .values_list("slug", "title"))
+    # Full objects, not just titles: vagabond_emoji_for needs a `.title`
+    # attribute to derive the emoji name from, not a bare slug. Covers Knaves
+    # of the Deepwood's captain slugs too, so both branches below share one
+    # query and one fallback shape.
     vagabond_slugs = {s["vagabond_slug"] for s in seats if s["vagabond_slug"]}
-    vagabond_titles = {}
-    if vagabond_slugs:
-        vagabond_titles = dict(Vagabond.objects.filter(slug__in=vagabond_slugs)
-                               .values_list("slug", "title"))
+    captain_slugs = {c for s in seats for c in s.get("captain_slugs") or []}
+    vagabonds_by_slug = {}
+    if vagabond_slugs or captain_slugs:
+        vagabonds_by_slug = {v.slug: v for v in
+                             Vagabond.objects.filter(slug__in=vagabond_slugs | captain_slugs)}
 
     lines = [header]
     for index, seat in enumerate(seats, 1):
@@ -7434,9 +7451,20 @@ def _boxscore_seat_lines(seats, header, numbered=True, scores=None):
             emoji = faction_emoji_for(slug)
             title = titles.get(slug, slug)
             mark = f"{emoji} {title}" if emoji else title
+            # Vagabond and Knaves captains are mutually exclusive -- a seat has
+            # one or the other, matching _pick_seat_detail's same emoji-before-
+            # name idiom for the trailing parenthetical.
             vagabond = seat["vagabond_slug"]
             if vagabond:
-                mark += f" ({vagabond_titles.get(vagabond, vagabond)})"
+                vg = vagabonds_by_slug.get(vagabond)
+                vg_title = vg.title if vg else vagabond
+                vg_emoji = vagabond_emoji_for(vg) if vg else ""
+                mark += f" ({vg_emoji} {vg_title})" if vg_emoji else f" ({vg_title})"
+            elif seat.get("captain_slugs"):
+                marks = [vagabond_emoji_for(vagabonds_by_slug[c]) or vagabonds_by_slug[c].title
+                         for c in seat["captain_slugs"] if c in vagabonds_by_slug]
+                if marks:
+                    mark += f" ({' '.join(marks)})"
             # The " - " only separates a NAME from a faction. With no name there
             # is nothing to separate, so an unclaimed seat is "3. Marquise" and
             # not "3.  - Marquise".
@@ -7712,9 +7740,16 @@ def boxscore_upload_from_api(thread, raw, token):
         summary = [f"{mention} — your box score was saved." if mention
                    else "Box score uploaded from Tabletop Simulator."]
         summary.extend(lines)
+        if component_titles:
+            # No label: each title now carries its own kind ("Autumn Map").
+            summary.append(" · ".join(component_titles))
         summary.extend(applied_notes)
-        post_channel_message_task.delay(
-            thread.thread_id, "\n".join(l for l in summary if l),
+        body_without_record_line = "\n".join(l for l in summary if l)
+        if record_url:
+            summary.append(f"Review and record the game [here]({record_url}).")
+        content = "\n".join(l for l in summary if l)
+        post_boxscore_result_task.delay(
+            thread.pk, thread.thread_id, content, body_without_record_line,
             allowed_mentions=({"users": [token.issued_by.discord_id]}
                               if mention else None))
         turn_count = max((len(e.get("turns") or []) for e in entries), default=0)
@@ -8926,6 +8961,32 @@ def _boxscore_commit(payload, pending, thread, ref):
         out.append(" · ".join(pending["component_titles"]))
     out.extend(notes)
 
+    # Token-backed only ("t:<pk>"): the cache-backed "c:<key>" path is /boxscore
+    # upload's own EPHEMERAL confirm, whose message has no stable id the normal
+    # REST edit call can use later, and which only the uploader can see anyway --
+    # a record link there would point somewhere nobody else in the thread could
+    # reach it from.
+    if ref.startswith("t:"):
+        message_id = (payload.get("message") or {}).get("id")
+        body_without_record_line = "\n".join(line for line in out if line)
+        if not thread.game_id:
+            url = _record_url(f"/record/game/?lfg={thread.id}")
+            if url:
+                out.append(f"Review and record the game [here]({url}).")
+        if message_id:
+            # This upload's own message IS the one being edited in place (the
+            # gate prompt becomes the result), so there is nothing to retire
+            # for THIS message -- but a re-upload can still be replacing an
+            # OLDER, already-resolved boxscore message from a previous upload
+            # that this one's gates never touched (e.g. that upload applied
+            # cleanly with no gate, so it's a different message entirely).
+            if thread.boxscore_message_id and thread.boxscore_message_id != message_id:
+                _retire_boxscore_message(channel_id,
+                                         thread.boxscore_message_id, thread.boxscore_message_body)
+            thread.boxscore_message_id = message_id
+            thread.boxscore_message_body = body_without_record_line
+            thread.save(update_fields=["boxscore_message_id", "boxscore_message_body"])
+
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {
@@ -9084,9 +9145,17 @@ def _handle_boxscore_restore(payload):
         summary = [f"{mention} — your box score was saved." if mention
                    else "Box score restored."]
         summary.extend(lines)
+        if pending["component_titles"]:
+            summary.append(" · ".join(pending["component_titles"]))
         summary.extend(notes)
-        post_channel_message_task.delay(
-            thread.thread_id, "\n".join(l for l in summary if l),
+        body_without_record_line = "\n".join(l for l in summary if l)
+        if not thread.game_id:
+            url = _record_url(f"/record/game/?lfg={thread.id}")
+            if url:
+                summary.append(f"Review and record the game [here]({url}).")
+        content = "\n".join(l for l in summary if l)
+        post_boxscore_result_task.delay(
+            thread.pk, thread.thread_id, content, body_without_record_line,
             allowed_mentions=({"users": [profile.discord_id]} if mention else None))
         return _ephemeral("Restored — the box score has been added to the thread.")
 

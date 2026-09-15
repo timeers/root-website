@@ -19,7 +19,8 @@ from the_warroom.models import (
     TournamentPlayer, CompetitionStatus,
 )
 from the_keep.models import (
-    StatusChoices, Faction, Map, Deck, Vagabond, Language, Law, LawGroup,
+    StatusChoices, Faction, Map, Deck, Vagabond, Landmark, Hireling, Language,
+    Law, LawGroup,
 )
 from the_gatehouse.models import (
     DiscordGuild, Profile, DEFAULT_PROFILE_IMAGE,
@@ -11852,6 +11853,35 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
 
     # ── the happy path ──
 
+    def test_decompose_collects_landmark_and_hireling_titles(self):
+        """Map/Deck already fed component_titles; landmarks/hirelings did not,
+        so the boxscore success message silently dropped them."""
+        landmark = Landmark.objects.create(
+            title="Ancient Tower", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        hireling = Hireling.objects.create(
+            title="Bandit Chief", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        doc = self._doc(landmarks=[landmark.slug], hirelings=[hireling.slug])
+
+        _entries, _notes, _items, component_titles, _undrafted = (
+            di._boxscore_decompose(doc["participants"], doc))
+
+        self.assertIn("Ancient Tower", component_titles)
+        self.assertIn("Bandit Chief", component_titles)
+
+    def test_decompose_skips_an_unrecognised_landmark_slug_silently(self):
+        """Existence-checked the same way Map/Deck are, but with no separate
+        note -- _boxscore_component_items already reports an unknown component
+        slug for the roll log, so a second warning here would just repeat it."""
+        doc = self._doc(landmarks=["no-such-landmark-anywhere"])
+
+        _entries, notes, _items, component_titles, _undrafted = (
+            di._boxscore_decompose(doc["participants"], doc))
+
+        self.assertEqual(component_titles, [])
+        self.assertFalse(any("no-such-landmark-anywhere" in n for n in notes))
+
     def test_it_seats_in_turn_order_and_stores_only_the_box_score(self):
         content, _, delay = self._run(
             self._doc(board_map=self.map.slug, deck=self.deck.slug))
@@ -13272,6 +13302,69 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
         lines = di._boxscore_seat_lines(seats, "From this box score")
         self.assertEqual(lines[1], "1. MysteryGuest")
 
+    def test_a_vagabond_seat_shows_its_emoji_when_uploaded(self):
+        """Matches /pick's own rendering: emoji before the name, inside the
+        trailing parenthetical."""
+        vb = Vagabond.objects.create(
+            title="Ranger", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        seats = [
+            {"profile_pk": None, "label": "Bob", "player_slug": "bob",
+             "player_steam_id": None, "faction_slug": self.faction.slug,
+             "vagabond_slug": vb.slug, "captain_slugs": [], "discarded_slug": None},
+        ]
+        with mock.patch.object(di, "vagabond_emoji_for", return_value="🦊"):
+            line = di._boxscore_seat_lines(seats, "h")[1]
+        self.assertIn("(🦊 Ranger)", line)
+
+    def test_a_vagabond_seat_falls_back_to_the_bare_title_with_no_emoji(self):
+        """No stray leading space or blank icon when the emoji hasn't been
+        uploaded -- same fallback shape the faction mark already had."""
+        vb = Vagabond.objects.create(
+            title="Thief", animal="Mouse", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        seats = [
+            {"profile_pk": None, "label": "Bob", "player_slug": "bob",
+             "player_steam_id": None, "faction_slug": self.faction.slug,
+             "vagabond_slug": vb.slug, "captain_slugs": [], "discarded_slug": None},
+        ]
+        with mock.patch.object(di, "vagabond_emoji_for", return_value=""):
+            line = di._boxscore_seat_lines(seats, "h")[1]
+        self.assertIn("(Thief)", line)
+        self.assertNotIn("( Thief)", line)
+
+    def test_a_knaves_seat_shows_captain_emoji_not_a_single_vagabond(self):
+        """Knaves of the Deepwood has no single vagabond -- its captains render
+        the same way /pick's captain marks do: emoji-only, joined with spaces."""
+        cap1 = Vagabond.objects.create(
+            title="Cap One", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        cap2 = Vagabond.objects.create(
+            title="Cap Two", animal="Mouse", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        seats = [
+            {"profile_pk": None, "label": "Bob", "player_slug": "bob",
+             "player_steam_id": None, "faction_slug": self.faction.slug,
+             "vagabond_slug": None,
+             "captain_slugs": [cap1.slug, cap2.slug], "discarded_slug": None},
+        ]
+        with mock.patch.object(
+                di, "vagabond_emoji_for",
+                side_effect=lambda v: "🦊" if v.slug == cap1.slug else ""):
+            line = di._boxscore_seat_lines(seats, "h")[1]
+        self.assertIn("(🦊 Cap Two)", line)
+
+    def test_a_seat_with_neither_vagabond_nor_captains_is_unaffected(self):
+        """Regression check: the new branch must not alter plain faction-only
+        seats, which have no parenthetical at all."""
+        seats = [
+            {"profile_pk": None, "label": "Bob", "player_slug": "bob",
+             "player_steam_id": None, "faction_slug": self.faction.slug,
+             "vagabond_slug": None, "captain_slugs": [], "discarded_slug": None},
+        ]
+        line = di._boxscore_seat_lines(seats, "h")[1]
+        self.assertNotIn("(", line)
+
     def test_skipping_a_seat_leaves_it_blank_after_the_other_is_picked(self):
         """Reported from production: two unknown seats, one answered and one
         skipped, produced the SAME player in both.
@@ -13860,7 +13953,7 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
         }
         with mock.patch.object(di.record_lfg_components_task, "delay", mock.Mock()), \
                 mock.patch.object(di.post_boxscore_prompt_task, "delay") as prompt, \
-                mock.patch.object(di.post_channel_message_task, "delay") as post:
+                mock.patch.object(di.post_boxscore_result_task, "delay") as post:
             response = di.COMPONENT_HANDLERS["boxscore_restore"](payload)
         data = json.loads(response.content)["data"]
         return (data, prompt, post) if capture else data
@@ -13918,7 +14011,7 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
         data, _prompt, post = self._press_restore(token, capture=True)
 
         self.assertTrue(post.called)
-        content = post.call_args.args[1]
+        content = post.call_args.args[2]
         self.assertIn(f"<@{self.player.discord_id}>", content)
         self.assertEqual(post.call_args.kwargs["allowed_mentions"],
                          {"users": [self.player.discord_id]})
@@ -14082,6 +14175,61 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
         data = self._run()
         custom_id = data["components"][0]["components"][0]["custom_id"]
         self.assertEqual(custom_id.split(":")[1], str(newer.pk))
+
+    # ── _boxscore_commit: token-backed (public) vs cache-backed (ephemeral) ──
+
+    def _commit_payload(self, message_id="777666555"):
+        return {"data": {}, "message": {"id": message_id},
+                "channel_id": self.THREAD_ID}
+
+    def _commit_pending(self):
+        return {"entries": [], "seats": [], "items": [], "notes": [],
+                "component_titles": [], "filename": "Tabletop Simulator",
+                "fingerprint": di._boxscore_seat_fingerprint(self.thread)}
+
+    def test_a_token_backed_commit_tracks_the_message_and_adds_the_record_link(self):
+        """The "t:<pk>" ref is the API/restore path -- the one place a record
+        link and a durable message id both make sense."""
+        with mock.patch.object(di, "_capture_lfg_components"):
+            response = di._boxscore_commit(
+                self._commit_payload(), self._commit_pending(), self.thread, "t:1")
+        content = json.loads(response.content)["data"]["content"]
+        self.assertIn("Review and record the game", content)
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.boxscore_message_id, "777666555")
+        self.assertNotIn("Review and record the game",
+                         self.thread.boxscore_message_body)
+
+    def test_a_cache_backed_commit_does_neither(self):
+        """"c:<key>" is /boxscore upload's own ephemeral confirm -- its message
+        has no stable id a later REST edit could use, and only the uploader can
+        see it, so tracking it (or offering a link nobody else could reach)
+        would be wrong."""
+        with mock.patch.object(di, "_capture_lfg_components"):
+            response = di._boxscore_commit(
+                self._commit_payload(), self._commit_pending(), self.thread, "c:1")
+        content = json.loads(response.content)["data"]["content"]
+        self.assertNotIn("Review and record the game", content)
+        self.thread.refresh_from_db()
+        self.assertIsNone(self.thread.boxscore_message_id)
+
+    def test_a_second_token_backed_commit_retires_the_first_message(self):
+        """A re-upload that goes through a gate must not leave the earlier
+        upload's message carrying a live record link either."""
+        with mock.patch.object(di, "_capture_lfg_components"):
+            di._boxscore_commit(
+                self._commit_payload("111"), self._commit_pending(), self.thread, "t:1")
+        self.thread.refresh_from_db()
+        first_body = self.thread.boxscore_message_body
+
+        with mock.patch.object(di, "_capture_lfg_components"), \
+                mock.patch.object(di, "_retire_boxscore_message") as retire:
+            di._boxscore_commit(
+                self._commit_payload("222"), self._commit_pending(), self.thread, "t:2")
+
+        retire.assert_called_once_with(self.THREAD_ID, "111", first_body)
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.boxscore_message_id, "222")
 
 
 class BoxScoreUploadSweepTests(TestCase):

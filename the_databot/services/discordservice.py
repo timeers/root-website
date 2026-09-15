@@ -1062,7 +1062,7 @@ def _fetch_application_emoji():
         response = requests.get(url, headers=_bot_headers(), timeout=10)
         response.raise_for_status()
         items = response.json().get("items", [])
-    except (requests.RequestException, ValueError, KeyError):
+    except (requests.RequestException, ValueError, KeyError, AttributeError):
         logger.exception("Failed to fetch application emoji")
         return {}
 
