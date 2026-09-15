@@ -7,13 +7,17 @@ component state (Discord echoes it back on every component interaction).
 
 # Interaction-response types used with components.
 RESPONSE_UPDATE_MESSAGE = 7            # edit the component's own message in place
-RESPONSE_DEFERRED_UPDATE_MESSAGE = 6  # ack without a visible edit (unused here; documented)
+RESPONSE_DEFERRED_UPDATE_MESSAGE = 6  # ack without a visible edit
+RESPONSE_MODAL = 9                     # open a modal in response to a component click
 
 # Component + button style constants.
 COMPONENT_ACTION_ROW = 1
 COMPONENT_BUTTON = 2
 COMPONENT_STRING_SELECT = 3
+COMPONENT_TEXT_INPUT = 4
+COMPONENT_LABEL = 18
 STYLE_PRIMARY, STYLE_SECONDARY, STYLE_SUCCESS, STYLE_DANGER = 1, 2, 3, 4
+TEXT_INPUT_SHORT, TEXT_INPUT_PARAGRAPH = 1, 2
 
 
 # ── Builders ───────────────────────────────────────────────────────────────
@@ -44,6 +48,44 @@ def string_select(custom_id, options, placeholder="", min_values=0, max_values=1
         # capped option count so a caller passing len(pre-cap options) can't send a
         # max_values that exceeds the options actually included (a 400).
         "max_values": max(1, min(max_values, len(options))), "options": options,
+    }
+
+
+def text_input(custom_id, style=TEXT_INPUT_SHORT, value="", required=True,
+               max_length=None, placeholder=None):
+    """The interactive input nested inside a Label component -- NOT wrapped in an
+    Action Row. Discord deprecated Action-Row-wrapped text inputs in modals
+    (Aug 2025 changelog) in favor of Label; this codebase has no prior modal code
+    to stay compatible with, so it targets the current shape from the start."""
+    comp = {
+        "type": COMPONENT_TEXT_INPUT, "custom_id": custom_id,
+        "style": style, "required": required,
+        "value": (value or "")[:4000],  # Discord caps the prefilled value at 4000 chars
+    }
+    if max_length:
+        comp["max_length"] = max_length
+    if placeholder:
+        comp["placeholder"] = placeholder[:100]
+    return comp
+
+
+def label_component(label, component, description=None):
+    """Wrap one interactive component (a text_input, string_select, etc.) with the
+    label/description text Discord now requires for it to render inside a modal."""
+    comp = {"type": COMPONENT_LABEL, "label": label[:45], "component": component}
+    if description:
+        comp["description"] = description[:100]
+    return comp
+
+
+def modal(custom_id, title, *labeled_components):
+    """A MODAL (type 9) response body: {"custom_id", "title", "components"}. Each
+    entry in `labeled_components` should already be a label_component(...) --
+    modals no longer take Action Rows at the top level for text inputs."""
+    return {
+        "custom_id": custom_id,
+        "title": title[:45],          # Discord caps a modal title at 45 chars
+        "components": list(labeled_components),
     }
 
 

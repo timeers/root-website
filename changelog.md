@@ -4,6 +4,7 @@
 
 ### New Features
 - You can now set up multiple reminders via the Databot for scheduled games
+- Beta version of /lfg with edit description button
 
 ### Improvements
 - Player count and roster errors from TTS boxscore upload are passed to Discord instead of blocking the upload

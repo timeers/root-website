@@ -380,6 +380,21 @@ def edit_channel_message(channel_id, message_id, embeds=None, components=None,
         return THREAD_ERROR
 
 
+def get_channel_message(channel_id, message_id):
+    """Fetch a channel message by id, or None on any failure. Used where an edit
+    needs to merge into the message's CURRENT state rather than overwrite it."""
+    try:
+        r = requests.get(
+            f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}",
+            headers=_bot_headers(), timeout=5,
+        )
+        r.raise_for_status()
+        return r.json()
+    except requests.RequestException:
+        logger.exception("Failed to fetch channel message %s/%s", channel_id, message_id)
+        return None
+
+
 def _retry_after_seconds(resp):
     """Seconds to wait from a 429 response, or None.
 
@@ -522,7 +537,7 @@ def register_guild_commands(guild):
     guild-scoped command endpoint. Returns True on success. Guild-scoped registration is
     ~instant (unlike global). Call on bot-add and whenever the whitelist changes."""
     from the_databot.services.discord_commands import (commands_for_guild, help_command_for_guild,
-                                   lfg_command_for_roles)
+                                   lfg_command_for_roles, BETA_COMMAND_VARIANTS, BETA_SUFFIX)
     app_id = config["DISCORD_ID"]  # OAuth client ID doubles as the application ID
     url = f"{DISCORD_API}/applications/{app_id}/guilds/{guild.guild_id}/commands"
     # commands_for_guild returns references to the shared module-level command dicts
@@ -542,6 +557,16 @@ def register_guild_commands(guild):
     if any(c["name"] == "lfg" for c in body):
         roles = list(guild.lfg_roles.all())
         body = [lfg_command_for_roles(roles) if c["name"] == "lfg" else c for c in body]
+    # Beta tester: alongside (never instead of) each already-enabled command, add
+    # an extra "<name>-beta" registration for every BETA_COMMAND_VARIANTS entry, so
+    # a designated test guild can compare a beta variant with the real command side
+    # by side. See DiscordGuild.is_beta_tester.
+    if guild.is_beta_tester:
+        for name, build in BETA_COMMAND_VARIANTS.items():
+            if any(c["name"] == name for c in body):
+                variant = build(guild)  # each entry already returns a fresh dict
+                variant["name"] = f"{name}{BETA_SUFFIX}"  # (e.g. lfg_command_for_roles
+                body.append(variant)  # already deep-copies) -- no copy needed here.
     try:
         resp = requests.put(url, headers=_bot_headers(), json=body, timeout=10)
         resp.raise_for_status()

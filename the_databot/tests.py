@@ -54,7 +54,9 @@ from the_databot.services.time_parsing import (
 )
 from the_databot.services.discordservice import (build_upcoming_embed,
                                                    build_lfg_help_embed, _LFG_LINK_RE)
+from django.contrib import admin
 from the_databot.services import discordservice as ds
+from the_databot.services.discord_components import COMPONENT_LABEL
 from the_databot import tasks
 from the_databot import discord_interactions as di
 from the_gatehouse.templatetags.databot_filters import lfg_body
@@ -2759,6 +2761,173 @@ class LFGCancelPermissionTests(TestCase):
         self.assertTrue(ids["lfg_cancel"].endswith(f":{di.PICK_OPEN}"))
 
 
+class LFGEditButtonRowTests(TestCase):
+    """`edit_button` gates the 📝 button in _lfg_message_data's row -- OFF by
+    default so every pre-existing call site is unaffected."""
+
+    HOST = "830000000000000033"
+
+    def _buttons(self, **kw):
+        data = di._lfg_message_data(
+            None, self.HOST, "a game", "Tim", title="Looking for Game", **kw)
+        return data["components"][0]["components"]
+
+    def test_edit_button_off_by_default(self):
+        buttons = self._buttons()
+        self.assertEqual(len(buttons), 4)
+        names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
+        self.assertNotIn("lfg_edit", names)
+
+    def test_edit_button_sits_between_notify_and_cancel(self):
+        buttons = self._buttons(edit_button=True)
+        self.assertEqual(len(buttons), 5)
+        names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
+        self.assertEqual(names,
+                         ["lfg_join", "lfg_notify", "lfg_edit", "lfg_cancel", "lfg_start"])
+
+    def test_edit_is_dispatcher_locked_like_start(self):
+        """No moderator carve-out, unlike ✖ -- the owner snowflake must be LAST,
+        which is what makes the dispatcher's generic owner-lock fire."""
+        buttons = self._buttons(edit_button=True)
+        edit_button = next(b for b in buttons
+                           if di.decode_custom_id(b["custom_id"])[0] == "lfg_edit")
+        self.assertTrue(edit_button["custom_id"].endswith(f":{self.HOST}"))
+
+
+class LFGEditTests(TestCase):
+    """📝 Edit: host-only, opens a modal pre-filled with the current description,
+    and submitting it PATCHes the live message directly."""
+
+    HOST = "830000000000000044"
+    OTHER = "830000000000000055"
+
+    def _click_payload(self, clicker, description="Current description"):
+        embed = {
+            "title": "Looking for Game", "description": description,
+            "fields": [
+                {"name": di.LFG_PLAYERS_FIELD, "value": f"Tim (<@{self.HOST}>)",
+                 "inline": False},
+            ],
+        }
+        return {
+            "type": 3,  # MESSAGE_COMPONENT
+            "channel_id": "chan", "guild_id": "guild",
+            "member": {"nick": "Clicker", "user": {"id": clicker}},
+            "message": {"id": "msg1", "content": "", "embeds": [embed]},
+            "data": {"custom_id": di.encode_custom_id("lfg_edit", self.HOST)},
+        }
+
+    def test_the_host_can_click_edit(self):
+        with mock.patch.object(di, "_verify_signature", return_value=True):
+            response = self.client.post(
+                reverse("discord-interactions"),
+                data=json.dumps(self._click_payload(self.HOST)),
+                content_type="application/json")
+        data = json.loads(response.content)
+        self.assertEqual(data["type"], di.RESPONSE_MODAL)
+
+    def test_a_non_host_cannot_click_edit(self):
+        """The dispatcher's generic owner-lock, not a manual check in the
+        handler -- proven by going through the real view, not calling
+        _handle_lfg_edit directly (which would silently skip the lock)."""
+        with mock.patch.object(di, "_verify_signature", return_value=True):
+            response = self.client.post(
+                reverse("discord-interactions"),
+                data=json.dumps(self._click_payload(self.OTHER)),
+                content_type="application/json")
+        data = json.loads(response.content)
+        self.assertIn("Only the host", data["data"]["content"])
+
+    def test_the_modal_is_prefilled_with_the_current_description(self):
+        response = di._handle_lfg_edit(self._click_payload(self.HOST, "Existing text"))
+        data = json.loads(response.content)
+        self.assertEqual(data["type"], di.RESPONSE_MODAL)
+        modal_data = data["data"]
+        label = modal_data["components"][0]
+        self.assertEqual(label["type"], COMPONENT_LABEL)
+        self.assertEqual(label["component"]["value"], "Existing text")
+
+    def test_the_modal_custom_id_carries_the_message_and_channel(self):
+        response = di._handle_lfg_edit(self._click_payload(self.HOST))
+        data = json.loads(response.content)
+        action, args = di.decode_custom_id(data["data"]["custom_id"])
+        self.assertEqual(action, "lfg_edit_modal")
+        self.assertEqual(args, ["msg1", "chan"])
+
+    def _submit_payload(self, message_id="msg1", channel_id="chan", value="New text"):
+        return {
+            "type": 5,  # MODAL_SUBMIT
+            "channel_id": channel_id,
+            "data": {
+                "custom_id": di.encode_custom_id("lfg_edit_modal", message_id, channel_id),
+                "components": [
+                    {"type": COMPONENT_LABEL, "id": 1,
+                     "component": {"type": 4, "id": 2, "custom_id": "description",
+                                  "value": value}},
+                ],
+            },
+        }
+
+    def test_submitting_edits_the_live_message(self):
+        old_embed = {
+            "title": "Looking for Game", "description": "Old text",
+            "fields": [{"name": di.LFG_PLAYERS_FIELD, "value": "Tim", "inline": False}],
+        }
+        with mock.patch(
+                "the_databot.services.discordservice.get_channel_message",
+                return_value={"embeds": [old_embed]}) as get_msg, \
+                mock.patch(
+                    "the_databot.services.discordservice.edit_channel_message") as edit_msg:
+            response = di._handle_lfg_edit_modal_submit(
+                *self._dispatch_args(self._submit_payload()))
+        get_msg.assert_called_once_with("chan", "msg1")
+        edit_msg.assert_called_once()
+        args, kwargs = edit_msg.call_args
+        self.assertEqual(args[:2], ("chan", "msg1"))
+        new_embed = kwargs["embeds"][0]
+        self.assertEqual(new_embed["description"], "New text")
+        # Players field survives untouched.
+        self.assertEqual(new_embed["fields"][0]["value"], "Tim")
+        self.assertEqual(json.loads(response.content)["type"],
+                         di.RESPONSE_DEFERRED_UPDATE_MESSAGE)
+
+    def _dispatch_args(self, payload):
+        """(payload, args) the MODAL_SUBMIT dispatch branch would pass."""
+        _action, args = di.decode_custom_id(payload["data"]["custom_id"])
+        return payload, args
+
+    def test_an_unresolvable_message_is_refused_gracefully(self):
+        with mock.patch(
+                "the_databot.services.discordservice.get_channel_message",
+                return_value=None):
+            response = di._handle_lfg_edit_modal_submit(
+                *self._dispatch_args(self._submit_payload()))
+        data = json.loads(response.content)
+        self.assertIn("Couldn't find that message", data["data"]["content"])
+
+
+class LFGModalTextValueTests(TestCase):
+    """_modal_text_value: reading a submitted value out of the Label-wrapped
+    MODAL_SUBMIT shape."""
+
+    def test_extracts_the_labeled_value(self):
+        payload = {"data": {"components": [
+            {"type": 18, "component": {"type": 4, "custom_id": "description",
+                                       "value": "hello"}},
+        ]}}
+        self.assertEqual(di._modal_text_value(payload, "description"), "hello")
+
+    def test_returns_empty_string_for_a_missing_custom_id(self):
+        payload = {"data": {"components": [
+            {"type": 18, "component": {"type": 4, "custom_id": "other", "value": "x"}},
+        ]}}
+        self.assertEqual(di._modal_text_value(payload, "description"), "")
+
+    def test_returns_empty_string_for_a_component_missing_its_component_key(self):
+        payload = {"data": {"components": [{"type": 18}]}}
+        self.assertEqual(di._modal_text_value(payload, "description"), "")
+
+
 class LFGEmbedTitleTests(TestCase):
     """What titles the /lfg post: the host's `title` option, else the tag NAME.
 
@@ -4529,6 +4698,127 @@ class RegisterGuildCommandsBodyTests(TestCase):
         self.guild.enabled_commands = ["stats"]
         self.guild.save()
         self.assertNotIn("lookup", self._body())
+
+    # ── beta-tester mechanism ──────────────────────────────────────────────
+
+    def test_a_non_beta_guild_gets_no_beta_commands(self):
+        self.guild.enabled_commands = ["lfg"]
+        self.guild.is_beta_tester = False
+        self.guild.save()
+        self.assertNotIn("lfg-beta", self._body())
+
+    def test_a_beta_guild_gets_lfg_beta_alongside_lfg(self):
+        self.guild.enabled_commands = ["lfg"]
+        self.guild.is_beta_tester = True
+        self.guild.save()
+        body = self._body()
+        self.assertIn("lfg", body)
+        self.assertIn("lfg-beta", body)
+
+    def test_a_beta_guild_without_lfg_enabled_gets_no_lfg_beta(self):
+        """The beta variant is always an ADDITION alongside the real command,
+        never a replacement -- a guild can't get it without lfg itself."""
+        self.guild.enabled_commands = ["stats"]
+        self.guild.is_beta_tester = True
+        self.guild.save()
+        self.assertNotIn("lfg-beta", self._body())
+
+    def test_the_beta_variant_matches_the_reals_lfg_shape(self):
+        """lfg-beta reuses lfg_command_for_roles, so it can never silently drift
+        from what the real /lfg would show this guild."""
+        self.guild.enabled_commands = ["lfg"]
+        self.guild.is_beta_tester = True
+        self.guild.save()
+        for i in range(2):
+            GuildLFGRole.objects.create(guild=self.guild, name="Tag %d" % i,
+                                        role_id=str(100000000000000800 + i))
+        body = self._body()
+        self.assertEqual(self._opts(body["lfg"]), self._opts(body["lfg-beta"]))
+
+
+class ApplicationCommandBetaDispatchTests(TestCase):
+    """The dispatcher's generic "-beta" suffix stripping: a beta-suffixed command
+    name resolves to the SAME handler as its base name, with source unset for the
+    real command and set for the beta one."""
+
+    def _post(self, command_name):
+        payload = {
+            "type": 2,  # APPLICATION_COMMAND
+            "data": {"name": command_name, "options": []},
+            "guild_id": "700600",
+            "channel_id": "555000222",
+            "channel": {"name": "a channel", "type": 0},
+            "member": {"user": {"id": "901", "username": "user901"}},
+            "token": "tok",
+        }
+        with mock.patch.object(di, "_verify_signature", return_value=True):
+            response = self.client.post(
+                reverse("discord-interactions"), data=json.dumps(payload),
+                content_type="application/json")
+        return json.loads(response.content)
+
+    def test_lfg_beta_reaches_the_same_handler_as_lfg(self):
+        """No players parsed from either invocation -> plain post either way; both
+        must succeed (an unknown-command ephemeral would mean the strip failed)."""
+        real = self._post("lfg")
+        beta = self._post("lfg-beta")
+        self.assertEqual(real["data"]["embeds"][0]["title"],
+                         beta["data"]["embeds"][0]["title"])
+
+    def test_lfg_reaches_it_with_the_beta_flag_unset(self):
+        data = self._post("lfg")["data"]
+        buttons = data["components"][0]["components"]
+        names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
+        self.assertNotIn("lfg_edit", names)
+
+    def test_lfg_beta_reaches_it_with_the_beta_flag_set(self):
+        data = self._post("lfg-beta")["data"]
+        buttons = data["components"][0]["components"]
+        names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
+        self.assertIn("lfg_edit", names)
+
+    def test_an_unknown_suffixed_name_is_still_unknown(self):
+        response = self._post("not-a-real-command-beta")
+        self.assertIn("Unknown command", response["data"]["content"])
+
+
+class DiscordGuildAdminBetaTests(TestCase):
+    """DiscordGuildAdmin.save_model re-registers only when is_beta_tester actually
+    changed -- there is no signal for DiscordGuild, so this is the only hook."""
+
+    def setUp(self):
+        from the_gatehouse.admin import DiscordGuildAdmin
+        self.admin = DiscordGuildAdmin(DiscordGuild, admin.site)
+
+    def _save(self, guild, is_beta_tester, change):
+        guild.is_beta_tester = is_beta_tester
+        with mock.patch("the_gatehouse.views.refresh_guild_commands") as refresh:
+            self.admin.save_model(request=None, obj=guild, form=None, change=change)
+        return refresh
+
+    def test_flipping_beta_on_triggers_a_refresh(self):
+        guild = DiscordGuild.objects.create(guild_id="700700", name="Admin Guild",
+                                            is_beta_tester=False)
+        refresh = self._save(guild, True, change=True)
+        refresh.assert_called_once_with(guild)
+
+    def test_an_unrelated_edit_does_not_trigger_a_refresh(self):
+        guild = DiscordGuild.objects.create(guild_id="700701", name="Admin Guild 2",
+                                            is_beta_tester=True)
+        refresh = self._save(guild, True, change=True)
+        refresh.assert_not_called()
+
+    def test_creating_a_guild_with_beta_off_does_not_trigger_a_refresh(self):
+        """The False-vs-None bug this guards: a brand-new guild's is_beta_tester
+        defaults to False, which must not read as "changed from None"."""
+        guild = DiscordGuild(guild_id="700702", name="New Guild")
+        refresh = self._save(guild, False, change=False)
+        refresh.assert_not_called()
+
+    def test_creating_a_guild_with_beta_on_does_trigger_a_refresh(self):
+        guild = DiscordGuild(guild_id="700703", name="New Beta Guild")
+        refresh = self._save(guild, True, change=False)
+        refresh.assert_called_once_with(guild)
 
 
 class EditGuildCommandSyncTests(_NoLoginSignalMixin, TestCase):

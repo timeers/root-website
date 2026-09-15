@@ -75,6 +75,7 @@ from the_databot.services.discord_commands import (
     # module (this module imports tasks); re-exported here because this is where
     # callers and tests look for it.
     LFG_DEFAULT_TITLE,
+    BETA_SUFFIX,
 )
 from the_databot.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
@@ -86,7 +87,9 @@ from the_databot.services.time_parsing import (
 from the_databot.services.discord_components import (
     action_row, button, string_select, select_option,
     encode_custom_id, decode_custom_id, selected_values,
-    RESPONSE_UPDATE_MESSAGE, STYLE_PRIMARY, STYLE_SUCCESS, STYLE_SECONDARY, STYLE_DANGER,
+    RESPONSE_UPDATE_MESSAGE, RESPONSE_DEFERRED_UPDATE_MESSAGE, RESPONSE_MODAL,
+    STYLE_PRIMARY, STYLE_SUCCESS, STYLE_SECONDARY, STYLE_DANGER,
+    text_input, label_component, modal, TEXT_INPUT_PARAGRAPH,
 )
 from the_databot.services.lfg_game import (
     player_group_for_channel, link_group_thread, normalize_title,
@@ -104,11 +107,13 @@ PING = 1
 APPLICATION_COMMAND = 2
 APPLICATION_COMMAND_AUTOCOMPLETE = 4
 MESSAGE_COMPONENT = 3  # user interacted with a message component (select/button)
+MODAL_SUBMIT = 5       # user submitted a modal opened by a component click
 
 RESPONSE_PONG = 1
 RESPONSE_CHANNEL_MESSAGE = 4
 RESPONSE_AUTOCOMPLETE_RESULT = 8
-# RESPONSE_UPDATE_MESSAGE (7) is imported from discord_components.
+# RESPONSE_UPDATE_MESSAGE (7), RESPONSE_DEFERRED_UPDATE_MESSAGE (6) and
+# RESPONSE_MODAL (9) are imported from discord_components.
 
 EPHEMERAL = 64  # message flag: only the invoking user sees it
 
@@ -9651,11 +9656,13 @@ OWNER_LOCK_HINTS = {
     "lfg_cancel": ' If you are trying to join or leave this game press "Join".',
     "lfg_start": ' If you are trying to join or leave this game press "Join".',
     "adset_start": ' If you are trying to join or leave this game press "Join".',
+    "lfg_edit": ' If you are trying to join or leave this game press "Join".',
 }
 
 
 def _lfg_message_data(author, owner, description, players_value,
-                      content=None, title=LFG_DEFAULT_TITLE, ping_role=True):
+                      content=None, title=LFG_DEFAULT_TITLE, ping_role=True,
+                      edit_button=False):
     """Build the full join-message payload (embed + button row). Used ONLY for the
     initial post and the picker→join transition — never to re-render on Join/Notify
     (that would wipe the other field; those handlers mutate the echoed embed).
@@ -9664,7 +9671,13 @@ def _lfg_message_data(author, owner, description, players_value,
 
     `ping_role=False` renders the role mention WITHOUT notifying anyone — used
     inside a thread, where the ping is noise but the mention must still be in the
-    content for ✔ Start to recover the tag from (see _handle_lfg_start)."""
+    content for ✔ Start to recover the tag from (see _handle_lfg_start).
+
+    `edit_button` gates the 📝 Edit button (opens a modal to change the
+    description) -- OFF by default so every existing call site keeps posting
+    today's 4-button row unless a caller opts in. See _handle_lfg_command's
+    `_beta` flag: this is the beta-tested addition, not yet in the production row
+    everywhere."""
     embed = {
         "author": author,
         "title": title,
@@ -9673,27 +9686,37 @@ def _lfg_message_data(author, owner, description, players_value,
             {"name": LFG_PLAYERS_FIELD, "value": players_value, "inline": False},
         ],
     }
-    # Join, 🔔 and ✖ Cancel end in the non-snowflake PICK_OPEN marker so the
+    # Join, 🔔, 📝 and ✖ Cancel end in the non-snowflake PICK_OPEN marker so the
     # dispatcher owner-lock does NOT fire; the owner rides in a non-last arg so
-    # those handlers can still identify the host.
+    # those handlers can still identify the host. 📝 Edit is the one exception --
+    # see below.
     #
     #   Join / 🔔 — anyone may click (they toggle: join/leave, subscribe/unsub).
     #   ✖ Cancel  — the host OR a guild moderator, which is why it cannot use the
     #               lock: that admits exactly one snowflake and cannot express a
     #               union. _handle_lfg_cancel makes the check instead, the same
     #               way the schedule poll's Close button does.
+    #   📝 Edit   — the host ALONE (no moderator carve-out), so unlike its
+    #               neighbors it ends in the bare owner snowflake and IS
+    #               dispatcher-locked, the same way ✔ Start is.
     #
     # ✔ Start still ends in the owner snowflake and so is dispatcher-locked:
     # starting a game is the host's alone, and a moderator clearing an abandoned
     # post wants ✖, not to start a game they aren't in.
-    row = action_row(
+    buttons = [
         button("Join", encode_custom_id("lfg_join", owner, PICK_OPEN), style=STYLE_PRIMARY),
         button("Notify", encode_custom_id("lfg_notify", owner, PICK_OPEN),
                style=STYLE_SECONDARY, emoji={"name": "🔔"}),
+    ]
+    if edit_button:
+        buttons.append(button("", encode_custom_id("lfg_edit", owner),
+                              style=STYLE_SECONDARY, emoji={"name": "📝"}))
+    buttons += [
         button("", encode_custom_id("lfg_cancel", owner, PICK_OPEN),
                style=STYLE_DANGER, emoji={"name": "✖"}),
         button("", encode_custom_id("lfg_start", owner), style=STYLE_SUCCESS, emoji={"name": "✔"}),
-    )
+    ]
+    row = action_row(*buttons)
     data = {"embeds": [embed], "components": [row]}
     if content:
         data["content"] = content
@@ -9762,12 +9785,15 @@ def _handle_lfg_command(data):
     roles = list(guild.lfg_roles.all()) if guild else []
     players_value = _lfg_player_line(_author_display_from_data(data), owner)
 
+    edit_button = data.get("_beta", False)
+
     def plain_post():
         # No tag to name the game, so the host's title is the only thing that can.
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
             "data": _lfg_message_data(author, owner, description, players_value,
-                                      title=title_opt or LFG_DEFAULT_TITLE),
+                                      title=title_opt or LFG_DEFAULT_TITLE,
+                                      edit_button=edit_button),
         })
 
     # No tags configured. Post the plain call; if the invoker can manage the server,
@@ -9837,7 +9863,8 @@ def _handle_lfg_command(data):
                                   content=content, title=title,
                                   # In a thread the mention renders but notifies
                                   # nobody -- the people here are already here.
-                                  ping_role=not in_thread),
+                                  ping_role=not in_thread,
+                                  edit_button=edit_button),
     })
 
 
@@ -9945,6 +9972,64 @@ def _handle_lfg_notify(payload):
     except (KeyError, IndexError, TypeError):
         logger.exception("Error handling lfg_notify")
         return _ephemeral("Couldn't update the game, try again.")
+
+
+def _handle_lfg_edit(payload):
+    """📝 Edit (host-only, dispatcher-locked): open a modal pre-filled with the
+    current description.
+
+    `max_length=4000`, not an arbitrary smaller cap: the /lfg description option
+    itself has none, and Discord's embed description field caps at 4096 -- 4000
+    leaves headroom so a re-edit of an already-long description isn't blocked."""
+    message = payload.get("message", {})
+    embed = (message.get("embeds") or [{}])[0]
+    modal_id = encode_custom_id("lfg_edit_modal", message.get("id"), payload.get("channel_id"))
+    return JsonResponse({
+        "type": RESPONSE_MODAL,
+        "data": modal(
+            modal_id, "Edit description",
+            label_component(
+                "Description",
+                text_input("description", style=TEXT_INPUT_PARAGRAPH,
+                          value=embed.get("description", ""), required=False,
+                          max_length=4000),
+            ),
+        ),
+    })
+
+
+def _modal_text_value(payload, custom_id):
+    """The submitted text for one TEXT_INPUT in a MODAL_SUBMIT payload, by its
+    custom_id. Modal submissions echo back the Label wrapper (type 18); the
+    submitted value lives one level deeper, under the Label's own `component`
+    key -- NOT flattened to the top level and NOT nested under an Action Row."""
+    for label in (payload.get("data") or {}).get("components", []):
+        comp = label.get("component") or {}
+        if comp.get("custom_id") == custom_id:
+            return comp.get("value", "")
+    return ""
+
+
+def _handle_lfg_edit_modal_submit(payload, args):
+    """lfg_edit_modal:<message_id>:<channel_id> submit: merge the new description
+    into the live message's CURRENT embed (Players/Notify must survive) and PATCH
+    it directly -- the interaction response is just the required ack, the same
+    split _boxscore_apply's Celery comment documents for its own flow. A modal
+    submission carries no `payload["message"]`, so the message must be re-fetched
+    by the id/channel threaded through the modal's own custom_id."""
+    from the_databot.services.discordservice import get_channel_message, edit_channel_message
+
+    message_id, channel_id = (args + [None, None])[:2]
+    new_description = _modal_text_value(payload, "description")
+
+    message = get_channel_message(channel_id, message_id) if message_id and channel_id else None
+    if not message:
+        return _ephemeral("Couldn't find that message to edit — try again.")
+    embed = (message.get("embeds") or [{}])[0]
+    embed["description"] = new_description or ""
+    edit_channel_message(channel_id, message_id, embeds=[embed])
+
+    return JsonResponse({"type": RESPONSE_DEFERRED_UPDATE_MESSAGE})
 
 
 def _handle_lfg_cancel(payload):
@@ -10289,8 +10374,16 @@ COMPONENT_HANDLERS = {
     "schedule_tz_change": _handle_schedule_tz_back,
     "lfg_join": _handle_lfg_join,
     "lfg_notify": _handle_lfg_notify,
+    "lfg_edit": _handle_lfg_edit,
     "lfg_cancel": _handle_lfg_cancel,
     "lfg_start": _handle_lfg_start,
+}
+
+
+# Modal-submit handlers, keyed by the modal's own custom_id action prefix --
+# mirrors COMPONENT_HANDLERS' shape, dispatched from the MODAL_SUBMIT branch.
+MODAL_HANDLERS = {
+    "lfg_edit_modal": _handle_lfg_edit_modal_submit,
 }
 
 
@@ -10506,19 +10599,26 @@ def discord_interactions(request):
     if interaction_type == APPLICATION_COMMAND:
         data = payload.get("data", {})
         command_name = data.get("name")
-        handler = COMMAND_HANDLERS.get(command_name)
+        # A "<name>-beta" registration (see BETA_COMMAND_VARIANTS/register_guild_commands)
+        # shares its base command's handler and every downstream check -- stripped here
+        # so nothing past this point needs to know it was invoked under a beta name.
+        is_beta = command_name.endswith(BETA_SUFFIX) if command_name else False
+        base_name = command_name[:-len(BETA_SUFFIX)] if is_beta else command_name
+        handler = COMMAND_HANDLERS.get(base_name)
         if handler:
             # The key three registries agree on: the command name for a plain command,
             # "<command> <subcommand>" for a subcommand-style one like /lookup. Built
             # ONCE here so the roster guard, usage recording and (in the autocomplete
             # branch) handler lookup can't drift apart.
             sub_name, _sub_options = _subcommand(data)
-            key_name = f"{command_name} {sub_name}" if sub_name else command_name
+            key_name = f"{base_name} {sub_name}" if sub_name else base_name
             # Record usage (per guild/user/command) asynchronously — fire-and-forget
             # so the DB write never delays the 3s response. Only known top-level
             # commands are counted (not buttons or autocomplete). Recorded per
             # SUBCOMMAND ("lookup faction"), so the per-lookup counts stay as granular
-            # as they were when these were nine separate commands.
+            # as they were when these were nine separate commands. Keyed by base_name,
+            # not the beta-suffixed name, so a beta invocation doesn't fragment usage
+            # stats into a second row.
             record_bot_usage_task.delay(guild_id, user_id, key_name)
             try:
                 # Stash the invoking user (from the top-level payload, not `data`)
@@ -10544,6 +10644,10 @@ def discord_interactions(request):
                 # off). Lets /lfg check a forum post is in the tag's OWN forum
                 # without an API round-trip. Absent on a plain channel.
                 data["_channel_parent_id"] = channel.get("parent_id")
+                # Whether this was invoked under a "-beta" command name (see
+                # BETA_COMMAND_VARIANTS) -- one generic flag any handler can read to
+                # branch its own behavior, rather than a per-command dispatch entry.
+                data["_beta"] = is_beta
                 # The invoker's computed permissions in this channel (Discord resolves
                 # roles/owner/admin for us). Lets /help decide, without an API call,
                 # whether to offer the "enable more commands" link.
@@ -10557,13 +10661,15 @@ def discord_interactions(request):
                 # so a new command can't quietly miss it -- and AFTER the stash
                 # above, which is where the helper's inputs come from.
                 #
-                # `command_name` is checked as well as `key_name` because a parent
+                # `base_name` is checked as well as `key_name` because a parent
                 # command's key is always "<parent> <sub>", so a bare entry could
                 # never match on its own. /boxscore was listed bare and silently
                 # lost its guard the moment it grew subcommands; matching the
-                # parent covers every subcommand and stops that recurring.
+                # parent covers every subcommand and stops that recurring. base_name,
+                # not command_name, so a beta invocation is guarded identically to
+                # its production counterpart.
                 if (key_name in ROSTER_GUARDED_COMMANDS
-                        or command_name in ROSTER_GUARDED_COMMANDS):
+                        or base_name in ROSTER_GUARDED_COMMANDS):
                     refusal = _thread_actor_error(data)
                     if refusal is not None:
                         return refusal
@@ -10628,6 +10734,19 @@ def discord_interactions(request):
                 logger.exception("Error handling component %s", custom_id)
                 return _ephemeral("Something went wrong handling that.")
         return _ephemeral(f"Unknown component: {custom_id}")
+
+    if interaction_type == MODAL_SUBMIT:
+        data = payload.get("data", {})
+        custom_id = data.get("custom_id", "")
+        action, args = decode_custom_id(custom_id)
+        handler = MODAL_HANDLERS.get(action)
+        if handler:
+            try:
+                return handler(payload, args)
+            except Exception:
+                logger.exception("Error handling modal %s", custom_id)
+                return _ephemeral("Something went wrong handling that.")
+        return _ephemeral(f"Unknown modal: {custom_id}")
 
     # Unhandled interaction type
     return HttpResponse("unhandled interaction type", status=400)
