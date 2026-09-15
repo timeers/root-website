@@ -535,6 +535,18 @@ is nothing worth indexing. {% endcomment %}
     });
   }
 
+  // Clear the pinned cell and put the panel back to its prompt. Separate from
+  // showDetail so the placeholder text lives in one place -- it is the same
+  // string the template renders before anything has been clicked.
+  function clearDetail() {
+    cells.forEach(function (c) { c.classList.remove('is-focused'); });
+    focusedCell = null;
+    // Back to the hover preview, or nothing if the pointer is elsewhere.
+    highlightPlayers(null);
+    detail.innerHTML =
+      '<span class="text-muted">{% trans "Tap a time to see who is free." %}</span>';
+  }
+
   function showDetail(cell) {
     var ids = checkedIds();
     var free = freeAtCell(cell);
@@ -624,7 +636,11 @@ is nothing worth indexing. {% endcomment %}
   // which is the point -- a hover tooltip never appears on a phone.
   grid.addEventListener('click', function (e) {
     var cell = e.target.closest('.compare-cell');
-    if (cell) { showDetail(cell); }
+    if (!cell) { return; }
+    // Clicking the pinned cell again unpins it -- the same toggle a tap user
+    // expects, and the only way to clear the panel without picking some other
+    // hour instead.
+    if (cell === focusedCell) { clearDetail(); } else { showDetail(cell); }
   });
 
   // Hover PREVIEWS who is free; the click above PINS it. The two events are

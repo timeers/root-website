@@ -10,6 +10,7 @@
 - Player count and roster errors from TTS boxscore upload are passed to Discord instead of blocking the upload
 - Improved the #results message to link to thre game thread when possible
 - LFG Posts can now be cancelled by guild moderators
+- Clicking a selected time in Compare Availability deselects that time block
 
 ### Bug Fixes
 - Subscribing to a scheduling poll now notifies on every new "Yes" answer instead of just poll close.
