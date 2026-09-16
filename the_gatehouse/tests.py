@@ -2296,6 +2296,159 @@ class WeekSpecificGridRenderTests(_NoLoginSignalMixin, TestCase):
         self.assertIn(ajax.json()['grid_html'].strip(), page.content.decode())
 
 
+class GeneralAvailabilityPreviewTests(_NoLoginSignalMixin, TestCase):
+    """A week with no saved row of its own previews the general/standing
+    pattern as a striped backdrop (avail-cell--general-preview) instead of
+    starting silently blank -- but ONLY when the week truly has no row: the
+    moment one exists (even an intentionally empty one from Clear + Save),
+    the preview must not show. See the plan's has_own_row gating."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username='previewer', password='pw')
+        self.profile = self.user.profile
+        self.profile.timezone = 'UTC'
+        self.profile.save(update_fields=['timezone'])
+        self.client.force_login(self.user)
+        self.url = reverse('availability')
+        self.today = timezone.now().date()
+        self.current_week = week_start_for(self.today)
+
+    def test_week_with_no_own_row_previews_exactly_the_general_hours(self):
+        general = general_schedule_for(self.profile)
+        general.available_hours = [9]  # Monday 9am, reference week.
+        general.save(update_fields=['available_hours'])
+
+        target = self.current_week + timedelta(weeks=1)
+        expected = copy_from_general_utc_hours(general.available_hours, target, 'UTC')
+        self.assertTrue(expected, "test needs a non-empty preview to be meaningful")
+
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        body = response.content.decode()
+        import re
+        cell_tags = re.findall(r'<button[^>]*class="[^"]*avail-cell[^"]*"[^>]*>', body)
+        preview_hows = sorted(
+            int(re.search(r'data-how="(\d+)"', tag).group(1))
+            for tag in cell_tags if 'avail-cell--general-preview' in tag)
+        self.assertEqual(preview_hows, sorted(expected))
+        # Still starts blank: nothing counted as selected. Checked against
+        # the extracted cell tags themselves, not raw page text -- the
+        # unqualified string 'is-selected' also appears incidentally in
+        # unrelated page-wide CSS/JS boilerplate.
+        self.assertTrue(cell_tags)
+        self.assertFalse(any('is-selected' in tag for tag in cell_tags))
+
+    def test_week_with_an_intentionally_empty_row_shows_no_preview(self):
+        """The exact scenario flagged in review: Clear + Save on a week with
+        a non-empty general pattern must NOT show general's pattern striped
+        in, even though has_own_row is True only because of an explicit
+        empty row, not because the row is missing."""
+        general = general_schedule_for(self.profile)
+        general.available_hours = [9]
+        general.save(update_fields=['available_hours'])
+
+        target = self.current_week + timedelta(weeks=1)
+        self.assertTrue(copy_from_general_utc_hours(general.available_hours, target, 'UTC'))
+
+        PlayerSchedule.objects.create(
+            profile=self.profile, tournament=None, week_start=target, available_hours=[])
+
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        self.assertNotContains(response, 'avail-cell--general-preview')
+
+    def test_week_with_its_own_nonempty_row_shows_no_preview(self):
+        general = general_schedule_for(self.profile)
+        general.available_hours = [9]
+        general.save(update_fields=['available_hours'])
+
+        target = self.current_week + timedelta(weeks=1)
+        expected = copy_from_general_utc_hours(general.available_hours, target, 'UTC')
+        PlayerSchedule.objects.create(
+            profile=self.profile, tournament=None, week_start=target, available_hours=expected)
+
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        self.assertNotContains(response, 'avail-cell--general-preview')
+
+    def test_general_view_shows_legend_but_hides_the_preview_swatch(self):
+        general = general_schedule_for(self.profile)
+        general.available_hours = [9]
+        general.save(update_fields=['available_hours'])
+        response = self.client.get(self.url)
+        body = response.content.decode()
+        self.assertNotIn('avail-cell--general-preview', body)
+
+        # The legend itself (Available/Unavailable) stays visible on General.
+        legend_start = body.index('id="availability-legend"')
+        legend_tag_end = body.index('>', legend_start)
+        self.assertNotIn('hidden', body[legend_start:legend_tag_end])
+
+        # Only the third "general preview" item is hidden, since General has
+        # no "not yet set for this week" distinction to explain.
+        preview_item_start = body.index('id="availability-legend-preview"')
+        preview_item_tag_end = body.index('>', preview_item_start)
+        self.assertIn('hidden', body[preview_item_start:preview_item_tag_end])
+
+    def test_dst_split_cell_previews_only_the_implied_half(self):
+        """A DST fall-back slot's two real UTC hours are independently
+        marked: if only one of them is in the (already has_own_row-gated)
+        general_hours set, only that half's button carries the preview
+        class, not both. copy_from_general_utc_hours itself always lights up
+        both halves of a fall-back cell together (see its docstring), so
+        this exercises _week_grid_template_context directly with a
+        hand-built general_hours set to isolate the per-hour zip logic
+        (§1/§2 of the plan) from that upstream behaviour."""
+        from the_gatehouse.views import _week_grid_template_context
+
+        target = date(2026, 10, 26)  # US fall-back week.
+        cells = week_grid_cells(target, 'America/New_York')
+        split_key = next((k, v) for k, v in cells.items() if len(v) == 2)
+        (local_date, local_hour), utc_hows = split_key
+        only_first_half = {utc_hows[0]}
+
+        grid_columns = week_grid_columns(target, 'America/New_York')
+        _columns, hour_rows = _week_grid_template_context(
+            target, grid_columns, 'America/New_York', only_first_half)
+
+        col_index = grid_columns.index(local_date)
+        matching_row = next(r for r in hour_rows if r[0] == local_hour)
+        cell_pairs = matching_row[3][col_index]
+        self.assertEqual(len(cell_pairs), 2)
+        self.assertEqual(dict(cell_pairs), {utc_hows[0]: True, utc_hows[1]: False})
+
+    def test_change_timezone_recomputes_the_preview_for_the_new_zone(self):
+        """Regression for the timezone-staleness bug found during planning:
+        copy_from_general_hours is tz-dependent, and change_timezone must
+        recompute it rather than reusing the value computed for the OLD zone
+        at the top of the request."""
+        general = general_schedule_for(self.profile)
+        general.available_hours = [9]
+        general.save(update_fields=['available_hours'])
+
+        target = self.current_week + timedelta(weeks=1)
+        ny_expected = copy_from_general_utc_hours(general.available_hours, target, 'America/New_York')
+        tokyo_expected = copy_from_general_utc_hours(general.available_hours, target, 'Asia/Tokyo')
+        self.assertNotEqual(sorted(ny_expected), sorted(tokyo_expected),
+                             "test needs a pair of zones whose preview actually differs")
+
+        # Load the week under UTC first (profile default), then submit
+        # change_timezone straight to Asia/Tokyo -- the bug reused whatever
+        # copy_from_general_hours had been computed for at the TOP of this
+        # same request (the OLD profile.timezone, UTC), not the new one.
+        response = self.client.post(self.url, {
+            'timezone': 'Asia/Tokyo', 'drawn_timezone': 'UTC',
+            'available_hours': '',
+            'week_start': target.isoformat(),
+            'action': 'change_timezone',
+        })
+        body = response.content.decode()
+        import re
+        cell_tags = re.findall(r'<button[^>]*class="[^"]*avail-cell[^"]*"[^>]*>', body)
+        preview_hows = sorted(
+            int(re.search(r'data-how="(\d+)"', tag).group(1))
+            for tag in cell_tags if 'avail-cell--general-preview' in tag)
+        self.assertEqual(preview_hows, sorted(tokyo_expected))
+
+
 class TimezoneCodeTests(TestCase):
     """time_parsing.timezone_code and Profile.timezone_code."""
 

@@ -5638,6 +5638,24 @@ body.forge-modal-open { overflow: hidden; }
     color: #6c757d;
   }
 
+  /* An empty cell whose hour is implied by the player's general/standing
+     pattern but not yet saved for this specific week -- a faint hint of the
+     selected colour, not a third unrelated colour. Fully clickable, same as
+     any other empty cell; only shown when the week has no saved row of its
+     own (see _week_grid_template_context's general_hours gating).
+     Placement matters: this rule must come BEFORE .is-selected below so that
+     .is-selected's `background` shorthand (which implicitly resets
+     background-image to none) wins once a preview cell is actually clicked --
+     the two selectors tie on specificity, so source order decides. */
+  .availability-grid--editable .avail-cell--general-preview {
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(13, 110, 253, 0.18) 0px, rgba(13, 110, 253, 0.18) 4px,
+      transparent 4px, transparent 8px
+    );
+    border-color: rgba(13, 110, 253, 0.35);
+  }
+
   /* Selected state matches the survey grid's checked colour so the two features
      read as one system. */
   .availability-grid--editable .avail-cell.is-selected {
@@ -5651,6 +5669,41 @@ body.forge-modal-open { overflow: hidden; }
   .availability-grid--editable .avail-hour-label:focus-visible {
     outline: 2px solid #0d6efd;
     outline-offset: 1px;
+  }
+
+  /* Explains the grid's three cell states: available/selected (solid blue),
+     unavailable/empty (plain), and general-preview (striped). A fixed,
+     non-data-driven three-item row -- unlike availability_compare.html's
+     dynamically-built .heat-legend, this needs no JS to populate. */
+  .avail-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 0.75rem;
+    color: #6c757d;
+    margin-top: 6px;
+  }
+  .avail-legend-item { display: flex; align-items: center; gap: 4px; }
+  .avail-legend-swatch {
+    width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0;
+    border: 1px solid #dfe2e5;
+  }
+  /* Mirrors .avail-cell.is-selected exactly so the legend is trivially
+     consistent with the grid, not an approximation of it. */
+  .avail-legend-swatch--selected {
+    background: #0d6efd;
+    border-color: #0d6efd;
+  }
+  .avail-legend-swatch--empty {
+    background: #f8f9fa;
+  }
+  .avail-legend-swatch--preview {
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(13, 110, 253, 0.18) 0px, rgba(13, 110, 253, 0.18) 4px,
+      transparent 4px, transparent 8px
+    );
+    border-color: rgba(13, 110, 253, 0.35);
   }
 
   @media (max-width: 576px) {

@@ -29,14 +29,16 @@ Parameters:
   hour_rows      OPTIONAL, required alongside `columns`. Pre-assembled by the
                  view as one entry per hour_labels() row: (hour, short_label,
                  long_label, cells), where `cells` has exactly len(columns)
-                 entries in column order, each a LIST of 0/1/2 real
-                 UTC-hour-of-week ints for that (column, hour) position --
-                 see services.availability.week_grid_cells for why it's a
+                 entries in column order, each a LIST of 0/1/2
+                 (utc_how, is_preview) pairs for that (column, hour) position
+                 -- see services.availability.week_grid_cells for why it's a
                  list, not a single value (DST fall-back/spring-forward).
                  Pre-assembled server-side because Django templates cannot
                  index a list by a loop variable, so nesting two independent
                  `{% for %}` loops (columns x hours) to look up a cell can't
-                 work here the way the dateless case's day*24+hour can.
+                 work here the way the dateless case's day*24+hour can --
+                 same reason each pair is pre-zipped rather than kept as two
+                 parallel lists.
 
 Cells carry a server-rendered `data-how` in columns-mode (a real hour-of-week
 int) so the JS never needs to know it's looking at a real UTC week's
@@ -45,6 +47,10 @@ availability_grid.js. A (column, hour) slot with 0 UTC hours (the DST
 spring-forward gap, or simply outside a partial boundary column) renders one
 DISABLED cell with no data-how; a slot with 2 (the DST fall-back repeat)
 renders two half-width cells side by side, each its own data-how.
+`is_preview` marks a cell whose hour is implied by the general/standing
+pattern but not yet saved for this specific week -- rendered as a faint
+diagonal-stripe backdrop (avail-cell--general-preview), fully clickable like
+any other empty cell.
 {% endcomment %}
 <div class="availability-scroll">
   <div class="availability-grid js-availability-grid{% if editable %} availability-grid--editable{% endif %}{% if columns %} availability-grid--{{ columns|length }}col{% endif %}"
@@ -67,26 +73,28 @@ renders two half-width cells side by side, each its own data-how.
                 title="{{ long_label }} — {% trans 'toggle this hour across the week' %}">
           <span class="hour-text">{{ short_label }}</span>
         </button>
-        {% for utc_hows in cells %}
-          {% if not utc_hows %}
+        {% for cell_pairs in cells %}
+          {% if not cell_pairs %}
             {% comment %} Disabled: this local (column, hour) slot has no real UTC hour --
             a DST spring-forward gap, or simply outside a partial boundary
             column. Not clickable, not selectable, excluded from serialization. {% endcomment %}
             <div class="avail-cell avail-cell--disabled" aria-hidden="true"><span class="cell-time">{{ short_label }}</span></div>
-          {% elif utc_hows|length == 1 %}
-            <button type="button" class="avail-cell"
-                    data-day="{{ forloop.counter0 }}"
-                    data-hour="{{ hour }}"
-                    data-how="{{ utc_hows.0 }}"
-                    aria-pressed="false"
-                    aria-label="{{ short_label }}"><span class="cell-time">{{ short_label }}</span></button>
+          {% elif cell_pairs|length == 1 %}
+            {% for utc_how, is_preview in cell_pairs %}
+              <button type="button" class="avail-cell{% if is_preview %} avail-cell--general-preview{% endif %}"
+                      data-day="{{ forloop.parentloop.counter0 }}"
+                      data-hour="{{ hour }}"
+                      data-how="{{ utc_how }}"
+                      aria-pressed="false"
+                      aria-label="{{ short_label }}"><span class="cell-time">{{ short_label }}</span></button>
+            {% endfor %}
           {% else %}
             {% comment %} DST fall-back: this local hour happened twice. Two independently
             paintable half-width cells share the slot rather than growing the
             grid by a 25th row. {% endcomment %}
             <div class="avail-cell-split" data-day="{{ forloop.counter0 }}" data-hour="{{ hour }}">
-              {% for utc_how in utc_hows %}
-                <button type="button" class="avail-cell avail-cell--split"
+              {% for utc_how, is_preview in cell_pairs %}
+                <button type="button" class="avail-cell avail-cell--split{% if is_preview %} avail-cell--general-preview{% endif %}"
                         data-day="{{ forloop.parentloop.counter0 }}"
                         data-hour="{{ hour }}"
                         data-how="{{ utc_how }}"

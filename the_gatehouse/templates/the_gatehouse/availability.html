@@ -142,7 +142,7 @@
             </div>
 
             <p class="text-secondary small mb-2 mt-3">
-              {% trans "General applies to any week with nothing more specific set. Pick a real week to set (or override) your availability just for it." %}
+              {% trans "General is used as your default availability. Select a specific week to override your defaults." %}
             </p>
             <div class="avail-week-row mb-3" id="week-navigator" data-tournament="{{ schedule_target }}">
               <div class="avail-week-arrow avail-week-arrow--prev">
@@ -171,6 +171,12 @@
 
             <div id="grid-container">
               {% include 'partials/availability_grid.html' with grid_id='availability-grid' field_id='id_available_hours' clear_id='clear-grid' editable=True columns=grid_template_columns hour_rows=hour_rows %}
+            </div>
+
+            <div class="avail-legend" id="availability-legend">
+              <span class="avail-legend-item"><span class="avail-legend-swatch avail-legend-swatch--selected"></span>{% trans 'Available' %}</span>
+              <span class="avail-legend-item"><span class="avail-legend-swatch avail-legend-swatch--empty"></span>{% trans 'Unavailable' %}</span>
+              <span class="avail-legend-item" id="availability-legend-preview" {% if not is_week_specific %}hidden{% endif %}><span class="avail-legend-swatch avail-legend-swatch--preview"></span>{% trans 'General availability' %}</span>
             </div>
 
             <div class="d-flex flex-wrap gap-2 justify-content-center mt-3">
@@ -340,6 +346,9 @@ on the fresh DOM, rather than trying to reconstruct the grid client-side.
     nextBtn.dataset.week = data.next_week || data.default_week;
 
     copyBtn.hidden = !data.is_week_specific;
+
+    var legendPreview = document.getElementById('availability-legend-preview');
+    if (legendPreview) { legendPreview.hidden = !data.is_week_specific; }
 
     dirty = false;
   }

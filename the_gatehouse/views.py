@@ -248,7 +248,7 @@ def _resolve_availability_target(request, profile):
     return tournament, tournament_schedules, schedule_target, week_start, is_week_specific
 
 
-def _week_grid_template_context(week_start, grid_columns, tz_name):
+def _week_grid_template_context(week_start, grid_columns, tz_name, general_hours=()):
     """The template-ready column headers and per-row cell data for a
     week-specific grid, built from week_grid_columns/week_grid_cells.
 
@@ -257,8 +257,18 @@ def _week_grid_template_context(week_start, grid_columns, tz_name):
                    one per date in `grid_columns`, in order.
       hour_rows -- one entry per hour_labels() row: (hour, short_label,
                    long_label, cells), `cells` having exactly len(columns)
-                   entries in column order, each a list of 0/1/2 UTC-hour ints
-                   for that (column, hour) position (see week_grid_cells).
+                   entries in column order, each a list of 0/1/2
+                   (utc_how, is_preview) pairs for that (column, hour)
+                   position (see week_grid_cells for why it's a list, not a
+                   single value). Pre-zipped here rather than kept as two
+                   parallel lists because Django templates cannot zip two
+                   lists or index one by another loop's counter.
+
+    `general_hours` -- the set of UTC hour-of-week ints the general/standing
+    pattern implies for THIS week (see copy_from_general_utc_hours), already
+    gated by the caller to be empty whenever the week has its own saved row
+    (has_own_row) -- a cell's is_preview is simply "is this UTC hour in that
+    set," so nothing here needs its own has_own_row check.
 
     Built here, not in the template, because Django templates cannot index a
     list by a loop variable -- nesting columns x hours to look up one cell
@@ -274,6 +284,7 @@ def _week_grid_template_context(week_start, grid_columns, tz_name):
     if grid_columns is None:
         return None, None
 
+    general_hours = set(general_hours)
     cells = week_grid_cells(week_start, tz_name)
     columns = [{
         'header_label': date_format(local_date, 'D'),
@@ -283,7 +294,11 @@ def _week_grid_template_context(week_start, grid_columns, tz_name):
 
     hour_rows = []
     for hour, short_label, long_label in hour_labels():
-        row_cells = [cells.get((local_date, hour), []) for local_date in grid_columns]
+        row_cells = [
+            [(utc_how, utc_how in general_hours)
+             for utc_how in cells.get((local_date, hour), [])]
+            for local_date in grid_columns
+        ]
         hour_rows.append((hour, short_label, long_label, row_cells))
     return columns, hour_rows
 
@@ -480,7 +495,8 @@ def availability_settings(request):
     JSON) so a refresh after a plain form submit doesn't re-POST.
     """
     from .services.availability import (local_to_utc_hours, utc_to_local_hours,
-                                        week_grid_columns, hour_labels, DAY_LABELS)
+                                        week_grid_columns, copy_from_general_utc_hours,
+                                        hour_labels, DAY_LABELS)
 
     profile = request.user.profile
     resolved = _resolve_availability_view(request, profile)
@@ -491,6 +507,7 @@ def availability_settings(request):
     tz_name = resolved['tz_name']
     selected = resolved['selected_hours']
     grid_columns = resolved['grid_columns']
+    copy_from_general_hours = resolved['copy_from_general_hours']
 
     if request.method == 'POST':
         form = PlayerScheduleForm(request.POST)
@@ -521,6 +538,17 @@ def availability_settings(request):
                 # LABELS (grid_columns) need recomputing for the new zone.
                 selected = local_hours
                 grid_columns = week_grid_columns(week_start, tz_name)
+                # copy_from_general_hours (on `resolved`) was computed for the
+                # OLD tz_name at the top of the view -- it's tz-dependent (the
+                # general row's dateless->real-week conversion is DST/offset
+                # sensitive), so it must be recomputed here too or the
+                # preview cells below would be wrong for the new zone.
+                standing = PlayerSchedule.objects.filter(
+                    profile=profile, tournament=tournament, week_start=None
+                ).first()
+                copy_from_general_hours = (
+                    copy_from_general_utc_hours(standing.available_hours, week_start, tz_name)
+                    if standing is not None else [])
             else:
                 drawn_tz = form.cleaned_data['drawn_timezone'] or tz_name
                 selected = utc_to_local_hours(
@@ -533,7 +561,12 @@ def availability_settings(request):
             'schedule_target': schedule_target,
         })
 
-    grid_template_columns, hour_rows = _week_grid_template_context(week_start, grid_columns, tz_name)
+    # Only preview general's pattern when this week has no saved row of its
+    # own -- the moment a row exists (even an intentionally empty one), it's
+    # authoritative and the preview must not show.
+    general_hours = set(copy_from_general_hours) if not resolved['has_own_row'] else set()
+    grid_template_columns, hour_rows = _week_grid_template_context(
+        week_start, grid_columns, tz_name, general_hours)
 
     context = {
         'form': form,
@@ -574,8 +607,12 @@ def _render_grid_html(resolved):
     from django.template.loader import render_to_string
     from .services.availability import hour_labels, DAY_LABELS
 
+    # Only preview general's pattern when this week has no saved row of its
+    # own -- see availability_settings for the same gate.
+    general_hours = (set(resolved['copy_from_general_hours'])
+                      if not resolved['has_own_row'] else set())
     columns, hour_rows = _week_grid_template_context(
-        resolved['week_start'], resolved['grid_columns'], resolved['tz_name'])
+        resolved['week_start'], resolved['grid_columns'], resolved['tz_name'], general_hours)
     return render_to_string('partials/availability_grid.html', {
         'grid_id': 'availability-grid',
         'field_id': 'id_available_hours',
@@ -610,7 +647,7 @@ def _availability_state_json(resolved):
         'week_start': week_start.isoformat() if week_start else None,
         'week_label': (
             _('Week of %(date)s') % {'date': date_format(week_start, 'N j, Y')}
-            if is_week_specific else _('General (no specific week)')
+            if is_week_specific else _('Default Availability')
         ),
         'prev_week': prev_week.isoformat() if prev_week else None,
         'next_week': next_week.isoformat() if next_week else None,
