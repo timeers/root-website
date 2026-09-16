@@ -69,6 +69,7 @@ from the_gatehouse.utils import get_uuid, build_absolute_uri, get_int_param, Nam
 from the_warroom.services.channel_posts import (
     post_to_tournament_channel, match_thread_id, game_thread_url)
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
+from the_gatehouse.services.markdown_utils import render_description_plaintext
 
 from the_tavern.forms import GameCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -3326,7 +3327,7 @@ def _tournament_base_context(request, tournament):
         'user_in_guild': user_in_guild,
         'registration_survey': _get_open_registration_survey(request, tournament),
         'meta_title': tournament.name,
-        'meta_description': tournament.description,
+        'meta_description': render_description_plaintext(tournament.description),
     }
 
 
@@ -3374,7 +3375,7 @@ def _stage_base_context(request, tournament, stage):
         'user_in_guild': user_in_guild,
         'registration_survey': _get_open_registration_survey(request, tournament),
         'meta_title': f"{stage.name} - {tournament.name}",
-        'meta_description': tournament.description or '',
+        'meta_description': render_description_plaintext(tournament.description),
     }
 
 
@@ -3416,7 +3417,7 @@ def _round_base_context(request, tournament, stage, round):
         'user_in_guild': user_in_guild,
         'registration_survey': _get_open_registration_survey(request, tournament),
         'meta_title': f"{round.name} - {stage.name} - {tournament.name}",
-        'meta_description': tournament.description or '',
+        'meta_description': render_description_plaintext(tournament.description),
     }
 
 

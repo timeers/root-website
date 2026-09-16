@@ -1,6 +1,7 @@
 {% extends 'the_keep/base.html' %}
 {% load i18n custom_filters %}
 {% load survey_filters %}
+{% load markdown_filters %}
 {% block title %}{% trans 'Preview Survey' %} - {{ survey.title }} | {% endblock %}
 
 {% block content %}
@@ -16,7 +17,7 @@
     </div>
 
     {% if survey.description %}
-        <p class="lead text-muted">{{ survey.description }}</p>
+        <p class="lead text-muted">{{ survey.description|render_markdown }}</p>
     {% endif %}
 
     <hr>
@@ -33,7 +34,7 @@
                         <h3>{{ section_data.section.title }}</h3>
                     {% endif %}
                     {% if section_data.section.description %}
-                        <p class="text-muted">{{ section_data.section.description }}</p>
+                        <p class="text-muted">{{ section_data.section.description|render_markdown }}</p>
                     {% endif %}
                 </div>
                 {% endif %}

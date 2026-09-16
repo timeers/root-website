@@ -28,6 +28,7 @@ from .models import (Survey, SurveySection, SurveyResponse, Question, QuestionTe
 
 from the_gatehouse.services.webhookservice import send_new_survey_notification
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
+from the_gatehouse.services.markdown_utils import render_description_plaintext
 from the_gatehouse.utils import build_absolute_uri, generate_name, NameConvention
 from the_gatehouse.tasks import send_discord_message_task
 from the_gatehouse.views import player_required, player_onboard_required, admin_onboard_required
@@ -1529,7 +1530,7 @@ def survey_detail_view(request, slug):
         return_title = 'Back to Surveys'
 
     meta_title = survey.title
-    survey_description = f' | {survey.description}' if survey.description else ''
+    survey_description = f' | {render_description_plaintext(survey.description)}' if survey.description else ''
     meta_description = f"A { 'public' if survey.is_public else 'private' } survey by {survey.created_by.name if survey.created_by else "Anonymous"}{survey_description}"
 
 

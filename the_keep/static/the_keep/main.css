@@ -1256,7 +1256,23 @@ a {
 }
 a:hover {
   color: black;
-  text-decoration: none; 
+  text-decoration: none;
+}
+
+/* The global `a` rule above is invisible in prose by design (inherited
+   color, no underline) for nav-style links. Opt a link into this class
+   wherever it needs to read as a link -- inline markdown-rendered
+   descriptions, prose CTAs, etc. */
+.visible-link {
+  color: var(--theme-color, #5f788a);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.visible-link:hover,
+.visible-link:focus {
+  color: black;
+  text-decoration: underline;
 }
 
 

@@ -176,7 +176,7 @@ class SurveyQuerySet(models.QuerySet):
 
 class Survey(models.Model):
     title = models.CharField(max_length=200)
-    description = models.TextField(blank=True)
+    description = models.TextField(blank=True, help_text='Supports basic Markdown: **bold**, *italic*, links, lists, headings.')
     slug = models.SlugField(unique=True, max_length=250, null=True, blank=True)
     
     # Survey Owner Objects

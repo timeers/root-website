@@ -556,7 +556,7 @@ class Tournament(models.Model):
         related_name='moderated_tournaments',
         help_text='Moderators can manage players, stages, rounds, and surveys but cannot edit the Series itself.'
     )
-    description = models.TextField(null=True, blank=True)
+    description = models.TextField(null=True, blank=True, help_text='Supports basic Markdown: **bold**, *italic*, links, lists, headings.')
     rules = models.TextField(null=True, blank=True, help_text='Tournament rules that participants must agree to when registering.')
     rules_link = models.URLField(
         max_length=1000, null=True, blank=True,
@@ -1169,6 +1169,7 @@ class Stage(models.Model):
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='stages')
 
     name = models.CharField(max_length=100)
+    description = models.TextField(null=True, blank=True, help_text='Supports basic Markdown: **bold**, *italic*, links, lists, headings.')
     order = models.PositiveIntegerField()
 
     use_rounds = models.BooleanField(default=False, help_text='Enable if this stage has multiple rounds.')
@@ -1526,7 +1527,7 @@ class Round(models.Model):
     }
 
     name = models.CharField(max_length=255, null=True, blank=True)  # Optional name, e.g., "Quarter-finals", "Finals"
-    description = models.TextField(null=True, blank=True)
+    description = models.TextField(null=True, blank=True, help_text='Supports basic Markdown: **bold**, *italic*, links, lists, headings.')
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='rounds', null=True, blank=True)  # Link to the tournament
     stage = models.ForeignKey(Stage, on_delete=models.CASCADE, related_name='rounds', null=True, blank=True)  # Link to the stage
 

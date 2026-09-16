@@ -1,0 +1,28 @@
+{% load i18n %}
+<!-- External Link Modal: shown before following a link inside user-submitted
+     markdown (Tournament/Stage/Round/Survey descriptions), since the target
+     is untrusted and not part of Root Database. -->
+<div class="modal fade" id="externalLinkModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class='root-title'>{% trans "You're leaving Root Database" %}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+
+      <div class="modal-body">
+        <p>{% trans "This link was added by another user and goes to an external site:" %}</p>
+        <p class="text-break"><strong id="externalLinkModalUrl"></strong></p>
+      </div>
+
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          {% trans "Cancel" %}
+        </button>
+        <button type="button" id="externalLinkModalContinue" class="btn btn-primary" data-bs-dismiss="modal">
+          {% trans "Continue" %}
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load i18n survey_filters custom_filters %}
+{% load i18n survey_filters custom_filters markdown_filters %}
 {% block title %}{% trans 'Your Response' %}: {{ survey.title }} | {% endblock %}
 
 {% block content %}
@@ -18,7 +18,7 @@
     <h1 class="root-title">{{ survey.title }}</h1>
 
     {% if survey.description %}
-        <p class="lead">{{ survey.description|linebreaks }}</p>
+        <p class="lead">{{ survey.description|render_markdown }}</p>
     {% endif %}
 
     <div class="text-muted mb-3">

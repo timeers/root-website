@@ -45,6 +45,8 @@ from the_gatehouse.services.availability import (local_to_utc_hours, utc_to_loca
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler
 from the_gatehouse.services.discord_oauth import update_discord_avatar
+from the_gatehouse.services.markdown_utils import (render_description_markdown,
+                                                    render_description_plaintext)
 from the_gatehouse.services.steam_openid import (make_link_token, read_link_token,
                                                  verify_response)
 from the_gatehouse.tasks import update_post_status
@@ -2662,3 +2664,78 @@ class ReminderModalSaveTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual(self.tournament.reminders.count(), 1)
         # The edit to the surviving row was rolled back with the bad one.
         self.assertEqual(self.tournament.reminders.get().reminder_text, "keep me")
+
+
+class RenderDescriptionMarkdownTests(TestCase):
+    """Sanitization for the Tournament/Stage/Round/Survey description markdown
+    filter -- see the_gatehouse/services/markdown_utils.py."""
+
+    def test_script_tag_is_stripped(self):
+        html = render_description_markdown("<script>alert(1)</script>")
+        self.assertNotIn("<script", html)
+        self.assertNotIn("alert(1)</script>", html)
+
+    def test_img_tag_is_stripped(self):
+        html = render_description_markdown('<img src=x onerror=alert(1)>')
+        self.assertNotIn("<img", html)
+        self.assertNotIn("onerror", html)
+
+    def test_javascript_link_is_neutralized(self):
+        html = render_description_markdown("[click me](javascript:alert(1))")
+        self.assertNotIn("javascript:", html)
+        self.assertNotIn("<a", html)
+        self.assertIn("click me", html)
+
+    def test_https_link_gets_safe_rel_and_target(self):
+        html = render_description_markdown("[safe](https://example.com)")
+        self.assertIn('href="https://example.com"', html)
+        self.assertIn('rel="nofollow noopener noreferrer"', html)
+        self.assertIn('target="_blank"', html)
+
+    def test_non_http_autolink_is_dropped(self):
+        html = render_description_markdown("visit ftp://bad.example.com")
+        self.assertNotIn("<a", html)
+        self.assertIn("ftp://bad.example.com", html)
+
+    def test_url_inside_code_span_is_not_autolinked(self):
+        html = render_description_markdown(
+            "`inline code with http://example.com in it`")
+        self.assertNotIn("<a", html)
+        self.assertIn("<code>", html)
+
+    def test_h1_and_h2_are_demoted_to_h3(self):
+        self.assertEqual(render_description_markdown("# Top Heading"), "<h3>Top Heading</h3>")
+        self.assertEqual(render_description_markdown("## Sub Heading"), "<h3>Sub Heading</h3>")
+
+    def test_bold_italic_and_lists_render(self):
+        html = render_description_markdown("**bold** _italic_\n\n- one\n- two")
+        self.assertIn("<strong>bold</strong>", html)
+        self.assertIn("<em>italic</em>", html)
+        self.assertIn("<li>one</li>", html)
+        self.assertIn("<li>two</li>", html)
+
+    def test_empty_value_returns_empty_string(self):
+        self.assertEqual(render_description_markdown(""), "")
+        self.assertEqual(render_description_markdown(None), "")
+
+
+class RenderDescriptionPlaintextTests(TestCase):
+    """Plain-text stripping for meta descriptions -- see
+    the_gatehouse/services/markdown_utils.py."""
+
+    def test_markdown_syntax_is_stripped(self):
+        text = render_description_plaintext(
+            "**Bold** and _italic_ with a [link](https://example.com)")
+        self.assertNotIn("**", text)
+        self.assertNotIn("[", text)
+        self.assertIn("Bold", text)
+        self.assertIn("link", text)
+
+    def test_html_is_stripped_not_executed(self):
+        text = render_description_plaintext("<script>alert(1)</script> hello")
+        self.assertNotIn("<script", text)
+        self.assertIn("hello", text)
+
+    def test_empty_value_returns_empty_string(self):
+        self.assertEqual(render_description_plaintext(""), "")
+        self.assertEqual(render_description_plaintext(None), "")

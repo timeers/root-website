@@ -191,7 +191,7 @@
                 <h5>Add the Databot to your Server</h5>
                 {# Mirrors the {% if invite_url %} guard on the page's two Add-to-Server CTAs. #}
                 {% if invite_url %}
-                <p>Use the <a class="databot-link" href="{% url 'databot-add' %}">Add to Server</a> button on this page to invite the Databot to the server your league or tournament runs in.</p>
+                <p>Use the <a class="visible-link databot-link" href="{% url 'databot-add' %}">Add to Server</a> button on this page to invite the Databot to the server your league or tournament runs in.</p>
                 {% else %}
                 <p>Invite the Databot to the server your league or tournament runs in.</p>
                 {% endif %}
@@ -210,7 +210,7 @@
               <span class="databot-lfg-num">3</span>
               <div>
                 <h5>Set the Channels and Reminders</h5>
-                <p>{% if user_is_authenticated %}From the <a class="databot-link" href="{% url 'manage-guilds' %}">Manage your Guilds</a> page edit your guild.{% else %}From the Manage your Guilds page edit your guild.{% endif %}
+                <p>{% if user_is_authenticated %}From the <a class="visible-link databot-link" href="{% url 'manage-guilds' %}">Manage your Guilds</a> page edit your guild.{% else %}From the Manage your Guilds page edit your guild.{% endif %}
                   Near the bottom you will see your League or Tournament listed, where you can set three channels:</p>
                 <ul class="databot-channel-list">
                   <li>
@@ -350,19 +350,16 @@
    they can be reused on other pages (e.g. Manage Guilds). */
 
 /* ── Inline links ─────────────────────────────────────────────────── */
-/* The global `a` rule in the_keep/main.css is `color: inherit` with no underline, so a
-   link in prose is invisible. Opt in with this class; the blurple matches
-   .databot-inline-cmd and .databot-cmd-list code, so links and /commands read as one set. */
+/* .visible-link (the_keep/main.css) is what opts a link out of the invisible
+   global `a` rule; this page overrides its color to Discord blurple so links
+   match .databot-inline-cmd and .databot-cmd-list code -- links and
+   /commands read as one set. */
 .databot-link {
   color: #4752c4;
-  font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 .databot-link:hover,
 .databot-link:focus {
   color: #5865F2;
-  text-decoration: underline;
 }
 
 /* ── Discord notifications ────────────────────────────────────────── */

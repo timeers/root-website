@@ -1590,7 +1590,7 @@ class StageCreateForm(forms.ModelForm):
     class Meta:
         model = Stage
         fields = [
-            'name', 'order',
+            'name', 'description', 'order',
             'start_date', 'end_date', 'is_active',
             'min_players', 'max_players',
             'game_threshold', 'leaderboard_positions',
@@ -1605,6 +1605,7 @@ class StageCreateForm(forms.ModelForm):
             'winners_advance_to': 'Winners advance to',
             'losers_advance_to': 'Losers advance to',
             'advancement_count': 'Advancement count',
+            'description': 'Description (Optional)',
         }
 
     def __init__(self, *args, tournament=None, **kwargs):
@@ -1612,6 +1613,10 @@ class StageCreateForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         if tournament and not self.instance.pk:
             self.instance.tournament = tournament
+        self.fields['description'].widget.attrs.update({
+            'placeholder': 'Give a brief description of the stage.',
+            'rows': '2'
+            })
         self.fields['start_date'].widget = forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
         self.fields['end_date'].widget = forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
         if not self.instance.pk:
