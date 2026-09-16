@@ -38,7 +38,7 @@ is nothing worth indexing. {% endcomment %}
                 </a>
               {% endif %}
               {% if edit_url %}
-                <a href="{{ edit_url }}" class="databot-btn databot-btn-primary avail-btn-compact ms-auto">
+                <a href="{{ edit_url }}" id="my-availability-link" class="databot-btn databot-btn-primary avail-btn-compact ms-auto">
                   <i class="bi bi-pencil me-1"></i>{% trans 'My Availability' %}
                 </a>
               {% endif %}
@@ -196,31 +196,29 @@ is nothing worth indexing. {% endcomment %}
           <div class="info-card h-100">
             <div class="info-card-body">
 
-
-              <div class="availability-scroll">
-                <div class="availability-grid compare-grid" id="compare-grid">
-                  <div class="avail-corner"></div>
-                  {% for day in days %}
-                    <div class="avail-day-header">{{ day|slice:":3" }}</div>
-                  {% endfor %}
-
-                  {% for hour, short_label, long_label in hours %}
-                    <div class="avail-hour-label"><span class="hour-text">{{ short_label }}</span></div>
-                    {% for day in days %}
-                      {% comment %} Read-only: divs, not buttons -- nothing here
-                      changes the schedule. They ARE tappable, which is how a
-                      phone reaches the detail a hover tooltip never shows.
-
-                      data-bs-title is filled in by render(), not here: the text
-                      names who is free and so changes whenever a player is
-                      toggled. {% endcomment %}
-                      <div class="avail-cell compare-cell"
-                           data-day="{{ forloop.counter0 }}"
-                           data-hour="{{ hour }}"
-                           data-label="{{ day }} {{ long_label }}"><span class="cell-time">{{ short_label }}</span></div>
-                    {% endfor %}
-                  {% endfor %}
+              <div class="avail-week-row mb-3" id="compare-week-navigator">
+                <div class="avail-week-arrow avail-week-arrow--prev">
+                  <button type="button" id="compare-nav-prev" data-week="{{ prev_week|date:'Y-m-d' }}"
+                          class="databot-btn databot-btn-outline avail-btn-compact"
+                          {% if not prev_week %}hidden{% endif %}>
+                    <i class="bi bi-chevron-left"></i>
+                  </button>
                 </div>
+                <span class="fw-bold" id="compare-week-label">
+                  {% blocktrans with d=week_start|date:'M j, Y' %}Week of {{ d }}{% endblocktrans %}
+                </span>
+                <div class="avail-week-arrow avail-week-arrow--next">
+                  <button type="button" id="compare-nav-next"
+                          data-week="{% if next_week %}{{ next_week|date:'Y-m-d' }}{% else %}{{ default_week|date:'Y-m-d' }}{% endif %}"
+                          class="databot-btn databot-btn-outline avail-btn-compact"
+                          {% if not next_week %}hidden{% endif %}>
+                    <i class="bi bi-chevron-right"></i>
+                  </button>
+                </div>
+              </div>
+
+              <div id="compare-grid-container">
+                {% include 'partials/compare_grid.html' with columns=columns hours=hours hour_rows=hour_rows %}
               </div>
 
             </div>
@@ -386,25 +384,63 @@ is nothing worth indexing. {% endcomment %}
 {{ player_names_json|json_script:"player-names" }}
 <script>
 (function () {
-  var grid = document.getElementById('compare-grid');
-  if (!grid) { return; }
+  var gridContainer = document.getElementById('compare-grid-container');
+  if (!gridContainer) { return; }
 
   // {profile_id: [local hour-of-week, ...]} -- already converted server-side, so
-  // no timezone maths happens in here.
+  // no timezone maths happens in here. Reassigned on every week-switch, since
+  // the hours differ per (roster, week) -- see applyState().
   var PLAYER_HOURS = JSON.parse(document.getElementById('player-hours').textContent);
   var NAMES = JSON.parse(document.getElementById('player-names').textContent);
   var HEAT_BUCKETS = 4;
 
-  var cells = Array.prototype.slice.call(grid.querySelectorAll('.compare-cell'));
-  // hour-of-week -> its one cell, so the player-hover highlight is a lookup
-  // rather than a scan of all 168. The grid is a full 7x24 and the server sends
-  // hour-of-week ints on the same Monday-based formula, so there are no gaps.
+  // Rebuilt every time #compare-grid-container's innerHTML is swapped, since
+  // the old grid element (and its cells) are detached from the DOM at that
+  // point -- mirrors initGrid() on the single-user /availability page.
+  var cells = [];
   var CELLS_BY_HOUR = {};
-  cells.forEach(function (cell) {
-    var how = String(parseInt(cell.dataset.day, 10) * 24 + parseInt(cell.dataset.hour, 10));
-    cell.dataset.how = how;
-    CELLS_BY_HOUR[how] = cell;
-  });
+  var PLAYER_HOURS_BY_HOUR = {};
+
+  function currentGrid() {
+    return document.getElementById('compare-grid');
+  }
+
+  function indexGrid() {
+    var grid = currentGrid();
+    cells = grid ? Array.prototype.slice.call(grid.querySelectorAll('.compare-cell')) : [];
+    // The lookup key -> its one cell, so the player-hover highlight is a
+    // lookup rather than a scan of all 168+. In WEEKLY mode the server
+    // already rendered a real data-how (a unique per-instant token -- see
+    // services.availability.utc_instant_token -- because a DST fall-back
+    // night's two split half-cells occupy the SAME (day, hour) position and
+    // a locally-recomputed day*24+hour would collide them onto one key,
+    // silently losing one half's independent free/not-free state). GENERAL
+    // mode carries no server data-how at all (no real week, no DST
+    // transitions to disambiguate), so it's still fine to derive the
+    // dateless day*24+hour key purely client-side there, same as before.
+    CELLS_BY_HOUR = {};
+    cells.forEach(function (cell) {
+      var how = cell.dataset.how
+        || String(parseInt(cell.dataset.day, 10) * 24 + parseInt(cell.dataset.hour, 10));
+      cell.dataset.how = how;
+      CELLS_BY_HOUR[how] = cell;
+    });
+  }
+
+  function indexPlayerHours() {
+    // hour-of-week -> every player free then, regardless of what is checked.
+    // Rebuilt alongside PLAYER_HOURS whenever a week-switch replaces it;
+    // showDetail() filters it against the current selection.
+    PLAYER_HOURS_BY_HOUR = {};
+    Object.keys(PLAYER_HOURS).forEach(function (id) {
+      (PLAYER_HOURS[id] || []).forEach(function (h) {
+        (PLAYER_HOURS_BY_HOUR[h] = PLAYER_HOURS_BY_HOUR[h] || []).push(id);
+      });
+    });
+  }
+
+  indexGrid();
+  indexPlayerHours();
 
   var toggles = Array.prototype.slice.call(document.querySelectorAll('.player-toggle'));
   var legend = document.getElementById('heat-legend');
@@ -412,15 +448,6 @@ is nothing worth indexing. {% endcomment %}
   var detail = document.getElementById('cell-detail');
   var playerRows = Array.prototype.slice.call(document.querySelectorAll('.player-row'));
   var focusedCell = null;
-
-  // hour-of-week -> every player free then, regardless of what is checked. Built
-  // once; showDetail() filters it against the current selection.
-  var PLAYER_HOURS_BY_HOUR = {};
-  Object.keys(PLAYER_HOURS).forEach(function (id) {
-    (PLAYER_HOURS[id] || []).forEach(function (h) {
-      (PLAYER_HOURS_BY_HOUR[h] = PLAYER_HOURS_BY_HOUR[h] || []).push(id);
-    });
-  });
 
   var BUCKET_LABELS = {
     'heat-0': '{% trans "All Selected" %}',
@@ -461,7 +488,13 @@ is nothing worth indexing. {% endcomment %}
       var who = freeAt[cell.dataset.how] || [];
       var bucket = bucketFor(who.length, total);
       if (bucket) { cell.classList.add(bucket); }
-      if (total && who.length === total) { overlapHours.push(parseInt(cell.dataset.how, 10)); }
+      if (total && who.length === total) {
+        // longestRun/renderSummary need the LOCAL grid position (0-167,
+        // day*24+hour) for their day/consecutive-run arithmetic -- NOT
+        // cell.dataset.how, which in weekly mode is a real-instant token
+        // string (see indexGrid's own comment), not a plain int.
+        overlapHours.push(parseInt(cell.dataset.day, 10) * 24 + parseInt(cell.dataset.hour, 10));
+      }
 
       // data-bs-title, not title: the delegated Bootstrap tooltip reads this at
       // SHOW time, so it picks up the new names after a toggle. A per-element
@@ -484,21 +517,48 @@ is nothing worth indexing. {% endcomment %}
     if (focusedCell) { showDetail(focusedCell); }
   }
 
+  // Weekday-month-day formatter for a cell's data-date, reused by both
+  // describeCell (hover) and showDetail (click) so the two never disagree on
+  // format. Built from the browser's own locale rather than hardcoding
+  // English, same spirit as the rest of the page's i18n.
+  var DATE_FORMATTER = (function () {
+    try {
+      return new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+    } catch (err) { return null; }
+  })();
+
+  function cellLabel(cell) {
+    // General mode (no data-date): the existing dateless "Monday 9:00 AM".
+    // Weekly mode: the real local calendar date, e.g. "Monday, Sep 14 9:00 AM".
+    if (!cell.dataset.date || !DATE_FORMATTER) { return cell.dataset.label; }
+    // cell.dataset.label is "{{ day }} {{ long_label }}" -- split off the
+    // leading day name (up to the first space) and keep the time part, since
+    // the formatted date already names the day.
+    var spaceAt = cell.dataset.label.indexOf(' ');
+    var timePart = spaceAt === -1 ? '' : cell.dataset.label.slice(spaceAt + 1);
+    // new Date('YYYY-MM-DD') parses as UTC midnight, which the formatter then
+    // renders back in the browser's own zone -- appending T00:00:00 forces a
+    // LOCAL midnight parse instead, so the date never shifts a day off.
+    var d = new Date(cell.dataset.date + 'T00:00:00');
+    return DATE_FORMATTER.format(d) + (timePart ? ' ' + timePart : '');
+  }
+
   function describeCell(cell, who, total) {
     // The hover tooltip: "Monday 5:00 AM" on the first line, who is free on the
     // second. Built as two lines directly -- an earlier version joined them with
     // a dash and split it back out, which silently stopped working the moment the
     // two dashes drifted apart. (Touch users get the same information from the
     // detail panel instead; a `title` never appears on a phone.)
-    if (!total) { return cell.dataset.label; }
+    var label = cellLabel(cell);
+    if (!total) { return label; }
     if (!who.length) {
-      return cell.dataset.label + '\n{% trans "nobody selected is free" %}';
+      return label + '\n{% trans "nobody selected is free" %}';
     }
     var names = who.map(function (id) { return NAMES[id]; }).join(', ');
     var count = who.length === total
       ? '{% trans "all" %} ' + total
       : who.length + ' {% trans "of" %} ' + total;
-    return cell.dataset.label + '\n' + count + ': ' + names;
+    return label + '\n' + count + ': ' + names;
   }
 
   function freeAtCell(cell) {
@@ -561,7 +621,7 @@ is nothing worth indexing. {% endcomment %}
 
     var everyone = ids.length && free.length === ids.length;
     detail.innerHTML =
-      '<strong>' + cell.dataset.label + '</strong>'
+      '<strong>' + cellLabel(cell) + '</strong>'
       + (everyone ? ' <span class="badge text-bg-success">{% trans "All selected" %}</span>' : '')
       + '<br><span class="text-muted">'
       + (ids.length === 0
@@ -635,9 +695,12 @@ is nothing worth indexing. {% endcomment %}
     });
   });
 
+  // Delegated on the STABLE container, not the grid element itself -- a
+  // week-switch replaces #compare-grid wholesale (see applyState()), so a
+  // listener bound to the grid directly would go dead after the first swap.
   // One delegated listener rather than 168. Works for touch as well as mouse,
   // which is the point -- a hover tooltip never appears on a phone.
-  grid.addEventListener('click', function (e) {
+  gridContainer.addEventListener('click', function (e) {
     var cell = e.target.closest('.compare-cell');
     if (!cell) { return; }
     // Clicking the pinned cell again unpins it -- the same toggle a tap user
@@ -651,11 +714,11 @@ is nothing worth indexing. {% endcomment %}
   // cell the pointer enters, while mouseleave does NOT bubble and so fires once
   // on leaving the grid. mouseout would instead fire on every cell-to-cell move
   // and make the highlight flicker.
-  grid.addEventListener('mouseover', function (e) {
+  gridContainer.addEventListener('mouseover', function (e) {
     var cell = e.target.closest('.compare-cell');
     if (cell) { highlightPlayers(cell); }
   });
-  grid.addEventListener('mouseleave', function () {
+  gridContainer.addEventListener('mouseleave', function () {
     // Back to whatever the last click pinned, or nothing.
     highlightPlayers(focusedCell);
   });
@@ -674,12 +737,13 @@ is nothing worth indexing. {% endcomment %}
     playerList.addEventListener('mouseleave', function () { highlightHours(null); });
   }
 
-  // ONE tooltip for the whole grid, delegated. Per-element instances would each
-  // cache their text at construction, so every cell would go stale the moment a
-  // player was toggled -- render() rewrites data-bs-title, and only the
-  // delegated form re-reads it when the tooltip is shown.
+  // ONE tooltip for the whole grid, delegated off the STABLE container so it
+  // survives a week-switch swap without re-initialising. Per-element
+  // instances would each cache their text at construction, so every cell
+  // would go stale the moment a player was toggled -- render() rewrites
+  // data-bs-title, and only the delegated form re-reads it when shown.
   if (window.bootstrap && bootstrap.Tooltip) {
-    new bootstrap.Tooltip(grid, {
+    new bootstrap.Tooltip(gridContainer, {
       selector: '.compare-cell[data-bs-title]',
       placement: 'top',
       trigger: 'hover',
@@ -687,6 +751,92 @@ is nothing worth indexing. {% endcomment %}
   }
 
   render();
+
+  // ---- Week navigation, via fetch ------------------------------------------
+  // Mirrors availability.html's applyState()/goToWeek()/pushUrl() shape for
+  // the single-user page's week navigator. No General/Weekly tabs here --
+  // this page always shows one specific real week (defaulting server-side to
+  // the current one), so there is nothing to switch modes between.
+  var navigator_ = document.getElementById('compare-week-navigator');
+  var weekLabel = document.getElementById('compare-week-label');
+
+  // Set once at load from whichever roster params the page was opened with --
+  // these never change client-side (switching series/lfg/players is a
+  // separate full-page link elsewhere), so this never goes stale mid-session.
+  var rosterParams = new URLSearchParams(window.location.search);
+  rosterParams.delete('week');
+
+  function pushUrl(data) {
+    var params = new URLSearchParams(rosterParams);
+    if (data.week_start) { params.set('week', data.week_start); }
+    var qs = params.toString();
+    var url = window.location.pathname + (qs ? '?' + qs : '');
+    history.pushState({ week: data.week_start }, '', url);
+  }
+
+  function applyState(data) {
+    gridContainer.innerHTML = data.grid_html;
+    indexGrid();
+
+    PLAYER_HOURS = data.player_hours_json || {};
+    NAMES = data.player_names_json || {};
+    indexPlayerHours();
+
+    // A week-switch drops whatever was pinned/hovered -- the old cell nodes
+    // are gone with the swap, and the new grid's cells mean something
+    // different (a different week's hours).
+    focusedCell = null;
+    clearDetail();
+
+    weekLabel.textContent = data.week_label;
+
+    var prevBtn = document.getElementById('compare-nav-prev');
+    prevBtn.hidden = !data.prev_week;
+    prevBtn.dataset.week = data.prev_week || '';
+
+    var nextBtn = document.getElementById('compare-nav-next');
+    nextBtn.hidden = !data.next_week;
+    nextBtn.dataset.week = data.next_week || data.default_week;
+
+    // Keep "My Availability" pointed at whichever week is now showing, so
+    // it always opens straight to that week's own editable grid.
+    var editLink = document.getElementById('my-availability-link');
+    if (editLink && data.edit_url) { editLink.href = data.edit_url; }
+
+    render();
+  }
+
+  async function goToWeek(weekValue) {
+    var params = new URLSearchParams(rosterParams);
+    if (weekValue && weekValue !== 'general') { params.set('week', weekValue); }
+
+    var response;
+    try {
+      response = await fetch("{% url 'availability-compare-week-data' %}?" + params.toString());
+    } catch (err) {
+      return;
+    }
+    if (!response.ok) { return; }
+    var data = await response.json();
+    if (!data.ok) { return; }
+    applyState(data);
+    pushUrl(data);
+  }
+
+  if (navigator_) {
+    navigator_.addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-week]');
+      if (!btn || btn.hidden) { return; }
+      goToWeek(btn.dataset.week);
+    });
+  }
+
+  // A browser Back/Forward through pushState'd week changes re-fetches that
+  // week's state rather than reloading the page.
+  window.addEventListener('popstate', function () {
+    var params = new URLSearchParams(window.location.search);
+    goToWeek(params.get('week') || 'general');
+  });
 })();
 </script>
 {% endblock scripts %}

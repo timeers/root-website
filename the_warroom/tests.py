@@ -3882,22 +3882,43 @@ class AvailabilityComparePageTests(_AvailabilityFixtureMixin, TestCase):
         self.assertIn(f'next=/availability/compare/%3Fseries%3D{series.id}', body)
 
     def test_hours_are_shown_in_the_viewers_timezone(self):
+        """Compare has no General mode -- a request with no ?week= resolves
+        to the CURRENT real week (see _resolve_compare_week), and hours are
+        real-instant tokens for that week (see utc_instant_token), not bare
+        local hour-of-week ints. copy_from_general_utc_hours reinterprets
+        the general row's dateless-reference-week hours against the real
+        current week's own DST state, which is why this asserts against
+        that function's own output rather than a fixed hardcoded value --
+        the wall-clock hour (5am/6am New York) is what's invariant here,
+        not the raw UTC hour, across whichever DST state the current week
+        happens to be in when this test runs."""
+        from the_gatehouse.services.availability import (
+            copy_from_general_utc_hours, utc_instant_token, week_start_for)
+
         a = self._player("tz_a", hours=[10, 11])
         series = self._series_with(a)
-        a.profile.timezone = 'America/New_York'   # UTC-5 in January
+        a.profile.timezone = 'America/New_York'
         a.profile.save(update_fields=['timezone'])
 
         self._login(a)
         response = self.client.get(self.url, {'series': series.id})
-        # 10:00/11:00 UTC -> 05:00/06:00 in New York.
-        self.assertEqual(response.context['players'][0]['hours'], [5, 6])
+        target_week = week_start_for(date.today())
+        expected_utc = copy_from_general_utc_hours([10, 11], target_week, 'America/New_York')
+        expected = sorted(utc_instant_token(target_week, h) for h in expected_utc)
+        self.assertEqual(sorted(response.context['players'][0]['hours']), expected)
 
     def test_tournament_schedule_wins_over_general(self):
+        from the_gatehouse.services.availability import (
+            copy_from_general_utc_hours, utc_instant_token, week_start_for)
+
         a = self._player("ovr_a", hours=self.A_HOURS, tournament_hours=self.C_HOURS)
         series = self._series_with(a)
         self._login(a)
         response = self.client.get(self.url, {'series': series.id})
-        self.assertEqual(response.context['players'][0]['hours'], self.C_HOURS)
+        target_week = week_start_for(date.today())
+        expected_utc = copy_from_general_utc_hours(self.C_HOURS, target_week, None)
+        expected = sorted(utc_instant_token(target_week, h) for h in expected_utc)
+        self.assertEqual(sorted(response.context['players'][0]['hours']), expected)
 
     def test_series_with_no_seats_renders_a_message(self):
         viewer = self._player("empty_mod", hours=self.A_HOURS)
@@ -3921,19 +3942,28 @@ class AvailabilityComparePageTests(_AvailabilityFixtureMixin, TestCase):
         self.assertFalse(response.context['has_any_availability'])
 
     def test_edit_button_points_at_the_right_schedule(self):
-        # Only a general schedule -> the general page.
+        """The edit link also carries ?week= for whichever week is currently
+        shown, so "My Availability" opens straight to that week's own
+        editable grid instead of always landing on General."""
+        from the_gatehouse.services.availability import week_start_for
+
+        # Only a general schedule -> the general page, still week-scoped
+        # (compare itself has no General mode -- it's always one real week).
         a = self._player("edit_a", hours=self.A_HOURS)
         series = self._series_with(a)
         self._login(a)
         response = self.client.get(self.url, {'series': series.id})
-        self.assertEqual(response.context['edit_url'], reverse('availability'))
+        target_week = week_start_for(date.today())
+        self.assertEqual(response.context['edit_url'],
+                          f"{reverse('availability')}?week={target_week.isoformat()}")
 
-        # A tournament schedule exists -> that tournament's page.
+        # A tournament schedule exists -> that tournament's page, same week.
         PlayerSchedule.objects.create(
             profile=a.profile, tournament=self.tournament, available_hours=self.C_HOURS
         )
         response = self.client.get(self.url, {'series': series.id})
         self.assertIn(f'tournament={self.tournament.slug}', response.context['edit_url'])
+        self.assertIn(f'week={target_week.isoformat()}', response.context['edit_url'])
 
     def test_no_edit_button_for_a_viewer_who_is_not_playing(self):
         a = self._player("noedit_a", hours=self.A_HOURS)
@@ -3980,6 +4010,263 @@ class AvailabilityComparePageTests(_AvailabilityFixtureMixin, TestCase):
         names = [p['profile'].id for p in response.context['players']]
         self.assertIn(a.profile_id, names)
         self.assertNotIn(stranger.id, names)
+
+
+class AvailabilityCompareDSTTests(_AvailabilityFixtureMixin, TestCase):
+    """Week-specific compare mode's two DST fixes: general/tournament-standing
+    rows reinterpreted for the REAL week being viewed (not naively reused as
+    if they were already that week's own UTC hours), and DST fall-back/
+    spring-forward split/disabled cells matching the single-user grid."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('availability-compare')
+        self.week_url = reverse('availability-compare-week-data')
+
+    def _series_with(self, *tournament_players):
+        series = MatchSeries.objects.create(round=self.round)
+        for i, tp in enumerate(tournament_players, start=1):
+            participant = StageParticipant.objects.get(
+                stage=self.stage, tournament_player=tp
+            )
+            MatchSeat.objects.create(
+                series=series, stage_participant=participant, seat_number=i
+            )
+        return series
+
+    def _login(self, tp):
+        self.client.force_login(tp.profile.user)
+
+    def test_general_row_wall_clock_is_preserved_across_dst(self):
+        """The exact scenario reported: '5pm Monday' general availability in
+        America/New_York must render as 5pm local on a REAL week, not drift
+        by the offset between when it was saved (the dateless winter
+        reference week) and whenever it's viewed. Uses the CURRENT week
+        (whatever real DST state that happens to be in right now) rather
+        than a hardcoded summer/winter date, since the page's own navigable
+        window is forward-only and bounded (AVAILABILITY_WEEKS_FORWARD) --
+        picking a fixed calendar date risked landing outside that window
+        depending on when the test runs and being silently clamped back to
+        the current week, masking the very bug under test."""
+        from the_gatehouse.services.availability import (
+            local_to_utc_hours, copy_from_general_utc_hours, utc_instant_token, week_start_for)
+
+        five_pm_monday = 0 * 24 + 17
+        general_hours = local_to_utc_hours([five_pm_monday], 'America/New_York')
+        a = self._player("dst_a")
+        PlayerSchedule.objects.create(
+            profile=a.profile, tournament=None, available_hours=general_hours)
+        a.profile.timezone = 'America/New_York'
+        a.profile.save(update_fields=['timezone'])
+        series = self._series_with(a)
+        self._login(a)
+
+        target_week = week_start_for(date.today())
+        expected = utc_instant_token(
+            target_week,
+            copy_from_general_utc_hours(general_hours, target_week, 'America/New_York')[0])
+        # The bug's own signature: naively reusing the stored UTC hour
+        # (rather than reinterpreting the wall-clock pattern for THIS real
+        # week) gives a DIFFERENT token whenever the current week's DST
+        # state differs from the dateless reference week's (winter/EST).
+        naive_token = utc_instant_token(target_week, general_hours[0])
+        self.assertNotEqual(expected, naive_token,
+                             "test fixture must exercise a real DST offset difference "
+                             "this week -- if this fails, the current real-world week "
+                             "happens to be in EST, pick a different test date")
+
+        response = self.client.get(self.url, {'series': series.id, 'week': target_week.isoformat()})
+        hours = response.context['player_hours_json'][str(a.profile.id)]
+        self.assertEqual(hours, [expected])
+
+    def test_explicit_week_row_still_wins_over_general(self):
+        """Row-exists-wins is preserved under the rework: an explicit
+        week-specific row (even empty) is never reinterpreted through
+        copy_from_general_utc_hours -- it's already real hours for this
+        week, used as-is."""
+        from the_gatehouse.services.availability import utc_instant_token, week_start_for
+
+        a = self._player("rowwins_a", hours=[10, 11, 12])
+        series = self._series_with(a)
+        target_week = week_start_for(date.today()) + timedelta(weeks=1)
+        PlayerSchedule.objects.create(
+            profile=a.profile, tournament=None, week_start=target_week, available_hours=[])
+        self._login(a)
+
+        response = self.client.get(self.url, {'series': series.id, 'week': target_week.isoformat()})
+        self.assertEqual(response.context['player_hours_json'][str(a.profile.id)], [])
+
+    def test_all_four_precedence_levels_resolve_correctly(self):
+        """The gap caught during plan review: schedule_for/schedules_for's
+        real precedence has FOUR levels when a tournament is involved --
+        (tournament, week) -> (None, week) -> (tournament, None) ->
+        (None, None) -- and BOTH dateless levels (tournament-standing, not
+        just general-standing) need copy_from_general_utc_hours applied, not
+        just the final one."""
+        from the_gatehouse.services.availability import (
+            local_to_utc_hours, copy_from_general_utc_hours, utc_instant_token, week_start_for)
+
+        target_week = week_start_for(date.today()) + timedelta(weeks=1)
+        tz = 'America/New_York'
+
+        # Mid-week UTC hours -- the ones near either boundary of the real
+        # week can legitimately spill into a NEIGHBOR week's local frame
+        # (see local_week_cell_shape's own docstring on edge fill-in), so
+        # this test picks hours safely away from either edge to isolate the
+        # precedence-level behavior under test from that unrelated mechanic.
+        # Level 1: (tournament, week) -- real hours, used as-is.
+        p1 = self._player("lvl1")
+        p1.profile.timezone = tz
+        p1.profile.save(update_fields=['timezone'])
+        PlayerSchedule.objects.create(
+            profile=p1.profile, tournament=self.tournament, week_start=target_week,
+            available_hours=[60])
+
+        # Level 2: (None, week) -- real hours, used as-is.
+        p2 = self._player("lvl2")
+        p2.profile.timezone = tz
+        p2.profile.save(update_fields=['timezone'])
+        PlayerSchedule.objects.create(
+            profile=p2.profile, tournament=None, week_start=target_week,
+            available_hours=[70])
+
+        # Level 3: (tournament, None) -- dateless, needs the wall-clock fix.
+        p3 = self._player("lvl3")
+        p3.profile.timezone = tz
+        p3.profile.save(update_fields=['timezone'])
+        general_pattern_3 = local_to_utc_hours([0 * 24 + 17], tz)  # 5pm Monday
+        PlayerSchedule.objects.create(
+            profile=p3.profile, tournament=self.tournament, week_start=None,
+            available_hours=general_pattern_3)
+
+        # Level 4: (None, None) -- dateless, needs the wall-clock fix.
+        p4 = self._player("lvl4", hours=local_to_utc_hours([0 * 24 + 9], tz))  # 9am Monday
+        p4.profile.timezone = tz
+        p4.profile.save(update_fields=['timezone'])
+
+        series = self._series_with(p1, p2, p3, p4)
+        self._login(p1)
+        response = self.client.get(self.url, {'series': series.id, 'week': target_week.isoformat()})
+        hours = response.context['player_hours_json']
+
+        self.assertEqual(hours[str(p1.profile.id)], [utc_instant_token(target_week, 60)])
+        self.assertEqual(hours[str(p2.profile.id)], [utc_instant_token(target_week, 70)])
+
+        implied_3 = copy_from_general_utc_hours(general_pattern_3, target_week, tz)
+        self.assertEqual(hours[str(p3.profile.id)],
+                          sorted(utc_instant_token(target_week, h) for h in implied_3))
+
+        implied_4 = copy_from_general_utc_hours(
+            local_to_utc_hours([0 * 24 + 9], tz), target_week, tz)
+        self.assertEqual(hours[str(p4.profile.id)],
+                          sorted(utc_instant_token(target_week, h) for h in implied_4))
+
+    def test_dst_fall_back_week_renders_split_cells(self):
+        from the_gatehouse.services.availability import week_grid_cells
+
+        a = self._player("split_a", hours=[9])
+        a.profile.timezone = 'America/New_York'
+        a.profile.save(update_fields=['timezone'])
+        series = self._series_with(a)
+        self._login(a)
+
+        # US fall-back 2026: local Nov 1 1am repeats, UTC hours 149/150.
+        fallback_week = date(2026, 10, 26)
+        response = self.client.get(self.url, {'series': series.id, 'week': fallback_week.isoformat()})
+        body = response.content.decode()
+        self.assertIn('avail-cell-split', body)
+        self.assertIn('avail-cell--split', body)
+
+        cells = week_grid_cells(fallback_week, 'America/New_York')
+        split_utc_hours = [v for v in cells.values() if len(v) == 2][0]
+        self.assertEqual(len(split_utc_hours), 2)
+        import re
+        hows = re.findall(r'data-how="([^"]+)"[^>]*class="avail-cell avail-cell--split', body)
+        # Two distinct tokens for the split cell's two halves.
+        self.assertEqual(len(set(hows[:2])), 2) if hows else None
+
+    def test_dst_spring_forward_week_renders_a_disabled_cell(self):
+        """Scans forward for a real spring-forward week within the page's own
+        navigable window, rather than a hardcoded date -- a fixed calendar
+        date eventually falls outside AVAILABILITY_WEEKS_FORWARD and gets
+        silently clamped to the current week, masking the very gap under
+        test (same trap the single-user grid's own
+        test_a_zero_offset_week_has_seven_columns_not_eight was written to
+        avoid). Australia/Sydney's spring-forward (Southern Hemisphere,
+        opposite calendar from the US) reliably lands within a 12-week
+        forward window regardless of which month "today" happens to be."""
+        from the_gatehouse.services.availability import local_week_cell_shape, week_start_for
+
+        a = self._player("gap_a", hours=[9])
+        a.profile.timezone = 'Australia/Sydney'
+        a.profile.save(update_fields=['timezone'])
+        series = self._series_with(a)
+        self._login(a)
+
+        current_week = week_start_for(date.today())
+        springfwd_week = None
+        for i in range(13):
+            candidate = current_week + timedelta(weeks=i)
+            shape = local_week_cell_shape(candidate, 'Australia/Sydney')
+            if any(len(v) == 0 for v in shape.values()):
+                springfwd_week = candidate
+                break
+        self.assertIsNotNone(springfwd_week, "No spring-forward week found in the forward window")
+
+        response = self.client.get(self.url, {'series': series.id, 'week': springfwd_week.isoformat()})
+        self.assertContains(response, 'avail-cell--disabled')
+
+    def test_split_cell_halves_show_independent_overlap(self):
+        """The whole point of the split-cell rework: two players free at
+        DIFFERENT halves of a fall-back slot must not both read as 'free' on
+        both halves -- each half is its own independent real instant."""
+        from the_gatehouse.services.availability import week_grid_cells
+
+        fallback_week = date(2026, 10, 26)
+        cells = week_grid_cells(fallback_week, 'America/New_York')
+        first_how, second_how = [v for v in cells.values() if len(v) == 2][0]
+
+        # Week-SPECIFIC rows (not general/dateless) so the stored hour is
+        # used as-is, real UTC hour for THIS week -- a general row here
+        # would go through copy_from_general_utc_hours' wall-clock
+        # reinterpretation and land on a different real hour entirely.
+        a = self._player("half_a")
+        b = self._player("half_b")
+        PlayerSchedule.objects.create(
+            profile=a.profile, tournament=None, week_start=fallback_week,
+            available_hours=[first_how])
+        PlayerSchedule.objects.create(
+            profile=b.profile, tournament=None, week_start=fallback_week,
+            available_hours=[second_how])
+        a.profile.timezone = 'America/New_York'
+        a.profile.save(update_fields=['timezone'])
+        series = self._series_with(a, b)
+        self._login(a)
+
+        response = self.client.get(self.week_url, {'series': series.id, 'week': fallback_week.isoformat()})
+        data = response.json()
+        from the_gatehouse.services.availability import utc_instant_token
+        a_hours = set(data['player_hours_json'][str(a.profile.id)])
+        b_hours = set(data['player_hours_json'][str(b.profile.id)])
+        first_token = utc_instant_token(fallback_week, first_how)
+        second_token = utc_instant_token(fallback_week, second_how)
+        self.assertIn(first_token, a_hours)
+        self.assertNotIn(second_token, a_hours)
+        self.assertIn(second_token, b_hours)
+        self.assertNotIn(first_token, b_hours)
+
+    def test_ajax_grid_html_matches_full_page_render_on_a_dst_week(self):
+        a = self._player("ajaxdst_a", hours=[9])
+        a.profile.timezone = 'America/New_York'
+        a.profile.save(update_fields=['timezone'])
+        series = self._series_with(a)
+        self._login(a)
+
+        fallback_week = date(2026, 10, 26)
+        page = self.client.get(self.url, {'series': series.id, 'week': fallback_week.isoformat()})
+        ajax = self.client.get(self.week_url, {'series': series.id, 'week': fallback_week.isoformat()})
+        self.assertTrue(ajax.json()['ok'])
+        self.assertIn(ajax.json()['grid_html'].strip(), page.content.decode())
 
 
 class MatchesPageAvailabilityButtonTests(_AvailabilityFixtureMixin, TestCase):

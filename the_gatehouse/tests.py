@@ -42,7 +42,8 @@ from the_gatehouse.services.availability import (local_to_utc_hours, utc_to_loca
                                                  heat_bucket, reachable_buckets,
                                                  week_start_for, week_grid_cells,
                                                  week_grid_columns, general_pattern_local_slots,
-                                                 copy_from_general_utc_hours)
+                                                 copy_from_general_utc_hours,
+                                                 local_week_cell_shape, utc_instant_token)
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler
 from the_gatehouse.services.discord_oauth import update_discord_avatar
@@ -1727,6 +1728,79 @@ class WeekGridCellsTests(TestCase):
         self.assertEqual(self._total_hours_accounted_for(cells), 168)
 
 
+class LocalWeekCellShapeTests(TestCase):
+    """local_week_cell_shape: the compare grid's own per-cell DST shape --
+    the read-only-multi-player equivalent of week_grid_cells, but on a FIXED
+    7-day local week (with edge fill-in from neighboring real weeks) rather
+    than that real week's own 7-or-8 local calendar dates. Every entry is a
+    (source_week_start, utc_how) PAIR, not a bare int -- utc_instant_token
+    is what makes two hours from different source weeks unambiguous (see its
+    own docstring for the real collision this avoids)."""
+
+    WEEK = date(2026, 9, 14)  # a Monday, no DST transition that week.
+
+    def _all_tokens(self, shape):
+        return [utc_instant_token(wk, h) for pairs in shape.values() for wk, h in pairs]
+
+    def test_every_local_slot_is_accounted_for_exactly_once(self):
+        for tz_name in ('UTC', 'America/New_York', 'Asia/Kolkata', 'Pacific/Tongatapu'):
+            with self.subTest(tz=tz_name):
+                shape = local_week_cell_shape(self.WEEK, tz_name)
+                self.assertEqual(set(shape.keys()), set(range(168)))
+                tokens = self._all_tokens(shape)
+                self.assertEqual(len(tokens), len(set(tokens)),
+                                  "every real instant must appear at most once")
+
+    def test_dst_fall_back_week_has_one_split_slot_with_two_distinct_tokens(self):
+        # US fall-back 2026: local Nov 1 1am repeats -- UTC hours 149/150 of
+        # the week starting Oct 26 (confirmed against week_grid_cells).
+        fallback_week = date(2026, 10, 26)
+        shape = local_week_cell_shape(fallback_week, 'America/New_York')
+        split_slots = {k: v for k, v in shape.items() if len(v) == 2}
+        self.assertEqual(len(split_slots), 1)
+        ((local_slot, pairs),) = split_slots.items()
+        self.assertEqual(local_slot, 6 * 24 + 1)  # Sunday Nov 1 (day index 6), 1am.
+        utc_hows = sorted(h for _wk, h in pairs)
+        self.assertEqual(utc_hows, [149, 150])
+        tokens = [utc_instant_token(wk, h) for wk, h in pairs]
+        self.assertEqual(len(set(tokens)), 2)
+
+    def test_dst_spring_forward_week_has_one_disabled_slot(self):
+        # US spring-forward 2026: local Mar 8 2am never happens that week.
+        springfwd_week = date(2026, 3, 2)
+        shape = local_week_cell_shape(springfwd_week, 'America/New_York')
+        disabled_slots = [k for k, v in shape.items() if not v]
+        self.assertEqual(len(disabled_slots), 1)
+
+    def test_ordinary_week_has_no_split_or_disabled_slots(self):
+        shape = local_week_cell_shape(self.WEEK, 'America/New_York')
+        self.assertTrue(all(len(v) == 1 for v in shape.values()))
+
+    def test_no_bare_int_collision_across_source_weeks(self):
+        """The exact bug found during implementation: on a DST-transition
+        week, week_start's own hour N and a neighboring week's own hour N
+        are different real instants three weeks apart -- a bare int alone
+        would conflate them. Assert every pair's SOURCE week is preserved,
+        not just its hour, by checking at least one repeated bare hour value
+        resolves to two different tokens across different source weeks."""
+        fallback_week = date(2026, 10, 26)
+        shape = local_week_cell_shape(fallback_week, 'America/New_York')
+        by_bare_hour = {}
+        for pairs in shape.values():
+            for wk, h in pairs:
+                by_bare_hour.setdefault(h, set()).add(wk)
+        # At least one bare hour value must be shared by more than one
+        # source week -- confirms this test scenario actually exercises the
+        # ambiguity utc_instant_token exists to resolve, not a case where
+        # it's coincidentally moot.
+        shared = {h: weeks for h, weeks in by_bare_hour.items() if len(weeks) > 1}
+        self.assertTrue(shared, "fixture must include a bare-hour collision across source weeks")
+        for h, weeks in shared.items():
+            tokens = {utc_instant_token(wk, h) for wk in weeks}
+            self.assertEqual(len(tokens), len(weeks),
+                              "each source week's copy of hour %d must be a distinct token" % h)
+
+
 class CopyFromGeneralUtcHoursTests(TestCase):
     """general_pattern_local_slots / copy_from_general_utc_hours: seeding a
     week-specific grid from the general/standing pattern under the UTC-keyed
@@ -2755,6 +2829,166 @@ class AvailabilityCompareLFGTests(_NoLoginSignalMixin, TestCase):
         self.assertFalse(response.context['can_view'])
         for member in self.members:
             self.assertNotIn(member.name, response.context['meta_description'])
+
+
+class AvailabilityCompareWeekSpecificTests(_NoLoginSignalMixin, TestCase):
+    """The compare page's ?week= mode: week-specific PlayerSchedule rows
+    (falling back to general per player), edge fill-in from neighboring real
+    weeks due to timezone differences, and the AJAX week-switch endpoint."""
+
+    def setUp(self):
+        super().setUp()
+        from the_databot.models import LFGThread
+        self.url = reverse('availability-compare')
+        self.week_url = reverse('availability-compare-week-data')
+
+        self.members = []
+        for i in range(2):
+            user = User.objects.create_user(username=f'wkp{i}', password='pw')
+            profile = user.profile
+            profile.timezone = 'UTC'
+            profile.save(update_fields=['timezone'])
+            PlayerSchedule.objects.create(
+                profile=profile, tournament=None, available_hours=[10, 11, 12])
+            self.members.append(profile)
+
+        self.thread = LFGThread.objects.create(thread_id='wk-thread-1',
+                                               host=self.members[0])
+        self.thread.players.set(self.members)
+
+        self.viewer = self.members[0]
+        self.today = timezone.now().date()
+        self.current_week = week_start_for(self.today)
+        self.target_week = self.current_week + timedelta(weeks=1)
+
+    def _get(self, url=None, **params):
+        self.client.force_login(self.viewer.user)
+        return self.client.get(url or self.url, params)
+
+    def test_week_specific_row_overrides_general_for_that_player(self):
+        PlayerSchedule.objects.create(
+            profile=self.members[1], tournament=None,
+            week_start=self.target_week, available_hours=[50, 51])
+        response = self._get(lfg=self.thread.pk, week=self.target_week.isoformat())
+        hours = response.context['player_hours_json']
+        # player_hours_json is keyed by real-instant tokens (utc_instant_token)
+        # in week-specific mode, not bare hour-of-week ints -- see
+        # local_week_cell_shape's docstring for why a bare int is ambiguous
+        # once hours from more than one source week are in play.
+        expected = sorted(utc_instant_token(self.target_week, h) for h in [50, 51])
+        self.assertEqual(sorted(hours[str(self.members[1].id)]), expected)
+        # member[0] has no week-specific row -> falls back to general
+        # [10,11,12], reinterpreted for THIS real week via
+        # copy_from_general_utc_hours -- UTC (no DST), so the wall-clock
+        # values are unchanged, but the token is still real-week-anchored.
+        expected_general = sorted(
+            utc_instant_token(self.target_week, h)
+            for h in copy_from_general_utc_hours([10, 11, 12], self.target_week, 'UTC'))
+        self.assertEqual(sorted(hours[str(self.members[0].id)]), expected_general)
+
+    def test_explicitly_empty_week_specific_row_is_not_general_fallback(self):
+        """A row EXISTS (even empty) -> it wins at its level, same
+        row-exists-wins semantics schedules_for already guarantees
+        elsewhere."""
+        PlayerSchedule.objects.create(
+            profile=self.members[1], tournament=None,
+            week_start=self.target_week, available_hours=[])
+        response = self._get(lfg=self.thread.pk, week=self.target_week.isoformat())
+        hours = response.context['player_hours_json']
+        self.assertEqual(hours[str(self.members[1].id)], [])
+
+    def test_edge_fill_in_pulls_from_the_neighboring_real_week(self):
+        """A positive-offset zone spills the target week's own late UTC hours
+        onto local next-Monday -- verified directly during planning: for
+        Asia/Tokyo the gap this leaves is local slots 0-8 (this week's own
+        Monday morning), filled from the PREVIOUS real week's own late UTC
+        hours (159-167) once resolved."""
+        self.viewer.timezone = 'Asia/Tokyo'
+        self.viewer.save(update_fields=['timezone'])
+        prev_week = self.target_week - timedelta(weeks=1)
+        PlayerSchedule.objects.create(
+            profile=self.members[1], tournament=None,
+            week_start=self.target_week, available_hours=[])
+        PlayerSchedule.objects.create(
+            profile=self.members[1], tournament=None,
+            week_start=prev_week, available_hours=[159, 163, 167])
+        response = self._get(lfg=self.thread.pk, week=self.target_week.isoformat())
+        hours = sorted(response.context['player_hours_json'][str(self.members[1].id)])
+        # Tokens are real-instant strings tagged with their SOURCE week (see
+        # utc_instant_token) -- these three hours are prev_week's own, not
+        # target_week's, even though they land on target_week's local slots
+        # 0/4/8 once converted.
+        expected = sorted(utc_instant_token(prev_week, h) for h in [159, 163, 167])
+        self.assertEqual(hours, expected)
+
+    def test_ajax_grid_html_matches_full_page_render(self):
+        page = self._get(lfg=self.thread.pk, week=self.target_week.isoformat())
+        ajax = self.client.get(self.week_url, {
+            'lfg': self.thread.pk, 'week': self.target_week.isoformat()})
+        self.assertTrue(ajax.json()['ok'])
+        self.assertIn(ajax.json()['grid_html'].strip(), page.content.decode())
+
+    def test_ajax_edit_url_carries_the_switched_to_week(self):
+        """"My Availability" must follow the week the grid switches to, not
+        stay pinned to whichever week the page first loaded with."""
+        self.client.force_login(self.viewer.user)
+        next_week = self.target_week + timedelta(weeks=1)
+        ajax = self.client.get(self.week_url, {
+            'lfg': self.thread.pk, 'week': next_week.isoformat()})
+        data = ajax.json()
+        self.assertIn(f'week={next_week.isoformat()}', data['edit_url'])
+        page = self._get(lfg=self.thread.pk, week=next_week.isoformat())
+        self.assertEqual(data['edit_url'], page.context['edit_url'])
+
+    def test_ajax_endpoint_requires_get(self):
+        self.client.force_login(self.viewer.user)
+        response = self.client.post(self.week_url, {'lfg': self.thread.pk})
+        self.assertEqual(response.status_code, 405)
+
+    def test_ajax_endpoint_enforces_the_same_permission_as_the_full_page(self):
+        """A refused viewer's week-switch must not leak hours -- the new
+        endpoint re-runs the exact same can_view logic as the full page,
+        not a weaker check of its own."""
+        outsider = User.objects.create_user(username='wkout', password='pw')
+        self.client.force_login(outsider)
+        response = self.client.get(self.week_url, {
+            'lfg': self.thread.pk, 'week': self.target_week.isoformat()})
+        data = response.json()
+        self.assertEqual(data['player_hours_json'], {})
+        self.assertFalse(data['has_any_availability'])
+
+    def test_no_week_param_defaults_to_the_current_week(self):
+        """The compare page has no General mode: a specific real date is
+        always more useful than the dateless "usual pattern" when comparing
+        several players, so the page always shows one real week, defaulting
+        to the current one on first load."""
+        response = self._get(lfg=self.thread.pk)
+        self.assertTrue(response.context['is_week_specific'])
+        self.assertEqual(response.context['week_start'], self.current_week)
+
+    def test_week_equals_general_also_defaults_to_the_current_week(self):
+        """An old/bookmarked ?week=general link (from before General mode
+        was removed) must not 404 or render a dateless grid -- it resolves
+        the same way a bare request does."""
+        response = self._get(lfg=self.thread.pk, week='general')
+        self.assertTrue(response.context['is_week_specific'])
+        self.assertEqual(response.context['week_start'], self.current_week)
+
+    def test_dated_column_headers_replace_the_plain_day_name(self):
+        """Column headers match the single-user weekly grid's own two-line
+        weekday+date header, not a bare 'Mon'."""
+        response = self._get(lfg=self.thread.pk)
+        body = response.content.decode()
+        self.assertContains(response, 'avail-day-header--dated')
+        self.assertIn('avail-day-weekday', body)
+        self.assertIn('avail-day-date', body)
+
+    def test_no_mode_tabs_are_rendered(self):
+        response = self._get(lfg=self.thread.pk)
+        body = response.content.decode()
+        self.assertNotIn('compare-mode-tabs', body)
+        self.assertNotIn('compare-tab-general', body)
+        self.assertNotIn('compare-tab-weekly', body)
 
 
 class DismissNotificationTests(_NoLoginSignalMixin, TestCase):

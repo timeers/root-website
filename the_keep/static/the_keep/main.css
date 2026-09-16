@@ -5464,7 +5464,8 @@ body.forge-modal-open { overflow: hidden; }
     justify-content: flex-end;
   }
 
-  .avail-week-row #week-label {
+  .avail-week-row #week-label,
+  .avail-week-row #compare-week-label {
     flex: 1;
     text-align: center;
   }

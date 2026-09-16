@@ -185,6 +185,35 @@ def _resolve_week_start(raw, today):
     return requested_week
 
 
+def _parse_week_param(request, today):
+    """The week axis of an availability request: '' / absent -> general. Only
+    a form POST's `week_start` or a GET's `?week=` can request a specific
+    week; anything else (or a malformed date) falls back to general rather
+    than 500ing. Re-validated/clamped via _resolve_week_start regardless of
+    what the client claims.
+
+    Returns (week_start, is_week_specific). Standalone (reads only `request`
+    and `today`) so it can be shared by any view keyed on a real week, not
+    just the single-player editable grid -- see availability_compare.
+    """
+    from datetime import date as date_cls
+
+    if request.method == 'POST':
+        raw_week = request.POST.get('week_start', '')
+    else:
+        raw_week = request.GET.get('week', '')
+    raw_week = (raw_week or '').strip()
+    requested_week = None
+    if raw_week and raw_week != 'general':
+        try:
+            requested_week = date_cls.fromisoformat(raw_week)
+        except ValueError:
+            requested_week = None
+    week_start = _resolve_week_start(requested_week, today) if requested_week else None
+    is_week_specific = week_start is not None
+    return week_start, is_week_specific
+
+
 def _resolve_availability_target(request, profile):
     """Which PlayerSchedule row this request is about: the tournament axis
     (`?tournament=`/`schedule_target`) and the week axis (`?week=`/`week_start`),
@@ -195,8 +224,6 @@ def _resolve_availability_target(request, profile):
     standing schedule for -- a row exists only because that tournament asked
     for availability, so this never offers the option where it means nothing.
     """
-    from datetime import date as date_cls
-
     # Tournament schedules the player actually has -- standing (week_start=None)
     # rows only; this selector switches TOURNAMENTS, not weeks.
     tournament_schedules = list(
@@ -227,23 +254,8 @@ def _resolve_availability_target(request, profile):
         PlayerSchedule.objects.filter(profile=profile, tournament=tournament, week_start=None)
         .values_list('pk', flat=True).first())) if tournament else ''
 
-    # The week axis: '' / absent -> general. Only a form POST or ?week= can
-    # request a specific week; anything else falls back to general rather than
-    # 500ing on a malformed date.
     today = timezone.now().date()
-    if request.method == 'POST':
-        raw_week = request.POST.get('week_start', '')
-    else:
-        raw_week = request.GET.get('week', '')
-    raw_week = (raw_week or '').strip()
-    requested_week = None
-    if raw_week and raw_week != 'general':
-        try:
-            requested_week = date_cls.fromisoformat(raw_week)
-        except ValueError:
-            requested_week = None
-    week_start = _resolve_week_start(requested_week, today) if requested_week else None
-    is_week_specific = week_start is not None
+    week_start, is_week_specific = _parse_week_param(request, today)
 
     return tournament, tournament_schedules, schedule_target, week_start, is_week_specific
 
@@ -735,23 +747,19 @@ def _can_view_lfg_availability(profile, thread):
     return False
 
 
-def availability_compare(request):
-    """Compare several players' weekly availability on one grid.
+def _resolve_compare_roster(request):
+    """Which profiles a compare-page request is about, and whether THIS
+    viewer may see their hours -- the permission/roster resolution shared by
+    the full-page render and the AJAX week-switch endpoint, so there is
+    exactly one place that decides who may see whom (a week-switch must
+    never be a way to bypass the same checks the full page already runs).
 
-    Driven by a SET OF PROFILES rather than by a match, which is what makes it
-    reusable: `?players=<slug>,<slug>` is the general form and `?series=<id>` is a
-    convenience that resolves one match series' seats. A future "pick some
-    players" page is this same view with a different way of filling ?players=.
-
-    Keyed on the SERIES, not the match: seats hang off MatchSeries, and a series
-    can hold several matches that all share one roster.
-
-    Deliberately NOT @login_required: the link is handed out in Discord, so an
-    anonymous visitor is shown who may open the page and a login button back to
-    it, rather than being bounced through OAuth with no idea what they followed.
+    Returns a dict; see the keys assigned below. Deliberately does NOT touch
+    the week axis or resolve any hours -- callers layer that on themselves
+    (see availability_compare / availability_compare_week_data), since the
+    week axis differs in shape between a GET's `?week=` and nothing else
+    compare currently accepts server-side.
     """
-    from .services.availability import (utc_to_local_hours, overlap_summary,
-                                        reachable_buckets, DAY_LABELS, hour_labels)
     from the_databot.services.time_parsing import valid_timezone
 
     # None for an anonymous visitor. Every permission test below treats that as
@@ -775,9 +783,9 @@ def availability_compare(request):
     #     with who is being compared. The cost is that anyone holding the URL can
     #     read the roster -- accepted, since an unfurler has no session and would
     #     otherwise preview every link as this very refusal.
-    #   * AVAILABILITY HOURS never resolve when can_view is False. schedules_for
-    #     stays behind the gate below. When people are free is the sensitive part;
-    #     who is in a match is not.
+    #   * AVAILABILITY HOURS never resolve when can_view is False. Callers must
+    #     gate their OWN hour-fetching on can_view the same way -- this function
+    #     only decides the permission, it does not fetch any hours itself.
     can_view = True
     denied_message = None
     profiles = None          # None = no branch has resolved a roster yet
@@ -858,43 +866,384 @@ def availability_compare(request):
                 ).distinct()
             )
 
-    # Resolve availability, then draw it in the VIEWER's timezone so every player
-    # is on one comparable clock. An anonymous visitor has no timezone, so UTC.
+    # Every player is drawn on the VIEWER's clock so they're comparable on one
+    # grid. An anonymous visitor has no timezone, so UTC.
     tz_name = (viewer.timezone
                if viewer and valid_timezone(viewer.timezone) else None)
-    # The gate: hours are fetched ONLY for a viewer allowed to see them. Names
-    # above are resolved either way (see the note where can_view is declared).
-    schedules = (schedules_for([p.id for p in profiles], tournament)
-                 if can_view else {})
 
-    # `players` drives the GRID, so it stays empty for a refused viewer even
-    # though `profiles` is populated for the preview description.
+    return {
+        'viewer': viewer,
+        'series': series,
+        'tournament': tournament,
+        'back_url': back_url,
+        'title': title,
+        'can_view': can_view,
+        'denied_message': denied_message,
+        'profiles': profiles,
+        'tz_name': tz_name,
+    }
+
+
+def _week_anchored_and_dateless_hours(profile_ids, tournament, week_start, tz_name):
+    """{profile_id: [utc hour-of-week ints]} for ONE real week (`week_start`),
+    correctly distinguishing which precedence level each profile resolved at
+    -- unlike schedules_for(profile_ids, tournament, week_start), which walks
+    the full 4-level precedence `(tournament, week_start) -> (None,
+    week_start) -> (tournament, None) -> (None, None)` but returns one flat
+    dict with no way to tell which level a profile landed on. That
+    distinction matters here: the first two (week-anchored) levels' hours
+    are already real UTC hours for THIS week, used as-is; the last two
+    (dateless standing/template rows -- tournament-specific or fully
+    general) are stored against the fixed dateless reference Monday and
+    must be reinterpreted via copy_from_general_utc_hours before they mean
+    anything for a REAL week, or they drift by the DST offset between
+    whenever they were saved and whichever real week is being viewed.
+
+    Confirmed a tournament-scoped comparison is a real, reachable path
+    (compare's ?series= branch sets tournament from the match), so all four
+    levels are live, not just the two General-mode ones.
+    """
+    from .services.availability import copy_from_general_utc_hours
+
+    profile_ids = list(profile_ids)
+    if not profile_ids:
+        return {}
+
+    resolved = {}
+    # Levels 1-2: week-anchored, real hours for THIS week, no conversion --
+    # walked manually since schedules_for has no way to stop after level 2.
+    week_lookups = [{'tournament': tournament, 'week_start': week_start}] if tournament else []
+    week_lookups.append({'tournament': None, 'week_start': week_start})
+    for lookup in week_lookups:
+        remaining = [pid for pid in profile_ids if pid not in resolved]
+        if not remaining:
+            break
+        for pid, hours in PlayerSchedule.objects.filter(
+                profile_id__in=remaining, **lookup
+        ).values_list('profile_id', 'available_hours'):
+            resolved[pid] = hours
+
+    # Levels 3-4: dateless standing/template rows (tournament-specific, then
+    # fully general) -- schedules_for's own week_start=None form walks
+    # exactly these two levels with correct row-exists-wins precedence.
+    remaining = [pid for pid in profile_ids if pid not in resolved]
+    dateless = schedules_for(remaining, tournament, week_start=None)
+    # Distinct patterns share the same conversion -- memoize so a roster of
+    # many players on the same general pattern computes the DST math once.
+    converted_cache = {}
+    for pid, hours in dateless.items():
+        cache_key = tuple(hours)
+        if cache_key not in converted_cache:
+            converted_cache[cache_key] = copy_from_general_utc_hours(hours, week_start, tz_name)
+        resolved[pid] = converted_cache[cache_key]
+
+    return resolved
+
+
+def _compare_hours_by_profile(resolved, week_start, is_week_specific):
+    """{profile_id: [utc_instant_token, ...]} (week-specific mode) or
+    {profile_id: [local hour-of-week ints]} (General mode) for every profile
+    in `resolved['profiles']`, gated on `resolved['can_view']` exactly like
+    the page's own hours-fetching always has been (see
+    _resolve_compare_roster's own note on this).
+
+    Week-specific mode: for each of the three weeks in the edge-fill-in
+    stitching window (week_start and its neighbors), resolve each profile's
+    hours via _week_anchored_and_dateless_hours -- which is DST-correct at
+    every precedence level, unlike a blind schedules_for(..., week_start)
+    call (see that function's own docstring for the two distinct bugs this
+    fixes: naive UTC-hour reuse for a dateless standing row, and the same
+    problem at the tournament-standing level, not just the general one).
+    Then keep, per profile, only the tokens that actually appear in
+    local_week_cell_shape's output -- the exact set of real instants the
+    grid can display this week. utc_instant_token pairs each hour with its
+    SOURCE week before comparing, since a bare 0-167 int is ambiguous once
+    hours from more than one week are mixed (see that function's docstring
+    for the real collision this avoids).
+
+    General mode is unaffected by either DST fix -- it already draws the
+    dateless reference-Monday row back in local time via utc_to_local_hours,
+    which is internally consistent (no real week involved, so no drift).
+    """
+    from .services.availability import (utc_to_local_hours, local_week_cell_shape,
+                                        utc_instant_token)
+
+    can_view = resolved['can_view']
+    profiles = resolved['profiles']
+    tournament = resolved['tournament']
+    tz_name = resolved['tz_name']
+    profile_ids = [p.id for p in profiles]
+
+    if not can_view:
+        return {}
+
+    if not is_week_specific:
+        schedules = schedules_for(profile_ids, tournament)
+        return {pid: utc_to_local_hours(hours, tz_name)
+                for pid, hours in schedules.items()}
+
+    prev_week = week_start - timedelta(weeks=1)
+    next_week = week_start + timedelta(weeks=1)
+    target_hours = _week_anchored_and_dateless_hours(profile_ids, tournament, week_start, tz_name)
+    prev_hours = _week_anchored_and_dateless_hours(profile_ids, tournament, prev_week, tz_name)
+    next_hours = _week_anchored_and_dateless_hours(profile_ids, tournament, next_week, tz_name)
+
+    cell_shape = local_week_cell_shape(week_start, tz_name)
+    displayable_tokens = {
+        utc_instant_token(source_week, utc_how)
+        for pairs in cell_shape.values()
+        for source_week, utc_how in pairs
+    }
+
+    result = {}
+    for pid in profile_ids:
+        tokens = set()
+        for source_week, hours in ((week_start, target_hours.get(pid, [])),
+                                    (prev_week, prev_hours.get(pid, [])),
+                                    (next_week, next_hours.get(pid, []))):
+            for utc_how in hours:
+                token = utc_instant_token(source_week, utc_how)
+                if token in displayable_tokens:
+                    tokens.add(token)
+        result[pid] = sorted(tokens)
+    return result
+
+
+def _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profile):
+    """The template-ready context shared by the full-page render and the
+    AJAX week-switch endpoint -- `players`/`player_hours_json`/etc, plus the
+    week-navigator state. One assembly path so the two responses can never
+    disagree about what a given (roster, week) target looks like.
+    """
+    from .services.availability import (overlap_summary, reachable_buckets,
+                                        DAY_LABELS, hour_labels, week_start_for)
+
+    viewer = resolved['viewer']
+    profiles = resolved['profiles']
+    tournament = resolved['tournament']
+    can_view = resolved['can_view']
+
     players = []
-    hours_by_profile = {}
     for profile in (profiles if can_view else []):
-        local = utc_to_local_hours(schedules.get(profile.id, []), tz_name)
-        hours_by_profile[profile.id] = local
+        local = hours_by_profile.get(profile.id, [])
         players.append({
             'profile': profile,
             'hours': local,
             'hour_count': len(local),
             'is_viewer': viewer is not None and profile.id == viewer.id,
         })
-    # Players with availability first: the ones who can't contribute shouldn't
-    # push the useful rows down the list.
     players.sort(key=lambda p: (-p['hour_count'], (p['profile'].display_name or '').lower()))
 
-    with_hours = {pid: hrs for pid, hrs in hours_by_profile.items() if hrs}
+    with_hours = {p['profile'].id: p['hours'] for p in players if p['hours']}
 
-    # Where the viewer goes to fix their own availability: their tournament
-    # schedule if this tournament asked them for one, else the general page.
     edit_url = None
     if any(p['is_viewer'] for p in players):
-        edit_url = reverse('availability')
+        # Carries the currently-viewed week along, so "My Availability" opens
+        # straight to that week's own editable grid rather than always
+        # landing on General -- compare has no General mode of its own
+        # (is_week_specific is always True here), so week_start is always a
+        # real week to hand off.
+        edit_params = {}
         if tournament and PlayerSchedule.objects.filter(
             profile=viewer, tournament=tournament
         ).exists():
-            edit_url = f'{edit_url}?tournament={tournament.slug}'
+            edit_params['tournament'] = tournament.slug
+        if week_start:
+            edit_params['week'] = week_start.isoformat()
+        edit_url = reverse('availability')
+        if edit_params:
+            edit_url = f'{edit_url}?{urlencode(edit_params)}'
+
+    today = timezone.now().date()
+    current_week = week_start_for(today)
+    columns = _compare_grid_columns(week_start, is_week_specific)
+
+    return {
+        'players': players,
+        'player_count': len(players),
+        'has_any_availability': bool(with_hours),
+        'player_hours_json': {str(pid): hrs for pid, hrs in
+                               ((p['profile'].id, p['hours']) for p in players)},
+        'player_names_json': {
+            str(p['profile'].id): p['profile'].display_name or '' for p in players
+        },
+        # overlap_summary/reachable_buckets are dead server-side output --
+        # the template's own JS (render()/renderSummary()) computes the
+        # equivalent client-side from player_hours_json and never reads
+        # these context keys. They're also unsafe to call with week-specific
+        # mode's `with_hours` here: those values are unambiguous real-instant
+        # TOKEN strings (see services.availability.utc_instant_token), not
+        # the plain hour-of-week ints overlap_summary's arithmetic requires.
+        # Skipped entirely in week-specific mode rather than fed bad input.
+        'summary': overlap_summary(with_hours) if not is_week_specific else
+                   {'overlap_hours': [], 'total': 0, 'best_block': 0, 'days': 0},
+        'legend_buckets': reachable_buckets(len(with_hours)),
+        'edit_url': edit_url,
+        'days': DAY_LABELS,
+        'hours': hour_labels(),
+        'columns': columns,
+        'hour_rows': _compare_hour_rows(week_start, resolved['tz_name'], is_week_specific, columns),
+        'is_week_specific': is_week_specific,
+        'week_start': week_start,
+        'current_week': current_week,
+        'default_week': current_week,
+        'prev_week': (week_start - timedelta(weeks=1)
+                      if is_week_specific and week_start > current_week else None),
+        'next_week': (week_start + timedelta(weeks=1)
+                      if is_week_specific and week_start < current_week + timedelta(weeks=AVAILABILITY_WEEKS_FORWARD)
+                      else None),
+    }
+
+
+def _compare_grid_columns(week_start, is_week_specific):
+    """[{'day_label', 'header_label', 'header_sublabel', 'header_title',
+    'iso_date'}, ...] for the compare partial's `columns` param -- shared by
+    the full-page render and the AJAX endpoint so both build the header/date
+    labels identically.
+
+    `day_label` is the FULL weekday name (DAY_LABELS, e.g. "Monday") and
+    still drives the per-cell data-label attribute (the hover tooltip and
+    click-detail panel's text) exactly as before this was extended.
+    `header_label`/`header_sublabel`/`header_title` are the single-user
+    week-specific grid's own two-line dated header fields (see
+    _week_grid_template_context) -- header_label is the ABBREVIATED weekday
+    ("Mon", via date_format(d, 'D')), a DIFFERENT string from day_label used
+    only for the compact header row, never for data-label.
+
+    A week-specific column's date is simply `week_start + i days`: that IS
+    the local calendar date each column represents by construction (slot
+    i*24+h in local_week_hours_for's output corresponds to exactly this
+    date), so no further timezone conversion belongs here -- the conversion
+    already happened when the hours themselves were re-projected onto this
+    local frame.
+    """
+    from django.utils.formats import date_format
+    from .services.availability import DAY_LABELS
+
+    if not is_week_specific:
+        return [{'day_label': day, 'header_label': day, 'header_sublabel': '',
+                  'header_title': day, 'iso_date': None} for day in DAY_LABELS]
+
+    columns = []
+    for i in range(7):
+        local_date = week_start + timedelta(days=i)
+        columns.append({
+            'day_label': DAY_LABELS[i],
+            'header_label': date_format(local_date, 'D'),
+            'header_sublabel': date_format(local_date, 'n/j/y'),
+            'header_title': date_format(local_date, 'l, F j, Y'),
+            'iso_date': local_date.isoformat(),
+        })
+    return columns
+
+
+def _compare_hour_rows(week_start, tz_name, is_week_specific, columns):
+    """[(hour, short_label, long_label, cells), ...] for the compare
+    partial's cell grid -- mirrors _week_grid_template_context's hour_rows
+    for the single-user grid (same reason: Django templates cannot index a
+    list by a loop variable, so columns x hours is pre-assembled here, not
+    nested template loops -- and for the same reason, `cells` is pre-zipped
+    with `columns` here rather than passed as a separate parallel list the
+    template would need to zip itself, which Django templates cannot do).
+
+    `cells` has 7 entries (one per day column, in order), each a
+    `(column, tokens)` pair -- `column` is the matching entry from
+    `columns` (so the template never needs to index columns by the cell
+    loop's own counter) and `tokens` is a list of 0, 1, or 2 `data-how`
+    TOKEN strings for that (day, hour) position -- 0 -> disabled cell,
+    1 -> ordinary cell, 2 -> DST fall-back split cell (see
+    local_week_cell_shape). Each token is utc_instant_token's real-UTC-
+    instant string, unambiguous across the three-week stitching window (see
+    that function's docstring for why a bare hour-of-week int is not safe
+    here).
+
+    General mode (`is_week_specific` False) needs none of this -- returns
+    None, since the dateless reference week has no real DST transitions and
+    the partial's own General-mode columns carry no data-date/split concept.
+    """
+    from .services.availability import hour_labels, local_week_cell_shape, utc_instant_token
+
+    if not is_week_specific:
+        return None
+
+    cell_shape = local_week_cell_shape(week_start, tz_name)
+    hour_rows = []
+    for hour, short_label, long_label in hour_labels():
+        row_cells = []
+        for day in range(7):
+            local_slot = day * 24 + hour
+            tokens = [utc_instant_token(source_week, utc_how)
+                      for source_week, utc_how in cell_shape[local_slot]]
+            row_cells.append((columns[day], tokens))
+        hour_rows.append((hour, short_label, long_label, row_cells))
+    return hour_rows
+
+
+def _render_compare_grid_html(resolved, week_start, is_week_specific, hours_by_profile):
+    """The compare grid partial's rendered HTML for one (roster, week)
+    target -- reused by the AJAX endpoint so a week-switch can swap
+    #compare-grid's container innerHTML wholesale. One rendering path (this
+    template), not two -- mirrors _render_grid_html for the single-user grid.
+    """
+    from django.template.loader import render_to_string
+    from .services.availability import hour_labels
+
+    columns = _compare_grid_columns(week_start, is_week_specific)
+    hour_rows = _compare_hour_rows(week_start, resolved['tz_name'], is_week_specific, columns)
+
+    return render_to_string('partials/compare_grid.html', {
+        'columns': columns,
+        'hours': hour_labels(),
+        'hour_rows': hour_rows,
+    })
+
+
+def _resolve_compare_week(request, today):
+    """The week axis for the compare page: unlike the single-user page,
+    compare has no General mode -- a specific real date is always more
+    useful than the dateless "usual pattern" view when comparing several
+    players. So `_parse_week_param`'s own General result (week_start=None)
+    is only a STARTING point here, immediately defaulted to the current
+    week rather than left as General; `?week=general` (an old/bookmarked
+    link from before this changed) resolves the same way. Always returns
+    (week_start, True).
+    """
+    from .services.availability import week_start_for
+
+    week_start, _is_week_specific = _parse_week_param(request, today)
+    return week_start or week_start_for(today), True
+
+
+def availability_compare(request):
+    """Compare several players' weekly availability on one grid.
+
+    Driven by a SET OF PROFILES rather than by a match, which is what makes it
+    reusable: `?players=<slug>,<slug>` is the general form and `?series=<id>` is a
+    convenience that resolves one match series' seats. A future "pick some
+    players" page is this same view with a different way of filling ?players=.
+
+    Keyed on the SERIES, not the match: seats hang off MatchSeries, and a series
+    can hold several matches that all share one roster.
+
+    Deliberately NOT @login_required: the link is handed out in Discord, so an
+    anonymous visitor is shown who may open the page and a login button back to
+    it, rather than being bounced through OAuth with no idea what they followed.
+
+    Always shows one specific real UTC week (fixed 7-column Mon-Sun, drawn in
+    the viewer's local time, with edge fill-in from the neighboring real
+    weeks -- see local_week_hours_for), defaulting to the CURRENT week when
+    no `?week=` is given -- see _resolve_compare_week. Re-validated/clamped
+    the same way the single-user page's week navigator is (_parse_week_param).
+    """
+    resolved = _resolve_compare_roster(request)
+    today = timezone.now().date()
+    week_start, is_week_specific = _resolve_compare_week(request, today)
+
+    hours_by_profile = _compare_hours_by_profile(resolved, week_start, is_week_specific)
+    grid_context = _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profile)
+
+    profiles = resolved['profiles']
+    can_view = resolved['can_view']
 
     # Link-preview text. Built from `profiles` rather than `players` so it still
     # names people on a refused page -- an unfurler has no session, so keying it
@@ -913,33 +1262,60 @@ def availability_compare(request):
         meta_description = _('Compare when players are free to play.')
 
     context = {
-        'players': players,
-        'player_count': len(players),
-        'has_any_availability': bool(with_hours),
-        # The grid recomputes client-side as players are toggled, so it gets the
-        # raw per-player hours rather than a pre-baked matrix. Keys are strings
-        # because that is what they become in JSON.
-        'player_hours_json': {str(pid): hrs for pid, hrs in hours_by_profile.items()},
-        'player_names_json': {
-            str(p['profile'].id): p['profile'].display_name or '' for p in players
-        },
-        'summary': overlap_summary(with_hours),
-        'legend_buckets': reachable_buckets(len(with_hours)),
-        'series': series,
-        'tournament': tournament,
-        'back_url': back_url,
-        'title': title,
-        'edit_url': edit_url,
+        **grid_context,
+        'series': resolved['series'],
+        'tournament': resolved['tournament'],
+        'back_url': resolved['back_url'],
+        'title': resolved['title'],
         # False renders an explanation instead of the grid. The player lists above
         # are empty in that case, so nothing about them reaches the template.
         'can_view': can_view,
-        'denied_message': denied_message,
+        'denied_message': resolved['denied_message'],
         'meta_description': meta_description,
-        'timezone_name': tz_name or 'UTC',
-        'days': DAY_LABELS,
-        'hours': hour_labels(),
+        'timezone_name': resolved['tz_name'] or 'UTC',
     }
     return render(request, 'the_gatehouse/availability_compare.html', context)
+
+
+def availability_compare_week_data(request):
+    """GET JSON: the read-only compare-grid state for one (roster, week)
+    target, used by the week navigator's tabs/arrows to repaint the grid
+    without a full page reload. Never writes.
+
+    Deliberately NOT @login_required, unlike availability_week_data -- that
+    view is gated because it edits the LOGGED-IN user's own schedule; this
+    one only ever reads, and must match availability_compare's own gating
+    (anonymous-accessible, permission decided per-roster by
+    _resolve_compare_roster) so a week-switch can't be used to see anything
+    the full page itself would refuse.
+    """
+    if request.method != 'GET':
+        return JsonResponse({'ok': False, 'message': _('GET required'), 'tag': 'error'}, status=405)
+
+    from django.utils.formats import date_format
+
+    resolved = _resolve_compare_roster(request)
+    today = timezone.now().date()
+    week_start, is_week_specific = _resolve_compare_week(request, today)
+
+    hours_by_profile = _compare_hours_by_profile(resolved, week_start, is_week_specific)
+    grid_context = _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profile)
+    grid_html = _render_compare_grid_html(resolved, week_start, is_week_specific, hours_by_profile)
+
+    return JsonResponse({
+        'ok': True,
+        'is_week_specific': is_week_specific,
+        'week_start': week_start.isoformat() if week_start else None,
+        'week_label': _('Week of %(date)s') % {'date': date_format(week_start, 'M j, Y')},
+        'prev_week': grid_context['prev_week'].isoformat() if grid_context['prev_week'] else None,
+        'next_week': grid_context['next_week'].isoformat() if grid_context['next_week'] else None,
+        'default_week': grid_context['default_week'].isoformat(),
+        'grid_html': grid_html,
+        'player_hours_json': grid_context['player_hours_json'],
+        'player_names_json': grid_context['player_names_json'],
+        'has_any_availability': grid_context['has_any_availability'],
+        'edit_url': grid_context['edit_url'],
+    })
 
 
 @login_required
