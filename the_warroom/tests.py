@@ -6,13 +6,12 @@ from django.contrib.auth.signals import user_logged_in
 from django.core.exceptions import ValidationError
 from django.db import connection
 from django.db.models import Prefetch
-from django.db.models.signals import post_save
 from django.template.loader import render_to_string
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
-from datetime import timedelta
+from datetime import date, timedelta
 
 from the_gatehouse.models import (
     DiscordGuild, Profile, PlayerSchedule, schedules_for,
@@ -31,7 +30,7 @@ from the_warroom.services.box_score_import import (
     resolve_participant_player, resolve_participant_players,
     validate_participants,
 )
-from the_gatehouse.signals import handle_image_resize, user_logged_in_handler
+from the_gatehouse.signals import user_logged_in_handler
 from the_warroom.forms import GameCreateForm
 from the_databot.tasks import create_match_threads_task
 from the_warroom.services.grouping import GroupingService
@@ -819,10 +818,6 @@ class UndraftedPrefillTests(TestCase):
     drafted faction no seat took."""
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
 
         self.designer = Profile.objects.create(discord="undp", discord_id="900")
         self.factions = [
@@ -936,7 +931,6 @@ class CreateGameThreadsEndpointTests(TestCase):
         # supports, and none of it is under test here.
         user_logged_in.disconnect(user_logged_in_handler)
         self.addCleanup(user_logged_in.connect, user_logged_in_handler)
-        post_save.disconnect(handle_image_resize, sender=Profile)
         self.guild = DiscordGuild.objects.create(guild_id="910100", name="Threads Guild",
                                                  bot_member=True)
         # The endpoint gates on Tournament.has_permission (designer/moderator/admin),
@@ -956,9 +950,6 @@ class CreateGameThreadsEndpointTests(TestCase):
             round=self.round, group_number=1, name="Group A")
         self.series = MatchSeries.objects.create(
             round=self.round, player_group=self.group, number_of_games=1)
-
-    def tearDown(self):
-        post_save.connect(handle_image_resize, sender=Profile)
 
     def _url(self, tournament=None, stage=None, round=None):
         return reverse('round-create-game-threads', kwargs={
@@ -1047,14 +1038,10 @@ class GuildOnEveryClassificationTests(TestCase):
     it. Every classification may now link one."""
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
         self.guild_a = DiscordGuild.objects.create(guild_id="930100", name="A")
         self.guild_b = DiscordGuild.objects.create(guild_id="930200", name="B")
         self.user = User.objects.create_user(username="cls", password="pw")
         self.user.profile.guilds.add(self.guild_a, self.guild_b)
-
-    def tearDown(self):
-        post_save.connect(handle_image_resize, sender=Profile)
 
     def test_player_settings_form_offers_guild_for_every_type(self):
         from the_warroom.forms import TournamentPlayerSettingsForm
@@ -1094,15 +1081,11 @@ class ResultsChannelAnnounceTests(TestCase):
     TEXT = [{"id": CHANNEL, "name": "results"}]
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
         self.guild = DiscordGuild.objects.create(guild_id="940100", name="Res Guild",
                                                  bot_member=True)
         self.recorder = Profile.objects.create(discord="rec", display_name="Recorder Rita")
         self.tournament = Tournament.objects.create(
             name="Res Cup", guild=self.guild, results_channel=self.CHANNEL)
-
-    def tearDown(self):
-        post_save.connect(handle_image_resize, sender=Profile)
 
     def _post(self, message, **kwargs):
         from the_databot import tasks
@@ -1163,7 +1146,6 @@ class ResultsChannelViewAnnounceTests(TestCase):
     CHANNEL = "200000000000000022"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
         user_logged_in.disconnect(user_logged_in_handler)
 
         self.guild = DiscordGuild.objects.create(guild_id="950100", name="Res Guild",
@@ -1204,7 +1186,6 @@ class ResultsChannelViewAnnounceTests(TestCase):
         self.client.force_login(self.user)
 
     def tearDown(self):
-        post_save.connect(handle_image_resize, sender=Profile)
         user_logged_in.connect(user_logged_in_handler)
 
     def _payload(self, **extra):
@@ -1248,16 +1229,17 @@ class ResultsChannelViewAnnounceTests(TestCase):
         callbacks -- they otherwise never fire inside TestCase's transaction."""
         with mock.patch('the_warroom.views.post_to_tournament_channel') as announce, \
              mock.patch('the_warroom.views.post_channel_message_task') as thread_post, \
+             mock.patch('the_warroom.views.edit_channel_message_task') as edit_task, \
              mock.patch('the_warroom.views.send_rich_discord_message_task'):
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.client.post(url, payload)
-        return resp, announce, thread_post
+        return resp, announce, thread_post, edit_task
 
     def test_standalone_game_announces(self):
         """The case that never fired before: no match, no LFG thread, just a
         round that belongs to a tournament."""
         url = reverse('record-game')
-        resp, announce, _ = self._record_committed(url, self._payload())
+        resp, announce, _, _ = self._record_committed(url, self._payload())
         self.assertEqual(Game.objects.count(), 1)
         announce.assert_called_once()
         args = announce.call_args.args
@@ -1269,7 +1251,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         """A round with no tournament resolves to None and is skipped."""
         orphan = Round.objects.create(round_number=9, is_active=True)
         url = reverse('record-game')
-        _, announce, _ = self._record_committed(
+        _, announce, _, _ = self._record_committed(
             url, self._payload(round=orphan.pk))
         announce.assert_not_called()
 
@@ -1277,7 +1259,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         """The repost guard: `game_was_final` is read AFTER any rebinding, so a
         second submission against an already-final game stays silent."""
         url = reverse('record-game')
-        _, announce, _ = self._record_committed(url, self._payload())
+        _, announce, _, _ = self._record_committed(url, self._payload())
         announce.assert_called_once()
 
         game = Game.objects.get()
@@ -1289,7 +1271,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
             'form-1-id': efforts[1].pk,
             'nickname': 'renamed',
         })
-        _, announce2, _ = self._record_committed(edit_url, edit_payload)
+        _, announce2, _, _ = self._record_committed(edit_url, edit_payload)
         announce2.assert_not_called()
 
     def test_resubmitting_to_a_match_that_already_has_a_final_game_does_not_repost(self):
@@ -1306,7 +1288,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         self._seat(series, self.opponent, 2)
 
         match_url = f"{reverse('record-game')}?match={match.pk}"
-        _, announce, _ = self._record_committed(match_url, self._payload(
+        _, announce, _, _ = self._record_committed(match_url, self._payload(
             match_id=match.pk))
         announce.assert_called_once()
 
@@ -1318,7 +1300,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         # Same URL, still no `id` in the path -- this is the rebinding path.
         # INITIAL_FORMS must match the saved efforts or the stale-submission
         # guard redirects before the view ever reaches the announce block.
-        _, announce2, _ = self._record_committed(match_url, self._payload(
+        _, announce2, _, _ = self._record_committed(match_url, self._payload(
             match_id=match.pk,
             **{
                 'form-INITIAL_FORMS': '2',
@@ -1340,7 +1322,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         thread.players.add(self.profile, self.opponent)
 
         url = f"{reverse('record-game')}?lfg={thread.pk}"
-        _, announce, thread_post = self._record_committed(
+        _, announce, thread_post, _ = self._record_committed(
             url, self._payload(lfg_id=thread.pk))
 
         announce.assert_called_once()
@@ -1365,7 +1347,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         self._seat(series, self.opponent, 2)
 
         url = f"{reverse('record-game')}?match={match.pk}"
-        _, announce, thread_post = self._record_committed(
+        _, announce, thread_post, _ = self._record_committed(
             url, self._payload(match_id=match.pk))
 
         announce.assert_called_once()
@@ -1394,7 +1376,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         self.profile.discord_id = "700000000000000007"
         self.profile.save(update_fields=["discord_id"])
 
-        _, announce, _ = self._record_committed(
+        _, announce, _, _ = self._record_committed(
             reverse('record-game'), self._payload())
 
         self.assertIn(f"<@{self.profile.discord_id}>", announce.call_args.args[2])
@@ -1405,7 +1387,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         """discord_id is null AND blank. A literal "<@>" would make Discord
         reject the whole payload with a 400, so the guard is load-bearing."""
         self.assertFalse(self.profile.discord_id)
-        _, announce, _ = self._record_committed(
+        _, announce, _, _ = self._record_committed(
             reverse('record-game'), self._payload())
 
         content = announce.call_args.args[2]
@@ -1415,7 +1397,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
     def test_a_match_game_links_the_group_thread(self):
         match, group = self._match_with_thread()
         url = f"{reverse('record-game')}?match={match.pk}"
-        _, announce, _ = self._record_committed(
+        _, announce, _, _ = self._record_committed(
             url, self._payload(match_id=match.pk, nickname="Grand Final"))
 
         self.assertIn(f"[Grand Final]({group.discord_thread})",
@@ -1430,16 +1412,52 @@ class ResultsChannelViewAnnounceTests(TestCase):
         thread.players.add(self.profile, self.opponent)
 
         url = f"{reverse('record-game')}?lfg={thread.pk}"
-        _, announce, _ = self._record_committed(
+        _, announce, _, _ = self._record_committed(
             url, self._payload(lfg_id=thread.pk, nickname="Friday Night"))
 
         self.assertIn(f"[Friday Night]({thread.thread_url()})",
                       announce.call_args.args[2])
 
+    def test_recording_the_game_strips_the_tracked_boxscore_messages_record_line(self):
+        """A boxscore-API upload staged a "record the game" link on some earlier
+        message; once the game is actually recorded, that link is stale and the
+        message should be rewritten back to its stored pre-record-line body."""
+        role = GuildLFGRole.objects.create(guild=self.guild, name="TTS LFG 2",
+                                           tournament=self.tournament)
+        thread = LFGThread.objects.create(
+            thread_id="300000000000000099", guild=self.guild, lfg_role=role,
+            host=self.profile, boxscore_message_id="555444333",
+            boxscore_message_body="Box score uploaded — 2 seats, 1 turns.")
+        thread.players.add(self.profile, self.opponent)
+
+        url = f"{reverse('record-game')}?lfg={thread.pk}"
+        _, _, _, edit_task = self._record_committed(
+            url, self._payload(lfg_id=thread.pk))
+
+        edit_task.delay.assert_called_once_with(
+            thread.thread_id, "555444333",
+            "Box score uploaded — 2 seats, 1 turns.")
+
+    def test_recording_the_game_leaves_no_boxscore_message_untouched(self):
+        """The common case: no boxscore-API upload ever happened for this
+        thread, so there is nothing to edit."""
+        role = GuildLFGRole.objects.create(guild=self.guild, name="TTS LFG 3",
+                                           tournament=self.tournament)
+        thread = LFGThread.objects.create(thread_id="300000000000000098",
+                                          guild=self.guild, lfg_role=role,
+                                          host=self.profile)
+        thread.players.add(self.profile, self.opponent)
+
+        url = f"{reverse('record-game')}?lfg={thread.pk}"
+        _, _, _, edit_task = self._record_committed(
+            url, self._payload(lfg_id=thread.pk))
+
+        edit_task.delay.assert_not_called()
+
     def test_a_game_with_no_thread_names_it_without_a_link(self):
         """A standalone game still gets its NAME -- an improvement on the bare
         word "Game" -- just no link to jump to."""
-        _, announce, _ = self._record_committed(
+        _, announce, _, _ = self._record_committed(
             reverse('record-game'), self._payload(nickname="Ladder Game"))
 
         content = announce.call_args.args[2]
@@ -1452,7 +1470,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
         unlinked name rather than publishing a link into another server."""
         match, group = self._match_with_thread(thread_guild="999999999999999999")
         url = f"{reverse('record-game')}?match={match.pk}"
-        _, announce, _ = self._record_committed(
+        _, announce, _, _ = self._record_committed(
             url, self._payload(match_id=match.pk, nickname="Grand Final"))
 
         content = announce.call_args.args[2]
@@ -1462,7 +1480,7 @@ class ResultsChannelViewAnnounceTests(TestCase):
     def test_a_game_with_no_nickname_falls_back_to_a_platform_name(self):
         """Game.nickname is null AND blank. Mirrors the rich-message title's own
         fallback, so both announcements for one game agree on its name."""
-        _, announce, _ = self._record_committed(
+        _, announce, _, _ = self._record_committed(
             reverse('record-game'), self._payload())
 
         self.assertTrue(
@@ -1864,7 +1882,6 @@ class MatchLinkGameTests(TestCase):
     """
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
         user_logged_in.disconnect(user_logged_in_handler)
 
         self.user = User.objects.create_user(username="mod", password="x")
@@ -1905,7 +1922,6 @@ class MatchLinkGameTests(TestCase):
         self.client.force_login(self.user)
 
     def tearDown(self):
-        post_save.connect(handle_image_resize, sender=Profile)
         user_logged_in.connect(user_logged_in_handler)
 
     def _seat(self, profile, seat_number):
@@ -2407,7 +2423,6 @@ class BoxScoreImportResolveTests(TestCase):
     """
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
         self.designer = Profile.objects.create(discord="designer")
         self.marquise = Faction.objects.create(title="Marquise", type="M", reach=10,
                                                animal="cat", designer=self.designer)
@@ -2421,9 +2436,6 @@ class BoxScoreImportResolveTests(TestCase):
                                         designer=self.designer)
         self.map = Map.objects.create(title="Autumn", clearings=12, designer=self.designer)
         self.player = Profile.objects.create(discord="alice")
-
-    def tearDown(self):
-        post_save.connect(handle_image_resize, sender=Profile)
 
     def _buckets(self, factions=None, players=None):
         return {
@@ -2668,12 +2680,6 @@ class LFGThreadTurnsDataTests(TestCase):
     """`LFGThread.turns_data` -- storage for a thread's box score, and the
     validation that keeps the record form able to trust it."""
 
-    def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
-
-    def tearDown(self):
-        post_save.connect(handle_image_resize, sender=Profile)
-
     def test_a_malformed_box_score_is_refused_on_clean(self):
         thread = LFGThread(thread_id="t-bad")
         thread.turns_data = [{'turn_order': 1, 'turns': [{'turn': 0, 'score': 5}]}]
@@ -2701,8 +2707,6 @@ class BoxScoreUploadApiTests(TestCase):
     """
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.alice = Profile.objects.create(discord='ttsalice', discord_id='801',
                                             display_name='Alice')
         self.bob = Profile.objects.create(discord='ttsbob', discord_id='802',
@@ -2728,7 +2732,7 @@ class BoxScoreUploadApiTests(TestCase):
 
     def _post(self, doc, token_raw, raw_body=None):
         body = raw_body if raw_body is not None else json.dumps(doc)
-        with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay'), \
+        with mock.patch('the_databot.discord_interactions.post_boxscore_result_task.delay'), \
                 mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay') as prompt, \
                 mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
             response = self.client.post(
@@ -2758,7 +2762,7 @@ class BoxScoreUploadApiTests(TestCase):
         the retry wrapper stays in the picture -- calling the service function
         directly from the request path would lose both the retry and the
         off-request-path posting."""
-        with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay') as post, \
+        with mock.patch('the_databot.discord_interactions.post_boxscore_result_task.delay') as post, \
                 mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
                 mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
             self.client.post(
@@ -2773,7 +2777,7 @@ class BoxScoreUploadApiTests(TestCase):
         _t, raw = self._token()
         post = self._post_capturing_message(self._doc(), raw)
 
-        content = post.call_args.args[1]
+        content = post.call_args.args[2]
         self.assertIn(f'<@{self.alice.discord_id}>', content)
         self.assertIn('your box score was saved', content)
         # BOTH halves are required: allowed_mentions is a filter over what the
@@ -2808,7 +2812,7 @@ class BoxScoreUploadApiTests(TestCase):
         _token, raw = BoxScoreUploadToken.issue(self.thread, ghost)
         post = self._post_capturing_message(self._doc(), raw)
 
-        content = post.call_args.args[1]
+        content = post.call_args.args[2]
         self.assertNotIn('<@', content)
         self.assertIn('Box score uploaded from Tabletop Simulator', content)
         self.assertIsNone(post.call_args.kwargs['allowed_mentions'])
@@ -3018,7 +3022,7 @@ class BoxScoreUploadApiTests(TestCase):
         doc = self._doc()
         doc['participants'][0]['faction'] = 'marquise-de-cat'
         with mock.patch(
-                'the_databot.discord_interactions.post_channel_message_task.delay'
+                'the_databot.discord_interactions.post_boxscore_result_task.delay'
         ) as posted, \
                 mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
                 mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
@@ -3026,7 +3030,7 @@ class BoxScoreUploadApiTests(TestCase):
                 reverse('api-boxscore-upload'), data=json.dumps(doc),
                 content_type='application/json',
                 HTTP_AUTHORIZATION=f'Game-Token {raw}')
-        summary = posted.call_args[0][1] if posted.call_args else ''
+        summary = posted.call_args[0][2] if posted.call_args else ''
         self.assertIn('Seating:', summary)
         self.assertIn('1. Alice', summary)
         # The faction TITLE when the asset exists, else the slug -- this test DB
@@ -3052,7 +3056,7 @@ class BoxScoreUploadApiTests(TestCase):
              'turns': [{'turn': 1, 'score': 4}]},
         ]}
         with mock.patch(
-                'the_databot.discord_interactions.post_channel_message_task.delay'
+                'the_databot.discord_interactions.post_boxscore_result_task.delay'
         ) as posted, \
                 mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
                 mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
@@ -3060,7 +3064,7 @@ class BoxScoreUploadApiTests(TestCase):
                 reverse('api-boxscore-upload'), data=json.dumps(doc),
                 content_type='application/json',
                 HTTP_AUTHORIZATION=f'Game-Token {raw}')
-        summary = posted.call_args[0][1] if posted.call_args else ''
+        summary = posted.call_args[0][2] if posted.call_args else ''
         self.assertIn('1. Alice (4)', summary)
         self.assertIn('2. Bob (9)', summary)
 
@@ -3149,6 +3153,64 @@ class BoxScoreUploadApiTests(TestCase):
         self.assertEqual(set(self.thread.players.values_list('pk', flat=True)),
                          before)
 
+    # ── the tracked success message ──
+
+    def _post_running_result_task(self, doc, token_raw, post_full_return_value):
+        """As _post, but runs post_boxscore_result_task's real body inline (its
+        own .delay is normally mocked to a no-op) so the message-id/body
+        tracking it does actually lands, the same way run_capture=True does
+        for record_lfg_components_task elsewhere."""
+        from the_databot import tasks
+        from the_databot.discord_interactions import post_boxscore_result_task
+        with mock.patch(
+                'the_databot.services.discordservice.post_channel_message_full',
+                return_value=post_full_return_value) as post_full, \
+                mock.patch.object(
+                    post_boxscore_result_task, 'delay',
+                    side_effect=lambda *a, **k: tasks.post_boxscore_result_task(*a, **k)), \
+                mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
+                mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
+            self.client.post(
+                reverse('api-boxscore-upload'), data=json.dumps(doc),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Game-Token {token_raw}')
+        return post_full
+
+    def test_a_clean_upload_tracks_the_posted_message_and_record_link(self):
+        """The message id/body must be recorded on the thread so a later
+        manage_game recording -- or a re-upload -- can rewrite this message."""
+        from the_databot.services.discordservice import THREAD_OK
+        _t, raw = self._token()
+        post_full = self._post_running_result_task(
+            self._doc(), raw, (THREAD_OK, '999888777'))
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.boxscore_message_id, '999888777')
+        content = post_full.call_args.kwargs['content']
+        self.assertIn('Review and record the game', content)
+        # The tracked body has the record line stripped; the POSTED content does not.
+        self.assertNotIn('Review and record the game', self.thread.boxscore_message_body)
+
+    def test_a_reupload_retires_the_previous_boxscore_message(self):
+        """Two clean uploads to the same thread must not both leave a live
+        "record the game" link behind -- the first message gets its link
+        stripped once the second becomes the thread's current one."""
+        from the_databot.services.discordservice import THREAD_OK
+        from the_databot import tasks
+        _t1, raw1 = self._token()
+        self._post_running_result_task(self._doc(), raw1, (THREAD_OK, '111'))
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.boxscore_message_id, '111')
+        first_body = self.thread.boxscore_message_body
+
+        _t2, raw2 = self._token()
+        with mock.patch.object(
+                tasks.edit_channel_message_task, 'delay') as edit:
+            self._post_running_result_task(self._doc(), raw2, (THREAD_OK, '222'))
+        self.thread.refresh_from_db()
+
+        self.assertEqual(self.thread.boxscore_message_id, '222')
+        edit.assert_called_once_with(self.thread.thread_id, '111', first_body)
+
 
 class BoxScoreUploadTestModeTokenTests(TestCase):
     """Admin-minted `test_mode` tokens: reusable, and exempt from the
@@ -3156,8 +3218,6 @@ class BoxScoreUploadTestModeTokenTests(TestCase):
     prompt no scripted client can answer."""
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.alice = Profile.objects.create(discord='testalice', discord_id='901',
                                             display_name='Alice')
         self.bob = Profile.objects.create(discord='testbob', discord_id='902',
@@ -3174,7 +3234,7 @@ class BoxScoreUploadTestModeTokenTests(TestCase):
 
     def _post(self, doc, token_raw, raw_body=None):
         body = raw_body if raw_body is not None else json.dumps(doc)
-        with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay'), \
+        with mock.patch('the_databot.discord_interactions.post_boxscore_result_task.delay'), \
                 mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay') as prompt, \
                 mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
             response = self.client.post(
@@ -3296,7 +3356,7 @@ class BoxScoreUploadTestModeTokenTests(TestCase):
         raw_body = json.dumps({'participants': [
             self._seat(1, stranger, '76561198000000197'),
         ]}).encode()
-        with mock.patch('the_databot.discord_interactions.post_channel_message_task.delay'), \
+        with mock.patch('the_databot.discord_interactions.post_boxscore_result_task.delay'), \
                 mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
                 mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
             result = di.boxscore_upload_from_api(self.thread, raw_body, token)
@@ -3384,11 +3444,14 @@ class SchedulesForTests(_AvailabilityFixtureMixin, TestCase):
         resolved = schedules_for([tp.profile_id], self.tournament)
         self.assertEqual(resolved[tp.profile_id], self.A_HOURS)
 
-    def test_empty_tournament_row_does_not_mask_general(self):
-        """Mirrors schedule_for()'s `and specific.available_hours` condition."""
+    def test_empty_tournament_row_wins_over_general(self):
+        """A row that EXISTS wins at its level even if available_hours is [] -- an
+        explicit "no availability" is a real answer, not the absence of one.
+        (Behaviour changed deliberately: the old code filtered on `if hours`,
+        which let an empty tournament row silently fall back to general.)"""
         tp = self._player("empty", hours=self.A_HOURS, tournament_hours=[])
         resolved = schedules_for([tp.profile_id], self.tournament)
-        self.assertEqual(resolved[tp.profile_id], self.A_HOURS)
+        self.assertEqual(resolved[tp.profile_id], [])
 
     def test_omits_players_with_no_schedule(self):
         tp = self._player("none")
@@ -3480,6 +3543,68 @@ class RecalculateOverlapTests(_AvailabilityFixtureMixin, TestCase):
             group.recalculate_overlap(schedules=schedules)
         # The members query and the save, but no schedule lookup.
         self.assertLessEqual(len(ctx.captured_queries), 4)
+        group.refresh_from_db()
+        self.assertEqual(group.overlap_hours, [11, 12, 13])
+
+    def test_a_round_with_no_start_date_groups_identically_to_before(self):
+        """No round.start_date -> week_start is never resolved -> behaviourally a
+        no-op for every tournament that never touches week-specific availability
+        (this fixture's round has no start_date, matching every existing test
+        above -- this just makes that assumption explicit)."""
+        self.assertIsNone(self.round.start_date)
+        group = self._group_with(
+            self._player("nd1", hours=self.A_HOURS),
+            self._player("nd2", hours=self.B_HOURS),
+        )
+        group.recalculate_overlap()
+        group.refresh_from_db()
+        self.assertEqual(group.overlap_hours, [11, 12, 13])
+
+    def test_week_specific_row_for_the_rounds_week_is_preferred(self):
+        """A player's week-specific override for the ISO week containing
+        round.start_date beats their tournament-standing row -- the one new
+        behaviour this feature adds to grouping."""
+        from the_gatehouse.services.availability import week_start_for
+        from the_gatehouse.models import PlayerSchedule as PS
+
+        self.round.start_date = date(2026, 9, 16)  # a Wednesday
+        self.round.save(update_fields=['start_date'])
+        rounds_week = week_start_for(self.round.start_date)
+
+        p1 = self._player("w1", hours=self.A_HOURS, tournament_hours=self.C_HOURS)
+        # p1's week-specific row (for the round's own week) should beat both
+        # their tournament-standing (C_HOURS) and general (A_HOURS) rows.
+        PS.objects.create(
+            profile=p1.profile, tournament=self.tournament, week_start=rounds_week,
+            available_hours=self.B_HOURS,
+        )
+        p2 = self._player("w2", hours=self.B_HOURS)
+
+        group = self._group_with(p1, p2)
+        group.recalculate_overlap()
+        group.refresh_from_db()
+        # p1 resolves to B_HOURS (week-specific), p2 to B_HOURS (general) -> full overlap.
+        self.assertEqual(group.overlap_hours, self.B_HOURS)
+
+    def test_week_specific_row_for_a_different_week_is_ignored(self):
+        """A week-specific row for some OTHER week must not leak into this
+        round's overlap -- only the round's own week is consulted."""
+        from the_gatehouse.services.availability import week_start_for
+        from the_gatehouse.models import PlayerSchedule as PS
+
+        self.round.start_date = date(2026, 9, 16)
+        self.round.save(update_fields=['start_date'])
+        other_week = week_start_for(self.round.start_date) + timedelta(weeks=5)
+
+        p1 = self._player("ow1", hours=self.A_HOURS)
+        PS.objects.create(
+            profile=p1.profile, tournament=self.tournament, week_start=other_week,
+            available_hours=[0, 1],  # would break the overlap below if consulted
+        )
+        p2 = self._player("ow2", hours=self.B_HOURS)
+
+        group = self._group_with(p1, p2)
+        group.recalculate_overlap()
         group.refresh_from_db()
         self.assertEqual(group.overlap_hours, [11, 12, 13])
 
@@ -3757,22 +3882,43 @@ class AvailabilityComparePageTests(_AvailabilityFixtureMixin, TestCase):
         self.assertIn(f'next=/availability/compare/%3Fseries%3D{series.id}', body)
 
     def test_hours_are_shown_in_the_viewers_timezone(self):
+        """Compare has no General mode -- a request with no ?week= resolves
+        to the CURRENT real week (see _resolve_compare_week), and hours are
+        real-instant tokens for that week (see utc_instant_token), not bare
+        local hour-of-week ints. copy_from_general_utc_hours reinterprets
+        the general row's dateless-reference-week hours against the real
+        current week's own DST state, which is why this asserts against
+        that function's own output rather than a fixed hardcoded value --
+        the wall-clock hour (5am/6am New York) is what's invariant here,
+        not the raw UTC hour, across whichever DST state the current week
+        happens to be in when this test runs."""
+        from the_gatehouse.services.availability import (
+            copy_from_general_utc_hours, utc_instant_token, week_start_for)
+
         a = self._player("tz_a", hours=[10, 11])
         series = self._series_with(a)
-        a.profile.timezone = 'America/New_York'   # UTC-5 in January
+        a.profile.timezone = 'America/New_York'
         a.profile.save(update_fields=['timezone'])
 
         self._login(a)
         response = self.client.get(self.url, {'series': series.id})
-        # 10:00/11:00 UTC -> 05:00/06:00 in New York.
-        self.assertEqual(response.context['players'][0]['hours'], [5, 6])
+        target_week = week_start_for(date.today())
+        expected_utc = copy_from_general_utc_hours([10, 11], target_week, 'America/New_York')
+        expected = sorted(utc_instant_token(target_week, h) for h in expected_utc)
+        self.assertEqual(sorted(response.context['players'][0]['hours']), expected)
 
     def test_tournament_schedule_wins_over_general(self):
+        from the_gatehouse.services.availability import (
+            copy_from_general_utc_hours, utc_instant_token, week_start_for)
+
         a = self._player("ovr_a", hours=self.A_HOURS, tournament_hours=self.C_HOURS)
         series = self._series_with(a)
         self._login(a)
         response = self.client.get(self.url, {'series': series.id})
-        self.assertEqual(response.context['players'][0]['hours'], self.C_HOURS)
+        target_week = week_start_for(date.today())
+        expected_utc = copy_from_general_utc_hours(self.C_HOURS, target_week, None)
+        expected = sorted(utc_instant_token(target_week, h) for h in expected_utc)
+        self.assertEqual(sorted(response.context['players'][0]['hours']), expected)
 
     def test_series_with_no_seats_renders_a_message(self):
         viewer = self._player("empty_mod", hours=self.A_HOURS)
@@ -3796,19 +3942,28 @@ class AvailabilityComparePageTests(_AvailabilityFixtureMixin, TestCase):
         self.assertFalse(response.context['has_any_availability'])
 
     def test_edit_button_points_at_the_right_schedule(self):
-        # Only a general schedule -> the general page.
+        """The edit link also carries ?week= for whichever week is currently
+        shown, so "My Availability" opens straight to that week's own
+        editable grid instead of always landing on General."""
+        from the_gatehouse.services.availability import week_start_for
+
+        # Only a general schedule -> the general page, still week-scoped
+        # (compare itself has no General mode -- it's always one real week).
         a = self._player("edit_a", hours=self.A_HOURS)
         series = self._series_with(a)
         self._login(a)
         response = self.client.get(self.url, {'series': series.id})
-        self.assertEqual(response.context['edit_url'], reverse('availability'))
+        target_week = week_start_for(date.today())
+        self.assertEqual(response.context['edit_url'],
+                          f"{reverse('availability')}?week={target_week.isoformat()}")
 
-        # A tournament schedule exists -> that tournament's page.
+        # A tournament schedule exists -> that tournament's page, same week.
         PlayerSchedule.objects.create(
             profile=a.profile, tournament=self.tournament, available_hours=self.C_HOURS
         )
         response = self.client.get(self.url, {'series': series.id})
         self.assertIn(f'tournament={self.tournament.slug}', response.context['edit_url'])
+        self.assertIn(f'week={target_week.isoformat()}', response.context['edit_url'])
 
     def test_no_edit_button_for_a_viewer_who_is_not_playing(self):
         a = self._player("noedit_a", hours=self.A_HOURS)
@@ -3855,6 +4010,263 @@ class AvailabilityComparePageTests(_AvailabilityFixtureMixin, TestCase):
         names = [p['profile'].id for p in response.context['players']]
         self.assertIn(a.profile_id, names)
         self.assertNotIn(stranger.id, names)
+
+
+class AvailabilityCompareDSTTests(_AvailabilityFixtureMixin, TestCase):
+    """Week-specific compare mode's two DST fixes: general/tournament-standing
+    rows reinterpreted for the REAL week being viewed (not naively reused as
+    if they were already that week's own UTC hours), and DST fall-back/
+    spring-forward split/disabled cells matching the single-user grid."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('availability-compare')
+        self.week_url = reverse('availability-compare-week-data')
+
+    def _series_with(self, *tournament_players):
+        series = MatchSeries.objects.create(round=self.round)
+        for i, tp in enumerate(tournament_players, start=1):
+            participant = StageParticipant.objects.get(
+                stage=self.stage, tournament_player=tp
+            )
+            MatchSeat.objects.create(
+                series=series, stage_participant=participant, seat_number=i
+            )
+        return series
+
+    def _login(self, tp):
+        self.client.force_login(tp.profile.user)
+
+    def test_general_row_wall_clock_is_preserved_across_dst(self):
+        """The exact scenario reported: '5pm Monday' general availability in
+        America/New_York must render as 5pm local on a REAL week, not drift
+        by the offset between when it was saved (the dateless winter
+        reference week) and whenever it's viewed. Uses the CURRENT week
+        (whatever real DST state that happens to be in right now) rather
+        than a hardcoded summer/winter date, since the page's own navigable
+        window is forward-only and bounded (AVAILABILITY_WEEKS_FORWARD) --
+        picking a fixed calendar date risked landing outside that window
+        depending on when the test runs and being silently clamped back to
+        the current week, masking the very bug under test."""
+        from the_gatehouse.services.availability import (
+            local_to_utc_hours, copy_from_general_utc_hours, utc_instant_token, week_start_for)
+
+        five_pm_monday = 0 * 24 + 17
+        general_hours = local_to_utc_hours([five_pm_monday], 'America/New_York')
+        a = self._player("dst_a")
+        PlayerSchedule.objects.create(
+            profile=a.profile, tournament=None, available_hours=general_hours)
+        a.profile.timezone = 'America/New_York'
+        a.profile.save(update_fields=['timezone'])
+        series = self._series_with(a)
+        self._login(a)
+
+        target_week = week_start_for(date.today())
+        expected = utc_instant_token(
+            target_week,
+            copy_from_general_utc_hours(general_hours, target_week, 'America/New_York')[0])
+        # The bug's own signature: naively reusing the stored UTC hour
+        # (rather than reinterpreting the wall-clock pattern for THIS real
+        # week) gives a DIFFERENT token whenever the current week's DST
+        # state differs from the dateless reference week's (winter/EST).
+        naive_token = utc_instant_token(target_week, general_hours[0])
+        self.assertNotEqual(expected, naive_token,
+                             "test fixture must exercise a real DST offset difference "
+                             "this week -- if this fails, the current real-world week "
+                             "happens to be in EST, pick a different test date")
+
+        response = self.client.get(self.url, {'series': series.id, 'week': target_week.isoformat()})
+        hours = response.context['player_hours_json'][str(a.profile.id)]
+        self.assertEqual(hours, [expected])
+
+    def test_explicit_week_row_still_wins_over_general(self):
+        """Row-exists-wins is preserved under the rework: an explicit
+        week-specific row (even empty) is never reinterpreted through
+        copy_from_general_utc_hours -- it's already real hours for this
+        week, used as-is."""
+        from the_gatehouse.services.availability import utc_instant_token, week_start_for
+
+        a = self._player("rowwins_a", hours=[10, 11, 12])
+        series = self._series_with(a)
+        target_week = week_start_for(date.today()) + timedelta(weeks=1)
+        PlayerSchedule.objects.create(
+            profile=a.profile, tournament=None, week_start=target_week, available_hours=[])
+        self._login(a)
+
+        response = self.client.get(self.url, {'series': series.id, 'week': target_week.isoformat()})
+        self.assertEqual(response.context['player_hours_json'][str(a.profile.id)], [])
+
+    def test_all_four_precedence_levels_resolve_correctly(self):
+        """The gap caught during plan review: schedule_for/schedules_for's
+        real precedence has FOUR levels when a tournament is involved --
+        (tournament, week) -> (None, week) -> (tournament, None) ->
+        (None, None) -- and BOTH dateless levels (tournament-standing, not
+        just general-standing) need copy_from_general_utc_hours applied, not
+        just the final one."""
+        from the_gatehouse.services.availability import (
+            local_to_utc_hours, copy_from_general_utc_hours, utc_instant_token, week_start_for)
+
+        target_week = week_start_for(date.today()) + timedelta(weeks=1)
+        tz = 'America/New_York'
+
+        # Mid-week UTC hours -- the ones near either boundary of the real
+        # week can legitimately spill into a NEIGHBOR week's local frame
+        # (see local_week_cell_shape's own docstring on edge fill-in), so
+        # this test picks hours safely away from either edge to isolate the
+        # precedence-level behavior under test from that unrelated mechanic.
+        # Level 1: (tournament, week) -- real hours, used as-is.
+        p1 = self._player("lvl1")
+        p1.profile.timezone = tz
+        p1.profile.save(update_fields=['timezone'])
+        PlayerSchedule.objects.create(
+            profile=p1.profile, tournament=self.tournament, week_start=target_week,
+            available_hours=[60])
+
+        # Level 2: (None, week) -- real hours, used as-is.
+        p2 = self._player("lvl2")
+        p2.profile.timezone = tz
+        p2.profile.save(update_fields=['timezone'])
+        PlayerSchedule.objects.create(
+            profile=p2.profile, tournament=None, week_start=target_week,
+            available_hours=[70])
+
+        # Level 3: (tournament, None) -- dateless, needs the wall-clock fix.
+        p3 = self._player("lvl3")
+        p3.profile.timezone = tz
+        p3.profile.save(update_fields=['timezone'])
+        general_pattern_3 = local_to_utc_hours([0 * 24 + 17], tz)  # 5pm Monday
+        PlayerSchedule.objects.create(
+            profile=p3.profile, tournament=self.tournament, week_start=None,
+            available_hours=general_pattern_3)
+
+        # Level 4: (None, None) -- dateless, needs the wall-clock fix.
+        p4 = self._player("lvl4", hours=local_to_utc_hours([0 * 24 + 9], tz))  # 9am Monday
+        p4.profile.timezone = tz
+        p4.profile.save(update_fields=['timezone'])
+
+        series = self._series_with(p1, p2, p3, p4)
+        self._login(p1)
+        response = self.client.get(self.url, {'series': series.id, 'week': target_week.isoformat()})
+        hours = response.context['player_hours_json']
+
+        self.assertEqual(hours[str(p1.profile.id)], [utc_instant_token(target_week, 60)])
+        self.assertEqual(hours[str(p2.profile.id)], [utc_instant_token(target_week, 70)])
+
+        implied_3 = copy_from_general_utc_hours(general_pattern_3, target_week, tz)
+        self.assertEqual(hours[str(p3.profile.id)],
+                          sorted(utc_instant_token(target_week, h) for h in implied_3))
+
+        implied_4 = copy_from_general_utc_hours(
+            local_to_utc_hours([0 * 24 + 9], tz), target_week, tz)
+        self.assertEqual(hours[str(p4.profile.id)],
+                          sorted(utc_instant_token(target_week, h) for h in implied_4))
+
+    def test_dst_fall_back_week_renders_split_cells(self):
+        from the_gatehouse.services.availability import week_grid_cells
+
+        a = self._player("split_a", hours=[9])
+        a.profile.timezone = 'America/New_York'
+        a.profile.save(update_fields=['timezone'])
+        series = self._series_with(a)
+        self._login(a)
+
+        # US fall-back 2026: local Nov 1 1am repeats, UTC hours 149/150.
+        fallback_week = date(2026, 10, 26)
+        response = self.client.get(self.url, {'series': series.id, 'week': fallback_week.isoformat()})
+        body = response.content.decode()
+        self.assertIn('avail-cell-split', body)
+        self.assertIn('avail-cell--split', body)
+
+        cells = week_grid_cells(fallback_week, 'America/New_York')
+        split_utc_hours = [v for v in cells.values() if len(v) == 2][0]
+        self.assertEqual(len(split_utc_hours), 2)
+        import re
+        hows = re.findall(r'data-how="([^"]+)"[^>]*class="avail-cell avail-cell--split', body)
+        # Two distinct tokens for the split cell's two halves.
+        self.assertEqual(len(set(hows[:2])), 2) if hows else None
+
+    def test_dst_spring_forward_week_renders_a_disabled_cell(self):
+        """Scans forward for a real spring-forward week within the page's own
+        navigable window, rather than a hardcoded date -- a fixed calendar
+        date eventually falls outside AVAILABILITY_WEEKS_FORWARD and gets
+        silently clamped to the current week, masking the very gap under
+        test (same trap the single-user grid's own
+        test_a_zero_offset_week_has_seven_columns_not_eight was written to
+        avoid). Australia/Sydney's spring-forward (Southern Hemisphere,
+        opposite calendar from the US) reliably lands within a 12-week
+        forward window regardless of which month "today" happens to be."""
+        from the_gatehouse.services.availability import local_week_cell_shape, week_start_for
+
+        a = self._player("gap_a", hours=[9])
+        a.profile.timezone = 'Australia/Sydney'
+        a.profile.save(update_fields=['timezone'])
+        series = self._series_with(a)
+        self._login(a)
+
+        current_week = week_start_for(date.today())
+        springfwd_week = None
+        for i in range(13):
+            candidate = current_week + timedelta(weeks=i)
+            shape = local_week_cell_shape(candidate, 'Australia/Sydney')
+            if any(len(v) == 0 for v in shape.values()):
+                springfwd_week = candidate
+                break
+        self.assertIsNotNone(springfwd_week, "No spring-forward week found in the forward window")
+
+        response = self.client.get(self.url, {'series': series.id, 'week': springfwd_week.isoformat()})
+        self.assertContains(response, 'avail-cell--disabled')
+
+    def test_split_cell_halves_show_independent_overlap(self):
+        """The whole point of the split-cell rework: two players free at
+        DIFFERENT halves of a fall-back slot must not both read as 'free' on
+        both halves -- each half is its own independent real instant."""
+        from the_gatehouse.services.availability import week_grid_cells
+
+        fallback_week = date(2026, 10, 26)
+        cells = week_grid_cells(fallback_week, 'America/New_York')
+        first_how, second_how = [v for v in cells.values() if len(v) == 2][0]
+
+        # Week-SPECIFIC rows (not general/dateless) so the stored hour is
+        # used as-is, real UTC hour for THIS week -- a general row here
+        # would go through copy_from_general_utc_hours' wall-clock
+        # reinterpretation and land on a different real hour entirely.
+        a = self._player("half_a")
+        b = self._player("half_b")
+        PlayerSchedule.objects.create(
+            profile=a.profile, tournament=None, week_start=fallback_week,
+            available_hours=[first_how])
+        PlayerSchedule.objects.create(
+            profile=b.profile, tournament=None, week_start=fallback_week,
+            available_hours=[second_how])
+        a.profile.timezone = 'America/New_York'
+        a.profile.save(update_fields=['timezone'])
+        series = self._series_with(a, b)
+        self._login(a)
+
+        response = self.client.get(self.week_url, {'series': series.id, 'week': fallback_week.isoformat()})
+        data = response.json()
+        from the_gatehouse.services.availability import utc_instant_token
+        a_hours = set(data['player_hours_json'][str(a.profile.id)])
+        b_hours = set(data['player_hours_json'][str(b.profile.id)])
+        first_token = utc_instant_token(fallback_week, first_how)
+        second_token = utc_instant_token(fallback_week, second_how)
+        self.assertIn(first_token, a_hours)
+        self.assertNotIn(second_token, a_hours)
+        self.assertIn(second_token, b_hours)
+        self.assertNotIn(first_token, b_hours)
+
+    def test_ajax_grid_html_matches_full_page_render_on_a_dst_week(self):
+        a = self._player("ajaxdst_a", hours=[9])
+        a.profile.timezone = 'America/New_York'
+        a.profile.save(update_fields=['timezone'])
+        series = self._series_with(a)
+        self._login(a)
+
+        fallback_week = date(2026, 10, 26)
+        page = self.client.get(self.url, {'series': series.id, 'week': fallback_week.isoformat()})
+        ajax = self.client.get(self.week_url, {'series': series.id, 'week': fallback_week.isoformat()})
+        self.assertTrue(ajax.json()['ok'])
+        self.assertIn(ajax.json()['grid_html'].strip(), page.content.decode())
 
 
 class MatchesPageAvailabilityButtonTests(_AvailabilityFixtureMixin, TestCase):
@@ -3914,8 +4326,6 @@ class ParticipantResolutionTests(TestCase):
     STEAM = "76561198000000201"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.alice = Profile.objects.create(discord="resalice", discord_id="801")
         self.bob = Profile.objects.create(discord="resbob", discord_id="802")
         # Slugs are always lowercase; the box score may not be.
@@ -4004,8 +4414,6 @@ class AssumedSteamIdWriteTests(TestCase):
     STEAM = "76561198000000301"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.alice = Profile.objects.create(discord="wralice", discord_id="811")
         self.bob = Profile.objects.create(discord="wrbob", discord_id="812")
 

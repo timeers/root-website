@@ -62,11 +62,14 @@ from the_gatehouse.views import (player_required, admin_required,
                                  player_onboard_required, admin_onboard_required)
 from the_gatehouse.forms import PlayerCreateForm
 from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
-from the_databot.tasks import post_channel_message_task, create_match_threads_task
+from the_databot.tasks import (
+    post_channel_message_task, create_match_threads_task, edit_channel_message_task,
+)
 from the_gatehouse.utils import get_uuid, build_absolute_uri, get_int_param, NameConvention, generate_name
 from the_warroom.services.channel_posts import (
     post_to_tournament_channel, match_thread_id, game_thread_url)
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
+from the_gatehouse.services.markdown_utils import render_description_plaintext
 
 from the_tavern.forms import GameCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -2316,6 +2319,20 @@ def manage_game(request, id=None):
                                 lambda tid=lfgthread.thread_id, msg=_message:
                                     post_channel_message_task.delay(tid, msg))
 
+                        # The boxscore-API success message (if any) still carries a
+                        # "record the game" link at this point -- rewrite it back to
+                        # its stored pre-record-line content now that recording it is
+                        # exactly what just happened. Same on_commit reasoning as
+                        # above: the message being rewritten belongs to a Game this
+                        # transaction might yet roll back.
+                        if (lfgthread.boxscore_message_id
+                                and lfgthread.boxscore_message_body is not None):
+                            transaction.on_commit(
+                                lambda tid=lfgthread.thread_id,
+                                       mid=lfgthread.boxscore_message_id,
+                                       body=lfgthread.boxscore_message_body:
+                                    edit_channel_message_task.delay(tid, mid, body))
+
                     # Same courtesy for a tournament match: announce into the player
                     # group's thread, but only when it demonstrably belongs to the
                     # tournament's own guild (see match_thread_id).
@@ -3310,7 +3327,7 @@ def _tournament_base_context(request, tournament):
         'user_in_guild': user_in_guild,
         'registration_survey': _get_open_registration_survey(request, tournament),
         'meta_title': tournament.name,
-        'meta_description': tournament.description,
+        'meta_description': render_description_plaintext(tournament.description),
     }
 
 
@@ -3358,7 +3375,7 @@ def _stage_base_context(request, tournament, stage):
         'user_in_guild': user_in_guild,
         'registration_survey': _get_open_registration_survey(request, tournament),
         'meta_title': f"{stage.name} - {tournament.name}",
-        'meta_description': tournament.description or '',
+        'meta_description': render_description_plaintext(tournament.description),
     }
 
 
@@ -3400,7 +3417,7 @@ def _round_base_context(request, tournament, stage, round):
         'user_in_guild': user_in_guild,
         'registration_survey': _get_open_registration_survey(request, tournament),
         'meta_title': f"{round.name} - {stage.name} - {tournament.name}",
-        'meta_description': tournament.description or '',
+        'meta_description': render_description_plaintext(tournament.description),
     }
 
 
@@ -8734,6 +8751,7 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
         # imports the_warroom.models, so a top-level import would be circular.
         from the_databot.discord_interactions import (
             _cancel_open_proposals, _announce_schedule_to_channel,
+            _announce_schedule_to_thread,
         )
 
         for match_data in data.get('matches', []):
@@ -8775,8 +8793,11 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
             _cancel_open_proposals(match, 'website')
             # And announce it, exactly as the bot does: "scheduled" for a match
             # that gained a time, "rescheduled" for one that moved. A CLEARED time
-            # announces nothing -- the helper returns early on new_time=None.
+            # announces nothing to the channel -- the helper returns early on
+            # new_time=None. The thread version below DOES announce a clear: the
+            # roster wants to know a postponement happened just as much as a move.
             _announce_schedule_to_channel(match, old_time, new_time)
+            _announce_schedule_to_thread(match, old_time, new_time)
 
         # --- Delete matches ---
         for match_id in data.get('delete_match_ids', []):
@@ -8810,6 +8831,7 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
                     # A brand-new match, so there is no previous time: old_time
                     # None makes this read "scheduled" rather than "rescheduled".
                     _announce_schedule_to_channel(new_match, None, scheduled_time)
+                    _announce_schedule_to_thread(new_match, None, scheduled_time)
 
         # --- Remove seats ---
         for seat_id in data.get('remove_seat_ids', []):

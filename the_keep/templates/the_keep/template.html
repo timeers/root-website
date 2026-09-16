@@ -82,7 +82,9 @@
     <div id="lightbox" class="lightbox" onclick="closeLightbox()">
         <img id="lightbox-img" class="lightbox-content" src="" alt="Full image" />
     </div>
-      
+
+    {% include 'the_keep/partials/external_link_modal.html' %}
+
 
     <!-- Optional JavaScript -->
     <!-- jQuery first, then Popper.js, then Bootstrap JS -->
@@ -161,6 +163,30 @@
         if (newParams.toString()) {
             e.preventDefault();
             window.location.href = link.getAttribute('href') + '?' + newParams.toString();
+        }
+    });
+</script>
+<script>
+    // Confirm before following links inside user-submitted markdown
+    // (Tournament/Stage/Round/Survey descriptions) -- delegated at the
+    // document level since this content is rendered across many pages/
+    // partials and some are swapped in via HTMX.
+    var _externalLinkPendingUrl = null;
+    document.addEventListener('click', function(e) {
+        var link = e.target.closest('a[data-external-link-warning]');
+        if (!link) return;
+
+        e.preventDefault();
+        _externalLinkPendingUrl = link.href;
+        document.getElementById('externalLinkModalUrl').textContent = _externalLinkPendingUrl;
+
+        var modalEl = document.getElementById('externalLinkModal');
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    });
+    document.getElementById('externalLinkModalContinue').addEventListener('click', function() {
+        if (_externalLinkPendingUrl) {
+            window.open(_externalLinkPendingUrl, '_blank', 'noopener,noreferrer');
+            _externalLinkPendingUrl = null;
         }
     });
 </script>

@@ -15,6 +15,7 @@ from the_warroom.models import (
     StageParticipant,
 )
 from the_gatehouse.models import schedules_for
+from the_gatehouse.services.availability import week_start_for
 from the_gatehouse.utils import generate_name, NameConvention
 
 
@@ -560,10 +561,12 @@ class GroupingService:
         if not active_players.exists():
             return
 
-        # Build availability map. Resolved in bulk: a player's tournament-specific
-        # schedule if they set one, else their general one.
+        # Build availability map. Resolved in bulk: a player's week-specific row
+        # for this round's own week if they set one, else their tournament row,
+        # else their general one (see schedules_for's precedence chain).
         schedules = schedules_for(
-            [tp.profile_id for tp in active_players], stage.tournament
+            [tp.profile_id for tp in active_players], stage.tournament,
+            week_start=week_start_for(round.start_date) if round.start_date else None,
         )
 
         availability_map = {}
@@ -986,7 +989,8 @@ class GroupingService:
         # Resolve every candidate's availability once, outside the group loop --
         # otherwise this re-queries per group.
         schedules = schedules_for(
-            [tp.profile_id for tp in ungrouped], stage.tournament
+            [tp.profile_id for tp in ungrouped], stage.tournament,
+            week_start=week_start_for(round.start_date) if round.start_date else None,
         )
 
         # For each group, find the ungrouped players with best overlap
@@ -1166,7 +1170,8 @@ class GroupingService:
 
         # Build availability map from ungrouped players
         schedules = schedules_for(
-            [tp.profile_id for tp in ungrouped], stage.tournament
+            [tp.profile_id for tp in ungrouped], stage.tournament,
+            week_start=week_start_for(round.start_date) if round.start_date else None,
         )
 
         availability_map = {}

@@ -56,7 +56,9 @@ from the_databot.tasks import (
     create_lfg_thread_task, record_lfg_components_task, post_interaction_followup_task,
     post_channel_message_task, post_schedule_proposal_task,
     strip_schedule_proposal_messages_task, post_boxscore_prompt_task,
+    post_boxscore_result_task,
 )
+from the_databot.tasks import _retire_boxscore_message
 from the_databot.services.discordservice import (
     config, build_post_embed, build_post_image_embed, build_stats_embed,
     build_captain_embed, build_card_embed, build_law_embed, build_help_embed,
@@ -73,6 +75,7 @@ from the_databot.services.discord_commands import (
     # module (this module imports tasks); re-exported here because this is where
     # callers and tests look for it.
     LFG_DEFAULT_TITLE,
+    BETA_SUFFIX,
 )
 from the_databot.services.time_parsing import (
     NEED_TIMEZONE, parse_user_datetime, format_discord_timestamp,
@@ -84,7 +87,9 @@ from the_databot.services.time_parsing import (
 from the_databot.services.discord_components import (
     action_row, button, string_select, select_option,
     encode_custom_id, decode_custom_id, selected_values,
-    RESPONSE_UPDATE_MESSAGE, STYLE_PRIMARY, STYLE_SUCCESS, STYLE_SECONDARY, STYLE_DANGER,
+    RESPONSE_UPDATE_MESSAGE, RESPONSE_DEFERRED_UPDATE_MESSAGE, RESPONSE_MODAL,
+    STYLE_PRIMARY, STYLE_SUCCESS, STYLE_SECONDARY, STYLE_DANGER,
+    text_input, label_component, modal, TEXT_INPUT_PARAGRAPH,
 )
 from the_databot.services.lfg_game import (
     player_group_for_channel, link_group_thread, normalize_title,
@@ -102,11 +107,13 @@ PING = 1
 APPLICATION_COMMAND = 2
 APPLICATION_COMMAND_AUTOCOMPLETE = 4
 MESSAGE_COMPONENT = 3  # user interacted with a message component (select/button)
+MODAL_SUBMIT = 5       # user submitted a modal opened by a component click
 
 RESPONSE_PONG = 1
 RESPONSE_CHANNEL_MESSAGE = 4
 RESPONSE_AUTOCOMPLETE_RESULT = 8
-# RESPONSE_UPDATE_MESSAGE (7) is imported from discord_components.
+# RESPONSE_UPDATE_MESSAGE (7), RESPONSE_DEFERRED_UPDATE_MESSAGE (6) and
+# RESPONSE_MODAL (9) are imported from discord_components.
 
 EPHEMERAL = 64  # message flag: only the invoking user sees it
 
@@ -351,14 +358,20 @@ def _capture_lfg_components(channel_id, items, source="", draft=None,
     (no-op in the worker when the channel isn't a known LFG thread). `items` is a
     list of {"kind","slug","title"}. Safe to call with a falsy channel_id.
 
-    `source` tags the originating command (random / lookup / draft). `draft`
-    carries a full draft to replace the thread's current one. Both must be
-    JSON-serializable -- slugs and ids only, never model instances.
+    `source` tags the originating command (random / lookup / draft / pick /
+    boxscore). `draft` carries a full draft to replace the thread's current
+    one. Both must be JSON-serializable -- slugs and ids only, never model
+    instances.
 
     Deliberately fire-and-forget: a capture failure must never damage a draft or
     lookup that already succeeded.
+
+    Always enqueued for source="boxscore", even with empty items/undrafted: a
+    re-upload must still clear the thread's previous boxscore rolls, which the
+    task -- not this function -- is what actually does the clearing.
     """
-    if channel_id and (items or draft or (undrafted and any(undrafted.values()))):
+    if channel_id and (items or draft or (undrafted and any(undrafted.values()))
+                       or source == "boxscore"):
         record_lfg_components_task.delay(channel_id, items, source=source,
                                          draft=draft, undrafted=undrafted)
 
@@ -1835,6 +1848,56 @@ def _announce_schedule_to_channel(match, old_time, new_time):
         lambda: post_to_tournament_channel(tournament, 'schedule_channel', content))
 
 
+def _announce_schedule_to_thread(match, old_time, new_time):
+    """Ping the match's own thread when its time is set, moved, or cleared.
+
+    Unlike _announce_schedule_to_channel, DOES fire on a clear (new_time=None) --
+    a postponement is exactly the case a roster most needs pinged about, since a
+    game night they were expecting just came off the calendar. Still a no-op when
+    old_time == new_time (nothing changed, so nothing to say).
+
+    Only posts into a thread that match_thread_id can PROVE belongs to the
+    tournament's current guild; a match with no thread, or a stale/foreign thread
+    URL, is silently skipped -- same fail-closed contract resolve_tournament_channel
+    gives the schedule_channel post.
+    """
+    if old_time == new_time:
+        return
+    tournament = match.round.get_tournament() if match.round_id else None
+    if tournament is None:
+        return
+    from the_warroom.services.channel_posts import match_thread_id
+    thread_id = match_thread_id(match, tournament=tournament)
+    if not thread_id:
+        return
+
+    # Unlinked players can't be pinged but must still be NAMED, same reasoning
+    # create_match_threads_task uses -- dropping them silently would make the
+    # roster look short and leave them wondering if they're in the match.
+    roster = _match_roster(match)
+    mentions = [f"<@{p.discord_id}>" if p.discord_id else str(p) for p in roster]
+    ping_line = " ".join(mentions)
+
+    label = _match_label(match)
+    if new_time is None:
+        body = f"🗓️ The scheduled time for **{label}** has been removed."
+    else:
+        verb = "rescheduled" if old_time is not None else "scheduled"
+        body = "\n".join([
+            f"🗓️ **{label}** is {verb} for",
+            format_discord_timestamp(new_time),
+            format_discord_timestamp_code(new_time),
+        ])
+    content = f"{ping_line}\n{body}" if ping_line else body
+
+    from the_databot.tasks import post_channel_message_task
+    # on_commit: callers run inside transaction.atomic(), and the worker must never
+    # announce a time this transaction goes on to roll back.
+    transaction.on_commit(
+        lambda: post_channel_message_task.delay(
+            thread_id, content, allowed_mentions={"parse": ["users"]}))
+
+
 def _finalize_proposal(proposal, actor=None):
     """Write the agreed time and retire every other proposal for this match.
     Returns (ok, error).
@@ -2263,45 +2326,14 @@ def _handle_schedule_confirm(payload):
     # update_fields is required: a bare save() re-runs Match.save()'s name and
     # match_number derivation.
     match.save(update_fields=["scheduled_time"])
-    # Additional to the thread embed below: that tells the players in the thread, this
-    # tells the tournament's schedule channel.
+    # Tells the tournament's schedule channel; _announce_schedule_to_thread below
+    # tells the players in the match's own thread, guild-verified and pinged.
     _announce_schedule_to_channel(match, previous_time, when)
+    _announce_schedule_to_thread(match, previous_time, when)
 
     # A direct write supersedes anything still awaiting confirmation — otherwise a
     # stale Confirm could overwrite the time just set here.
     _cancel_open_proposals(match, "cancelled")
-
-    # Announce publicly in the thread so the whole group sees it. The followup is
-    # sequenced after this response's ACK (a followup before it 404s).
-    token = payload.get("token")
-    if token:
-        try:
-            # Not /upcoming's "The next scheduled game" line — this announces the
-            # match just written, which needn't be the tournament's next one. No
-            # roster confirmed it on this path, so name who set the time. A plain
-            # display name, not _roster_name: that would render a mention INSIDE
-            # the embed, which never notifies anyway -- the ping below is the part
-            # that actually reaches people, and it deliberately excludes the
-            # clicker.
-            who = profile.display_name or profile.discord or profile.slug
-            embed = build_upcoming_embed(
-                match, summary=f"Scheduled by {who}" if who else None)
-        except Exception:
-            logger.exception("Failed to build /schedule announcement embed")
-            embed = None
-        if embed:
-            data = {"embeds": [embed]}
-            # Tell the rest of the roster a time was set for them. Nobody
-            # confirmed anything on this path, so this post is the only notice
-            # they get. Skipped entirely when there is nobody left to ping.
-            ping = _roster_ping_others(_match_roster(match),
-                                       exclude_discord_id=owner)
-            if ping:
-                data["content"] = ping
-                data["allowed_mentions"] = {"parse": ["users"]}
-            post_interaction_followup_task.apply_async(
-                (token, data), countdown=2,
-            )
 
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
@@ -2770,7 +2802,7 @@ def _handle_schedule_clear_confirm(payload):
     if match.scheduled_time is None:
         return _ephemeral("That match no longer has a scheduled time.")
 
-    label = _match_label(match)
+    old_scheduled_time = match.scheduled_time
     match.scheduled_time = None
     # update_fields is required: a bare save() re-runs Match.save()'s name and
     # match_number derivation.
@@ -2781,15 +2813,9 @@ def _handle_schedule_clear_confirm(payload):
     _cancel_open_proposals(match, "cancelled")
 
     # Supersede the announcement the set flow posted — otherwise the thread is left
-    # showing a time that no longer exists. Plain text rather than
-    # build_upcoming_embed, which omits its Scheduled field entirely when the time
-    # is null and so would read as if nothing had changed.
-    token = payload.get("token")
-    if token:
-        post_interaction_followup_task.apply_async(
-            (token, {"content": f"🗓️ The scheduled time for **{label}** was removed."}),
-            countdown=2,
-        )
+    # showing a time that no longer exists. Guild-verified and pinged, same as
+    # every other schedule-change notice.
+    _announce_schedule_to_thread(match, old_scheduled_time, None)
 
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
@@ -6938,7 +6964,7 @@ def _boxscore_decompose(participants, payload):
     disagree about what a file means. Raises BoxScoreImportError on malformed
     turns; each caller renders that its own way.
     """
-    from the_keep.models import Map, Deck
+    from the_keep.models import Map, Deck, Landmark, Hireling
     from the_warroom.services.box_score_import import normalize_turns
 
     notes = []
@@ -7029,6 +7055,16 @@ def _boxscore_decompose(participants, payload):
             component_titles.append(f"{obj.title} {kind}")
         else:
             notes.append(f"I didn't recognise the {kind.lower()} `{slug}`.")
+
+    # Unlike map/deck, an unrecognised slug here gets no note -- these are
+    # existence-checked again by _boxscore_component_items below (which does
+    # report/skip them for the roll log), and a second warning would just repeat
+    # the first.
+    for key, model in (("landmarks", Landmark), ("hirelings", Hireling)):
+        for slug in (payload.get(key) or []):
+            obj = model.objects.filter(slug=slug).first()
+            if obj:
+                component_titles.append(obj.title)
 
     component_items, undrafted = _boxscore_component_items(participants, payload)
     items += component_items
@@ -7389,11 +7425,16 @@ def _boxscore_seat_lines(seats, header, numbered=True, scores=None):
     if faction_slugs:
         titles = dict(Faction.objects.filter(slug__in=faction_slugs)
                       .values_list("slug", "title"))
+    # Full objects, not just titles: vagabond_emoji_for needs a `.title`
+    # attribute to derive the emoji name from, not a bare slug. Covers Knaves
+    # of the Deepwood's captain slugs too, so both branches below share one
+    # query and one fallback shape.
     vagabond_slugs = {s["vagabond_slug"] for s in seats if s["vagabond_slug"]}
-    vagabond_titles = {}
-    if vagabond_slugs:
-        vagabond_titles = dict(Vagabond.objects.filter(slug__in=vagabond_slugs)
-                               .values_list("slug", "title"))
+    captain_slugs = {c for s in seats for c in s.get("captain_slugs") or []}
+    vagabonds_by_slug = {}
+    if vagabond_slugs or captain_slugs:
+        vagabonds_by_slug = {v.slug: v for v in
+                             Vagabond.objects.filter(slug__in=vagabond_slugs | captain_slugs)}
 
     lines = [header]
     for index, seat in enumerate(seats, 1):
@@ -7428,9 +7469,20 @@ def _boxscore_seat_lines(seats, header, numbered=True, scores=None):
             emoji = faction_emoji_for(slug)
             title = titles.get(slug, slug)
             mark = f"{emoji} {title}" if emoji else title
+            # Vagabond and Knaves captains are mutually exclusive -- a seat has
+            # one or the other, matching _pick_seat_detail's same emoji-before-
+            # name idiom for the trailing parenthetical.
             vagabond = seat["vagabond_slug"]
             if vagabond:
-                mark += f" ({vagabond_titles.get(vagabond, vagabond)})"
+                vg = vagabonds_by_slug.get(vagabond)
+                vg_title = vg.title if vg else vagabond
+                vg_emoji = vagabond_emoji_for(vg) if vg else ""
+                mark += f" ({vg_emoji} {vg_title})" if vg_emoji else f" ({vg_title})"
+            elif seat.get("captain_slugs"):
+                marks = [vagabond_emoji_for(vagabonds_by_slug[c]) or vagabonds_by_slug[c].title
+                         for c in seat["captain_slugs"] if c in vagabonds_by_slug]
+                if marks:
+                    mark += f" ({' '.join(marks)})"
             # The " - " only separates a NAME from a faction. With no name there
             # is nothing to separate, so an unclaimed seat is "3. Marquise" and
             # not "3.  - Marquise".
@@ -7582,12 +7634,14 @@ def _boxscore_apply(thread, pending, channel_id, match_roster=None):
     # box score.
     # `undrafted` rides along: it is not a roll (nothing distinguishes an
     # undrafted faction from a seated one in the log) but it is written by the
-    # same task, onto the thread's own columns. Guarded on BOTH, so a file naming
-    # only an undrafted faction -- no map, deck or components -- still stores it.
+    # same task, onto the thread's own columns.
+    # Unconditional (not gated on items/undrafted like other captures): a
+    # re-upload must clear the thread's PREVIOUS boxscore rolls even when this
+    # file has none of its own, or a corrected file with fewer components than
+    # the last one would leave the old ones stuck prefilling the record form.
     undrafted = pending.get("undrafted")
-    if items or (undrafted and any(undrafted.values())):
-        _capture_lfg_components(channel_id, items, source="boxscore",
-                                undrafted=undrafted)
+    _capture_lfg_components(channel_id, items, source="boxscore",
+                            undrafted=undrafted)
 
     return lines, notes
 
@@ -7704,9 +7758,16 @@ def boxscore_upload_from_api(thread, raw, token):
         summary = [f"{mention} — your box score was saved." if mention
                    else "Box score uploaded from Tabletop Simulator."]
         summary.extend(lines)
+        if component_titles:
+            # No label: each title now carries its own kind ("Autumn Map").
+            summary.append(" · ".join(component_titles))
         summary.extend(applied_notes)
-        post_channel_message_task.delay(
-            thread.thread_id, "\n".join(l for l in summary if l),
+        body_without_record_line = "\n".join(l for l in summary if l)
+        if record_url:
+            summary.append(f"Review and record the game [here]({record_url}).")
+        content = "\n".join(l for l in summary if l)
+        post_boxscore_result_task.delay(
+            thread.pk, thread.thread_id, content, body_without_record_line,
             allowed_mentions=({"users": [token.issued_by.discord_id]}
                               if mention else None))
         turn_count = max((len(e.get("turns") or []) for e in entries), default=0)
@@ -8918,6 +8979,32 @@ def _boxscore_commit(payload, pending, thread, ref):
         out.append(" · ".join(pending["component_titles"]))
     out.extend(notes)
 
+    # Token-backed only ("t:<pk>"): the cache-backed "c:<key>" path is /boxscore
+    # upload's own EPHEMERAL confirm, whose message has no stable id the normal
+    # REST edit call can use later, and which only the uploader can see anyway --
+    # a record link there would point somewhere nobody else in the thread could
+    # reach it from.
+    if ref.startswith("t:"):
+        message_id = (payload.get("message") or {}).get("id")
+        body_without_record_line = "\n".join(line for line in out if line)
+        if not thread.game_id:
+            url = _record_url(f"/record/game/?lfg={thread.id}")
+            if url:
+                out.append(f"Review and record the game [here]({url}).")
+        if message_id:
+            # This upload's own message IS the one being edited in place (the
+            # gate prompt becomes the result), so there is nothing to retire
+            # for THIS message -- but a re-upload can still be replacing an
+            # OLDER, already-resolved boxscore message from a previous upload
+            # that this one's gates never touched (e.g. that upload applied
+            # cleanly with no gate, so it's a different message entirely).
+            if thread.boxscore_message_id and thread.boxscore_message_id != message_id:
+                _retire_boxscore_message(channel_id,
+                                         thread.boxscore_message_id, thread.boxscore_message_body)
+            thread.boxscore_message_id = message_id
+            thread.boxscore_message_body = body_without_record_line
+            thread.save(update_fields=["boxscore_message_id", "boxscore_message_body"])
+
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {
@@ -9076,9 +9163,17 @@ def _handle_boxscore_restore(payload):
         summary = [f"{mention} — your box score was saved." if mention
                    else "Box score restored."]
         summary.extend(lines)
+        if pending["component_titles"]:
+            summary.append(" · ".join(pending["component_titles"]))
         summary.extend(notes)
-        post_channel_message_task.delay(
-            thread.thread_id, "\n".join(l for l in summary if l),
+        body_without_record_line = "\n".join(l for l in summary if l)
+        if not thread.game_id:
+            url = _record_url(f"/record/game/?lfg={thread.id}")
+            if url:
+                summary.append(f"Review and record the game [here]({url}).")
+        content = "\n".join(l for l in summary if l)
+        post_boxscore_result_task.delay(
+            thread.pk, thread.thread_id, content, body_without_record_line,
             allowed_mentions=({"users": [profile.discord_id]} if mention else None))
         return _ephemeral("Restored — the box score has been added to the thread.")
 
@@ -9574,11 +9669,13 @@ OWNER_LOCK_HINTS = {
     "lfg_cancel": ' If you are trying to join or leave this game press "Join".',
     "lfg_start": ' If you are trying to join or leave this game press "Join".',
     "adset_start": ' If you are trying to join or leave this game press "Join".',
+    "lfg_edit": ' If you are trying to join or leave this game press "Join".',
 }
 
 
 def _lfg_message_data(author, owner, description, players_value,
-                      content=None, title=LFG_DEFAULT_TITLE, ping_role=True):
+                      content=None, title=LFG_DEFAULT_TITLE, ping_role=True,
+                      edit_button=False):
     """Build the full join-message payload (embed + button row). Used ONLY for the
     initial post and the picker→join transition — never to re-render on Join/Notify
     (that would wipe the other field; those handlers mutate the echoed embed).
@@ -9587,7 +9684,13 @@ def _lfg_message_data(author, owner, description, players_value,
 
     `ping_role=False` renders the role mention WITHOUT notifying anyone — used
     inside a thread, where the ping is noise but the mention must still be in the
-    content for ✔ Start to recover the tag from (see _handle_lfg_start)."""
+    content for ✔ Start to recover the tag from (see _handle_lfg_start).
+
+    `edit_button` gates the 📝 Edit button (opens a modal to change the
+    description) -- OFF by default so every existing call site keeps posting
+    today's 4-button row unless a caller opts in. See _handle_lfg_command's
+    `_beta` flag: this is the beta-tested addition, not yet in the production row
+    everywhere."""
     embed = {
         "author": author,
         "title": title,
@@ -9596,27 +9699,37 @@ def _lfg_message_data(author, owner, description, players_value,
             {"name": LFG_PLAYERS_FIELD, "value": players_value, "inline": False},
         ],
     }
-    # Join, 🔔 and ✖ Cancel end in the non-snowflake PICK_OPEN marker so the
+    # Join, 🔔, 📝 and ✖ Cancel end in the non-snowflake PICK_OPEN marker so the
     # dispatcher owner-lock does NOT fire; the owner rides in a non-last arg so
-    # those handlers can still identify the host.
+    # those handlers can still identify the host. 📝 Edit is the one exception --
+    # see below.
     #
     #   Join / 🔔 — anyone may click (they toggle: join/leave, subscribe/unsub).
     #   ✖ Cancel  — the host OR a guild moderator, which is why it cannot use the
     #               lock: that admits exactly one snowflake and cannot express a
     #               union. _handle_lfg_cancel makes the check instead, the same
     #               way the schedule poll's Close button does.
+    #   📝 Edit   — the host ALONE (no moderator carve-out), so unlike its
+    #               neighbors it ends in the bare owner snowflake and IS
+    #               dispatcher-locked, the same way ✔ Start is.
     #
     # ✔ Start still ends in the owner snowflake and so is dispatcher-locked:
     # starting a game is the host's alone, and a moderator clearing an abandoned
     # post wants ✖, not to start a game they aren't in.
-    row = action_row(
+    buttons = [
         button("Join", encode_custom_id("lfg_join", owner, PICK_OPEN), style=STYLE_PRIMARY),
         button("Notify", encode_custom_id("lfg_notify", owner, PICK_OPEN),
                style=STYLE_SECONDARY, emoji={"name": "🔔"}),
+    ]
+    if edit_button:
+        buttons.append(button("", encode_custom_id("lfg_edit", owner),
+                              style=STYLE_SECONDARY, emoji={"name": "📝"}))
+    buttons += [
         button("", encode_custom_id("lfg_cancel", owner, PICK_OPEN),
                style=STYLE_DANGER, emoji={"name": "✖"}),
         button("", encode_custom_id("lfg_start", owner), style=STYLE_SUCCESS, emoji={"name": "✔"}),
-    )
+    ]
+    row = action_row(*buttons)
     data = {"embeds": [embed], "components": [row]}
     if content:
         data["content"] = content
@@ -9685,12 +9798,15 @@ def _handle_lfg_command(data):
     roles = list(guild.lfg_roles.all()) if guild else []
     players_value = _lfg_player_line(_author_display_from_data(data), owner)
 
+    edit_button = data.get("_beta", False)
+
     def plain_post():
         # No tag to name the game, so the host's title is the only thing that can.
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
             "data": _lfg_message_data(author, owner, description, players_value,
-                                      title=title_opt or LFG_DEFAULT_TITLE),
+                                      title=title_opt or LFG_DEFAULT_TITLE,
+                                      edit_button=edit_button),
         })
 
     # No tags configured. Post the plain call; if the invoker can manage the server,
@@ -9760,7 +9876,8 @@ def _handle_lfg_command(data):
                                   content=content, title=title,
                                   # In a thread the mention renders but notifies
                                   # nobody -- the people here are already here.
-                                  ping_role=not in_thread),
+                                  ping_role=not in_thread,
+                                  edit_button=edit_button),
     })
 
 
@@ -9868,6 +9985,64 @@ def _handle_lfg_notify(payload):
     except (KeyError, IndexError, TypeError):
         logger.exception("Error handling lfg_notify")
         return _ephemeral("Couldn't update the game, try again.")
+
+
+def _handle_lfg_edit(payload):
+    """📝 Edit (host-only, dispatcher-locked): open a modal pre-filled with the
+    current description.
+
+    `max_length=4000`, not an arbitrary smaller cap: the /lfg description option
+    itself has none, and Discord's embed description field caps at 4096 -- 4000
+    leaves headroom so a re-edit of an already-long description isn't blocked."""
+    message = payload.get("message", {})
+    embed = (message.get("embeds") or [{}])[0]
+    modal_id = encode_custom_id("lfg_edit_modal", message.get("id"), payload.get("channel_id"))
+    return JsonResponse({
+        "type": RESPONSE_MODAL,
+        "data": modal(
+            modal_id, "Edit description",
+            label_component(
+                "Description",
+                text_input("description", style=TEXT_INPUT_PARAGRAPH,
+                          value=embed.get("description", ""), required=False,
+                          max_length=4000),
+            ),
+        ),
+    })
+
+
+def _modal_text_value(payload, custom_id):
+    """The submitted text for one TEXT_INPUT in a MODAL_SUBMIT payload, by its
+    custom_id. Modal submissions echo back the Label wrapper (type 18); the
+    submitted value lives one level deeper, under the Label's own `component`
+    key -- NOT flattened to the top level and NOT nested under an Action Row."""
+    for label in (payload.get("data") or {}).get("components", []):
+        comp = label.get("component") or {}
+        if comp.get("custom_id") == custom_id:
+            return comp.get("value", "")
+    return ""
+
+
+def _handle_lfg_edit_modal_submit(payload, args):
+    """lfg_edit_modal:<message_id>:<channel_id> submit: merge the new description
+    into the live message's CURRENT embed (Players/Notify must survive) and PATCH
+    it directly -- the interaction response is just the required ack, the same
+    split _boxscore_apply's Celery comment documents for its own flow. A modal
+    submission carries no `payload["message"]`, so the message must be re-fetched
+    by the id/channel threaded through the modal's own custom_id."""
+    from the_databot.services.discordservice import get_channel_message, edit_channel_message
+
+    message_id, channel_id = (args + [None, None])[:2]
+    new_description = _modal_text_value(payload, "description")
+
+    message = get_channel_message(channel_id, message_id) if message_id and channel_id else None
+    if not message:
+        return _ephemeral("Couldn't find that message to edit — try again.")
+    embed = (message.get("embeds") or [{}])[0]
+    embed["description"] = new_description or ""
+    edit_channel_message(channel_id, message_id, embeds=[embed])
+
+    return JsonResponse({"type": RESPONSE_DEFERRED_UPDATE_MESSAGE})
 
 
 def _handle_lfg_cancel(payload):
@@ -10212,8 +10387,16 @@ COMPONENT_HANDLERS = {
     "schedule_tz_change": _handle_schedule_tz_back,
     "lfg_join": _handle_lfg_join,
     "lfg_notify": _handle_lfg_notify,
+    "lfg_edit": _handle_lfg_edit,
     "lfg_cancel": _handle_lfg_cancel,
     "lfg_start": _handle_lfg_start,
+}
+
+
+# Modal-submit handlers, keyed by the modal's own custom_id action prefix --
+# mirrors COMPONENT_HANDLERS' shape, dispatched from the MODAL_SUBMIT branch.
+MODAL_HANDLERS = {
+    "lfg_edit_modal": _handle_lfg_edit_modal_submit,
 }
 
 
@@ -10429,19 +10612,26 @@ def discord_interactions(request):
     if interaction_type == APPLICATION_COMMAND:
         data = payload.get("data", {})
         command_name = data.get("name")
-        handler = COMMAND_HANDLERS.get(command_name)
+        # A "<name>-beta" registration (see BETA_COMMAND_VARIANTS/register_guild_commands)
+        # shares its base command's handler and every downstream check -- stripped here
+        # so nothing past this point needs to know it was invoked under a beta name.
+        is_beta = command_name.endswith(BETA_SUFFIX) if command_name else False
+        base_name = command_name[:-len(BETA_SUFFIX)] if is_beta else command_name
+        handler = COMMAND_HANDLERS.get(base_name)
         if handler:
             # The key three registries agree on: the command name for a plain command,
             # "<command> <subcommand>" for a subcommand-style one like /lookup. Built
             # ONCE here so the roster guard, usage recording and (in the autocomplete
             # branch) handler lookup can't drift apart.
             sub_name, _sub_options = _subcommand(data)
-            key_name = f"{command_name} {sub_name}" if sub_name else command_name
+            key_name = f"{base_name} {sub_name}" if sub_name else base_name
             # Record usage (per guild/user/command) asynchronously — fire-and-forget
             # so the DB write never delays the 3s response. Only known top-level
             # commands are counted (not buttons or autocomplete). Recorded per
             # SUBCOMMAND ("lookup faction"), so the per-lookup counts stay as granular
-            # as they were when these were nine separate commands.
+            # as they were when these were nine separate commands. Keyed by base_name,
+            # not the beta-suffixed name, so a beta invocation doesn't fragment usage
+            # stats into a second row.
             record_bot_usage_task.delay(guild_id, user_id, key_name)
             try:
                 # Stash the invoking user (from the top-level payload, not `data`)
@@ -10467,6 +10657,10 @@ def discord_interactions(request):
                 # off). Lets /lfg check a forum post is in the tag's OWN forum
                 # without an API round-trip. Absent on a plain channel.
                 data["_channel_parent_id"] = channel.get("parent_id")
+                # Whether this was invoked under a "-beta" command name (see
+                # BETA_COMMAND_VARIANTS) -- one generic flag any handler can read to
+                # branch its own behavior, rather than a per-command dispatch entry.
+                data["_beta"] = is_beta
                 # The invoker's computed permissions in this channel (Discord resolves
                 # roles/owner/admin for us). Lets /help decide, without an API call,
                 # whether to offer the "enable more commands" link.
@@ -10480,13 +10674,15 @@ def discord_interactions(request):
                 # so a new command can't quietly miss it -- and AFTER the stash
                 # above, which is where the helper's inputs come from.
                 #
-                # `command_name` is checked as well as `key_name` because a parent
+                # `base_name` is checked as well as `key_name` because a parent
                 # command's key is always "<parent> <sub>", so a bare entry could
                 # never match on its own. /boxscore was listed bare and silently
                 # lost its guard the moment it grew subcommands; matching the
-                # parent covers every subcommand and stops that recurring.
+                # parent covers every subcommand and stops that recurring. base_name,
+                # not command_name, so a beta invocation is guarded identically to
+                # its production counterpart.
                 if (key_name in ROSTER_GUARDED_COMMANDS
-                        or command_name in ROSTER_GUARDED_COMMANDS):
+                        or base_name in ROSTER_GUARDED_COMMANDS):
                     refusal = _thread_actor_error(data)
                     if refusal is not None:
                         return refusal
@@ -10551,6 +10747,19 @@ def discord_interactions(request):
                 logger.exception("Error handling component %s", custom_id)
                 return _ephemeral("Something went wrong handling that.")
         return _ephemeral(f"Unknown component: {custom_id}")
+
+    if interaction_type == MODAL_SUBMIT:
+        data = payload.get("data", {})
+        custom_id = data.get("custom_id", "")
+        action, args = decode_custom_id(custom_id)
+        handler = MODAL_HANDLERS.get(action)
+        if handler:
+            try:
+                return handler(payload, args)
+            except Exception:
+                logger.exception("Error handling modal %s", custom_id)
+                return _ephemeral("Something went wrong handling that.")
+        return _ephemeral(f"Unknown modal: {custom_id}")
 
     # Unhandled interaction type
     return HttpResponse("unhandled interaction type", status=400)

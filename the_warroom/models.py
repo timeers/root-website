@@ -556,7 +556,7 @@ class Tournament(models.Model):
         related_name='moderated_tournaments',
         help_text='Moderators can manage players, stages, rounds, and surveys but cannot edit the Series itself.'
     )
-    description = models.TextField(null=True, blank=True)
+    description = models.TextField(null=True, blank=True, help_text='Supports basic Markdown: **bold**, *italic*, links, lists, headings.')
     rules = models.TextField(null=True, blank=True, help_text='Tournament rules that participants must agree to when registering.')
     rules_link = models.URLField(
         max_length=1000, null=True, blank=True,
@@ -645,23 +645,6 @@ class Tournament(models.Model):
             "Require every player in a game to confirm a proposed time before "
             "/schedule sets it. When off, whoever runs /schedule sets the time "
             "directly. Only applies when players are allowed to record matches."
-        ),
-    )
-    # Minutes before a match's scheduled_time to ping its players in the group's
-    # Discord thread. NULL (the default) means this series sends no reminders --
-    # the "off" switch needs no extra flag, since 0 would ambiguously mean
-    # "remind at start time".
-    #
-    # Only meaningful with a guild linked AND the bot in it: the reminder posts
-    # into the player group's thread, and remind_upcoming_matches re-checks both
-    # at send time.
-    match_reminder_minutes = models.PositiveIntegerField(
-        null=True, blank=True,
-        verbose_name="Match Reminder Lead Time (minutes)",
-        help_text=(
-            "Ping players this many minutes before their game starts in the "
-            "Discord thread. Leave blank to send no reminders. Requires a linked "
-            "Discord server the bot is in, and a thread linked to the player group."
         ),
     )
     # Player management handled via TournamentPlayer
@@ -1186,6 +1169,7 @@ class Stage(models.Model):
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='stages')
 
     name = models.CharField(max_length=100)
+    description = models.TextField(null=True, blank=True, help_text='Supports basic Markdown: **bold**, *italic*, links, lists, headings.')
     order = models.PositiveIntegerField()
 
     use_rounds = models.BooleanField(default=False, help_text='Enable if this stage has multiple rounds.')
@@ -1543,7 +1527,7 @@ class Round(models.Model):
     }
 
     name = models.CharField(max_length=255, null=True, blank=True)  # Optional name, e.g., "Quarter-finals", "Finals"
-    description = models.TextField(null=True, blank=True)
+    description = models.TextField(null=True, blank=True, help_text='Supports basic Markdown: **bold**, *italic*, links, lists, headings.')
     tournament = models.ForeignKey(Tournament, on_delete=models.CASCADE, related_name='rounds', null=True, blank=True)  # Link to the tournament
     stage = models.ForeignKey(Stage, on_delete=models.CASCADE, related_name='rounds', null=True, blank=True)  # Link to the stage
 
@@ -2125,11 +2109,6 @@ class Match(models.Model):
         default=CompetitionStatus.PENDING
     )
     scheduled_time = models.DateTimeField(null=True, blank=True)
-    # When the pre-match reminder was posted, claiming this match so the sweep
-    # never pings twice. Cleared by save() whenever scheduled_time changes -- a
-    # reminder already sent describes a time that no longer applies.
-    # Not editable: only remind_upcoming_matches and save() ever write it.
-    reminder_sent_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     class Meta:
         ordering = ['round', 'match_number']
@@ -2143,8 +2122,8 @@ class Match(models.Model):
             # Serves remind_upcoming_matches' candidate scan, which selects on a
             # scheduled_time range. The index above leads on series, so it can't
             # serve a bare scheduled_time range. Which reminders have already
-            # gone out is now MatchReminderSent's own unique index, not a column
-            # here, so this no longer carries a second field.
+            # gone out is MatchReminderSent's own unique index, which is why this
+            # one carries no second field.
             models.Index(fields=['scheduled_time'],
                          name='match_sched_reminder_idx'),
         ]
@@ -2171,11 +2150,9 @@ class Match(models.Model):
         # Compare against the stored row rather than tracking state on the
         # instance: the writers use update_fields, and several load the row fresh.
         #
-        # The old column-based version guarded this read on `reminder_sent_at is
-        # not None`, which is gone. `scheduled_time in update_fields` is the
-        # replacement guard and is stricter: the only saves that can possibly
-        # need a re-arm are the ones writing that column, so an ordinary save
-        # still costs no extra query. A save with update_fields=None (a full
+        # `scheduled_time in update_fields` is the guard: the only saves that can
+        # possibly need a re-arm are the ones writing that column, so an ordinary
+        # save still costs no extra query. A save with update_fields=None (a full
         # save) can also move the time, so it is not skipped.
         rearm = False
         if self.pk:
@@ -3072,6 +3049,7 @@ class PlayerGroup(models.Model):
         letting every group re-query.
         """
         from the_gatehouse.models import schedules_for
+        from the_gatehouse.services.availability import week_start_for
 
         if self.round.stage.grouping_type != Stage.GroupingTypeChoices.AVAILABILITY:
             self._clear_overlap_metrics()
@@ -3084,8 +3062,23 @@ class PlayerGroup(models.Model):
             return
 
         if schedules is None:
+            # Prefer a player's week-specific row for the round's own week when
+            # they have one; falls through to their tournament/general standing
+            # row otherwise (see schedules_for's precedence chain) -- a no-op for
+            # every player who has never set week-specific availability.
+            #
+            # NOTE: a fallback player's standing row is encoded against the fixed
+            # reference week (services.availability._REFERENCE_MONDAY), not this
+            # round's real week, so intersecting it against another player's
+            # week-specific (real-dated) row can be off by up to an hour in a
+            # DST-observing zone whose DST state differs between the two.
+            # Accepted, pre-existing tradeoff (same one _REFERENCE_MONDAY already
+            # documents); not pursued further here.
+            week_start = (week_start_for(self.round.start_date)
+                          if self.round.start_date else None)
             schedules = schedules_for(
-                [p.profile_id for p in grouped_players], self.round.stage.tournament
+                [p.profile_id for p in grouped_players], self.round.stage.tournament,
+                week_start=week_start,
             )
 
         # Collect availability for each member. Read live from the schedule, so an
@@ -3291,9 +3284,9 @@ class MatchReminderSent(models.Model):
     """One row per reminder actually posted for one match.
 
     THE at-most-once claim: the unique constraint below is what stops two
-    workers both pinging a roster, the same job Match.reminder_sent_at used to
-    do with a compare-and-swap. It had to become a table because one timestamp
-    cannot say "the 60-minute ping went out but the 10-minute one has not".
+    workers both pinging a roster. A table rather than a timestamp on the match
+    because one timestamp cannot say "the 60-minute ping went out but the
+    10-minute one has not".
 
     Cleared by Match.save() when scheduled_time moves -- a reminder already
     sent describes a time that no longer applies.

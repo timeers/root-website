@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load i18n socialaccount static custom_filters %}
+{% load i18n socialaccount static custom_filters markdown_filters %}
 {% block title %}{{ survey.title }} | {% endblock %}
 
 {% block meta %}
@@ -54,9 +54,7 @@
         {% endif %}
 
 
-        {% if survey.description %}
-            <p class="lead mt-3">{{ survey.description|linebreaks }}</p>
-        {% endif %}
+
     </div>
 
     <!-- Survey Stats Cards -->
@@ -174,6 +172,10 @@
             {% endif %}
         {% endif %}
     </div>
+
+        {% if survey.description %}
+            <p class="lead mt-3">{{ survey.description|render_markdown }}</p>
+        {% endif %}
 
     <!-- Take / Retake Survey Button -->
     <hr class="my-4">

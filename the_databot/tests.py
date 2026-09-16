@@ -5,7 +5,6 @@ from unittest import mock, skipUnless
 from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_logged_in
 from django.core.cache import cache
-from django.db.models.signals import post_save
 from django.test import TestCase, RequestFactory, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -20,11 +19,13 @@ from the_warroom.models import (
     TournamentPlayer, CompetitionStatus,
 )
 from the_keep.models import (
-    StatusChoices, Faction, Map, Deck, Vagabond, Language, Law, LawGroup,
+    StatusChoices, Faction, Map, Deck, Vagabond, Landmark, Hireling, Language,
+    Law, LawGroup,
 )
 from the_gatehouse.models import (
     DiscordGuild, Profile, DEFAULT_PROFILE_IMAGE,
     UserNotification, MessageChoices, GUILDS_REFRESH_MAX_AGE,
+    PlayerSchedule,
 )
 from the_databot.models import (
     GuildLFGRole, LFGThread, ScheduleProposal,
@@ -32,7 +33,7 @@ from the_databot.models import (
 )
 from the_gatehouse import views
 from the_gatehouse.services.steam_openid import read_link_token
-from the_gatehouse.signals import user_logged_in_handler, handle_image_resize
+from the_gatehouse.signals import user_logged_in_handler
 from the_databot.services import discord_commands as dc
 from the_databot.services.lfg_game import (
     rolled_components, boxscore_components, seated_profiles,
@@ -54,7 +55,9 @@ from the_databot.services.time_parsing import (
 )
 from the_databot.services.discordservice import (build_upcoming_embed,
                                                    build_lfg_help_embed, _LFG_LINK_RE)
+from django.contrib import admin
 from the_databot.services import discordservice as ds
+from the_databot.services.discord_components import COMPONENT_LABEL
 from the_databot import tasks
 from the_databot import discord_interactions as di
 from the_gatehouse.templatetags.databot_filters import lfg_body
@@ -2665,8 +2668,6 @@ class LFGCancelPermissionTests(TestCase):
     OTHER = "830000000000000022"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.guild = DiscordGuild.objects.create(guild_id="830000000000000099",
                                                  name="LFG Guild")
 
@@ -2759,6 +2760,173 @@ class LFGCancelPermissionTests(TestCase):
                for b in data["components"][0]["components"]}
         self.assertTrue(ids["lfg_start"].endswith(f":{self.HOST}"))
         self.assertTrue(ids["lfg_cancel"].endswith(f":{di.PICK_OPEN}"))
+
+
+class LFGEditButtonRowTests(TestCase):
+    """`edit_button` gates the 📝 button in _lfg_message_data's row -- OFF by
+    default so every pre-existing call site is unaffected."""
+
+    HOST = "830000000000000033"
+
+    def _buttons(self, **kw):
+        data = di._lfg_message_data(
+            None, self.HOST, "a game", "Tim", title="Looking for Game", **kw)
+        return data["components"][0]["components"]
+
+    def test_edit_button_off_by_default(self):
+        buttons = self._buttons()
+        self.assertEqual(len(buttons), 4)
+        names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
+        self.assertNotIn("lfg_edit", names)
+
+    def test_edit_button_sits_between_notify_and_cancel(self):
+        buttons = self._buttons(edit_button=True)
+        self.assertEqual(len(buttons), 5)
+        names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
+        self.assertEqual(names,
+                         ["lfg_join", "lfg_notify", "lfg_edit", "lfg_cancel", "lfg_start"])
+
+    def test_edit_is_dispatcher_locked_like_start(self):
+        """No moderator carve-out, unlike ✖ -- the owner snowflake must be LAST,
+        which is what makes the dispatcher's generic owner-lock fire."""
+        buttons = self._buttons(edit_button=True)
+        edit_button = next(b for b in buttons
+                           if di.decode_custom_id(b["custom_id"])[0] == "lfg_edit")
+        self.assertTrue(edit_button["custom_id"].endswith(f":{self.HOST}"))
+
+
+class LFGEditTests(TestCase):
+    """📝 Edit: host-only, opens a modal pre-filled with the current description,
+    and submitting it PATCHes the live message directly."""
+
+    HOST = "830000000000000044"
+    OTHER = "830000000000000055"
+
+    def _click_payload(self, clicker, description="Current description"):
+        embed = {
+            "title": "Looking for Game", "description": description,
+            "fields": [
+                {"name": di.LFG_PLAYERS_FIELD, "value": f"Tim (<@{self.HOST}>)",
+                 "inline": False},
+            ],
+        }
+        return {
+            "type": 3,  # MESSAGE_COMPONENT
+            "channel_id": "chan", "guild_id": "guild",
+            "member": {"nick": "Clicker", "user": {"id": clicker}},
+            "message": {"id": "msg1", "content": "", "embeds": [embed]},
+            "data": {"custom_id": di.encode_custom_id("lfg_edit", self.HOST)},
+        }
+
+    def test_the_host_can_click_edit(self):
+        with mock.patch.object(di, "_verify_signature", return_value=True):
+            response = self.client.post(
+                reverse("discord-interactions"),
+                data=json.dumps(self._click_payload(self.HOST)),
+                content_type="application/json")
+        data = json.loads(response.content)
+        self.assertEqual(data["type"], di.RESPONSE_MODAL)
+
+    def test_a_non_host_cannot_click_edit(self):
+        """The dispatcher's generic owner-lock, not a manual check in the
+        handler -- proven by going through the real view, not calling
+        _handle_lfg_edit directly (which would silently skip the lock)."""
+        with mock.patch.object(di, "_verify_signature", return_value=True):
+            response = self.client.post(
+                reverse("discord-interactions"),
+                data=json.dumps(self._click_payload(self.OTHER)),
+                content_type="application/json")
+        data = json.loads(response.content)
+        self.assertIn("Only the host", data["data"]["content"])
+
+    def test_the_modal_is_prefilled_with_the_current_description(self):
+        response = di._handle_lfg_edit(self._click_payload(self.HOST, "Existing text"))
+        data = json.loads(response.content)
+        self.assertEqual(data["type"], di.RESPONSE_MODAL)
+        modal_data = data["data"]
+        label = modal_data["components"][0]
+        self.assertEqual(label["type"], COMPONENT_LABEL)
+        self.assertEqual(label["component"]["value"], "Existing text")
+
+    def test_the_modal_custom_id_carries_the_message_and_channel(self):
+        response = di._handle_lfg_edit(self._click_payload(self.HOST))
+        data = json.loads(response.content)
+        action, args = di.decode_custom_id(data["data"]["custom_id"])
+        self.assertEqual(action, "lfg_edit_modal")
+        self.assertEqual(args, ["msg1", "chan"])
+
+    def _submit_payload(self, message_id="msg1", channel_id="chan", value="New text"):
+        return {
+            "type": 5,  # MODAL_SUBMIT
+            "channel_id": channel_id,
+            "data": {
+                "custom_id": di.encode_custom_id("lfg_edit_modal", message_id, channel_id),
+                "components": [
+                    {"type": COMPONENT_LABEL, "id": 1,
+                     "component": {"type": 4, "id": 2, "custom_id": "description",
+                                  "value": value}},
+                ],
+            },
+        }
+
+    def test_submitting_edits_the_live_message(self):
+        old_embed = {
+            "title": "Looking for Game", "description": "Old text",
+            "fields": [{"name": di.LFG_PLAYERS_FIELD, "value": "Tim", "inline": False}],
+        }
+        with mock.patch(
+                "the_databot.services.discordservice.get_channel_message",
+                return_value={"embeds": [old_embed]}) as get_msg, \
+                mock.patch(
+                    "the_databot.services.discordservice.edit_channel_message") as edit_msg:
+            response = di._handle_lfg_edit_modal_submit(
+                *self._dispatch_args(self._submit_payload()))
+        get_msg.assert_called_once_with("chan", "msg1")
+        edit_msg.assert_called_once()
+        args, kwargs = edit_msg.call_args
+        self.assertEqual(args[:2], ("chan", "msg1"))
+        new_embed = kwargs["embeds"][0]
+        self.assertEqual(new_embed["description"], "New text")
+        # Players field survives untouched.
+        self.assertEqual(new_embed["fields"][0]["value"], "Tim")
+        self.assertEqual(json.loads(response.content)["type"],
+                         di.RESPONSE_DEFERRED_UPDATE_MESSAGE)
+
+    def _dispatch_args(self, payload):
+        """(payload, args) the MODAL_SUBMIT dispatch branch would pass."""
+        _action, args = di.decode_custom_id(payload["data"]["custom_id"])
+        return payload, args
+
+    def test_an_unresolvable_message_is_refused_gracefully(self):
+        with mock.patch(
+                "the_databot.services.discordservice.get_channel_message",
+                return_value=None):
+            response = di._handle_lfg_edit_modal_submit(
+                *self._dispatch_args(self._submit_payload()))
+        data = json.loads(response.content)
+        self.assertIn("Couldn't find that message", data["data"]["content"])
+
+
+class LFGModalTextValueTests(TestCase):
+    """_modal_text_value: reading a submitted value out of the Label-wrapped
+    MODAL_SUBMIT shape."""
+
+    def test_extracts_the_labeled_value(self):
+        payload = {"data": {"components": [
+            {"type": 18, "component": {"type": 4, "custom_id": "description",
+                                       "value": "hello"}},
+        ]}}
+        self.assertEqual(di._modal_text_value(payload, "description"), "hello")
+
+    def test_returns_empty_string_for_a_missing_custom_id(self):
+        payload = {"data": {"components": [
+            {"type": 18, "component": {"type": 4, "custom_id": "other", "value": "x"}},
+        ]}}
+        self.assertEqual(di._modal_text_value(payload, "description"), "")
+
+    def test_returns_empty_string_for_a_component_missing_its_component_key(self):
+        payload = {"data": {"components": [{"type": 18}]}}
+        self.assertEqual(di._modal_text_value(payload, "description"), "")
 
 
 class LFGEmbedTitleTests(TestCase):
@@ -4532,6 +4700,127 @@ class RegisterGuildCommandsBodyTests(TestCase):
         self.guild.save()
         self.assertNotIn("lookup", self._body())
 
+    # ── beta-tester mechanism ──────────────────────────────────────────────
+
+    def test_a_non_beta_guild_gets_no_beta_commands(self):
+        self.guild.enabled_commands = ["lfg"]
+        self.guild.is_beta_tester = False
+        self.guild.save()
+        self.assertNotIn("lfg-beta", self._body())
+
+    def test_a_beta_guild_gets_lfg_beta_alongside_lfg(self):
+        self.guild.enabled_commands = ["lfg"]
+        self.guild.is_beta_tester = True
+        self.guild.save()
+        body = self._body()
+        self.assertIn("lfg", body)
+        self.assertIn("lfg-beta", body)
+
+    def test_a_beta_guild_without_lfg_enabled_gets_no_lfg_beta(self):
+        """The beta variant is always an ADDITION alongside the real command,
+        never a replacement -- a guild can't get it without lfg itself."""
+        self.guild.enabled_commands = ["stats"]
+        self.guild.is_beta_tester = True
+        self.guild.save()
+        self.assertNotIn("lfg-beta", self._body())
+
+    def test_the_beta_variant_matches_the_reals_lfg_shape(self):
+        """lfg-beta reuses lfg_command_for_roles, so it can never silently drift
+        from what the real /lfg would show this guild."""
+        self.guild.enabled_commands = ["lfg"]
+        self.guild.is_beta_tester = True
+        self.guild.save()
+        for i in range(2):
+            GuildLFGRole.objects.create(guild=self.guild, name="Tag %d" % i,
+                                        role_id=str(100000000000000800 + i))
+        body = self._body()
+        self.assertEqual(self._opts(body["lfg"]), self._opts(body["lfg-beta"]))
+
+
+class ApplicationCommandBetaDispatchTests(TestCase):
+    """The dispatcher's generic "-beta" suffix stripping: a beta-suffixed command
+    name resolves to the SAME handler as its base name, with source unset for the
+    real command and set for the beta one."""
+
+    def _post(self, command_name):
+        payload = {
+            "type": 2,  # APPLICATION_COMMAND
+            "data": {"name": command_name, "options": []},
+            "guild_id": "700600",
+            "channel_id": "555000222",
+            "channel": {"name": "a channel", "type": 0},
+            "member": {"user": {"id": "901", "username": "user901"}},
+            "token": "tok",
+        }
+        with mock.patch.object(di, "_verify_signature", return_value=True):
+            response = self.client.post(
+                reverse("discord-interactions"), data=json.dumps(payload),
+                content_type="application/json")
+        return json.loads(response.content)
+
+    def test_lfg_beta_reaches_the_same_handler_as_lfg(self):
+        """No players parsed from either invocation -> plain post either way; both
+        must succeed (an unknown-command ephemeral would mean the strip failed)."""
+        real = self._post("lfg")
+        beta = self._post("lfg-beta")
+        self.assertEqual(real["data"]["embeds"][0]["title"],
+                         beta["data"]["embeds"][0]["title"])
+
+    def test_lfg_reaches_it_with_the_beta_flag_unset(self):
+        data = self._post("lfg")["data"]
+        buttons = data["components"][0]["components"]
+        names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
+        self.assertNotIn("lfg_edit", names)
+
+    def test_lfg_beta_reaches_it_with_the_beta_flag_set(self):
+        data = self._post("lfg-beta")["data"]
+        buttons = data["components"][0]["components"]
+        names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
+        self.assertIn("lfg_edit", names)
+
+    def test_an_unknown_suffixed_name_is_still_unknown(self):
+        response = self._post("not-a-real-command-beta")
+        self.assertIn("Unknown command", response["data"]["content"])
+
+
+class DiscordGuildAdminBetaTests(TestCase):
+    """DiscordGuildAdmin.save_model re-registers only when is_beta_tester actually
+    changed -- there is no signal for DiscordGuild, so this is the only hook."""
+
+    def setUp(self):
+        from the_gatehouse.admin import DiscordGuildAdmin
+        self.admin = DiscordGuildAdmin(DiscordGuild, admin.site)
+
+    def _save(self, guild, is_beta_tester, change):
+        guild.is_beta_tester = is_beta_tester
+        with mock.patch("the_gatehouse.views.refresh_guild_commands") as refresh:
+            self.admin.save_model(request=None, obj=guild, form=None, change=change)
+        return refresh
+
+    def test_flipping_beta_on_triggers_a_refresh(self):
+        guild = DiscordGuild.objects.create(guild_id="700700", name="Admin Guild",
+                                            is_beta_tester=False)
+        refresh = self._save(guild, True, change=True)
+        refresh.assert_called_once_with(guild)
+
+    def test_an_unrelated_edit_does_not_trigger_a_refresh(self):
+        guild = DiscordGuild.objects.create(guild_id="700701", name="Admin Guild 2",
+                                            is_beta_tester=True)
+        refresh = self._save(guild, True, change=True)
+        refresh.assert_not_called()
+
+    def test_creating_a_guild_with_beta_off_does_not_trigger_a_refresh(self):
+        """The False-vs-None bug this guards: a brand-new guild's is_beta_tester
+        defaults to False, which must not read as "changed from None"."""
+        guild = DiscordGuild(guild_id="700702", name="New Guild")
+        refresh = self._save(guild, False, change=False)
+        refresh.assert_not_called()
+
+    def test_creating_a_guild_with_beta_on_does_trigger_a_refresh(self):
+        guild = DiscordGuild(guild_id="700703", name="New Beta Guild")
+        refresh = self._save(guild, True, change=False)
+        refresh.assert_called_once_with(guild)
+
 
 class EditGuildCommandSyncTests(_NoLoginSignalMixin, TestCase):
     """The guild form re-registers commands only when the enabled set actually changed."""
@@ -4596,13 +4885,6 @@ class DraftLFGSeatingTests(TestCase):
     THREAD_ID = "thread-900"
 
     def setUp(self):
-        # Saving a Faction fires handle_image_resize, which rewrites the animal's
-        # image IN PLACE under media/ — for a stock animal that's the shared
-        # default_images file, which repeated test runs then truncate. Nothing here
-        # tests image handling, so disconnect it for the duration.
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
-
         designer = Profile.objects.create(discord="draftdesigner", discord_id="800")
         # Enough official/Stable factions for a 6-player draft (needs players + 1),
         # all Militant so 2-player drafts (Militant-only) work from the same pool.
@@ -4881,8 +5163,6 @@ class DraftClearTests(TestCase):
     def setUp(self):
         # See DraftLFGSeatingTests.setUp -- saving a Faction rewrites the shared
         # default image in place, and nothing here tests image handling.
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
 
         designer = Profile.objects.create(discord="cleardesigner", discord_id="820")
         self.factions = [
@@ -5452,8 +5732,6 @@ class MatchThreadCaptureTests(TestCase):
     THREAD_ID = "1303834523347456040"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
 
         self.guild = DiscordGuild.objects.create(
             guild_id=self.GUILD_ID, name="Capture Guild")
@@ -5543,8 +5821,6 @@ class LFGCaptureTests(TestCase):
     THREAD_ID = "thread-cap-1"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
 
         self.designer = Profile.objects.create(discord="capdesigner", discord_id="700")
         self.factions = [
@@ -5600,6 +5876,57 @@ class LFGCaptureTests(TestCase):
         record_lfg_components_task(self.THREAD_ID, [self._item("Map", self.map)])
         record_lfg_components_task(self.THREAD_ID, [self._item("Deck", self.deck)])
         self.assertEqual(self.thread.roll_log.count(), 2)
+
+    def test_boxscore_reupload_replaces_rather_than_accumulating(self):
+        """Unlike a plain capture, a boxscore re-upload is the whole file's
+        component set, not an addition to what an earlier upload found -- a
+        corrected file must not leave the old landmark/hireling/tweak/faction
+        sitting alongside the new one."""
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Faction", self.factions[0]), self._item("Map", self.map)],
+            source="boxscore")
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Faction", self.factions[1])],
+            source="boxscore")
+
+        rolls = list(self.thread.roll_log.filter(source="boxscore"))
+        self.assertEqual([(r.kind, r.slug) for r in rolls],
+                         [("Faction", self.factions[1].slug)])
+
+    def test_boxscore_reupload_with_no_components_still_clears_the_old_ones(self):
+        """A corrected file can legitimately name fewer components than the
+        last upload -- including none at all -- and the empty-items call must
+        not be treated as a no-op that leaves the stale rows behind."""
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Faction", self.factions[0])],
+            source="boxscore")
+        record_lfg_components_task(self.THREAD_ID, [], source="boxscore")
+
+        self.assertEqual(self.thread.roll_log.filter(source="boxscore").count(), 0)
+
+    def test_boxscore_reupload_does_not_clear_other_sources(self):
+        """/random, /draft, /pick and the lookups share the same log -- a
+        boxscore re-upload must only ever touch its own rows."""
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Faction", self.factions[0])],
+            source="random")
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Faction", self.factions[1])],
+            source="boxscore")
+        record_lfg_components_task(
+            self.THREAD_ID,
+            [self._item("Faction", self.factions[2])],
+            source="boxscore")
+
+        self.assertEqual(
+            [(r.kind, r.slug, r.source) for r in self.thread.roll_log.all()],
+            [("Faction", self.factions[0].slug, "random"),
+             ("Faction", self.factions[2].slug, "boxscore")])
 
     # ── draft ───────────────────────────────────────────────────────────────
     def _draft_payload(self, factions, **kw):
@@ -5698,8 +6025,6 @@ class LFGCaptureTests(TestCase):
     def _vagabond(self, title):
         """A saved Vagabond. `animal` is required: Vagabond.save() routes through
         animal_default_picture, which lowercases it."""
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
         return Vagabond.objects.create(
             title=title, animal="Fox", designer=self.designer,
             status=StatusChoices.STABLE, official=True)
@@ -5856,8 +6181,6 @@ class PickCommandTests(TestCase):
     OWNER = "111111111111111111"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
 
         self.designer = Profile.objects.create(discord="pickcmd", discord_id="750")
         self.factions = [
@@ -6164,8 +6487,6 @@ class PickCommandTests(TestCase):
                          self.factions[1])
 
     def test_picking_the_vagabond_faction_attaches_its_drafted_vagabond(self):
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
         players = self._roster(2)
         vb = Vagabond.objects.create(
             title="Pick Ranger", animal="Fox", designer=self.designer,
@@ -6296,8 +6617,6 @@ class PickCommandTests(TestCase):
     def test_the_undrafted_row_carries_its_vagabond(self):
         """The leftover renders through _pick_seat_detail like a taken seat --
         this is the case that runs it against an LFGDraftPick, not an LFGSeat."""
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
         vb = Vagabond.objects.create(
             title="Undrafted Panel Ranger", animal="Fox", designer=self.designer,
             status=StatusChoices.STABLE, official=True)
@@ -6331,10 +6650,6 @@ class PickVagabondFollowUpTests(TestCase):
     OWNER = "111111111111111111"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
 
         self.designer = Profile.objects.create(discord="pkvb", discord_id="790")
         # The real slug is load-bearing: the follow-up is keyed off it.
@@ -6513,10 +6828,6 @@ class PickCaptainsFollowUpTests(TestCase):
     OWNER = "111111111111111111"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
 
         self.designer = Profile.objects.create(discord="pkcap", discord_id="800")
         self.knaves = Faction.objects.create(
@@ -6758,10 +7069,6 @@ class PickSessionLifecycleTests(TestCase):
     OWNER = "111111111111111111"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
 
         self.designer = Profile.objects.create(discord="pklife", discord_id="810")
         self.factions = [
@@ -6980,8 +7287,6 @@ class PickSeatChoiceTests(TestCase):
     OWNER = "111111111111111111"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
         designer = Profile.objects.create(discord="pkchoice", discord_id="780")
         self.factions = [
             Faction.objects.create(
@@ -7091,8 +7396,6 @@ class PickFreeOrderTests(TestCase):
     OWNER = "111111111111111111"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
         self.designer = Profile.objects.create(discord="pkfree", discord_id="820")
         self.factions = [
             Faction.objects.create(
@@ -7356,8 +7659,6 @@ class PickFreeFollowUpTests(TestCase):
     OWNER = "111111111111111111"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
         self.designer = Profile.objects.create(discord="pkff", discord_id="830")
         self.vagabond_faction = Faction.objects.create(
             title="Vagabond", animal="Fox", designer=self.designer,
@@ -7840,8 +8141,6 @@ class RosterGuardedCommandTests(TestCase):
     OUTSIDER = "999888777666555444"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
         self.guild = DiscordGuild.objects.create(
             guild_id=self.GUILD_ID, name="Guard Guild")
         designer = Profile.objects.create(discord="guarddz", discord_id="700")
@@ -8018,8 +8317,6 @@ class PickCommandGroupThreadTests(TestCase):
     OWNER = "111111111111111111"
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
 
         self.guild = DiscordGuild.objects.create(
             guild_id=self.GUILD_ID, name="Pick Guild")
@@ -8231,8 +8528,6 @@ class PickedFactionsByProfileTests(TestCase):
     seat-number join could attach a faction to the wrong player."""
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
 
         self.designer = Profile.objects.create(discord="pickdesigner", discord_id="730")
         self.factions = [
@@ -8347,8 +8642,6 @@ class RandomOptionsPanelTests(TestCase):
     def setUp(self):
         # Saving a Faction rewrites the stock animal image in place; nothing here
         # tests image handling. Same guard DraftLFGSeatingTests uses.
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
 
         designer = Profile.objects.create(discord="fandesigner", discord_id="700")
         for i in range(3):
@@ -11224,6 +11517,87 @@ class LFGThreadCleanupTaskTests(TestCase):
         self.assertEqual(LFGThread.objects.count(), 1)
 
 
+class PlayerScheduleCleanupTaskTests(TestCase):
+    """cleanup_expired_player_schedules: purges old WEEK-SPECIFIC rows only,
+    standing (week_start=NULL) rows are never touched regardless of age."""
+
+    def setUp(self):
+        self.profile = Profile.objects.create(
+            discord="cleanupplayer", discord_id="970000000000000001")
+
+    def _week_row(self, weeks_ago, **kw):
+        week = timezone.now().date() - timedelta(weeks=weeks_ago)
+        return PlayerSchedule.objects.create(
+            profile=self.profile, week_start=week, available_hours=[1, 2], **kw)
+
+    def test_a_row_older_than_the_retention_window_is_deleted(self):
+        from the_databot import tasks
+        self._week_row(weeks_ago=10, tournament=None)
+        self.assertEqual(tasks.cleanup_expired_player_schedules(retain_weeks=3), 1)
+        self.assertFalse(PlayerSchedule.objects.filter(week_start__isnull=False).exists())
+
+    def test_a_row_inside_the_retention_window_survives(self):
+        from the_databot import tasks
+        self._week_row(weeks_ago=1, tournament=None)
+        self.assertEqual(tasks.cleanup_expired_player_schedules(retain_weeks=3), 0)
+        self.assertEqual(PlayerSchedule.objects.filter(week_start__isnull=False).count(), 1)
+
+    def test_a_standing_row_is_never_touched_regardless_of_age(self):
+        from the_databot import tasks
+        standing = PlayerSchedule.objects.create(
+            profile=self.profile, tournament=None, week_start=None,
+            available_hours=[1, 2, 3])
+        standing.updated_at = timezone.now() - timedelta(days=1000)
+        standing.save(update_fields=["updated_at"])
+        self._week_row(weeks_ago=10, tournament=None)
+
+        tasks.cleanup_expired_player_schedules(retain_weeks=3)
+
+        self.assertTrue(PlayerSchedule.objects.filter(pk=standing.pk).exists())
+
+    def test_dry_run_reports_without_deleting(self):
+        from the_databot import tasks
+        self._week_row(weeks_ago=10, tournament=None)
+        self.assertEqual(
+            tasks.cleanup_expired_player_schedules(retain_weeks=3, dry_run=True), 1)
+        self.assertEqual(PlayerSchedule.objects.filter(week_start__isnull=False).count(), 1)
+
+    def test_limit_caps_a_run_oldest_first(self):
+        from the_databot import tasks
+        oldest = self._week_row(weeks_ago=20, tournament=None)
+        self._week_row(weeks_ago=15, tournament=None)
+        self._week_row(weeks_ago=10, tournament=None)
+        self.assertEqual(
+            tasks.cleanup_expired_player_schedules(retain_weeks=3, limit=1), 1)
+        self.assertFalse(PlayerSchedule.objects.filter(pk=oldest.pk).exists())
+        self.assertEqual(PlayerSchedule.objects.filter(week_start__isnull=False).count(), 2)
+
+    def test_nothing_to_delete_returns_zero(self):
+        from the_databot import tasks
+        self.assertEqual(tasks.cleanup_expired_player_schedules(), 0)
+
+    def test_retention_boundary_is_not_off_by_one(self):
+        """retain_weeks=3 keeps a row through day 28 after week_start (3 full
+        weeks), and deletes starting day 29 -- "3 weeks past the week's end"."""
+        from the_databot import tasks
+        # week_start 28 days ago: the week's own 7 days + exactly 3 retained
+        # weeks after it (21 days) = 28 days -- still within the window.
+        still_in_window = PlayerSchedule.objects.create(
+            profile=self.profile, tournament=None,
+            week_start=timezone.now().date() - timedelta(days=28),
+            available_hours=[1],
+        )
+        # One day further -> past the window.
+        past_window = PlayerSchedule.objects.create(
+            profile=self.profile, tournament=None,
+            week_start=timezone.now().date() - timedelta(days=29),
+            available_hours=[1],
+        )
+        tasks.cleanup_expired_player_schedules(retain_weeks=3)
+        self.assertTrue(PlayerSchedule.objects.filter(pk=still_in_window.pk).exists())
+        self.assertFalse(PlayerSchedule.objects.filter(pk=past_window.pk).exists())
+
+
 class LFGThreadLastActivityTests(TestCase):
     """LFGThread.save() keeps last_activity current even on the narrow
     update_fields writes that dominate this model's call sites."""
@@ -11694,10 +12068,6 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
 
     def setUp(self):
         super().setUp()
-        post_save.disconnect(handle_image_resize, sender=Faction)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Faction)
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
 
         self.designer = Profile.objects.create(discord="bsdesigner", discord_id="900")
         self.map = Map.objects.create(title="Autumn Board", clearings=12,
@@ -11854,6 +12224,35 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         return doc
 
     # ── the happy path ──
+
+    def test_decompose_collects_landmark_and_hireling_titles(self):
+        """Map/Deck already fed component_titles; landmarks/hirelings did not,
+        so the boxscore success message silently dropped them."""
+        landmark = Landmark.objects.create(
+            title="Ancient Tower", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        hireling = Hireling.objects.create(
+            title="Bandit Chief", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        doc = self._doc(landmarks=[landmark.slug], hirelings=[hireling.slug])
+
+        _entries, _notes, _items, component_titles, _undrafted = (
+            di._boxscore_decompose(doc["participants"], doc))
+
+        self.assertIn("Ancient Tower", component_titles)
+        self.assertIn("Bandit Chief", component_titles)
+
+    def test_decompose_skips_an_unrecognised_landmark_slug_silently(self):
+        """Existence-checked the same way Map/Deck are, but with no separate
+        note -- _boxscore_component_items already reports an unknown component
+        slug for the roll log, so a second warning here would just repeat it."""
+        doc = self._doc(landmarks=["no-such-landmark-anywhere"])
+
+        _entries, notes, _items, component_titles, _undrafted = (
+            di._boxscore_decompose(doc["participants"], doc))
+
+        self.assertEqual(component_titles, [])
+        self.assertFalse(any("no-such-landmark-anywhere" in n for n in notes))
 
     def test_it_seats_in_turn_order_and_stores_only_the_box_score(self):
         content, _, delay = self._run(
@@ -12688,8 +13087,6 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         when it was eligible to be played -- so any divergence here is the field
         being narrowed (or blanked) by something the active list escaped."""
         from the_keep.models import Vagabond
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
         caps = [Vagabond.objects.create(title=f"Discard Cap {i}", animal="Fox",
                                         designer=self.designer, captain=True,
                                         status=StatusChoices.STABLE, official=True)
@@ -12980,8 +13377,6 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         are both kind "Faction"), and the ROLLS are what make the form's
         undrafted_* fields offer it at all."""
         from the_keep.models import Vagabond
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
         vb = Vagabond.objects.create(title="Undrafted VB", animal="Fox",
                                      designer=self.designer,
                                      status=StatusChoices.STABLE, official=True)
@@ -13018,8 +13413,6 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         from the_keep.models import Vagabond
         # Same reason setUp does it for Faction/Profile: the resize signal
         # rewrites the shared default image on disk, dirtying the working tree.
-        post_save.disconnect(handle_image_resize, sender=Vagabond)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Vagabond)
         caps = [Vagabond.objects.create(title=f"Cap {i}", animal="Fox",
                                         designer=self.designer, captain=True,
                                         status=StatusChoices.STABLE, official=True)
@@ -13280,6 +13673,69 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
         ]
         lines = di._boxscore_seat_lines(seats, "From this box score")
         self.assertEqual(lines[1], "1. MysteryGuest")
+
+    def test_a_vagabond_seat_shows_its_emoji_when_uploaded(self):
+        """Matches /pick's own rendering: emoji before the name, inside the
+        trailing parenthetical."""
+        vb = Vagabond.objects.create(
+            title="Ranger", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        seats = [
+            {"profile_pk": None, "label": "Bob", "player_slug": "bob",
+             "player_steam_id": None, "faction_slug": self.faction.slug,
+             "vagabond_slug": vb.slug, "captain_slugs": [], "discarded_slug": None},
+        ]
+        with mock.patch.object(di, "vagabond_emoji_for", return_value="🦊"):
+            line = di._boxscore_seat_lines(seats, "h")[1]
+        self.assertIn("(🦊 Ranger)", line)
+
+    def test_a_vagabond_seat_falls_back_to_the_bare_title_with_no_emoji(self):
+        """No stray leading space or blank icon when the emoji hasn't been
+        uploaded -- same fallback shape the faction mark already had."""
+        vb = Vagabond.objects.create(
+            title="Thief", animal="Mouse", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        seats = [
+            {"profile_pk": None, "label": "Bob", "player_slug": "bob",
+             "player_steam_id": None, "faction_slug": self.faction.slug,
+             "vagabond_slug": vb.slug, "captain_slugs": [], "discarded_slug": None},
+        ]
+        with mock.patch.object(di, "vagabond_emoji_for", return_value=""):
+            line = di._boxscore_seat_lines(seats, "h")[1]
+        self.assertIn("(Thief)", line)
+        self.assertNotIn("( Thief)", line)
+
+    def test_a_knaves_seat_shows_captain_emoji_not_a_single_vagabond(self):
+        """Knaves of the Deepwood has no single vagabond -- its captains render
+        the same way /pick's captain marks do: emoji-only, joined with spaces."""
+        cap1 = Vagabond.objects.create(
+            title="Cap One", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        cap2 = Vagabond.objects.create(
+            title="Cap Two", animal="Mouse", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        seats = [
+            {"profile_pk": None, "label": "Bob", "player_slug": "bob",
+             "player_steam_id": None, "faction_slug": self.faction.slug,
+             "vagabond_slug": None,
+             "captain_slugs": [cap1.slug, cap2.slug], "discarded_slug": None},
+        ]
+        with mock.patch.object(
+                di, "vagabond_emoji_for",
+                side_effect=lambda v: "🦊" if v.slug == cap1.slug else ""):
+            line = di._boxscore_seat_lines(seats, "h")[1]
+        self.assertIn("(🦊 Cap Two)", line)
+
+    def test_a_seat_with_neither_vagabond_nor_captains_is_unaffected(self):
+        """Regression check: the new branch must not alter plain faction-only
+        seats, which have no parenthetical at all."""
+        seats = [
+            {"profile_pk": None, "label": "Bob", "player_slug": "bob",
+             "player_steam_id": None, "faction_slug": self.faction.slug,
+             "vagabond_slug": None, "captain_slugs": [], "discarded_slug": None},
+        ]
+        line = di._boxscore_seat_lines(seats, "h")[1]
+        self.assertNotIn("(", line)
 
     def test_skipping_a_seat_leaves_it_blank_after_the_other_is_picked(self):
         """Reported from production: two unknown seats, one answered and one
@@ -13769,8 +14225,6 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
 
     def setUp(self):
         super().setUp()
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.player = Profile.objects.create(discord="tokplayer",
                                              discord_id=self.AUTHOR)
         self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
@@ -13871,7 +14325,7 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
         }
         with mock.patch.object(di.record_lfg_components_task, "delay", mock.Mock()), \
                 mock.patch.object(di.post_boxscore_prompt_task, "delay") as prompt, \
-                mock.patch.object(di.post_channel_message_task, "delay") as post:
+                mock.patch.object(di.post_boxscore_result_task, "delay") as post:
             response = di.COMPONENT_HANDLERS["boxscore_restore"](payload)
         data = json.loads(response.content)["data"]
         return (data, prompt, post) if capture else data
@@ -13929,7 +14383,7 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
         data, _prompt, post = self._press_restore(token, capture=True)
 
         self.assertTrue(post.called)
-        content = post.call_args.args[1]
+        content = post.call_args.args[2]
         self.assertIn(f"<@{self.player.discord_id}>", content)
         self.assertEqual(post.call_args.kwargs["allowed_mentions"],
                          {"users": [self.player.discord_id]})
@@ -14094,6 +14548,61 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
         custom_id = data["components"][0]["components"][0]["custom_id"]
         self.assertEqual(custom_id.split(":")[1], str(newer.pk))
 
+    # ── _boxscore_commit: token-backed (public) vs cache-backed (ephemeral) ──
+
+    def _commit_payload(self, message_id="777666555"):
+        return {"data": {}, "message": {"id": message_id},
+                "channel_id": self.THREAD_ID}
+
+    def _commit_pending(self):
+        return {"entries": [], "seats": [], "items": [], "notes": [],
+                "component_titles": [], "filename": "Tabletop Simulator",
+                "fingerprint": di._boxscore_seat_fingerprint(self.thread)}
+
+    def test_a_token_backed_commit_tracks_the_message_and_adds_the_record_link(self):
+        """The "t:<pk>" ref is the API/restore path -- the one place a record
+        link and a durable message id both make sense."""
+        with mock.patch.object(di, "_capture_lfg_components"):
+            response = di._boxscore_commit(
+                self._commit_payload(), self._commit_pending(), self.thread, "t:1")
+        content = json.loads(response.content)["data"]["content"]
+        self.assertIn("Review and record the game", content)
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.boxscore_message_id, "777666555")
+        self.assertNotIn("Review and record the game",
+                         self.thread.boxscore_message_body)
+
+    def test_a_cache_backed_commit_does_neither(self):
+        """"c:<key>" is /boxscore upload's own ephemeral confirm -- its message
+        has no stable id a later REST edit could use, and only the uploader can
+        see it, so tracking it (or offering a link nobody else could reach)
+        would be wrong."""
+        with mock.patch.object(di, "_capture_lfg_components"):
+            response = di._boxscore_commit(
+                self._commit_payload(), self._commit_pending(), self.thread, "c:1")
+        content = json.loads(response.content)["data"]["content"]
+        self.assertNotIn("Review and record the game", content)
+        self.thread.refresh_from_db()
+        self.assertIsNone(self.thread.boxscore_message_id)
+
+    def test_a_second_token_backed_commit_retires_the_first_message(self):
+        """A re-upload that goes through a gate must not leave the earlier
+        upload's message carrying a live record link either."""
+        with mock.patch.object(di, "_capture_lfg_components"):
+            di._boxscore_commit(
+                self._commit_payload("111"), self._commit_pending(), self.thread, "t:1")
+        self.thread.refresh_from_db()
+        first_body = self.thread.boxscore_message_body
+
+        with mock.patch.object(di, "_capture_lfg_components"), \
+                mock.patch.object(di, "_retire_boxscore_message") as retire:
+            di._boxscore_commit(
+                self._commit_payload("222"), self._commit_pending(), self.thread, "t:2")
+
+        retire.assert_called_once_with(self.THREAD_ID, "111", first_body)
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.boxscore_message_id, "222")
+
 
 class BoxScoreUploadSweepTests(TestCase):
     """sweep_boxscore_upload_tokens: remind, expire, prune.
@@ -14103,8 +14612,6 @@ class BoxScoreUploadSweepTests(TestCase):
     """
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.player = Profile.objects.create(discord="sweeper", discord_id="960")
         # A DISTINCT issuer, on the roster but not the only member: the reminder
         # pings the issuer rather than the roster, and if one profile were both
@@ -14273,8 +14780,6 @@ class BoxScoreMatchRosterTests(TestCase):
     """
 
     def setUp(self):
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
         self.a = Profile.objects.create(discord="mra", discord_id="9001")
         self.b = Profile.objects.create(discord="mrb", discord_id="9002")
         self.c = Profile.objects.create(discord="mrc", discord_id="9003")
@@ -14357,8 +14862,6 @@ class BoxScoreRosterGuardTests(TestCase):
 
     def setUp(self):
         super().setUp()
-        post_save.disconnect(handle_image_resize, sender=Profile)
-        self.addCleanup(post_save.connect, handle_image_resize, sender=Profile)
 
         self.player = Profile.objects.create(discord="guardplayer",
                                              discord_id=self.PLAYER_ID)
@@ -15095,6 +15598,22 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         self._sweep()
         self.assertEqual(self._sent_count(self.match), 0)
 
+    def test_an_unremindable_match_collapses_nothing(self):
+        """The collapse runs BELOW the thread check, so an unremindable match
+        claims nothing -- neither the one that would have been sent nor the ones
+        that would have been suppressed. Collapsing above it would burn every
+        reminder for a match that was never remindable, and would report one
+        skipped instead of two."""
+        self._remind(self.tournament, 45)       # two reminders, both due
+        self.group.discord_thread = "https://discord.com/channels/999999/555000111"
+        self.group.save(update_fields=["discord_thread"])
+
+        with mock.patch.object(tasks.post_channel_message_task, "delay"):
+            result = tasks.remind_upcoming_matches()
+
+        self.assertEqual(result, {"sent": 0, "skipped": 2, "collapsed": 0})
+        self.assertEqual(self._sent_count(self.match), 0)
+
     def test_no_reminder_without_a_scheduled_time(self):
         Match.objects.filter(pk=self.match.pk).update(scheduled_time=None)
         self.assertEqual(self._sweep().call_count, 0)
@@ -15173,42 +15692,72 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         ScheduledGameReminder.objects.all().delete()
         with self.assertNumQueries(1):
             result = tasks.remind_upcoming_matches()
-        self.assertEqual(result, {"sent": 0, "skipped": 0})
+        self.assertEqual(result, {"sent": 0, "skipped": 0, "collapsed": 0})
 
     # --- several reminders on one series --------------------------------
     #
     # The reason the claim had to stop being a single timestamp on the match:
     # one flag cannot say "the 60-minute ping went out, the 10-minute has not".
-    def test_two_reminders_both_fire_when_both_are_due(self):
+    def test_two_reminders_due_at_once_send_only_one_ping(self):
+        """A match sitting inside BOTH windows must not be pinged twice in one
+        sweep. Both are claimed so neither fires again; only the tighter is sent.
+
+        This previously asserted two pings. With reminder_text at its shared
+        default those two messages are byte-identical, which is the spam this
+        collapse exists to stop."""
         self._remind(self.tournament, 45)       # match is at +30, so both due
         delay = self._sweep()
-        self.assertEqual(delay.call_count, 2)
+        self.assertEqual(delay.call_count, 1)
         self.assertEqual(self._sent_count(self.match), 2)
+
+    def test_the_tightest_due_reminder_is_the_one_sent(self):
+        """At +30 the 45 describes reality and the 60 describes a moment that
+        already passed unannounced, so the 45 is the honest one."""
+        self.reminder.reminder_text = "one hour warning"
+        self.reminder.save(update_fields=["reminder_text"])
+        self._remind(self.tournament, 45, text="forty five warning")
+        content = self._content(self._sweep())
+        self.assertIn("forty five warning", content)
+        self.assertNotIn("one hour warning", content)
+
+    def test_collapsed_reminders_are_counted(self):
+        self._remind(self.tournament, 45)
+        with mock.patch.object(tasks.post_channel_message_task, "delay"):
+            result = tasks.remind_upcoming_matches()
+        self.assertEqual(result, {"sent": 1, "skipped": 0, "collapsed": 1})
 
     def test_a_later_reminder_still_fires_after_an_earlier_one(self):
         """THE regression the old single timestamp made impossible: the 60 fires
-        now, and the 10 fires on a later sweep once its own window opens."""
+        now, and the 10 fires on a later sweep once its own window opens.
+
+        Each sweep sends exactly one -- _sweep() hands back a FRESH mock, so
+        these counts are per-sweep, not cumulative."""
         self._remind(self.tournament, 10)
         self.assertEqual(self._sweep().call_count, 1)   # only the 60 is due
         self.assertEqual(self._sent_count(self.match), 1)
 
+        # Rescheduling re-arms: Match.save() deletes the sent records, so both
+        # reminders are due again and the tighter 10 is the one that goes out.
         self._schedule(self.match, minutes=5)           # now inside the 10 too
-        self.assertEqual(self._sweep().call_count, 2)
+        self.assertEqual(self._sweep().call_count, 1)
+        self.assertEqual(self._sent_count(self.match), 2)
 
     def test_neither_reminder_fires_twice(self):
         self._remind(self.tournament, 45)
-        self.assertEqual(self._sweep().call_count, 2)
+        self.assertEqual(self._sweep().call_count, 1)
         self.assertEqual(self._sweep().call_count, 0)
         self.assertEqual(self._sent_count(self.match), 2)
 
-    def test_each_reminder_sends_its_own_text(self):
-        self.reminder.reminder_text = "one hour warning"
-        self.reminder.save(update_fields=["reminder_text"])
-        self._remind(self.tournament, 45, text="forty five warning")
-        delay = self._sweep()
-        contents = [c.args[1] for c in delay.call_args_list]
-        self.assertTrue(any("one hour warning" in c for c in contents))
-        self.assertTrue(any("forty five warning" in c for c in contents))
+    def test_a_reminder_that_is_not_yet_due_is_not_collapsed(self):
+        """The collapse only ever touches reminders due in THIS sweep. A window
+        that hasn't opened must stay pending, not be silently claimed -- that is
+        the difference between one ping per sweep and one ping ever."""
+        self._remind(self.tournament, 5)        # match is at +30; not due yet
+        self.assertEqual(self._sweep().call_count, 1)
+        self.assertEqual(self._sent_count(self.match), 1)
+
+        self._schedule(self.match, minutes=3)   # re-arms, now inside both
+        self.assertEqual(self._sweep().call_count, 1)
 
     def test_a_fully_reminded_match_is_not_rescanned(self):
         """Once every reminder has gone out the match drops out of the candidate

@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from the_keep.models import Post, Faction, Vagabond, Deck, Map
 from the_warroom.models import Game
-from the_gatehouse.models import DiscordGuild, Profile, UserNotification, MessageChoices
+from the_gatehouse.models import DiscordGuild, Profile, UserNotification, MessageChoices, PlayerSchedule
 from .models import BotUsage, GuildLFGRole, LFGThread, LFGRoll, LFGDraft, LFGDraftPick
 
 from .services.discordservice import (send_discord_dm, sync_bot_guilds,
@@ -759,16 +759,22 @@ def record_lfg_components_task(channel_id, items, source="", draft=None,
     """Record components surfaced inside an LFG thread (from /random, /map, /deck,
     other lookups, /draft). No-op when the channel isn't a known LFG thread.
 
-    `source` tags where the items came from (random / lookup / draft). `draft`,
-    when given, REPLACES the thread's current draft: {"players", "platform",
-    "drafted_by": <discord id>, "picks": [{"faction","vagabond","captains",
-    "order"}]}. Everything on the wire is slugs and ids — Celery serializes as
-    JSON, so model instances would raise EncodeError in the caller.
+    `source` tags where the items came from (random / lookup / draft / pick /
+    boxscore). `draft`, when given, REPLACES the thread's current draft:
+    {"players", "platform", "drafted_by": <discord id>, "picks": [{"faction",
+    "vagabond","captains","order"}]}. Everything on the wire is slugs and ids —
+    Celery serializes as JSON, so model instances would raise EncodeError in
+    the caller.
 
     `source` and `draft` are keyword-defaulted so the other capture call sites
     keep working and so tasks enqueued by older code still deserialize.
+
+    source="boxscore" always proceeds, even with empty items and no draft: a
+    re-upload must still clear the thread's previous boxscore rolls below, so
+    an empty-items run (a corrected file with fewer components than before)
+    can't be treated the same as a no-op.
     """
-    if not channel_id or not (items or draft):
+    if not channel_id or not (items or draft or source == "boxscore"):
         return
     # select_for_update still earns its place: the map/deck update below is a
     # read-modify-write, and the draft replacement must not interleave with a
@@ -809,6 +815,17 @@ def record_lfg_components_task(channel_id, items, source="", draft=None,
         posts_by_slug = {}
         if slugs:
             posts_by_slug = {p.slug: p for p in Post.objects.filter(slug__in=slugs)}
+
+        # A re-upload replaces the box score's component set rather than adding
+        # to it -- otherwise a corrected file (a changed landmark, a fixed
+        # tweak list, or even one with NO components at all) leaves stale rows
+        # from a previous upload offered/prefilled on the record-game form.
+        # Scoped to this source only: /random, /draft, /pick and the lookups
+        # share the same log and their history isn't this call's to drop (same
+        # scoping _draft_clear and the pick-clear code use for their own
+        # sources).
+        if source == "boxscore":
+            LFGRoll.objects.filter(thread=thread, source="boxscore").delete()
 
         rolls = []
         for it in items:
@@ -1038,6 +1055,38 @@ def cleanup_stale_schedule_proposals(max_age_days=14):
     return len(ids)
 
 
+@shared_task
+def cleanup_expired_player_schedules(retain_weeks=3, limit=None, dry_run=False):
+    """Delete week-specific PlayerSchedule rows (week_start is not NULL) whose
+    week ended more than `retain_weeks` weeks ago. Standing rows (week_start=NULL,
+    general or tournament-wide) are never touched -- they have no expiry.
+
+    retain_weeks=3 default: enough to look back at "what was I available last
+    week" without keeping data with no further use once a week has fully passed.
+
+    dry_run returns the count without deleting; limit caps a single run,
+    oldest-first, for a cautious first pass.
+
+    Runs on a schedule created in Django admin (django_celery_beat) -- this
+    project uses DatabaseScheduler, so there is no beat_schedule in code."""
+    cutoff = timezone.now().date() - timedelta(weeks=retain_weeks + 1)
+    qs = (PlayerSchedule.objects.filter(week_start__isnull=False, week_start__lt=cutoff)
+          .order_by('week_start'))
+    ids = list(qs.values_list('pk', flat=True))
+    if limit:
+        ids = ids[:int(limit)]
+    if not ids:
+        return 0
+    if dry_run:
+        logger.info("cleanup_expired_player_schedules DRY RUN: would delete %d rows "
+                    "(retain_weeks=%s)", len(ids), retain_weeks)
+        return len(ids)
+    PlayerSchedule.objects.filter(pk__in=ids).delete()
+    logger.info("cleanup_expired_player_schedules: deleted %d rows (retain_weeks=%s)",
+               len(ids), retain_weeks)
+    return len(ids)
+
+
 # Deletion chunk size. Each LFGThread drags four cascade tables (roll_log,
 # draft -> picks, seats), so the rows deleted are a multiple of this.
 _LFG_DELETE_CHUNK = 200
@@ -1157,6 +1206,69 @@ def post_boxscore_prompt_task(token_pk, message_data):
         BoxScoreUploadToken.objects.filter(pk=token_pk).update(message_id=message_id)
 
 
+def _retire_boxscore_message(channel_id, old_message_id, old_body):
+    """Strip the record-game line from a thread's PREVIOUS boxscore message,
+    since a fresh upload is about to replace it as the one true success message.
+    Best-effort and fire-and-forget, same as the manage_game cleanup it mirrors --
+    an old message is cosmetic, never something a failure here should block on.
+    """
+    if old_message_id and old_body is not None:
+        edit_channel_message_task.delay(channel_id, old_message_id, old_body)
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    retry_backoff=True,
+)
+def post_boxscore_result_task(thread_pk, channel_id, content, body_without_record_line,
+                              allowed_mentions=None):
+    """Post a box score's saved-result message and record its id and eventual
+    post-record content on the thread, so manage_game can rewrite this message
+    once the game is actually recorded -- without a GET round-trip at that point.
+
+    A re-upload lands here too, with the thread's PREVIOUS boxscore message (if
+    any) still tracked -- that message is about to stop being the current one,
+    so its own record line is retired first, same as manage_game would.
+    """
+    from the_databot.models import LFGThread
+    from the_databot.services.discordservice import (
+        post_channel_message_full, THREAD_OK, THREAD_ERROR,
+    )
+
+    thread = LFGThread.objects.filter(pk=thread_pk).only(
+        "boxscore_message_id", "boxscore_message_body").first()
+    if thread:
+        _retire_boxscore_message(channel_id,
+                                 thread.boxscore_message_id, thread.boxscore_message_body)
+
+    result, message_id = post_channel_message_full(
+        channel_id, content=content, allowed_mentions=allowed_mentions)
+    if result == THREAD_ERROR:
+        raise RuntimeError(f"transient failure posting boxscore result for thread {thread_pk}")
+    if result == THREAD_OK and message_id:
+        LFGThread.objects.filter(pk=thread_pk).update(
+            boxscore_message_id=message_id,
+            boxscore_message_body=body_without_record_line)
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    retry_backoff=True,
+)
+def edit_channel_message_task(channel_id, message_id, content):
+    """Best-effort: rewrite a boxscore success message to drop its stale "record
+    the game" line once manage_game actually records the game, or once a
+    re-upload replaces it as the thread's current boxscore message.
+    """
+    from the_databot.services.discordservice import edit_channel_message, THREAD_ERROR
+
+    result = edit_channel_message(channel_id, message_id, content=content)
+    if result == THREAD_ERROR:
+        raise RuntimeError(f"transient failure editing boxscore message {message_id}")
+
+
 @shared_task
 def sweep_boxscore_upload_tokens(remind_within_minutes=60, prune_after_days=None):
     """Remind, expire and prune box-score upload tokens.
@@ -1274,6 +1386,12 @@ def remind_upcoming_matches():
     A series may configure several reminders (60 minutes before AND 10), so the
     at-most-once claim is a MatchReminderSent row per (match, reminder) rather
     than a single flag on the match.
+
+    AT MOST ONE PING PER MATCH PER SWEEP. Several reminders can come due in the
+    same pass -- a match scheduled inside more than one window, or leads spaced
+    closer together than the sweep interval -- and firing them all posts the same
+    sentence repeatedly. The tightest is sent and the rest are claimed so they
+    cannot fire later; `collapsed` in the result counts those.
     """
     from django.db.models import Count, Max, Prefetch
     from the_warroom.models import (Match, MatchReminderSent,
@@ -1296,7 +1414,7 @@ def remind_upcoming_matches():
     # and treating it as "nothing configured" would silently disable exactly
     # that setting. None means the aggregate found no rows at all.
     if max_window is None:
-        return {"sent": 0, "skipped": 0}
+        return {"sent": 0, "skipped": 0, "collapsed": 0}
 
     # Round.tournament is a LEGACY link and is deliberately not consulted: a
     # match's tournament is round.stage.tournament. Older code (_schedulable_
@@ -1314,11 +1432,10 @@ def remind_upcoming_matches():
                   # same match three times and the loop below claims it thrice.
                   .distinct()
                   .exclude(status=CompetitionStatus.COMPLETED)
-                  # Replaces the old `reminder_sent_at__isnull=True`: drop matches
-                  # whose every reminder has already gone out, so a match stops
-                  # being re-fetched every 5-10 minutes for the rest of its lead
-                  # time once it is fully reminded. Counted with DISTINCT because
-                  # the two joins multiply each other.
+                  # Drop matches whose every reminder has already gone out, so a
+                  # match stops being re-fetched every 5-10 minutes for the rest
+                  # of its lead time once it is fully reminded. Counted with
+                  # DISTINCT because the two joins multiply each other.
                   .annotate(
                       _reminder_count=Count(
                           'round__stage__tournament__reminders', distinct=True),
@@ -1387,10 +1504,11 @@ def remind_upcoming_matches():
                       '__tournament_player__profile')
                   .order_by('scheduled_time'))
 
-    # Both counts are REMINDERS, not matches -- a match with two due reminders
-    # adds two. They stopped being the same number when a series gained the
-    # ability to configure more than one.
-    sent = skipped = 0
+    # All three counts are REMINDERS, not matches -- a match with two due
+    # reminders adds two. They stopped being the same number when a series gained
+    # the ability to configure more than one. `collapsed` counts reminders
+    # suppressed because a tighter one went out for the same match in this sweep.
+    sent = skipped = collapsed = 0
     for match in candidates:
         # Read the tournament off the STAGE, matching the filter exactly. NOT
         # get_tournament(): that falls back to the legacy Round.tournament FK, so
@@ -1419,6 +1537,43 @@ def remind_upcoming_matches():
             # reminder while there is still time.
             skipped += len(due)
             continue
+
+        # ONE ping per match per sweep. The due test above is open-ended on the
+        # early side -- it selects every reminder whose window has OPENED, not
+        # only the one that opened most recently -- so a match scheduled INSIDE
+        # several windows (booked 8 minutes out with 60/30/10 configured) has all
+        # three due in this single pass. reminder_text defaults to the same
+        # sentence for every row, so that lands as the identical message three
+        # times in one second.
+        #
+        # The TIGHTEST is the one worth sending: at T-8m the 10-minute reminder
+        # describes reality, while the 60-minute one describes a moment that
+        # already passed unannounced.
+        #
+        # min(), not the last of the queryset's ordering: which reminder gets
+        # sent is a correctness property of this function and must not depend on
+        # a Meta.ordering in another app. uniq_reminder_per_lead forbids two rows
+        # at one lead, so the minimum is unambiguous.
+        #
+        # AFTER the thread check, never before: that branch reports len(due) and
+        # deliberately leaves everything unclaimed so fixing a broken thread link
+        # still earns a ping. Narrowing earlier would undercount it and burn
+        # reminders for a match that was never remindable.
+        send = min(due, key=lambda r: r.match_reminder_minutes)
+        collapsed_now = [r for r in due if r.pk != send.pk]
+        due = [send]
+
+        # Claim the ones being suppressed so they cannot fire on a later sweep --
+        # without this the burst is merely deferred, not prevented. Same
+        # create-or-IntegrityError claim the send loop uses below; a lost race
+        # means another worker owns that pair, so it is not counted here.
+        for reminder in collapsed_now:
+            try:
+                MatchReminderSent.objects.create(
+                    match=match, reminder=reminder, sent_at=now)
+            except IntegrityError:
+                continue
+            collapsed += 1
 
         # Everything below here is the same for every reminder on this match, so
         # it is built ONCE rather than per reminder.
@@ -1487,6 +1642,7 @@ def remind_upcoming_matches():
                 thread_id, content, allowed_mentions={"parse": ["users"]})
             sent += 1
 
-    logger.info("remind_upcoming_matches: reminders sent=%d skipped=%d",
-                sent, skipped)
-    return {"sent": sent, "skipped": skipped}
+    logger.info(
+        "remind_upcoming_matches: reminders sent=%d skipped=%d collapsed=%d",
+        sent, skipped, collapsed)
+    return {"sent": sent, "skipped": skipped, "collapsed": collapsed}

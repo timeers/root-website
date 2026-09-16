@@ -1,19 +1,28 @@
 # Changelog
 
-## [1.13.8] - 2026-9-14 Better Notifications
+## [1.13.8] - 2026-9-16 Better Notifications and Schedules
 
 ### New Features
 - You can now set up multiple reminders via the Databot for scheduled games
+- Beta version of /lfg with edit description button
+- Customize your availability by week 
+- Choose to display your timezone when comparing availability (set from the manage availability page)
+- Compare Availability now uses week by week availability
+- Schedule change messages now sent to Discord thread when available
 
 ### Improvements
 - Player count and roster errors from TTS boxscore upload are passed to Discord instead of blocking the upload
 - Improved the #results message to link to thre game thread when possible
 - LFG Posts can now be cancelled by guild moderators
+- Clicking a selected time in Compare Availability deselects that time block
+- Markdown added to Series and Survey descriptions
+- Compare availability has fixed heights for Legend and Player sections
 
 ### Bug Fixes
 - Subscribing to a scheduling poll now notifies on every new "Yes" answer instead of just poll close.
 - Removed "suggested by X" line as it duplicated info from the message author
 - Notifications for closed polls were occasionally showing the incorrect end status
+- New box score upload replaces Hirelings and Landmarks instead of adding to them
 
 ## [1.13.7] - 2026-9-10 Brazen Bot Bugs
 

@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load static i18n %}
+{% load static i18n markdown_filters %}
 {% block title %}{{ stage.name }} - {% trans 'Details' %} | {% endblock %}
 
 {% block meta %}
@@ -90,6 +90,14 @@
             </dl>
 
             {% comment %} {% include 'the_warroom/partials/details_leaderboard_settings.html' with game_threshold=stage.get_game_threshold leaderboard_positions=stage.get_leaderboard_positions %} {% endcomment %}
+
+            {% if stage.description %}
+            <hr class="my-3">
+            {% comment %} <h5 class="mb-3 root-title"><i class="bi bi-scroll me-2"></i>{% trans 'Description' %}</h5> {% endcomment %}
+            <div style="max-height: 500px; overflow-y: auto;">
+                {{ stage.description|render_markdown }}
+            </div>
+            {% endif %}
 
             {% if asset_types %}
             <hr class="my-3">

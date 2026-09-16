@@ -1256,7 +1256,23 @@ a {
 }
 a:hover {
   color: black;
-  text-decoration: none; 
+  text-decoration: none;
+}
+
+/* The global `a` rule above is invisible in prose by design (inherited
+   color, no underline) for nav-style links. Opt a link into this class
+   wherever it needs to read as a link -- inline markdown-rendered
+   descriptions, prose CTAs, etc. */
+.visible-link {
+  color: var(--theme-color, #5f788a);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.visible-link:hover,
+.visible-link:focus {
+  color: black;
+  text-decoration: underline;
 }
 
 
@@ -5379,6 +5395,81 @@ body.forge-modal-open { overflow: hidden; }
     flex-shrink: 0;
   }
 
+  /* Mode header on /availability: replaces the old single "Weekly Availability"
+     heading with two full-width, evenly-split tabs (General / Weekly) that
+     double as the section title AND the general/week-specific mode switch. */
+  .avail-mode-tab {
+    flex: 1 1 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    padding: 0.6rem 0.5rem;
+    font-size: 1rem;
+    font-weight: 500;
+    color: #adb5bd;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .avail-mode-tab:hover {
+    color: #6c757d;
+  }
+
+  .avail-mode-tab.active {
+    color: var(--button-color, #0d6efd);
+    font-weight: 700;
+    border-bottom-color: var(--button-color, #0d6efd);
+  }
+
+  .avail-mode-tab:focus-visible {
+    outline: 2px solid var(--button-color, #0d6efd);
+    outline-offset: 2px;
+  }
+
+  /* Drops the trailing "Availability" on narrow screens -- "General"/"Weekly"
+     alone still reads clearly, and the tabs are tight on space at 50% width. */
+  @media (max-width: 576px) {
+    .avail-mode-tab-full {
+      display: none;
+    }
+  }
+
+  /* The week navigator row: arrows pinned to the card's left/right edges via
+     fixed-width slots, with the week label centered in the space between --
+     the slot stays put whether or not its arrow button is actually visible,
+     so the label never shifts as [<]/[>] appear/disappear at the navigable
+     range's edges. */
+  .avail-week-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .avail-week-arrow {
+    width: 2.4rem;
+    flex-shrink: 0;
+    display: flex;
+  }
+
+  .avail-week-arrow--prev {
+    justify-content: flex-start;
+  }
+
+  .avail-week-arrow--next {
+    justify-content: flex-end;
+  }
+
+  .avail-week-row #week-label,
+  .avail-week-row #compare-week-label {
+    flex: 1;
+    text-align: center;
+  }
+
   /* The grid must never force the PAGE to scroll sideways on a phone. */
   .availability-scroll {
     overflow-x: auto;
@@ -5395,6 +5486,16 @@ body.forge-modal-open { overflow: hidden; }
     gap: 2px;
     min-width: 28rem;
     user-select: none;
+  }
+
+  /* A week-specific grid: one UTC week almost always spans 8 distinct local
+     calendar days (the two ends are partial), not 7 -- see
+     services.availability.week_grid_columns. Applied by the template only
+     when the server actually rendered 8 columns that response; the general
+     row and every WEEKLY_AVAILABILITY survey grid stay at the default 7. */
+  .availability-grid--8col {
+    grid-template-columns: auto repeat(8, minmax(3.2rem, 1fr));
+    min-width: 32rem;
   }
 
   /* Only the EDITABLE grid constrains touch at all, and it allows BOTH axes:
@@ -5440,6 +5541,35 @@ body.forge-modal-open { overflow: hidden; }
     font-variant-numeric: tabular-nums;
   }
 
+  /* A week-specific column header: weekday + real date on two stacked lines,
+     instead of the general grid's single "Mon" label -- the boundary columns
+     don't align to a clean local week, so the date disambiguates which real
+     day this column is. */
+  .avail-day-header--dated {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1.15;
+  }
+  .avail-day-date {
+    font-weight: 500;
+    font-size: 0.9em;
+    color: #868e96;
+  }
+
+  /* A DST fall-back slot: the one local hour that happens twice that night
+     gets two independently paintable half-width cells sharing the row's
+     normal grid position, rather than growing the grid by a 25th row. */
+  .avail-cell-split {
+    display: flex;
+    gap: 1px;
+    min-width: 0;
+  }
+  .avail-cell--split {
+    flex: 1 1 50%;
+    min-width: 0;
+  }
+
   .avail-cell {
     display: flex;
     align-items: center;
@@ -5469,6 +5599,45 @@ body.forge-modal-open { overflow: hidden; }
     pointer-events: none;  /* clicks and drags must hit the cell, never the label */
   }
 
+  /* A disabled cell: the (column, hour) position exists in the grid's layout
+     but has no real UTC hour behind it -- outside a partial boundary column,
+     or the one-night-a-year DST spring-forward gap. Not a button: nothing to
+     click, nothing to select, excluded from serialization entirely.
+
+     Solid grey at the SAME color and opacity the earlier diagonal stripes
+     used (rgba(173, 181, 189, 0.35)), just filling the whole cell instead of
+     a repeating pattern -- an opacity-only treatment read too close to a
+     plain unselected cell to register as "not selectable" at a glance. The
+     alpha is on the background COLOR itself (rgba), not the element's own
+     `opacity` property, so text color/border stay exactly as set below --
+     element-level opacity would fade those too, which was explicitly not
+     wanted.
+
+     MUST come AFTER the base .avail-cell rule above: every disabled cell
+     carries BOTH classes ("avail-cell avail-cell--disabled"), so the two
+     selectors tie on specificity (one class each) and source order decides
+     -- .avail-cell's own `background: #f8f9fa` uses the SHORTHAND, and
+     would win if it came later. This rule was originally placed BEFORE
+     .avail-cell and silently never painted for exactly that reason (caught
+     by the user: "they look exactly the same as they did before the
+     change" -- the CSS was correct and being served, just always
+     overridden). Same ordering trap .avail-cell--general-preview already
+     documents relative to .is-selected, below -- this is the same trap
+     relative to the PLAIN base rule instead. */
+  .avail-cell--disabled {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 1.04rem;
+    border: 1px solid #eef0f2;
+    border-radius: 4px;
+    /* The exact rgba the diagonal stripes used, filling the whole cell. */
+    background: rgba(173, 181, 189, 0.35);
+    font-size: 0.58rem;
+    color: #ced4da;
+    pointer-events: none;
+  }
+
   /* EDITOR affordances, opt-in via --editable. The layout above is shared with
      the read-only /availability/compare grid, which must NOT get a pointer
      cursor, hover feedback or a selected colour -- nothing there is clickable.
@@ -5491,6 +5660,24 @@ body.forge-modal-open { overflow: hidden; }
     color: #6c757d;
   }
 
+  /* An empty cell whose hour is implied by the player's general/standing
+     pattern but not yet saved for this specific week -- a faint hint of the
+     selected colour, not a third unrelated colour. Fully clickable, same as
+     any other empty cell; only shown when the week has no saved row of its
+     own (see _week_grid_template_context's general_hours gating).
+     Placement matters: this rule must come BEFORE .is-selected below so that
+     .is-selected's `background` shorthand (which implicitly resets
+     background-image to none) wins once a preview cell is actually clicked --
+     the two selectors tie on specificity, so source order decides. */
+  .availability-grid--editable .avail-cell--general-preview {
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(13, 110, 253, 0.18) 0px, rgba(13, 110, 253, 0.18) 4px,
+      transparent 4px, transparent 8px
+    );
+    border-color: rgba(13, 110, 253, 0.35);
+  }
+
   /* Selected state matches the survey grid's checked colour so the two features
      read as one system. */
   .availability-grid--editable .avail-cell.is-selected {
@@ -5506,6 +5693,49 @@ body.forge-modal-open { overflow: hidden; }
     outline-offset: 1px;
   }
 
+  /* Explains the grid's cell states: available/selected (solid blue),
+     unavailable/empty (plain), general-preview (blue striped), and
+     not-selectable (grey striped -- outside your local week's real hours,
+     e.g. a DST spring-forward gap or a boundary column your timezone
+     offset shifts out of range). A fixed, non-data-driven row -- unlike
+     availability_compare.html's dynamically-built .heat-legend, this needs
+     no JS to populate. */
+  .avail-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    font-size: 0.75rem;
+    color: #6c757d;
+    margin-top: 6px;
+  }
+  .avail-legend-item { display: flex; align-items: center; gap: 4px; }
+  .avail-legend-swatch {
+    width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0;
+    border: 1px solid #dfe2e5;
+  }
+  /* Mirrors .avail-cell.is-selected exactly so the legend is trivially
+     consistent with the grid, not an approximation of it. */
+  .avail-legend-swatch--selected {
+    background: #0d6efd;
+    border-color: #0d6efd;
+  }
+  .avail-legend-swatch--empty {
+    background: #f8f9fa;
+  }
+  .avail-legend-swatch--preview {
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(13, 110, 253, 0.18) 0px, rgba(13, 110, 253, 0.18) 4px,
+      transparent 4px, transparent 8px
+    );
+    border-color: rgba(13, 110, 253, 0.35);
+  }
+  /* Mirrors .avail-cell--disabled exactly, same reasoning as --selected above. */
+  .avail-legend-swatch--disabled {
+    background: rgba(173, 181, 189, 0.35);
+    border-color: #eef0f2;
+  }
+
   @media (max-width: 576px) {
     /* "12am" needs about 2.9rem to stay legible, so the grid scrolls sideways
        rather than shrinking text below readability. */
@@ -5513,7 +5743,13 @@ body.forge-modal-open { overflow: hidden; }
       grid-template-columns: auto repeat(7, minmax(2.9rem, 1fr));
       min-width: 23rem;
     }
+    .availability-grid--8col {
+      grid-template-columns: auto repeat(8, minmax(2.9rem, 1fr));
+      min-width: 26rem;
+    }
     .avail-hour-label { font-size: 0.62rem; padding-right: 4px; }
     .avail-day-header { font-size: 0.64rem; }
+    .avail-day-date { font-size: 0.6rem; }
     .avail-cell { min-height: 0.95rem; font-size: 0.56rem; }
+    .avail-cell--disabled { min-height: 0.95rem; font-size: 0.56rem; }
   }

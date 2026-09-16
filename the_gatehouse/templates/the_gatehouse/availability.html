@@ -7,6 +7,12 @@
   <div class="row justify-content-center">
     <div class="col-lg-9">
 
+      <div class="mb-2">
+        <a href="{% url 'user-settings' %}" class="databot-btn databot-btn-outline avail-btn-compact">
+          <i class="bi bi-chevron-left me-1"></i>{% trans 'Back to Settings' %}
+        </a>
+      </div>
+
       <div class="info-card mb-4">
         <div class="info-card-body">
           <h1 class="info-card-title">
@@ -46,9 +52,13 @@
         </div>
       {% endif %}
 
+
       <form method="POST" id="availability-form">
         {% csrf_token %}
-        {# The grid writes the selected LOCAL hour-of-week values here on submit. #}
+        {% comment %} The grid writes the selected hour-of-week values here on submit --
+        LOCAL hours for the general row (dateless reference week), real UTC
+        hours for a week-specific row (its cells ARE keyed by UTC hour; only
+        their on-screen labels are local -- see services.availability.week_grid_cells). {% endcomment %}
         <input type="hidden" name="available_hours" id="id_available_hours"
                value="{% for h in selected_hours %}{{ h }}{% if not forloop.last %},{% endif %}{% endfor %}">
         {# The zone those hours are expressed in. Switching the picker changes `timezone` but NOT this, which is how the server knows to re-label the same instants instead of moving them. #}
@@ -57,6 +67,9 @@
         {# Which schedule this grid edits ('' = general). Rides through the timezone round-trip so the re-render can't switch rows underneath the user. #}
         <input type="hidden" name="schedule_target" id="id_schedule_target"
                value="{{ schedule_target }}">
+        {# Which week this grid edits ('' = the standing/general template). #}
+        <input type="hidden" name="week_start" id="id_week_start"
+               value="{% if is_week_specific %}{{ week_start|date:'Y-m-d' }}{% endif %}">
         <input type="hidden" name="action" id="id_action" value="save">
 
         <div class="info-card mb-4">
@@ -104,43 +117,118 @@
               <i class="bi bi-info-circle me-1"></i>
               {% trans 'Your timezone is offset by a partial hour, so each selection is stored to the hour that contains it.' %}
             </p>
+
+            <div class="form-check mt-3">
+              {{ form.display_timezone }}
+              <label class="form-check-label" for="{{ form.display_timezone.id_for_label }}">
+                {% trans 'Display my timezone to others when comparing availability' %}
+              </label>
+            </div>
           </div>
         </div>
 
         <div class="info-card mb-4">
           <div class="info-card-body">
-            <div class="d-flex justify-content-between align-items-start mb-3 gap-2">
-              <div>
-                <h2 class="info-card-title h5 mb-1">
-                  <i class="bi bi-clock me-2"></i>{% trans 'Weekly Availability' %}
-                </h2>
-                {% comment %} data-label carries the translated noun into the shared
-                grid JS, which is a static file and so cannot use {% trans %}. {% endcomment %}
-                <span class="badge text-bg-secondary" id="hour-count"
-                      data-label="{% trans 'hours selected' %}"></span>
-              </div>
-              <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" id="clear-grid">
-                <i class="bi bi-x-circle me-1"></i><span class="d-sm-none">{% trans 'Clear' %}</span><span class="d-none d-sm-inline">{% trans 'Clear all' %}</span>
+            <div class="d-flex" id="mode-tabs">
+              <button type="button" id="tab-general" data-week="general"
+                      class="avail-mode-tab {% if not is_week_specific %}active{% endif %}">
+                <i class="bi bi-clock"></i><span class="avail-mode-tab-label">{% trans 'General' %}<span class="avail-mode-tab-full">{% trans ' Availability' %}</span></span>
+              </button>
+              <button type="button" id="tab-weekly"
+                      data-week="{% if is_week_specific %}{{ week_start|date:'Y-m-d' }}{% else %}{{ default_week|date:'Y-m-d' }}{% endif %}"
+                      class="avail-mode-tab {% if is_week_specific %}active{% endif %}">
+                <i class="bi bi-calendar-week"></i><span class="avail-mode-tab-label">{% trans 'Weekly' %}<span class="avail-mode-tab-full">{% trans ' Availability' %}</span></span>
               </button>
             </div>
 
-            {% include 'partials/availability_grid.html' with grid_id='availability-grid' field_id='id_available_hours' count_id='hour-count' clear_id='clear-grid' editable=True %}
-          </div>
-        </div>
+            <p class="text-secondary small mb-2 mt-3">
+              {% trans "General is used as your default availability. Select a specific week to override your defaults." %}
+            </p>
+            <div class="avail-week-row mb-3" id="week-navigator" data-tournament="{{ schedule_target }}">
+              <div class="avail-week-arrow avail-week-arrow--prev">
+                <button type="button" id="nav-prev" data-week="{{ prev_week|date:'Y-m-d' }}"
+                        class="databot-btn databot-btn-outline avail-btn-compact"
+                        {% if not prev_week %}hidden{% endif %}>
+                  <i class="bi bi-chevron-left"></i>
+                </button>
+              </div>
+              <span class="fw-bold" id="week-label">
+                {% if is_week_specific %}
+                  {% blocktrans with d=week_start|date:'M j, Y' %}Week of {{ d }}{% endblocktrans %}
+                {% else %}
+                  {% trans 'General Availability' %}
+                {% endif %}
+              </span>
+              <div class="avail-week-arrow avail-week-arrow--next">
+                <button type="button" id="nav-next"
+                        data-week="{% if next_week %}{{ next_week|date:'Y-m-d' }}{% else %}{{ default_week|date:'Y-m-d' }}{% endif %}"
+                        class="databot-btn databot-btn-outline avail-btn-compact"
+                        {% if not is_week_specific or not next_week %}hidden{% endif %}>
+                  <i class="bi bi-chevron-right"></i>
+                </button>
+              </div>
+            </div>
 
-        <div class="d-flex gap-2 justify-content-center mb-3">
-          <a href="{% url 'user-settings' %}" class="databot-btn databot-btn-outline btn-sm">
-            {% trans 'Back to Settings' %}
-          </a>
-          <button type="submit" class="databot-btn databot-btn-primary btn-sm">
-            <i class="bi bi-check2 me-2"></i>{% trans 'Save Availability' %}
-          </button>
+            <div id="grid-container">
+              {% include 'partials/availability_grid.html' with grid_id='availability-grid' field_id='id_available_hours' clear_id='clear-grid' editable=True columns=grid_template_columns hour_rows=hour_rows %}
+            </div>
+
+            <div class="avail-legend" id="availability-legend">
+              <span class="avail-legend-item"><span class="avail-legend-swatch avail-legend-swatch--selected"></span>{% trans 'Available' %}</span>
+              <span class="avail-legend-item"><span class="avail-legend-swatch avail-legend-swatch--empty"></span>{% trans 'Unavailable' %}</span>
+              <span class="avail-legend-item" id="availability-legend-preview" {% if not is_week_specific %}hidden{% endif %}><span class="avail-legend-swatch avail-legend-swatch--preview"></span>{% trans 'Using General Availability' %}</span>
+              <span class="avail-legend-item" id="availability-legend-disabled" {% if not is_week_specific %}hidden{% endif %}><span class="avail-legend-swatch avail-legend-swatch--disabled"></span>{% trans 'Not Selectable (Prior or Next Week)' %}</span>
+            </div>
+
+            <div class="d-flex flex-wrap gap-2 justify-content-center mt-3">
+              <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" id="copy-from-general"
+                      {% if not is_week_specific %}hidden{% endif %}>
+                <i class="bi bi-clipboard-plus me-1"></i>{% trans 'Fill from General' %}
+              </button>
+              <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" id="clear-grid">
+                <i class="bi bi-x-circle me-1"></i>{% trans 'Clear' %}
+              </button>
+              <button type="submit" id="save-availability-btn" class="databot-btn databot-btn-primary avail-btn-compact">
+                <i class="bi bi-check2 me-1"></i>{% trans 'Save Availability' %}
+              </button>
+            </div>
+          </div>
         </div>
       </form>
 
+      {% comment %} Shown by goToWeek() when leaving a week with unsaved
+      changes -- a native confirm() can only offer OK/Cancel, so this
+      replaces it with a real 3-option choice. Static markup; the only
+      dynamic part is which button was clicked, read by confirmUnsavedChanges()
+      in {% block scripts %}. {% endcomment %}
+      <div class="modal fade" id="unsaved-changes-modal" tabindex="-1"
+           aria-labelledby="unsaved-changes-modal-label" aria-hidden="true">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="unsaved-changes-modal-label">{% trans 'Unsaved Changes' %}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+            </div>
+            <div class="modal-body">
+              <p class="mb-0">{% trans 'You have unsaved changes to this week. Save them before leaving?' %}</p>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" id="unsaved-discard">{% trans 'Continue without Saving' %}</button>
+              <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+              <button type="button" class="databot-btn databot-btn-primary avail-btn-compact" id="unsaved-save">{% trans 'Save' %}</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {# Toasts land here: fetch-based saves/week-switches no longer redirect through Django's messages framework, so this mirrors that UI locally. #}
+      <div id="availability-toasts" class="alert-stack-wrapper mb-2"></div>
     </div>
   </div>
 </div>
+
+
+
 {% endblock content %}
 
 {% comment %} The grid's layout AND its editor affordances now both live in
@@ -149,31 +237,307 @@ partial applies when passed editable=True. Nothing page-specific is left. {% end
 
 {% block scripts %}
 {{ timezone_name|json_script:"saved-timezone" }}
+{{ copy_from_general_hours|json_script:"copy-from-general-hours" }}
 {% comment %} Paint/drag behaviour is shared with WEEKLY_AVAILABILITY survey
 questions and lives in availability_grid.js, which auto-initialises the grid.
-Only this page's own concerns stay here: the timezone picker and form submit.
+Only this page's own concerns stay here: the timezone picker, week navigation,
+and saving -- the latter two now via fetch() instead of a full-page submit, with
+a plain <form method="POST"> fallback for when JavaScript is unavailable (see
+availability_settings in views.py, which this script bypasses when it runs).
+
+A week-switch or save can change the grid's own SHAPE (column count, which
+cells are disabled/split for DST) -- not just which cells are selected -- so
+the AJAX responses carry fully rendered grid HTML (grid_html) and this script
+swaps #grid-container's innerHTML with it, then re-runs initAvailabilityGrid
+on the fresh DOM, rather than trying to reconstruct the grid client-side.
 {% endcomment %}
 <script src="{% static 'the_keep/availability_grid.js' %}"></script>
 <script>
 (function () {
-  var grid = document.getElementById('availability-grid');
-  if (!grid) { return; }
+  var gridContainer = document.getElementById('grid-container');
+  if (!gridContainer) { return; }
 
-  var hiddenField = document.getElementById('id_available_hours');
   var actionField = document.getElementById('id_action');
+  var weekField = document.getElementById('id_week_start');
   var tzSelect = document.getElementById('id_timezone');
   var form = document.getElementById('availability-form');
+  var navigator_ = document.getElementById('week-navigator');
+  var copyBtn = document.getElementById('copy-from-general');
+  var saveBtn = document.getElementById('save-availability-btn');
 
-  // Mirror of the shared module's serializer. The grid writes the hidden field on
-  // every change, so this only has to force a final flush before a submit that
-  // the module cannot see coming.
-  function serialize() {
-    var hours = [];
-    grid.querySelectorAll('.avail-cell.is-selected').forEach(function (c) {
-      hours.push(c.dataset.how);
-    });
-    hiddenField.value = hours.join(',');
+  // In-memory only after the first load: refreshed on every week-switch and
+  // save, since the seed hours differ per (tournament, week).
+  var copyFromGeneralHours = JSON.parse(
+    document.getElementById('copy-from-general-hours').textContent) || [];
+
+  // Set true by anything that would be lost if the player navigated away
+  // without saving; cleared by a successful save or a completed week-switch.
+  var dirty = false;
+
+  // The grid API (serialize/grid element) from the most recent init --
+  // reassigned every time #grid-container's innerHTML is swapped, since the
+  // old grid element is detached from the DOM at that point.
+  var gridApi = null;
+
+  function currentGrid() {
+    return document.getElementById('availability-grid');
   }
+
+  function initGrid() {
+    var el = currentGrid();
+    if (!el) { gridApi = null; return; }
+    // onChange, not a click listener on #grid-container: a mouse drag-paint
+    // never dispatches a click at all (availability_grid.js's own pointerdown
+    // handler suppresses it via preventDefault, per the Pointer Events spec),
+    // so a click-based listener here silently misses every mouse-driven edit
+    // -- exactly the bug this callback replaces. initAvailabilityGrid only
+    // fires it on a REAL mutation, never on its own initial-load serialize.
+    gridApi = window.initAvailabilityGrid(el, { onChange: function () { dirty = true; } });
+  }
+  initGrid();
+
+  function paintHours(hours) {
+    var el = currentGrid();
+    if (!el) { return; }
+    var wanted = {};
+    (hours || []).forEach(function (h) { wanted[String(h)] = true; });
+    el.querySelectorAll('.avail-cell').forEach(function (cell) {
+      var on = !!wanted[cell.dataset.how];
+      cell.classList.toggle('is-selected', on);
+      cell.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    if (gridApi) { gridApi.serialize(); }
+  }
+
+  // ---- Toasts ---------------------------------------------------------------
+  // Mirrors the markup the_keep/base.html renders for Django's own messages
+  // (.alert-stack-wrapper > .alert.alert-{tag}.alert-stack-item), so a
+  // fetch-driven notice looks identical to the server-rendered ones it replaces.
+  var toastWrap = document.getElementById('availability-toasts');
+  var toastTagMap = { success: 'success', info: 'info', warning: 'warning', error: 'danger' };
+  function showToast(message, tag) {
+    if (!toastWrap || !message) { return; }
+    var el = document.createElement('div');
+    el.className = 'alert alert-' + (toastTagMap[tag] || 'info') + ' fade show alert-stack-item';
+    el.setAttribute('role', 'alert');
+    el.textContent = message;
+    var closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn-close';
+    closeBtn.setAttribute('aria-label', 'Close');
+    closeBtn.addEventListener('click', function () { el.remove(); });
+    el.appendChild(closeBtn);
+    toastWrap.appendChild(el);
+    setTimeout(function () { el.remove(); }, 6000);
+  }
+
+  if (copyBtn) {
+    copyBtn.addEventListener('click', function () { dirty = true; });
+  }
+
+  // ---- Applying server state (shared by week-switch and save responses) -----
+  function applyState(data) {
+    // MUST happen before initGrid(): initAvailabilityGrid's initialSelection()
+    // reads this hidden field once, synchronously, as its very last step, and
+    // paints .is-selected cells from whatever value is here at that moment.
+    // Setting it after the swap (or not at all) was the bug -- the grid kept
+    // showing/re-saving the PREVIOUS week's painted selection, since the field
+    // still held that week's serialized hours.
+    document.getElementById('id_available_hours').value = (data.selected_hours || []).join(',');
+
+    gridContainer.innerHTML = data.grid_html;
+    initGrid();
+
+    weekField.value = data.week_start || '';
+    document.getElementById('id_schedule_target').value = data.schedule_target || '';
+    copyFromGeneralHours = data.copy_from_general_hours || [];
+
+    document.getElementById('week-label').textContent = data.week_label;
+    document.getElementById('tab-general').classList.toggle('active', !data.is_week_specific);
+    document.getElementById('tab-weekly').classList.toggle('active', data.is_week_specific);
+    document.getElementById('tab-weekly').dataset.week = data.is_week_specific ? data.week_start : data.default_week;
+
+    var prevBtn = document.getElementById('nav-prev');
+    prevBtn.hidden = !data.prev_week;
+    prevBtn.dataset.week = data.prev_week || '';
+
+    var nextBtn = document.getElementById('nav-next');
+    // Mirrors the initial render: [>] is only for stepping through real
+    // weeks, so it stays hidden on General -- switching into week-specific
+    // mode is the tabs' job now, not the arrow's.
+    nextBtn.hidden = !data.is_week_specific || !data.next_week;
+    nextBtn.dataset.week = data.next_week || data.default_week;
+
+    copyBtn.hidden = !data.is_week_specific;
+
+    var legendPreview = document.getElementById('availability-legend-preview');
+    if (legendPreview) { legendPreview.hidden = !data.is_week_specific; }
+
+    var legendDisabled = document.getElementById('availability-legend-disabled');
+    if (legendDisabled) { legendDisabled.hidden = !data.is_week_specific; }
+
+    dirty = false;
+  }
+
+  // ---- Save, via fetch --------------------------------------------------------
+  function csrfToken() {
+    return new FormData(form).get('csrfmiddlewaretoken');
+  }
+
+  async function submitAction(action) {
+    if (gridApi) { gridApi.serialize(); }
+    actionField.value = action;
+    var formData = new FormData(form);
+    var response;
+    try {
+      response = await fetch("{% url 'availability-save' %}", {
+        method: 'POST',
+        headers: { 'X-CSRFToken': csrfToken() },
+        body: formData,
+      });
+    } catch (err) {
+      showToast("{% trans 'Could not reach the server. Please try again.' %}", 'error');
+      return;
+    } finally {
+      actionField.value = 'save';
+    }
+
+    var data;
+    try {
+      data = await response.json();
+    } catch (err) {
+      showToast("{% trans 'Something went wrong saving your availability.' %}", 'error');
+      return;
+    }
+
+    if (!response.ok || !data.ok) {
+      showToast(data.message || "{% trans 'Something went wrong saving your availability.' %}", 'error');
+      return;
+    }
+
+    applyState(data);
+    showToast(data.message, data.tag);
+    pushUrl(data);
+  }
+
+  saveBtn.addEventListener('click', function (e) {
+    e.preventDefault();
+    submitAction('save');
+  });
+
+  // "Fill from General": a pure client-side repaint, never a save on its own --
+  // the player still has to hit Save. Nothing is written to the server here,
+  // matching the "starts blank" contract for an unsaved week.
+  if (copyBtn) {
+    copyBtn.addEventListener('click', function () { paintHours(copyFromGeneralHours); });
+  }
+
+  // ---- Week navigation, via fetch --------------------------------------------
+  // Set once at load: switching TOURNAMENTS is a plain <a href> full-page
+  // reload elsewhere on this page (the "Which schedule" selector), never part
+  // of the AJAX week-switch/save flow -- so this never goes stale mid-session,
+  // and both #mode-tabs and #week-navigator (separate components, each with
+  // their own click delegate below) can share it without a DOM attribute.
+  var tournamentTarget = "{{ schedule_target }}";
+
+  function pushUrl(data) {
+    var params = new URLSearchParams();
+    if (tournamentTarget) { params.set('tournament', tournamentTarget); }
+    if (data.week_start) { params.set('week', data.week_start); }
+    var qs = params.toString();
+    var url = window.location.pathname + (qs ? '?' + qs : '');
+    history.pushState({ week: data.week_start }, '', url);
+  }
+
+  // ---- Unsaved-changes prompt -------------------------------------------------
+  var unsavedModalEl = document.getElementById('unsaved-changes-modal');
+  var unsavedModal = unsavedModalEl ? new bootstrap.Modal(unsavedModalEl) : null;
+
+  // Resolves 'discard', 'save', or 'cancel'. Cancel covers BOTH the Cancel
+  // button and any other way of dismissing the modal (Esc, backdrop click,
+  // the header's own close button) -- data-bs-dismiss="modal" is on all of
+  // those, so 'hidden.bs.modal' firing without an explicit choice already
+  // made is what "cancel" means here, not a fourth outcome to special-case.
+  function confirmUnsavedChanges() {
+    return new Promise(function (resolve) {
+      var choice = 'cancel';
+      function onHidden() {
+        unsavedModalEl.removeEventListener('hidden.bs.modal', onHidden);
+        resolve(choice);
+      }
+      unsavedModalEl.addEventListener('hidden.bs.modal', onHidden);
+      // .onclick, not addEventListener: re-showing the modal on a later
+      // navigation attempt must not accumulate duplicate listeners from
+      // previous opens.
+      document.getElementById('unsaved-discard').onclick = function () {
+        choice = 'discard'; unsavedModal.hide();
+      };
+      document.getElementById('unsaved-save').onclick = function () {
+        choice = 'save'; unsavedModal.hide();
+      };
+      unsavedModal.show();
+    });
+  }
+
+  async function goToWeek(weekValue) {
+    if (dirty) {
+      var choice = await confirmUnsavedChanges();
+      if (choice === 'cancel') { return; }
+      if (choice === 'save') {
+        await submitAction('save');
+        // submitAction resets `dirty` to false via applyState() on a
+        // successful save; if it's STILL true, the save failed (submitAction
+        // already showed its own error toast) -- don't navigate away from
+        // unsaved work.
+        if (dirty) { return; }
+      }
+      // choice === 'discard' falls through unchanged, matching the old
+      // confirm()'s OK path.
+    }
+    var params = new URLSearchParams();
+    if (tournamentTarget) { params.set('tournament', tournamentTarget); }
+    if (weekValue && weekValue !== 'general') { params.set('week', weekValue); }
+
+    var response;
+    try {
+      response = await fetch("{% url 'availability-week-data' %}?" + params.toString());
+    } catch (err) {
+      showToast("{% trans 'Could not reach the server. Please try again.' %}", 'error');
+      return;
+    }
+    if (!response.ok) {
+      showToast("{% trans 'Could not load that week. Please try again.' %}", 'error');
+      return;
+    }
+    var data = await response.json();
+    applyState(data);
+    pushUrl(data);
+  }
+
+  navigator_.addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-week]');
+    if (!btn || btn.hidden) { return; }
+    goToWeek(btn.dataset.week);
+  });
+
+  // The mode tabs are their OWN component with their OWN listener -- separate
+  // from #week-navigator's, since switching general/weekly and stepping
+  // prev/next are different actions, not one thing wearing two hats.
+  var modeTabs = document.getElementById('mode-tabs');
+  if (modeTabs) {
+    modeTabs.addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-week]');
+      if (!btn || btn.hidden) { return; }
+      goToWeek(btn.dataset.week);
+    });
+  }
+
+  // A browser Back/Forward through pushState'd week changes re-fetches that
+  // week's state rather than reloading the page.
+  window.addEventListener('popstate', function () {
+    var params = new URLSearchParams(window.location.search);
+    goToWeek(params.get('week') || 'general');
+  });
 
   // ---- Timezone ------------------------------------------------------------
   // With no saved profile timezone, fall back to whatever the browser reports.
@@ -210,14 +574,14 @@ Only this page's own concerns stay here: the timezone picker and form submit.
 
   // Changing the zone re-renders server-side: the local<->UTC mapping needs
   // ZoneInfo's DST rules, which the browser cannot reproduce with a fixed offset.
-  // The pending selection rides along so unsaved painting is not lost.
+  // Kept as a full-page submit (out of scope for the AJAX conversion -- see the
+  // plan): the pending selection rides along in the plain POST so unsaved
+  // painting is not lost.
   document.getElementById('apply-timezone').addEventListener('click', function () {
-    serialize();
+    if (gridApi) { gridApi.serialize(); }
     actionField.value = 'change_timezone';
     form.submit();
   });
-
-  form.addEventListener('submit', function () { serialize(); });
 
   flagPartialHourZone();
 })();

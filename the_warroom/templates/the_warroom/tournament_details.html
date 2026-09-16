@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load static i18n %}
+{% load static i18n markdown_filters %}
 {% block title %}{{ tournament.name }} - {% trans 'Details' %} | {% endblock %}
 
 {% block meta %}
@@ -140,9 +140,9 @@
 
             {% if tournament.description %}
             <hr class="my-3">
-            <h5 class="mb-3 root-title"><i class="bi bi-scroll me-2"></i>{% trans 'Description' %}</h5>
+            {% comment %} <h5 class="mb-3 root-title"><i class="bi bi-scroll me-2"></i>{% trans 'Description' %}</h5> {% endcomment %}
             <div style="max-height: 500px; overflow-y: auto;">
-                {{ tournament.description|linebreaks }}
+                {{ tournament.description|render_markdown }}
             </div>
             {% endif %}
 

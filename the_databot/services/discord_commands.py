@@ -565,6 +565,24 @@ def lfg_command_for_roles(roles):
     return cmd
 
 
+# Per-guild beta-command mechanism: a guild with DiscordGuild.is_beta_tester=True
+# gets an EXTRA "<name>-beta" registration for every entry here, alongside (never
+# instead of) the real command -- see register_guild_commands. Base command name
+# -> a function(guild) -> that command's definition to register under the beta
+# name. Reuses whatever per-guild-shape function the real command already has
+# (e.g. lfg_command_for_roles) so the beta variant can never silently drift from
+# what the real command would show that guild.
+#
+# Adding a future beta test for a different command is exactly one entry here --
+# no dispatcher changes, no new model field, no new COMMAND_HANDLERS wiring (the
+# dispatcher strips BETA_SUFFIX generically; see discord_interactions()).
+BETA_COMMAND_VARIANTS = {
+    "lfg": lambda guild: lfg_command_for_roles(list(guild.lfg_roles.all())),
+}
+
+BETA_SUFFIX = "-beta"
+
+
 # The LFG walkthrough, rendered in two places: the Databot page's "How to Use LFG" card
 # and /help category:LFG. Edit the copy here and both update.
 #

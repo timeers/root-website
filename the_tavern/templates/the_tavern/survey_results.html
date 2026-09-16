@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load i18n %}
+{% load i18n markdown_filters %}
 {% block title %}{% trans 'Results' %}: {{ survey.title }} | {% endblock %}
 
 {% block meta %}
@@ -50,7 +50,7 @@
     </div>
 
     {% if survey.description %}
-        <p>{{ survey.description|linebreaks }}</p>
+        <p>{{ survey.description|render_markdown }}</p>
     {% endif %}
 
     <hr>

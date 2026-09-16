@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load static crispy_forms_tags i18n survey_filters custom_filters %}
+{% load static crispy_forms_tags i18n survey_filters custom_filters markdown_filters %}
 {% block title %}{{ survey.title }} | {% endblock %}
 
 {% block meta %}
@@ -24,7 +24,7 @@
     {% endif %}
 
     {% if survey.description %}
-        <p class="lead">{{ survey.description|linebreaks }}</p>
+        <p class="lead">{{ survey.description|render_markdown }}</p>
     {% endif %}
 
     <hr>
@@ -48,7 +48,7 @@
                         <h3>{{ section_data.section.title }}</h3>
                     {% endif %}
                     {% if section_data.section.description %}
-                        <p class="text-muted">{{ section_data.section.description }}</p>
+                        <p class="text-muted">{{ section_data.section.description|render_markdown }}</p>
                     {% endif %}
                 </div>
                 {% endif %}

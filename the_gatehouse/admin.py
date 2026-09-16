@@ -38,10 +38,23 @@ class GuildLFGRoleInline(admin.TabularInline):
     extra = 0
 
 class DiscordGuildAdmin(admin.ModelAdmin):
-    list_display = ['name', 'guild_id']
+    list_display = ['name', 'guild_id', 'is_beta_tester']
     search_fields = ['name']
     inlines = [GuildLFGRoleInline]
     filter_horizontal = ['guild_moderators']
+
+    def save_model(self, request, obj, form, change):
+        # False, not None, for a brand-new guild: default is_beta_tester is False, so
+        # comparing against a real bool (not None) keeps a plain "add guild" save from
+        # spuriously registering commands for a guild that never opted into beta.
+        was_beta = False
+        if change:
+            was_beta = (DiscordGuild.objects.filter(pk=obj.pk)
+                       .values_list('is_beta_tester', flat=True).first())
+        super().save_model(request, obj, form, change)
+        if obj.is_beta_tester != was_beta:
+            from the_gatehouse.views import refresh_guild_commands
+            refresh_guild_commands(obj)
 
 class WebsiteAdmin(admin.ModelAdmin):
     list_display = ['site_title', 'default_theme', 'player_threshold', 'game_threshold']
@@ -74,8 +87,8 @@ class DailyUserVisitAdmin(admin.ModelAdmin):
 
 
 class PlayerScheduleAdmin(admin.ModelAdmin):
-    list_display = ['profile', 'tournament', 'hour_count', 'updated_at']
-    list_filter = ('tournament',)
+    list_display = ['profile', 'tournament', 'week_start', 'hour_count', 'updated_at']
+    list_filter = ('tournament', 'week_start')
     search_fields = ('profile__discord', 'profile__display_name')
     # available_hours is a raw list of 0-167 UTC integers -- editable in principle,
     # but the /availability grid is the sane way to change it.

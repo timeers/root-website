@@ -29,7 +29,15 @@
             {% trans "Discover, create, and track official and fan-made content for the woodland war game, Root." %}
         </p>
         <div class="home-hero-actions">
-            <a class="btn btn-primary btn-lg" href="{% url 'archive-home' %}">{% trans "Browse the Archive" %}</a>
+            {% comment %} custom-btn-lg, not btn-primary: same geometry as the
+            btn-outline-light siblings, but coloured from --button-color so the
+            page's accent follows the site theme. The theme value is interpolated
+            rather than var(--theme-color) -- that variable is only set on
+            individual sections (see home-stats below), and this button is not
+            inside one, so it would silently resolve to the :root default.
+            {% endcomment %}
+            <a class="custom-btn-lg" href="{% url 'archive-home' %}"
+               style="{% if theme %}--button-color: {{ theme.theme_color }};{% endif %} --text-color: #fff;">{% trans "Browse the Archive" %}</a>
             <a class="btn btn-outline-light btn-lg" href="{% url 'forge-home' %}">{% trans "Create a Faction" %}</a>
             <a class="btn btn-outline-light btn-lg" href="{% url 'record-game' %}">{% trans "Record a Game" %}</a>
         </div>
@@ -230,7 +238,10 @@
         </ol>
         {% comment %} <div class="home-lifecycle-loop"><i class="bi bi-arrow-repeat"></i> {% trans "record, refine, repeat" %}</div> {% endcomment %}
         <div>
-            <a class="btn btn-primary btn-lg mt-2" href="{% url 'forge-home' %}">{% trans "Open the Forge" %}</a>
+            {% comment %} Themed the same way as the hero CTA above -- see the
+            note there for why the colour is interpolated. {% endcomment %}
+            <a class="custom-btn-lg mt-2" href="{% url 'forge-home' %}"
+               style="{% if theme %}--button-color: {{ theme.theme_color }};{% endif %} --text-color: #fff;">{% trans "Open the Forge" %}</a>
         </div>
     </div>
 </section>
@@ -280,7 +291,12 @@
         </p>
         <div class="home-community-actions">
             {% if not user.is_authenticated %}
-                <a class="btn btn-primary" href="{% provider_login_url 'discord' %}"><i class="bi bi-discord"></i> {% trans "Log In" %}</a>
+                {% comment %} Themed like the two CTAs above -- see the note on
+                the hero button for why the colour is interpolated. Default size
+                (custom-btn, not -lg) to match the btn-outline-light siblings.
+                {% endcomment %}
+                <a class="custom-btn" href="{% provider_login_url 'discord' %}"
+                   style="{% if theme %}--button-color: {{ theme.theme_color }};{% endif %} --text-color: #fff;"><i class="bi bi-discord" style="margin-right: 6px;"></i>{% trans "Log In" %}</a>
             {% endif %}
             <a class="btn btn-outline-light" href="{% url 'website-faq' %}">{% trans "FAQ" %}</a>
             <a class="btn btn-outline-light" href="{% url 'general-feedback' %}">{% trans "Send Feedback" %}</a>

@@ -1,0 +1,115 @@
+{% load i18n %}
+{% comment %}
+The read-only multi-player comparison grid used by availability_compare.html.
+Always exactly 7 columns (Mon-Sun), unlike the single-user week-specific
+grid's real-dated 7-or-8 columns (partials/availability_grid.html) --
+comparing several players' possibly different timezones works only as one
+shared abstract week shape, even though (since this page dropped its own
+General mode) every column DOES carry a real calendar date drawn from one
+specific real week, in the viewer's local time.
+
+Cells are plain divs, not buttons: nothing here is editable, the interactive
+behaviour (heat colouring, hover/tap detail) is entirely client-side JS keyed
+off data-day/data-hour (derived into an hour-of-week by
+availability_compare.html's own script).
+
+Parameters:
+  columns    [{'day_label', 'header_label', 'header_sublabel', 'header_title',
+             'iso_date'}, ...], one per column, in order -- pre-assembled
+             server-side because Django templates cannot index `days` by
+             another loop's counter to look up a matching date (the same
+             reason partials/availability_grid.html pre-assembles its own
+             cells). `day_label` (full weekday name) drives data-label, the
+             text the hover tooltip/click-detail panel show; `header_label`
+             (abbreviated weekday) plus `header_sublabel` (date) drive the
+             two-line dated header, matching the single-user week-specific
+             grid's own header exactly (avail-day-header--dated,
+             partials/availability_grid.html). `iso_date` is None in General
+             mode and a real local calendar date string in week-specific
+             mode -- when present, each cell in that column carries a
+             data-date attribute so the click/hover detail can show an
+             exact date instead of just a day name.
+  hours      hour_labels() -> (hour, short_label, long_label) triples.
+  hour_rows  OPTIONAL -- week-specific mode only, None in General mode
+             (falls back to one ordinary cell per (column, hour), matching
+             this partial's original unconditional shape). One entry per
+             hour_labels() row: (hour, short_label, long_label, cells),
+             `cells` having exactly 7 entries (column order), each a
+             `(column, tokens)` PAIR -- `column` is the matching entry from
+             `columns` (pre-zipped server-side, since Django templates
+             cannot zip two lists together) and `tokens` is a list of 0, 1,
+             or 2 `data-how` TOKEN strings (see
+             services.availability.utc_instant_token) for that (day, hour)
+             position -- 0 -> a DST spring-forward gap (disabled, not
+             tappable), 1 -> an ordinary cell, 2 -> a DST fall-back night's
+             repeated local hour (two independently free-or-not real
+             instants sharing this grid position, rendered as two
+             half-width cells -- see services.availability.
+             local_week_cell_shape for why the shape can hold 0/1/2 real
+             hours per local slot, same reasoning as the single-user
+             week-specific grid's week_grid_cells).
+{% endcomment %}
+<div class="availability-scroll">
+  <div class="availability-grid compare-grid" id="compare-grid">
+    <div class="avail-corner"></div>
+    {% for column in columns %}
+      <div class="avail-day-header avail-day-header--dated" title="{{ column.header_title }}">
+        <span class="avail-day-weekday">{{ column.header_label }}</span>
+        <span class="avail-day-date">{{ column.header_sublabel }}</span>
+      </div>
+    {% endfor %}
+
+    {% if hour_rows %}
+      {% for hour, short_label, long_label, cells in hour_rows %}
+        <div class="avail-hour-label"><span class="hour-text">{{ short_label }}</span></div>
+        {% for column, tokens in cells %}
+          {% if not tokens %}
+            {% comment %} Disabled: this local (column, hour) slot has no real UTC hour --
+            the DST spring-forward gap. Not tappable, excluded from every
+            per-player/overlap lookup. {% endcomment %}
+            <div class="avail-cell avail-cell--disabled" aria-hidden="true"><span class="cell-time">{{ short_label }}</span></div>
+          {% elif tokens|length == 1 %}
+            <div class="avail-cell compare-cell"
+                 data-day="{{ forloop.counter0 }}"
+                 data-hour="{{ hour }}"
+                 data-how="{{ tokens.0 }}"
+                 data-label="{{ column.day_label }} {{ long_label }}"
+                 {% if column.iso_date %}data-date="{{ column.iso_date }}"{% endif %}><span class="cell-time">{{ short_label }}</span></div>
+          {% else %}
+            {% comment %} DST fall-back: this local hour happened twice that night. Two
+            independently free-or-not real instants share the row's normal
+            grid position, each its own tappable half-width cell. {% endcomment %}
+            <div class="avail-cell-split" data-day="{{ forloop.counter0 }}" data-hour="{{ hour }}">
+              {% for token in tokens %}
+                <div class="avail-cell avail-cell--split compare-cell"
+                     data-day="{{ forloop.parentloop.counter0 }}"
+                     data-hour="{{ hour }}"
+                     data-how="{{ token }}"
+                     data-label="{{ column.day_label }} {{ long_label }} ({{ forloop.counter }})"
+                     {% if column.iso_date %}data-date="{{ column.iso_date }}"{% endif %}><span class="cell-time">{{ short_label }}</span></div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endfor %}
+      {% endfor %}
+    {% else %}
+      {% for hour, short_label, long_label in hours %}
+        <div class="avail-hour-label"><span class="hour-text">{{ short_label }}</span></div>
+        {% for column in columns %}
+          {% comment %} Read-only: divs, not buttons -- nothing here
+          changes the schedule. They ARE tappable, which is how a
+          phone reaches the detail a hover tooltip never shows.
+
+          data-bs-title is filled in by render(), not here: the text
+          names who is free and so changes whenever a player is
+          toggled. {% endcomment %}
+          <div class="avail-cell compare-cell"
+               data-day="{{ forloop.counter0 }}"
+               data-hour="{{ hour }}"
+               data-label="{{ column.day_label }} {{ long_label }}"
+               {% if column.iso_date %}data-date="{{ column.iso_date }}"{% endif %}><span class="cell-time">{{ short_label }}</span></div>
+        {% endfor %}
+      {% endfor %}
+    {% endif %}
+  </div>
+</div>
