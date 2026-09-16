@@ -15,13 +15,34 @@
  * button are found relative to it via data-* attributes, so a caller only has to
  * render the markup and this file wires it up. Grids marked
  * .js-availability-grid are initialised automatically on DOM ready.
+ *
+ * window.initAvailabilityGrid(grid, options) -- options.onChange, optional: a
+ * callback fired whenever the selection actually changes (any paint, click, or
+ * bulk row/column toggle), but NOT on the initial load/re-init serialize. Lets
+ * a page track "the user has unsaved changes" off the same single choke point
+ * every mutation already goes through, since a page-level click listener on
+ * the grid's container cannot catch a mouse drag-paint (pointerdown's own
+ * preventDefault() suppresses the compatibility click event for that whole
+ * gesture per the Pointer Events spec).
  */
 (function () {
   'use strict';
 
-  function initAvailabilityGrid(grid) {
+  function initAvailabilityGrid(grid, options) {
     if (!grid || grid.dataset.availInit === '1') { return; }
     grid.dataset.availInit = '1';
+
+    // Optional: called from changed() (below) whenever a MUTATION happens --
+    // not on the one-time init-serialize call changed() also makes at the
+    // bottom of this function, which would otherwise fire it on every fresh
+    // load/re-init with zero actual user interaction (see `initialized`).
+    // Lets a page (e.g. /availability) track "unsaved changes" off the same
+    // single choke point every selection mutation already goes through,
+    // rather than guessing from a bubbled click -- a mouse drag-paint never
+    // dispatches a click at all (pointerdown's preventDefault() below
+    // suppresses it per the Pointer Events spec), so a page-level click
+    // listener silently misses every mouse-driven edit.
+    var onChange = (options && options.onChange) || null;
 
     // The hidden input this grid serializes into. Named by the grid rather than
     // looked up by a fixed id, so several grids can coexist.
@@ -91,9 +112,16 @@
     // clear button, so a survey answer submitted whatever it started with. The
     // /availability page hid the bug by re-serializing on submit; take_survey has
     // no such flush and saved nothing.
+    //
+    // onChange only fires once `initialized` is true -- changed() is also
+    // called once, unconditionally, at the end of this function's own init
+    // sequence (to serialize the freshly-painted initial selection), and that
+    // call must NOT count as a "the user changed something" signal.
+    var initialized = false;
     function changed() {
       updateCount();
       serialize();
+      if (onChange && initialized) { onChange(); }
     }
 
     function initialSelection() {
@@ -259,7 +287,8 @@
     }
 
     initialSelection();
-    changed();
+    changed();          // runs with initialized still false -- no onChange yet.
+    initialized = true;
 
     // Handed back so a page can serialize on its own submit or timezone change.
     return { serialize: serialize, grid: grid };

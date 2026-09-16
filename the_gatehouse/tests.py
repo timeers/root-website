@@ -1301,6 +1301,33 @@ class AvailabilityViewTests(_NoLoginSignalMixin, TestCase):
         response = self.client.get(self.url)
         self.assertContains(response, 'availability-grid--editable')
 
+    def test_unsaved_changes_modal_replaces_the_native_confirm(self):
+        """Regression guard for two real bugs found in the same session: (1)
+        a mouse drag-paint never dispatches a click event (pointerdown's own
+        preventDefault suppresses it per the Pointer Events spec), so the old
+        click-based dirty-tracking silently never fired for a mouse-driven
+        edit; (2) the fix must not simply fire on every grid (re-)init, which
+        would mark the page dirty on every load/week-switch with zero actual
+        edits. Both are JS-runtime behaviors this template test cannot fully
+        exercise, but it does assert the STATIC contract the JS fix depends
+        on: the 3-option modal markup exists, initGrid() passes onChange
+        (not the old click listener), and the old 2-option window.confirm()
+        call is gone."""
+        response = self.client.get(self.url)
+        body = response.content.decode()
+        self.assertContains(response, 'id="unsaved-changes-modal"')
+        self.assertContains(response, 'id="unsaved-discard"')
+        self.assertContains(response, 'id="unsaved-save"')
+        self.assertIn('onChange:', body)
+        self.assertNotIn('window.confirm(', body)
+        # The old click-based dirty marker on #grid-container must be gone,
+        # not left redundant alongside onChange (a second, permanently-dead
+        # mechanism invites exactly the same regression again later).
+        self.assertNotIn(
+            "gridContainer.addEventListener('click', function (e) {\n"
+            "    if (e.target.closest('.avail-cell, .avail-day-header, .avail-hour-label')) {",
+            body)
+
     def test_post_saves_utc_hours_and_updates_profile_timezone(self):
         response = self.client.post(self.url, {
             'timezone': 'America/New_York',
@@ -2287,12 +2314,27 @@ class WeekSpecificGridRenderTests(_NoLoginSignalMixin, TestCase):
         response = self.client.get(self.url, {'week': target.isoformat()})
         self.assertContains(response, 'avail-cell--disabled')
 
+    def test_disabled_cells_get_a_legend_entry_in_week_mode(self):
+        """Distinct from a plain unselected cell (both used to be flat light
+        grey) and explained in the legend, same as the general-preview
+        cells already are."""
+        target = self.current_week + timedelta(weeks=1)
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        body = response.content.decode()
+        legend_start = body.index('id="availability-legend-disabled"')
+        legend_tag_end = body.index('>', legend_start)
+        self.assertNotIn('hidden', body[legend_start:legend_tag_end])
+        self.assertIn('avail-legend-swatch--disabled', body)
+
     def test_general_grid_has_no_dated_headers_or_disabled_cells(self):
         response = self.client.get(self.url)
         body = response.content.decode()
         self.assertNotIn('avail-day-header--dated', body)
         self.assertNotIn('avail-cell--disabled', body)
         self.assertNotIn('availability-grid--8col', body)
+        legend_start = body.index('id="availability-legend-disabled"')
+        legend_tag_end = body.index('>', legend_start)
+        self.assertIn('hidden', body[legend_start:legend_tag_end])
 
     def test_dst_fallback_week_renders_split_cells(self):
         response = self.client.get(self.url, {'week': '2026-10-26'})

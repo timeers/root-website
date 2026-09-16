@@ -5557,24 +5557,6 @@ body.forge-modal-open { overflow: hidden; }
     color: #868e96;
   }
 
-  /* A disabled cell: the (column, hour) position exists in the grid's layout
-     but has no real UTC hour behind it -- outside a partial boundary column,
-     or the one-night-a-year DST spring-forward gap. Not a button: nothing to
-     click, nothing to select, excluded from serialization entirely. */
-  .avail-cell--disabled {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 1.04rem;
-    border: 1px solid #eef0f2;
-    border-radius: 4px;
-    background: #f1f3f5;
-    opacity: 0.45;
-    font-size: 0.58rem;
-    color: #ced4da;
-    pointer-events: none;
-  }
-
   /* A DST fall-back slot: the one local hour that happens twice that night
      gets two independently paintable half-width cells sharing the row's
      normal grid position, rather than growing the grid by a 25th row. */
@@ -5615,6 +5597,45 @@ body.forge-modal-open { overflow: hidden; }
 
   .cell-time {
     pointer-events: none;  /* clicks and drags must hit the cell, never the label */
+  }
+
+  /* A disabled cell: the (column, hour) position exists in the grid's layout
+     but has no real UTC hour behind it -- outside a partial boundary column,
+     or the one-night-a-year DST spring-forward gap. Not a button: nothing to
+     click, nothing to select, excluded from serialization entirely.
+
+     Solid grey at the SAME color and opacity the earlier diagonal stripes
+     used (rgba(173, 181, 189, 0.35)), just filling the whole cell instead of
+     a repeating pattern -- an opacity-only treatment read too close to a
+     plain unselected cell to register as "not selectable" at a glance. The
+     alpha is on the background COLOR itself (rgba), not the element's own
+     `opacity` property, so text color/border stay exactly as set below --
+     element-level opacity would fade those too, which was explicitly not
+     wanted.
+
+     MUST come AFTER the base .avail-cell rule above: every disabled cell
+     carries BOTH classes ("avail-cell avail-cell--disabled"), so the two
+     selectors tie on specificity (one class each) and source order decides
+     -- .avail-cell's own `background: #f8f9fa` uses the SHORTHAND, and
+     would win if it came later. This rule was originally placed BEFORE
+     .avail-cell and silently never painted for exactly that reason (caught
+     by the user: "they look exactly the same as they did before the
+     change" -- the CSS was correct and being served, just always
+     overridden). Same ordering trap .avail-cell--general-preview already
+     documents relative to .is-selected, below -- this is the same trap
+     relative to the PLAIN base rule instead. */
+  .avail-cell--disabled {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 1.04rem;
+    border: 1px solid #eef0f2;
+    border-radius: 4px;
+    /* The exact rgba the diagonal stripes used, filling the whole cell. */
+    background: rgba(173, 181, 189, 0.35);
+    font-size: 0.58rem;
+    color: #ced4da;
+    pointer-events: none;
   }
 
   /* EDITOR affordances, opt-in via --editable. The layout above is shared with
@@ -5672,10 +5693,13 @@ body.forge-modal-open { overflow: hidden; }
     outline-offset: 1px;
   }
 
-  /* Explains the grid's three cell states: available/selected (solid blue),
-     unavailable/empty (plain), and general-preview (striped). A fixed,
-     non-data-driven three-item row -- unlike availability_compare.html's
-     dynamically-built .heat-legend, this needs no JS to populate. */
+  /* Explains the grid's cell states: available/selected (solid blue),
+     unavailable/empty (plain), general-preview (blue striped), and
+     not-selectable (grey striped -- outside your local week's real hours,
+     e.g. a DST spring-forward gap or a boundary column your timezone
+     offset shifts out of range). A fixed, non-data-driven row -- unlike
+     availability_compare.html's dynamically-built .heat-legend, this needs
+     no JS to populate. */
   .avail-legend {
     display: flex;
     flex-wrap: wrap;
@@ -5705,6 +5729,11 @@ body.forge-modal-open { overflow: hidden; }
       transparent 4px, transparent 8px
     );
     border-color: rgba(13, 110, 253, 0.35);
+  }
+  /* Mirrors .avail-cell--disabled exactly, same reasoning as --selected above. */
+  .avail-legend-swatch--disabled {
+    background: rgba(173, 181, 189, 0.35);
+    border-color: #eef0f2;
   }
 
   @media (max-width: 576px) {

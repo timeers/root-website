@@ -176,7 +176,8 @@
             <div class="avail-legend" id="availability-legend">
               <span class="avail-legend-item"><span class="avail-legend-swatch avail-legend-swatch--selected"></span>{% trans 'Available' %}</span>
               <span class="avail-legend-item"><span class="avail-legend-swatch avail-legend-swatch--empty"></span>{% trans 'Unavailable' %}</span>
-              <span class="avail-legend-item" id="availability-legend-preview" {% if not is_week_specific %}hidden{% endif %}><span class="avail-legend-swatch avail-legend-swatch--preview"></span>{% trans 'General availability' %}</span>
+              <span class="avail-legend-item" id="availability-legend-preview" {% if not is_week_specific %}hidden{% endif %}><span class="avail-legend-swatch avail-legend-swatch--preview"></span>{% trans 'Using General Availability' %}</span>
+              <span class="avail-legend-item" id="availability-legend-disabled" {% if not is_week_specific %}hidden{% endif %}><span class="avail-legend-swatch avail-legend-swatch--disabled"></span>{% trans 'Not Selectable (Prior or Next Week)' %}</span>
             </div>
 
             <div class="d-flex flex-wrap gap-2 justify-content-center mt-3">
@@ -194,6 +195,31 @@
           </div>
         </div>
       </form>
+
+      {% comment %} Shown by goToWeek() when leaving a week with unsaved
+      changes -- a native confirm() can only offer OK/Cancel, so this
+      replaces it with a real 3-option choice. Static markup; the only
+      dynamic part is which button was clicked, read by confirmUnsavedChanges()
+      in {% block scripts %}. {% endcomment %}
+      <div class="modal fade" id="unsaved-changes-modal" tabindex="-1"
+           aria-labelledby="unsaved-changes-modal-label" aria-hidden="true">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title" id="unsaved-changes-modal-label">{% trans 'Unsaved Changes' %}</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+            </div>
+            <div class="modal-body">
+              <p class="mb-0">{% trans 'You have unsaved changes to this week. Save them before leaving?' %}</p>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" id="unsaved-discard">{% trans 'Continue without Saving' %}</button>
+              <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+              <button type="button" class="databot-btn databot-btn-primary avail-btn-compact" id="unsaved-save">{% trans 'Save' %}</button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {# Toasts land here: fetch-based saves/week-switches no longer redirect through Django's messages framework, so this mirrors that UI locally. #}
       <div id="availability-toasts" class="alert-stack-wrapper mb-2"></div>
@@ -260,18 +286,15 @@ on the fresh DOM, rather than trying to reconstruct the grid client-side.
   function initGrid() {
     var el = currentGrid();
     if (!el) { gridApi = null; return; }
-    gridApi = window.initAvailabilityGrid(el);
-    // Anything that changes the grid's selection marks the page dirty --
-    // delegated on the container so it survives innerHTML swaps without
-    // re-attaching a listener each time.
+    // onChange, not a click listener on #grid-container: a mouse drag-paint
+    // never dispatches a click at all (availability_grid.js's own pointerdown
+    // handler suppresses it via preventDefault, per the Pointer Events spec),
+    // so a click-based listener here silently misses every mouse-driven edit
+    // -- exactly the bug this callback replaces. initAvailabilityGrid only
+    // fires it on a REAL mutation, never on its own initial-load serialize.
+    gridApi = window.initAvailabilityGrid(el, { onChange: function () { dirty = true; } });
   }
   initGrid();
-
-  gridContainer.addEventListener('click', function (e) {
-    if (e.target.closest('.avail-cell, .avail-day-header, .avail-hour-label')) {
-      dirty = true;
-    }
-  });
 
   function paintHours(hours) {
     var el = currentGrid();
@@ -350,6 +373,9 @@ on the fresh DOM, rather than trying to reconstruct the grid client-side.
     var legendPreview = document.getElementById('availability-legend-preview');
     if (legendPreview) { legendPreview.hidden = !data.is_week_specific; }
 
+    var legendDisabled = document.getElementById('availability-legend-disabled');
+    if (legendDisabled) { legendDisabled.hidden = !data.is_week_specific; }
+
     dirty = false;
   }
 
@@ -423,11 +449,50 @@ on the fresh DOM, rather than trying to reconstruct the grid client-side.
     history.pushState({ week: data.week_start }, '', url);
   }
 
+  // ---- Unsaved-changes prompt -------------------------------------------------
+  var unsavedModalEl = document.getElementById('unsaved-changes-modal');
+  var unsavedModal = unsavedModalEl ? new bootstrap.Modal(unsavedModalEl) : null;
+
+  // Resolves 'discard', 'save', or 'cancel'. Cancel covers BOTH the Cancel
+  // button and any other way of dismissing the modal (Esc, backdrop click,
+  // the header's own close button) -- data-bs-dismiss="modal" is on all of
+  // those, so 'hidden.bs.modal' firing without an explicit choice already
+  // made is what "cancel" means here, not a fourth outcome to special-case.
+  function confirmUnsavedChanges() {
+    return new Promise(function (resolve) {
+      var choice = 'cancel';
+      function onHidden() {
+        unsavedModalEl.removeEventListener('hidden.bs.modal', onHidden);
+        resolve(choice);
+      }
+      unsavedModalEl.addEventListener('hidden.bs.modal', onHidden);
+      // .onclick, not addEventListener: re-showing the modal on a later
+      // navigation attempt must not accumulate duplicate listeners from
+      // previous opens.
+      document.getElementById('unsaved-discard').onclick = function () {
+        choice = 'discard'; unsavedModal.hide();
+      };
+      document.getElementById('unsaved-save').onclick = function () {
+        choice = 'save'; unsavedModal.hide();
+      };
+      unsavedModal.show();
+    });
+  }
+
   async function goToWeek(weekValue) {
     if (dirty) {
-      var ok = window.confirm(
-        "{% trans 'You have unsaved changes to this week. Discard them and continue?' %}");
-      if (!ok) { return; }
+      var choice = await confirmUnsavedChanges();
+      if (choice === 'cancel') { return; }
+      if (choice === 'save') {
+        await submitAction('save');
+        // submitAction resets `dirty` to false via applyState() on a
+        // successful save; if it's STILL true, the save failed (submitAction
+        // already showed its own error toast) -- don't navigate away from
+        // unsaved work.
+        if (dirty) { return; }
+      }
+      // choice === 'discard' falls through unchanged, matching the old
+      // confirm()'s OK path.
     }
     var params = new URLSearchParams();
     if (tournamentTarget) { params.set('tournament', tournamentTarget); }
