@@ -1848,6 +1848,56 @@ def _announce_schedule_to_channel(match, old_time, new_time):
         lambda: post_to_tournament_channel(tournament, 'schedule_channel', content))
 
 
+def _announce_schedule_to_thread(match, old_time, new_time):
+    """Ping the match's own thread when its time is set, moved, or cleared.
+
+    Unlike _announce_schedule_to_channel, DOES fire on a clear (new_time=None) --
+    a postponement is exactly the case a roster most needs pinged about, since a
+    game night they were expecting just came off the calendar. Still a no-op when
+    old_time == new_time (nothing changed, so nothing to say).
+
+    Only posts into a thread that match_thread_id can PROVE belongs to the
+    tournament's current guild; a match with no thread, or a stale/foreign thread
+    URL, is silently skipped -- same fail-closed contract resolve_tournament_channel
+    gives the schedule_channel post.
+    """
+    if old_time == new_time:
+        return
+    tournament = match.round.get_tournament() if match.round_id else None
+    if tournament is None:
+        return
+    from the_warroom.services.channel_posts import match_thread_id
+    thread_id = match_thread_id(match, tournament=tournament)
+    if not thread_id:
+        return
+
+    # Unlinked players can't be pinged but must still be NAMED, same reasoning
+    # create_match_threads_task uses -- dropping them silently would make the
+    # roster look short and leave them wondering if they're in the match.
+    roster = _match_roster(match)
+    mentions = [f"<@{p.discord_id}>" if p.discord_id else str(p) for p in roster]
+    ping_line = " ".join(mentions)
+
+    label = _match_label(match)
+    if new_time is None:
+        body = f"🗓️ The scheduled time for **{label}** has been removed."
+    else:
+        verb = "rescheduled" if old_time is not None else "scheduled"
+        body = "\n".join([
+            f"🗓️ **{label}** is {verb} for",
+            format_discord_timestamp(new_time),
+            format_discord_timestamp_code(new_time),
+        ])
+    content = f"{ping_line}\n{body}" if ping_line else body
+
+    from the_databot.tasks import post_channel_message_task
+    # on_commit: callers run inside transaction.atomic(), and the worker must never
+    # announce a time this transaction goes on to roll back.
+    transaction.on_commit(
+        lambda: post_channel_message_task.delay(
+            thread_id, content, allowed_mentions={"parse": ["users"]}))
+
+
 def _finalize_proposal(proposal, actor=None):
     """Write the agreed time and retire every other proposal for this match.
     Returns (ok, error).
@@ -2276,45 +2326,14 @@ def _handle_schedule_confirm(payload):
     # update_fields is required: a bare save() re-runs Match.save()'s name and
     # match_number derivation.
     match.save(update_fields=["scheduled_time"])
-    # Additional to the thread embed below: that tells the players in the thread, this
-    # tells the tournament's schedule channel.
+    # Tells the tournament's schedule channel; _announce_schedule_to_thread below
+    # tells the players in the match's own thread, guild-verified and pinged.
     _announce_schedule_to_channel(match, previous_time, when)
+    _announce_schedule_to_thread(match, previous_time, when)
 
     # A direct write supersedes anything still awaiting confirmation — otherwise a
     # stale Confirm could overwrite the time just set here.
     _cancel_open_proposals(match, "cancelled")
-
-    # Announce publicly in the thread so the whole group sees it. The followup is
-    # sequenced after this response's ACK (a followup before it 404s).
-    token = payload.get("token")
-    if token:
-        try:
-            # Not /upcoming's "The next scheduled game" line — this announces the
-            # match just written, which needn't be the tournament's next one. No
-            # roster confirmed it on this path, so name who set the time. A plain
-            # display name, not _roster_name: that would render a mention INSIDE
-            # the embed, which never notifies anyway -- the ping below is the part
-            # that actually reaches people, and it deliberately excludes the
-            # clicker.
-            who = profile.display_name or profile.discord or profile.slug
-            embed = build_upcoming_embed(
-                match, summary=f"Scheduled by {who}" if who else None)
-        except Exception:
-            logger.exception("Failed to build /schedule announcement embed")
-            embed = None
-        if embed:
-            data = {"embeds": [embed]}
-            # Tell the rest of the roster a time was set for them. Nobody
-            # confirmed anything on this path, so this post is the only notice
-            # they get. Skipped entirely when there is nobody left to ping.
-            ping = _roster_ping_others(_match_roster(match),
-                                       exclude_discord_id=owner)
-            if ping:
-                data["content"] = ping
-                data["allowed_mentions"] = {"parse": ["users"]}
-            post_interaction_followup_task.apply_async(
-                (token, data), countdown=2,
-            )
 
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
@@ -2783,7 +2802,7 @@ def _handle_schedule_clear_confirm(payload):
     if match.scheduled_time is None:
         return _ephemeral("That match no longer has a scheduled time.")
 
-    label = _match_label(match)
+    old_scheduled_time = match.scheduled_time
     match.scheduled_time = None
     # update_fields is required: a bare save() re-runs Match.save()'s name and
     # match_number derivation.
@@ -2794,15 +2813,9 @@ def _handle_schedule_clear_confirm(payload):
     _cancel_open_proposals(match, "cancelled")
 
     # Supersede the announcement the set flow posted — otherwise the thread is left
-    # showing a time that no longer exists. Plain text rather than
-    # build_upcoming_embed, which omits its Scheduled field entirely when the time
-    # is null and so would read as if nothing had changed.
-    token = payload.get("token")
-    if token:
-        post_interaction_followup_task.apply_async(
-            (token, {"content": f"🗓️ The scheduled time for **{label}** was removed."}),
-            countdown=2,
-        )
+    # showing a time that no longer exists. Guild-verified and pinged, same as
+    # every other schedule-change notice.
+    _announce_schedule_to_thread(match, old_scheduled_time, None)
 
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,

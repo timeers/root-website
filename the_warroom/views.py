@@ -8751,6 +8751,7 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
         # imports the_warroom.models, so a top-level import would be circular.
         from the_databot.discord_interactions import (
             _cancel_open_proposals, _announce_schedule_to_channel,
+            _announce_schedule_to_thread,
         )
 
         for match_data in data.get('matches', []):
@@ -8792,8 +8793,11 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
             _cancel_open_proposals(match, 'website')
             # And announce it, exactly as the bot does: "scheduled" for a match
             # that gained a time, "rescheduled" for one that moved. A CLEARED time
-            # announces nothing -- the helper returns early on new_time=None.
+            # announces nothing to the channel -- the helper returns early on
+            # new_time=None. The thread version below DOES announce a clear: the
+            # roster wants to know a postponement happened just as much as a move.
             _announce_schedule_to_channel(match, old_time, new_time)
+            _announce_schedule_to_thread(match, old_time, new_time)
 
         # --- Delete matches ---
         for match_id in data.get('delete_match_ids', []):
@@ -8827,6 +8831,7 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
                     # A brand-new match, so there is no previous time: old_time
                     # None makes this read "scheduled" rather than "rescheduled".
                     _announce_schedule_to_channel(new_match, None, scheduled_time)
+                    _announce_schedule_to_thread(new_match, None, scheduled_time)
 
         # --- Remove seats ---
         for seat_id in data.get('remove_seat_ids', []):
