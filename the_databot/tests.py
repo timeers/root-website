@@ -2212,16 +2212,17 @@ class UpcomingEmbedSummaryTests(ScheduleFixtureMixin, TestCase):
 
 
 class ScheduleAnnouncementDescriptionTests(ScheduleFixtureMixin, TestCase):
-    """Neither /schedule announcement path may reuse /upcoming's "next scheduled
-    game" line — the title already says the match was just scheduled."""
+    """/schedule's direct-write path (see 128f2be8, "schedule change messages to
+    discord thread") announces via a plain content post to the match's own
+    thread (_announce_schedule_to_thread), not a followup embed -- that older
+    embed-based announcement (with its /upcoming-style "next scheduled game"
+    line) no longer exists."""
 
     def setUp(self):
         self.build(populate_group=True)
         self.when = (timezone.now() + timedelta(days=2)).replace(microsecond=0)
 
-    def test_direct_write_names_the_scheduler_without_pinging(self):
-        self.match.scheduled_time = self.when
-        self.match.save(update_fields=["scheduled_time"])
+    def test_direct_write_pings_the_thread_with_the_new_time(self):
         payload = {
             "data": {"custom_id": di.encode_custom_id(
                 "schedule_confirm", self.match.pk, int(self.when.timestamp()),
@@ -2230,16 +2231,15 @@ class ScheduleAnnouncementDescriptionTests(ScheduleFixtureMixin, TestCase):
             "token": "tok",
         }
         with mock.patch.object(di, "_consensus_required", return_value=(False, [])), \
-             mock.patch.object(di.post_interaction_followup_task, "apply_async") as followup:
+             mock.patch.object(di.post_channel_message_task, "delay") as post, \
+             self.captureOnCommitCallbacks(execute=True):
             di._handle_schedule_confirm(payload)
 
-        (_token, data), _kwargs = followup.call_args[0][0], followup.call_args[1]
-        description = data["embeds"][0]["description"]
-        self.assertEqual(description, f"Scheduled by {self.player.discord}")
-        self.assertNotIn("next scheduled", description)
-        # A raw mention would ping the clicker: this followup sets no
-        # allowed_mentions, so the name must stay plain text.
-        self.assertNotIn("<@", description)
+        thread_id, content = post.call_args.args
+        self.assertEqual(thread_id, "555000111")
+        self.assertIn(f"<@{self.player.discord_id}>", content)
+        self.assertIn("scheduled for", content)
+        self.assertNotIn("next scheduled", content)
 
     def test_consensus_finalized_view_carries_only_the_closing_note(self):
         """summary=None still strips /upcoming's "next scheduled game" line. The
