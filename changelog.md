@@ -7,6 +7,7 @@
 - Beta version of /lfg with edit description button
 - Customize your availability by week 
 - Choose to display your timezone when comparing availability (set from the manage availability page)
+- Compare Availability now uses week by week availability
 
 ### Improvements
 - Player count and roster errors from TTS boxscore upload are passed to Discord instead of blocking the upload
