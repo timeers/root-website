@@ -4,7 +4,7 @@
 
 ### New Features
 - You can now set up multiple reminders via the Databot for scheduled games
-- Beta version of /lfg with edit description button
+- New version of /lfg with edit description button
 - Customize your availability by week 
 - Choose to display your timezone when comparing availability (set from the manage availability page)
 - Compare Availability now uses week by week availability

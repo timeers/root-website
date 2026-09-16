@@ -2763,24 +2763,17 @@ class LFGCancelPermissionTests(TestCase):
 
 
 class LFGEditButtonRowTests(TestCase):
-    """`edit_button` gates the 📝 button in _lfg_message_data's row -- OFF by
-    default so every pre-existing call site is unaffected."""
+    """The Edit button is a permanent part of _lfg_message_data's row."""
 
     HOST = "830000000000000033"
 
-    def _buttons(self, **kw):
+    def _buttons(self):
         data = di._lfg_message_data(
-            None, self.HOST, "a game", "Tim", title="Looking for Game", **kw)
+            None, self.HOST, "a game", "Tim", title="Looking for Game")
         return data["components"][0]["components"]
 
-    def test_edit_button_off_by_default(self):
-        buttons = self._buttons()
-        self.assertEqual(len(buttons), 4)
-        names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
-        self.assertNotIn("lfg_edit", names)
-
     def test_edit_button_sits_between_notify_and_cancel(self):
-        buttons = self._buttons(edit_button=True)
+        buttons = self._buttons()
         self.assertEqual(len(buttons), 5)
         names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
         self.assertEqual(names,
@@ -2789,14 +2782,14 @@ class LFGEditButtonRowTests(TestCase):
     def test_edit_is_dispatcher_locked_like_start(self):
         """No moderator carve-out, unlike ✖ -- the owner snowflake must be LAST,
         which is what makes the dispatcher's generic owner-lock fire."""
-        buttons = self._buttons(edit_button=True)
+        buttons = self._buttons()
         edit_button = next(b for b in buttons
                            if di.decode_custom_id(b["custom_id"])[0] == "lfg_edit")
         self.assertTrue(edit_button["custom_id"].endswith(f":{self.HOST}"))
 
 
 class LFGEditTests(TestCase):
-    """📝 Edit: host-only, opens a modal pre-filled with the current description,
+    """Edit: host-only, opens a modal pre-filled with the current description,
     and submitting it PATCHes the live message directly."""
 
     HOST = "830000000000000044"
@@ -4702,39 +4695,15 @@ class RegisterGuildCommandsBodyTests(TestCase):
 
     # ── beta-tester mechanism ──────────────────────────────────────────────
 
-    def test_a_non_beta_guild_gets_no_beta_commands(self):
-        self.guild.enabled_commands = ["lfg"]
-        self.guild.is_beta_tester = False
-        self.guild.save()
-        self.assertNotIn("lfg-beta", self._body())
-
-    def test_a_beta_guild_gets_lfg_beta_alongside_lfg(self):
+    def test_a_beta_guild_with_no_variants_configured_gets_no_beta_commands(self):
+        """BETA_COMMAND_VARIANTS is currently empty (/lfg's Edit button graduated
+        into the base command), so is_beta_tester alone adds nothing to the body."""
         self.guild.enabled_commands = ["lfg"]
         self.guild.is_beta_tester = True
         self.guild.save()
         body = self._body()
         self.assertIn("lfg", body)
-        self.assertIn("lfg-beta", body)
-
-    def test_a_beta_guild_without_lfg_enabled_gets_no_lfg_beta(self):
-        """The beta variant is always an ADDITION alongside the real command,
-        never a replacement -- a guild can't get it without lfg itself."""
-        self.guild.enabled_commands = ["stats"]
-        self.guild.is_beta_tester = True
-        self.guild.save()
-        self.assertNotIn("lfg-beta", self._body())
-
-    def test_the_beta_variant_matches_the_reals_lfg_shape(self):
-        """lfg-beta reuses lfg_command_for_roles, so it can never silently drift
-        from what the real /lfg would show this guild."""
-        self.guild.enabled_commands = ["lfg"]
-        self.guild.is_beta_tester = True
-        self.guild.save()
-        for i in range(2):
-            GuildLFGRole.objects.create(guild=self.guild, name="Tag %d" % i,
-                                        role_id=str(100000000000000800 + i))
-        body = self._body()
-        self.assertEqual(self._opts(body["lfg"]), self._opts(body["lfg-beta"]))
+        self.assertNotIn("lfg-beta", body)
 
 
 class ApplicationCommandBetaDispatchTests(TestCase):
@@ -4758,22 +4727,9 @@ class ApplicationCommandBetaDispatchTests(TestCase):
                 content_type="application/json")
         return json.loads(response.content)
 
-    def test_lfg_beta_reaches_the_same_handler_as_lfg(self):
-        """No players parsed from either invocation -> plain post either way; both
-        must succeed (an unknown-command ephemeral would mean the strip failed)."""
-        real = self._post("lfg")
-        beta = self._post("lfg-beta")
-        self.assertEqual(real["data"]["embeds"][0]["title"],
-                         beta["data"]["embeds"][0]["title"])
-
-    def test_lfg_reaches_it_with_the_beta_flag_unset(self):
+    def test_lfg_always_includes_the_edit_button(self):
+        """The Edit button graduated out of the beta gate into every /lfg post."""
         data = self._post("lfg")["data"]
-        buttons = data["components"][0]["components"]
-        names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
-        self.assertNotIn("lfg_edit", names)
-
-    def test_lfg_beta_reaches_it_with_the_beta_flag_set(self):
-        data = self._post("lfg-beta")["data"]
         buttons = data["components"][0]["components"]
         names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
         self.assertIn("lfg_edit", names)
