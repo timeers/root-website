@@ -168,8 +168,8 @@ AVAILABILITY_WEEKS_FORWARD = 12
 def _resolve_week_start(raw, today):
     """Clamp a requested week (a date, or None for "general") into the navigable
     range: from the CURRENT week through AVAILABILITY_WEEKS_FORWARD weeks out.
-    Always re-validated server-side -- the arrows' disabled state in the template
-    is a UX hint, not the actual guard.
+    Always re-validated server-side -- the arrows' presence/absence in the
+    template is a UX hint, not the actual guard.
     """
     from .services.availability import week_start_for
 
@@ -185,34 +185,17 @@ def _resolve_week_start(raw, today):
     return requested_week
 
 
-@login_required
-def availability_settings(request):
-    """The /availability weekly grid.
+def _resolve_availability_target(request, profile):
+    """Which PlayerSchedule row this request is about: the tournament axis
+    (`?tournament=`/`schedule_target`) and the week axis (`?week=`/`week_start`),
+    both re-validated server-side regardless of which UI state the client claims.
 
-    Availability is stored in UTC but drawn, and edited, in the player's own
-    timezone -- so every hour crosses this view twice through the conversion
-    service. Nothing here does offset arithmetic; see services/availability.py for
-    why that distinction matters.
-
-    Edits the player's GENERAL standing schedule (tournament=None, week_start=None)
-    by default. `?tournament=` switches to a tournament-specific standing schedule,
-    but only for tournaments the player already has one for -- a row exists only
-    because that tournament asked for availability, so this never offers the
-    option where it means nothing. `?week=<iso-date>` (or 'general') switches
-    between the standing template and a specific real calendar week, navigated via
-    [General] [<] [Week of X] [>] and clamped to [this week, +12 weeks].
-
-    A week-specific row uses its own real dates (see local_week_to_utc_weeks) and
-    is otherwise independent from the standing template -- it starts blank, not
-    prefilled, with an explicit "Copy from general" action to seed it.
+    Returns (tournament, tournament_schedules, schedule_target, week_start,
+    is_week_specific). Raises Http404 for a tournament the player has no
+    standing schedule for -- a row exists only because that tournament asked
+    for availability, so this never offers the option where it means nothing.
     """
     from datetime import date as date_cls
-    from .services.availability import (local_to_utc_hours, utc_to_local_hours,
-                                        local_week_to_utc_weeks, utc_weeks_to_local_week,
-                                        week_start_for, DAY_LABELS, hour_labels)
-    from the_databot.services.time_parsing import describe_timezone, valid_timezone
-
-    profile = request.user.profile
 
     # Tournament schedules the player actually has -- standing (week_start=None)
     # rows only; this selector switches TOURNAMENTS, not weeks.
@@ -260,189 +243,9 @@ def availability_settings(request):
         except ValueError:
             requested_week = None
     week_start = _resolve_week_start(requested_week, today) if requested_week else None
-
     is_week_specific = week_start is not None
-    if is_week_specific:
-        schedule = PlayerSchedule.objects.filter(
-            profile=profile, tournament=tournament, week_start=week_start
-        ).first()
-    else:
-        schedule = (PlayerSchedule.objects.filter(
-                        profile=profile, tournament=tournament, week_start=None
-                    ).first()
-                    if tournament else general_schedule_for(profile))
-        if schedule is None:
-            # A tournament target always has a standing row (that's how it got
-            # into tournament_schedules); this only happens for the general case
-            # on a fresh profile, so create it.
-            schedule = general_schedule_for(profile)
 
-    # No profile timezone yet -> the grid renders in UTC and the template's JS
-    # pre-selects the browser's zone in the picker. The first save persists it.
-    tz_name = profile.timezone if valid_timezone(profile.timezone) else None
-    selected = None
-    has_own_row = schedule is not None
-
-    if request.method == 'POST':
-        form = PlayerScheduleForm(request.POST)
-        if form.is_valid():
-            tz_name = form.cleaned_data['timezone']
-            local_hours = form.cleaned_data['available_hours']
-            # The zone the grid was DRAWN in, which is what those local hours mean.
-            # It differs from tz_name exactly when the user is switching zones.
-            drawn_tz = form.cleaned_data['drawn_timezone'] or tz_name
-            action = request.POST.get('action', 'save')
-            # "Update timezone" re-renders under a new timezone instead of
-            # saving: the local->UTC mapping needs ZoneInfo's DST rules, which the
-            # browser can't reproduce from a fixed offset.
-            only_changing_timezone = action == 'change_timezone'
-
-            if action == 'no_availability':
-                # An explicit "I'm free at zero hours this week" -- same as
-                # unchecking every cell and hitting Save, one click. Only
-                # meaningful for a week-specific row; the general/tournament
-                # standing template has no fallback to distinguish itself from.
-                if is_week_specific:
-                    row, _created = PlayerSchedule.objects.update_or_create(
-                        profile=profile, tournament=tournament, week_start=week_start,
-                        defaults={'available_hours': []},
-                    )
-                    messages.success(request, _('Set to no availability for this week.'))
-            elif action == 'use_defaults':
-                # The opposite: "I have no opinion about this week, fall back to
-                # my usual." Deletes the row outright so schedule_for's
-                # precedence chain falls through on the next read.
-                if is_week_specific:
-                    PlayerSchedule.objects.filter(
-                        profile=profile, tournament=tournament, week_start=week_start
-                    ).delete()
-                    messages.success(request, _('Reverted to your default availability.'))
-            elif not only_changing_timezone:
-                if is_week_specific:
-                    # Split across UTC week boundaries: usually lands entirely in
-                    # one row, occasionally two when the local week straddles UTC
-                    # midnight-of-Monday.
-                    by_utc_week = local_week_to_utc_weeks(local_hours, drawn_tz, week_start)
-                    # Clear any previous split for this local week before writing
-                    # the new one -- a save that no longer splits (e.g. after a
-                    # timezone change) must not leave a stale neighbor row behind.
-                    PlayerSchedule.objects.filter(
-                        profile=profile, tournament=tournament,
-                        week_start__in=[week_start - timedelta(weeks=1),
-                                        week_start, week_start + timedelta(weeks=1)],
-                    ).delete()
-                    for utc_week, hours in by_utc_week.items():
-                        PlayerSchedule.objects.update_or_create(
-                            profile=profile, tournament=tournament, week_start=utc_week,
-                            defaults={'available_hours': hours},
-                        )
-                    if not by_utc_week:
-                        # An intentionally empty save still needs a row to exist,
-                        # or it would be indistinguishable from "never touched".
-                        PlayerSchedule.objects.update_or_create(
-                            profile=profile, tournament=tournament, week_start=week_start,
-                            defaults={'available_hours': []},
-                        )
-                else:
-                    utc_hours = local_to_utc_hours(local_hours, drawn_tz)
-                    schedule.available_hours = utc_hours
-                    schedule.save(update_fields=['available_hours', 'updated_at'])
-                messages.success(request, _('Availability updated!'))
-
-            new_display_timezone = form.cleaned_data['display_timezone']
-            changed_fields = []
-            if profile.timezone != tz_name:
-                profile.timezone = tz_name
-                changed_fields.append('timezone')
-            if profile.display_timezone != new_display_timezone:
-                profile.display_timezone = new_display_timezone
-                changed_fields.append('display_timezone')
-            if changed_fields:
-                # update_fields is required: a bare save() re-derives display_name
-                # and can delete the profile's existing avatar.
-                profile.save(update_fields=changed_fields)
-
-            if not only_changing_timezone:
-                # Stay on whichever schedule they were editing.
-                url = reverse('availability')
-                params = {}
-                if schedule_target:
-                    params['tournament'] = schedule_target
-                if is_week_specific:
-                    params['week'] = week_start.isoformat()
-                return redirect(f'{url}?{urlencode(params)}' if params else url)
-
-            # Re-label the SAME instants in the new zone. Availability is absolute:
-            # switching what timezone you view it in must not change when you are
-            # free, so the lit cells shift rows instead of staying put.
-            messages.info(request, _('Times are now shown in your new timezone.'))
-            if is_week_specific:
-                get_utc_hours = _week_rows_lookup(profile, tournament, week_start,
-                                                   utc_hours=(local_week_to_utc_weeks(
-                                                       local_hours, drawn_tz, week_start)))
-                selected = utc_weeks_to_local_week(get_utc_hours, tz_name, week_start)
-            else:
-                selected = utc_to_local_hours(
-                    local_to_utc_hours(local_hours, drawn_tz), tz_name)
-    else:
-        form = PlayerScheduleForm(initial={
-            'timezone': tz_name or 'UTC',
-            'display_timezone': profile.display_timezone,
-            'week_start': week_start.isoformat() if week_start else '',
-            'schedule_target': schedule_target,
-        })
-
-    if selected is None:
-        if is_week_specific:
-            get_utc_hours = _week_rows_lookup(profile, tournament, week_start)
-            # A week with no row of its own starts BLANK, not auto-prefilled from
-            # general -- see "Copy from general" below for the explicit action.
-            selected = utc_weeks_to_local_week(get_utc_hours, tz_name, week_start)
-        else:
-            # Draw the stored UTC hours back in the user's local time.
-            selected = utc_to_local_hours(schedule.available_hours, tz_name)
-
-    current_week = week_start_for(today)
-
-    # For the "Copy from general" seed button: the player's general/standing
-    # schedule for this same tournament target, drawn in the CURRENT local time
-    # zone via the reference-Monday function -- NOT utc_weeks_to_local_week,
-    # which expects real-dated input and would misinterpret the eternal template
-    # (caught during plan review; see the plan's §3 note).
-    copy_from_general_hours = []
-    if is_week_specific:
-        standing = PlayerSchedule.objects.filter(
-            profile=profile, tournament=tournament, week_start=None
-        ).first()
-        if standing is not None:
-            copy_from_general_hours = utc_to_local_hours(standing.available_hours, tz_name)
-
-    context = {
-        'form': form,
-        'schedule': schedule,
-        'selected_hours': selected,
-        'timezone_name': tz_name,
-        'timezone_display': describe_timezone(tz_name) if tz_name else '',
-        'days': DAY_LABELS,
-        # The selector: only rendered when the player has a tournament schedule.
-        'tournament_schedules': tournament_schedules,
-        'schedule_target': schedule_target,
-        'editing_tournament': tournament,
-        # (hour, '9a', '9:00 AM') per row -- see services.availability.hour_labels.
-        'hours': hour_labels(),
-        # Week navigator state.
-        'is_week_specific': is_week_specific,
-        'week_start': week_start,
-        'has_own_row': has_own_row,
-        'prev_week': (week_start - timedelta(weeks=1)
-                      if is_week_specific and week_start > current_week else None),
-        'next_week': (week_start + timedelta(weeks=1)
-                      if is_week_specific and week_start < current_week + timedelta(weeks=AVAILABILITY_WEEKS_FORWARD)
-                      else None),
-        'default_week': current_week,
-        'copy_from_general_hours': copy_from_general_hours,
-    }
-    return render(request, 'the_gatehouse/availability.html', context)
+    return tournament, tournament_schedules, schedule_target, week_start, is_week_specific
 
 
 def _week_rows_lookup(profile, tournament, week_start, utc_hours=None):
@@ -461,6 +264,378 @@ def _week_rows_lookup(profile, tournament, week_start, utc_hours=None):
     if utc_hours:
         rows.update(utc_hours)
     return rows.get
+
+
+def _resolve_availability_view(request, profile):
+    """Full read-side state for one (tournament, week) target: the schedule
+    row, its hours drawn in the player's local time, the navigator's bounds,
+    and the "Copy from general" seed. Used for both the full-page render and
+    the JSON endpoints, so there is exactly one implementation of "what does
+    this week look like."
+
+    Returns a dict; see the keys assigned below. `schedule` is a model
+    instance (used by the full-page template) and is NOT JSON-serializable --
+    JSON callers should pop it before responding.
+    """
+    from .services.availability import (utc_to_local_hours, utc_weeks_to_local_week,
+                                        week_start_for)
+    from the_databot.services.time_parsing import describe_timezone, valid_timezone
+
+    tournament, tournament_schedules, schedule_target, week_start, is_week_specific = (
+        _resolve_availability_target(request, profile))
+
+    if is_week_specific:
+        schedule = PlayerSchedule.objects.filter(
+            profile=profile, tournament=tournament, week_start=week_start
+        ).first()
+    else:
+        schedule = (PlayerSchedule.objects.filter(
+                        profile=profile, tournament=tournament, week_start=None
+                    ).first()
+                    if tournament else general_schedule_for(profile))
+        if schedule is None:
+            # A tournament target always has a standing row (that's how it got
+            # into tournament_schedules); this only happens for the general case
+            # on a fresh profile, so create it.
+            schedule = general_schedule_for(profile)
+
+    # No profile timezone yet -> the grid renders in UTC and the template's JS
+    # pre-selects the browser's zone in the picker. The first save persists it.
+    tz_name = profile.timezone if valid_timezone(profile.timezone) else None
+    has_own_row = schedule is not None
+
+    if is_week_specific:
+        get_utc_hours = _week_rows_lookup(profile, tournament, week_start)
+        # A week with no row of its own starts BLANK, not auto-prefilled from
+        # general -- see "Copy from general" below for the explicit action.
+        selected = utc_weeks_to_local_week(get_utc_hours, tz_name, week_start)
+    else:
+        # Draw the stored UTC hours back in the user's local time.
+        selected = utc_to_local_hours(schedule.available_hours, tz_name)
+
+    today = timezone.now().date()
+    current_week = week_start_for(today)
+
+    # For the "Copy from general" seed button: the player's general/standing
+    # schedule for this same tournament target, drawn in the CURRENT local time
+    # zone via the reference-Monday function -- NOT utc_weeks_to_local_week,
+    # which expects real-dated input and would misinterpret the eternal template
+    # (caught during plan review; see the plan's §3 note).
+    copy_from_general_hours = []
+    if is_week_specific:
+        standing = PlayerSchedule.objects.filter(
+            profile=profile, tournament=tournament, week_start=None
+        ).first()
+        if standing is not None:
+            copy_from_general_hours = utc_to_local_hours(standing.available_hours, tz_name)
+
+    return {
+        'tournament': tournament,
+        'tournament_schedules': tournament_schedules,
+        'schedule_target': schedule_target,
+        'week_start': week_start,
+        'is_week_specific': is_week_specific,
+        'schedule': schedule,
+        'tz_name': tz_name,
+        'timezone_display': describe_timezone(tz_name) if tz_name else '',
+        'selected_hours': selected,
+        'has_own_row': has_own_row,
+        'copy_from_general_hours': copy_from_general_hours,
+        'current_week': current_week,
+        'prev_week': (week_start - timedelta(weeks=1)
+                      if is_week_specific and week_start > current_week else None),
+        'next_week': (week_start + timedelta(weeks=1)
+                      if is_week_specific and week_start < current_week + timedelta(weeks=AVAILABILITY_WEEKS_FORWARD)
+                      else None),
+    }
+
+
+def _apply_availability_action(profile, resolved, form):
+    """The write side: interprets `action`/the submitted form against the
+    (tournament, week) target already resolved by _resolve_availability_view,
+    and persists it. Same UTC-split/clear-then-write handling for week-specific
+    rows, same update_fields discipline as before -- just extracted so it is not
+    duplicated between the redirect-based and JSON-based callers.
+
+    Returns (action, message, tag, only_changing_timezone). `message`/`tag` are
+    None when there is nothing to report (an action guarded out because it does
+    not apply to the current target, e.g. no_availability on the general row).
+    """
+    from .services.availability import local_to_utc_hours, local_week_to_utc_weeks
+
+    tournament = resolved['tournament']
+    week_start = resolved['week_start']
+    is_week_specific = resolved['is_week_specific']
+    schedule = resolved['schedule']
+
+    tz_name = form.cleaned_data['timezone']
+    local_hours = form.cleaned_data['available_hours']
+    # The zone the grid was DRAWN in, which is what those local hours mean. It
+    # differs from tz_name exactly when the user is switching zones.
+    drawn_tz = form.cleaned_data['drawn_timezone'] or tz_name
+    action = form.data.get('action', 'save')
+    # "Update timezone" re-renders under a new timezone instead of saving: the
+    # local->UTC mapping needs ZoneInfo's DST rules, which the browser can't
+    # reproduce from a fixed offset.
+    only_changing_timezone = action == 'change_timezone'
+
+    message, tag = None, None
+
+    if action == 'no_availability':
+        # An explicit "I'm free at zero hours this week" -- same as unchecking
+        # every cell and hitting Save, one click. Only meaningful for a
+        # week-specific row; the general/tournament standing template has no
+        # fallback to distinguish itself from.
+        if is_week_specific:
+            PlayerSchedule.objects.update_or_create(
+                profile=profile, tournament=tournament, week_start=week_start,
+                defaults={'available_hours': []},
+            )
+            message, tag = _('Set to no availability for this week.'), 'success'
+    elif action == 'use_defaults':
+        # The opposite: "I have no opinion about this week, fall back to my
+        # usual." Deletes the row outright so schedule_for's precedence chain
+        # falls through on the next read.
+        if is_week_specific:
+            PlayerSchedule.objects.filter(
+                profile=profile, tournament=tournament, week_start=week_start
+            ).delete()
+            message, tag = _('Reverted to your default availability.'), 'success'
+    elif not only_changing_timezone:
+        if is_week_specific:
+            # Split across UTC week boundaries: usually lands entirely in one
+            # row, occasionally two when the local week straddles UTC
+            # midnight-of-Monday.
+            by_utc_week = local_week_to_utc_weeks(local_hours, drawn_tz, week_start)
+            # Clear any previous split for this local week before writing the
+            # new one -- a save that no longer splits (e.g. after a timezone
+            # change) must not leave a stale neighbor row behind.
+            PlayerSchedule.objects.filter(
+                profile=profile, tournament=tournament,
+                week_start__in=[week_start - timedelta(weeks=1),
+                                week_start, week_start + timedelta(weeks=1)],
+            ).delete()
+            for utc_week, hours in by_utc_week.items():
+                PlayerSchedule.objects.update_or_create(
+                    profile=profile, tournament=tournament, week_start=utc_week,
+                    defaults={'available_hours': hours},
+                )
+            if not by_utc_week:
+                # An intentionally empty save still needs a row to exist, or it
+                # would be indistinguishable from "never touched".
+                PlayerSchedule.objects.update_or_create(
+                    profile=profile, tournament=tournament, week_start=week_start,
+                    defaults={'available_hours': []},
+                )
+        else:
+            utc_hours = local_to_utc_hours(local_hours, drawn_tz)
+            schedule.available_hours = utc_hours
+            schedule.save(update_fields=['available_hours', 'updated_at'])
+        message, tag = _('Availability updated!'), 'success'
+
+    new_display_timezone = form.cleaned_data['display_timezone']
+    changed_fields = []
+    if profile.timezone != tz_name:
+        profile.timezone = tz_name
+        changed_fields.append('timezone')
+    if profile.display_timezone != new_display_timezone:
+        profile.display_timezone = new_display_timezone
+        changed_fields.append('display_timezone')
+    if changed_fields:
+        # update_fields is required: a bare save() re-derives display_name and
+        # can delete the profile's existing avatar.
+        profile.save(update_fields=changed_fields)
+
+    if only_changing_timezone:
+        message, tag = _('Times are now shown in your new timezone.'), 'info'
+
+    return action, message, tag, only_changing_timezone
+
+
+@login_required
+def availability_settings(request):
+    """The /availability weekly grid.
+
+    Availability is stored in UTC but drawn, and edited, in the player's own
+    timezone -- so every hour crosses this view twice through the conversion
+    service. Nothing here does offset arithmetic; see services/availability.py for
+    why that distinction matters.
+
+    Edits the player's GENERAL standing schedule (tournament=None, week_start=None)
+    by default. `?tournament=` switches to a tournament-specific standing schedule,
+    but only for tournaments the player already has one for -- a row exists only
+    because that tournament asked for availability, so this never offers the
+    option where it means nothing. `?week=<iso-date>` (or 'general') switches
+    between the standing template and a specific real calendar week, navigated via
+    [General] [<] [Week of X] [>] and clamped to [this week, +12 weeks].
+
+    A week-specific row uses its own real dates (see local_week_to_utc_weeks) and
+    is otherwise independent from the standing template -- it starts blank, not
+    prefilled, with an explicit "Copy from general" action to seed it.
+
+    This is the first-load and no-JavaScript-fallback path: the page's own JS
+    posts to availability_save / reads from availability_week_data instead once
+    it's running, but the <form> here still works end-to-end on its own so the
+    page degrades gracefully with JS off. Kept as a redirect-after-POST (not
+    JSON) so a refresh after a plain form submit doesn't re-POST.
+    """
+    from .services.availability import (local_to_utc_hours, utc_to_local_hours,
+                                        local_week_to_utc_weeks, utc_weeks_to_local_week,
+                                        hour_labels, DAY_LABELS)
+
+    profile = request.user.profile
+    resolved = _resolve_availability_view(request, profile)
+    tournament = resolved['tournament']
+    week_start = resolved['week_start']
+    is_week_specific = resolved['is_week_specific']
+    schedule_target = resolved['schedule_target']
+    tz_name = resolved['tz_name']
+    selected = resolved['selected_hours']
+
+    if request.method == 'POST':
+        form = PlayerScheduleForm(request.POST)
+        if form.is_valid():
+            action, message, tag, only_changing_timezone = _apply_availability_action(
+                profile, resolved, form)
+            if message:
+                getattr(messages, tag)(request, message)
+
+            if not only_changing_timezone:
+                # Stay on whichever schedule they were editing.
+                url = reverse('availability')
+                params = {}
+                if schedule_target:
+                    params['tournament'] = schedule_target
+                if is_week_specific:
+                    params['week'] = week_start.isoformat()
+                return redirect(f'{url}?{urlencode(params)}' if params else url)
+
+            # Re-label the SAME instants in the new zone. Availability is absolute:
+            # switching what timezone you view it in must not change when you are
+            # free, so the lit cells shift rows instead of staying put.
+            tz_name = form.cleaned_data['timezone']
+            local_hours = form.cleaned_data['available_hours']
+            drawn_tz = form.cleaned_data['drawn_timezone'] or tz_name
+            if is_week_specific:
+                get_utc_hours = _week_rows_lookup(profile, tournament, week_start,
+                                                   utc_hours=(local_week_to_utc_weeks(
+                                                       local_hours, drawn_tz, week_start)))
+                selected = utc_weeks_to_local_week(get_utc_hours, tz_name, week_start)
+            else:
+                selected = utc_to_local_hours(
+                    local_to_utc_hours(local_hours, drawn_tz), tz_name)
+    else:
+        form = PlayerScheduleForm(initial={
+            'timezone': tz_name or 'UTC',
+            'display_timezone': profile.display_timezone,
+            'week_start': week_start.isoformat() if week_start else '',
+            'schedule_target': schedule_target,
+        })
+
+    context = {
+        'form': form,
+        'schedule': resolved['schedule'],
+        'selected_hours': selected,
+        'timezone_name': tz_name,
+        'timezone_display': resolved['timezone_display'],
+        'days': DAY_LABELS,
+        # The selector: only rendered when the player has a tournament schedule.
+        'tournament_schedules': resolved['tournament_schedules'],
+        'schedule_target': schedule_target,
+        'editing_tournament': tournament,
+        # (hour, '9a', '9:00 AM') per row -- see services.availability.hour_labels.
+        'hours': hour_labels(),
+        # Week navigator state.
+        'is_week_specific': is_week_specific,
+        'week_start': week_start,
+        'has_own_row': resolved['has_own_row'],
+        'prev_week': resolved['prev_week'],
+        'next_week': resolved['next_week'],
+        'default_week': resolved['current_week'],
+        'copy_from_general_hours': resolved['copy_from_general_hours'],
+    }
+    return render(request, 'the_gatehouse/availability.html', context)
+
+
+def _availability_state_json(resolved):
+    """The JSON-serializable subset of _resolve_availability_view's result,
+    shared by availability_week_data and availability_save so both return the
+    exact same shape and the client's applyState() only needs one code path.
+    """
+    from django.utils.formats import date_format
+
+    week_start = resolved['week_start']
+    is_week_specific = resolved['is_week_specific']
+    prev_week = resolved['prev_week']
+    next_week = resolved['next_week']
+    return {
+        'is_week_specific': is_week_specific,
+        'week_start': week_start.isoformat() if week_start else None,
+        'week_label': (
+            _('Week of %(date)s') % {'date': date_format(week_start, 'N j, Y')}
+            if is_week_specific else _('General (no specific week)')
+        ),
+        'prev_week': prev_week.isoformat() if prev_week else None,
+        'next_week': next_week.isoformat() if next_week else None,
+        # The [>] arrow's target FROM General (jump into the current week) --
+        # distinct from `next_week`, which is only set once already week-specific.
+        'default_week': resolved['current_week'].isoformat(),
+        'has_own_row': resolved['has_own_row'],
+        'selected_hours': resolved['selected_hours'],
+        'copy_from_general_hours': resolved['copy_from_general_hours'],
+        'schedule_target': resolved['schedule_target'],
+    }
+
+
+@login_required
+def availability_week_data(request):
+    """GET JSON: the read-only state for a (tournament, week) target, used by
+    the week navigator's arrows/General button to repaint the grid without a
+    full page reload. Never writes -- see availability_save for the POST side.
+    """
+    if request.method != 'GET':
+        return JsonResponse({'ok': False, 'message': _('GET required'), 'tag': 'error'}, status=405)
+    profile = request.user.profile
+    resolved = _resolve_availability_view(request, profile)
+    return JsonResponse(_availability_state_json(resolved))
+
+
+@login_required
+def availability_save(request):
+    """POST JSON: the AJAX equivalent of availability_settings's POST branch --
+    Save, No availability, and Use defaults all go through here once the page's
+    JS is running (the plain <form> still posts to availability_settings when
+    JS is off, so this is additive, not a replacement).
+
+    Deliberately excludes "change_timezone": that action only re-renders in a
+    new zone and never redirects even on the classic form path, which the
+    calling JS handles by re-fetching availability_week_data after updating the
+    timezone picker's own hidden fields -- see the template's script.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'ok': False, 'message': _('POST required'), 'tag': 'error'}, status=405)
+
+    profile = request.user.profile
+    resolved = _resolve_availability_view(request, profile)
+    form = PlayerScheduleForm(request.POST)
+    if not form.is_valid():
+        errors = ' '.join(
+            str(msg) for field_errors in form.errors.values() for msg in field_errors
+        )
+        return JsonResponse(
+            {'ok': False, 'message': errors or _('Could not save your availability.'), 'tag': 'error'},
+            status=400,
+        )
+
+    _action, message, tag, _only_tz = _apply_availability_action(profile, resolved, form)
+
+    # State may have changed (e.g. has_own_row flips after "Use defaults", or
+    # the grid's hours after a save) -- re-resolve rather than patch the stale
+    # dict so the response always reflects what's actually on disk now.
+    fresh = _resolve_availability_view(request, profile)
+    payload = _availability_state_json(fresh)
+    payload.update({'ok': True, 'message': message or _('Saved.'), 'tag': tag or 'success'})
+    return JsonResponse(payload)
 
 
 def _can_view_lfg_availability(profile, thread):

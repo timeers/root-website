@@ -1857,6 +1857,240 @@ class AvailabilityWeekNavigatorTests(_NoLoginSignalMixin, TestCase):
         )
 
 
+class AvailabilityAjaxEndpointTests(_NoLoginSignalMixin, TestCase):
+    """availability_week_data (GET) and availability_save (POST): the JSON
+    equivalents of availability_settings's read/write, used by the page's JS so
+    week-switching and saving happen without a full page reload."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username='ajaxnav', password='pw')
+        self.profile = self.user.profile
+        self.profile.timezone = 'UTC'
+        self.profile.save(update_fields=['timezone'])
+        self.client.force_login(self.user)
+        self.week_url = reverse('availability-week-data')
+        self.save_url = reverse('availability-save')
+        self.today = timezone.now().date()
+        self.current_week = week_start_for(self.today)
+
+    def test_week_data_requires_login(self):
+        self.client.logout()
+        response = self.client.get(self.week_url)
+        self.assertEqual(response.status_code, 302)
+
+    def test_week_data_for_general(self):
+        general = general_schedule_for(self.profile)
+        general.available_hours = [1, 2, 3]
+        general.save(update_fields=['available_hours'])
+        response = self.client.get(self.week_url)
+        data = response.json()
+        self.assertFalse(data['is_week_specific'])
+        self.assertIsNone(data['week_start'])
+        self.assertEqual(data['selected_hours'], [1, 2, 3])
+
+    def test_week_data_default_week_is_the_current_week(self):
+        """The [>] arrow's target FROM General -- jump into the current week --
+        must be the actual current week, not null/absent."""
+        response = self.client.get(self.week_url)
+        self.assertEqual(response.json()['default_week'], self.current_week.isoformat())
+
+    def test_week_data_for_a_specific_week(self):
+        target = self.current_week + timedelta(weeks=1)
+        response = self.client.get(self.week_url, {'week': target.isoformat()})
+        data = response.json()
+        self.assertTrue(data['is_week_specific'])
+        self.assertEqual(data['week_start'], target.isoformat())
+        self.assertIn(target.strftime('%b'), data['week_label'])
+
+    def test_week_data_clamps_out_of_range_weeks_server_side(self):
+        """A crafted ?week= beyond the bound must not escape the clamp just
+        because it arrived via the JSON endpoint instead of the full page."""
+        from the_gatehouse.views import AVAILABILITY_WEEKS_FORWARD
+        too_far = self.current_week + timedelta(weeks=AVAILABILITY_WEEKS_FORWARD + 10)
+        response = self.client.get(self.week_url, {'week': too_far.isoformat()})
+        data = response.json()
+        self.assertEqual(
+            data['week_start'],
+            (self.current_week + timedelta(weeks=AVAILABILITY_WEEKS_FORWARD)).isoformat(),
+        )
+
+    def test_week_data_never_writes(self):
+        target = self.current_week + timedelta(weeks=1)
+        self.client.get(self.week_url, {'week': target.isoformat()})
+        self.assertFalse(
+            PlayerSchedule.objects.filter(
+                profile=self.profile, tournament=None, week_start=target).exists()
+        )
+
+    def test_week_data_includes_prev_next_bounds(self):
+        target = self.current_week + timedelta(weeks=1)
+        response = self.client.get(self.week_url, {'week': target.isoformat()})
+        data = response.json()
+        self.assertEqual(data['next_week'], (target + timedelta(days=7)).isoformat())
+        self.assertEqual(data['prev_week'], (target - timedelta(days=7)).isoformat())
+
+    def test_week_data_at_the_current_week_has_no_prev(self):
+        response = self.client.get(self.week_url, {'week': self.current_week.isoformat()})
+        data = response.json()
+        self.assertIsNone(data['prev_week'])
+
+    def test_save_requires_login(self):
+        self.client.logout()
+        response = self.client.post(self.save_url, {
+            'timezone': 'UTC', 'drawn_timezone': 'UTC', 'available_hours': '', 'action': 'save',
+        })
+        self.assertEqual(response.status_code, 302)
+
+    def test_save_persists_and_returns_fresh_state(self):
+        target = self.current_week + timedelta(weeks=1)
+        response = self.client.post(self.save_url, {
+            'timezone': 'UTC', 'drawn_timezone': 'UTC',
+            'available_hours': '10,11',
+            'week_start': target.isoformat(),
+            'action': 'save',
+        })
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['selected_hours'], [10, 11])
+        self.assertTrue(data['has_own_row'])
+        row = PlayerSchedule.objects.get(profile=self.profile, tournament=None, week_start=target)
+        self.assertEqual(row.available_hours, [10, 11])
+
+    def test_save_does_not_redirect(self):
+        """The whole point of the AJAX endpoint: no 3xx, just JSON in place."""
+        response = self.client.post(self.save_url, {
+            'timezone': 'UTC', 'drawn_timezone': 'UTC', 'available_hours': '5', 'action': 'save',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], 'application/json')
+
+    def test_save_no_availability_then_use_defaults_round_trip(self):
+        """Mirrors the classic-form test of the same name, through the AJAX
+        endpoint instead -- the two actions must still diverge in storage."""
+        target = self.current_week + timedelta(weeks=1)
+
+        r1 = self.client.post(self.save_url, {
+            'timezone': 'UTC', 'drawn_timezone': 'UTC', 'available_hours': '',
+            'week_start': target.isoformat(), 'action': 'no_availability',
+        })
+        self.assertTrue(r1.json()['has_own_row'])
+        self.assertTrue(
+            PlayerSchedule.objects.filter(
+                profile=self.profile, tournament=None, week_start=target).exists()
+        )
+
+        r2 = self.client.post(self.save_url, {
+            'timezone': 'UTC', 'drawn_timezone': 'UTC', 'available_hours': '',
+            'week_start': target.isoformat(), 'action': 'use_defaults',
+        })
+        self.assertFalse(r2.json()['has_own_row'])
+        self.assertFalse(
+            PlayerSchedule.objects.filter(
+                profile=self.profile, tournament=None, week_start=target).exists()
+        )
+
+    def test_save_with_an_invalid_timezone_returns_a_400_error_shape(self):
+        response = self.client.post(self.save_url, {
+            'timezone': 'Not/AZone', 'drawn_timezone': 'UTC',
+            'available_hours': '5', 'action': 'save',
+        })
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertFalse(data['ok'])
+        self.assertEqual(data['tag'], 'error')
+        # Nothing was written on a validation failure.
+        self.assertFalse(
+            PlayerSchedule.objects.filter(profile=self.profile)
+            .exclude(available_hours=[]).exists()
+        )
+
+    def test_save_get_is_rejected(self):
+        response = self.client.get(self.save_url)
+        self.assertEqual(response.status_code, 405)
+
+    def test_week_data_post_is_rejected(self):
+        response = self.client.post(self.week_url)
+        self.assertEqual(response.status_code, 405)
+
+
+class AvailabilityNavigatorRenderTests(_NoLoginSignalMixin, TestCase):
+    """The merged navigator card: arrows are HIDDEN (not greyed-out/disabled)
+    when there's nowhere to go, and the week-only action buttons are hidden
+    on the general view."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username='navrender', password='pw')
+        self.profile = self.user.profile
+        self.client.force_login(self.user)
+        self.url = reverse('availability')
+        self.today = timezone.now().date()
+        self.current_week = week_start_for(self.today)
+
+    def _tag(self, body, element_id):
+        """The opening tag's full text, up to its '>' -- wide enough to catch
+        a `hidden` attribute that Django may have wrapped onto its own line."""
+        start = body.index(f'id="{element_id}"')
+        end = body.index('>', start)
+        return body[max(0, start - 40):end]
+
+    def test_prev_arrow_is_hidden_at_the_current_week(self):
+        response = self.client.get(self.url, {'week': self.current_week.isoformat()})
+        self.assertIn('hidden', self._tag(response.content.decode(), 'nav-prev'))
+
+    def test_prev_arrow_is_present_past_the_current_week(self):
+        target = self.current_week + timedelta(weeks=2)
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        self.assertNotIn('hidden', self._tag(response.content.decode(), 'nav-prev'))
+
+    def test_next_arrow_is_hidden_at_the_forward_cap(self):
+        from the_gatehouse.views import AVAILABILITY_WEEKS_FORWARD
+        target = self.current_week + timedelta(weeks=AVAILABILITY_WEEKS_FORWARD)
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        self.assertIn('hidden', self._tag(response.content.decode(), 'nav-next'))
+
+    def test_next_arrow_is_never_hidden_on_general(self):
+        """[>] from General always has somewhere to go -- into the current week."""
+        response = self.client.get(self.url)
+        self.assertNotIn('hidden', self._tag(response.content.decode(), 'nav-next'))
+
+    def test_week_action_buttons_hidden_on_general(self):
+        response = self.client.get(self.url)
+        self.assertIn('hidden', self._tag(response.content.decode(), 'week-action-buttons'))
+
+    def test_week_action_buttons_shown_for_a_specific_week(self):
+        target = self.current_week + timedelta(weeks=1)
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        self.assertNotIn('hidden', self._tag(response.content.decode(), 'week-action-buttons'))
+
+    def test_use_defaults_hidden_without_an_own_row(self):
+        target = self.current_week + timedelta(weeks=1)
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        self.assertIn('hidden', self._tag(response.content.decode(), 'use-defaults-btn'))
+
+    def test_use_defaults_shown_with_an_own_row(self):
+        target = self.current_week + timedelta(weeks=1)
+        PlayerSchedule.objects.create(
+            profile=self.profile, tournament=None, week_start=target, available_hours=[1])
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        self.assertNotIn('hidden', self._tag(response.content.decode(), 'use-defaults-btn'))
+
+    def test_the_standalone_which_week_card_is_gone(self):
+        """The navigator now lives inside the Weekly Availability card -- no
+        separate 'Which week' heading."""
+        response = self.client.get(self.url)
+        self.assertNotContains(response, 'Which week')
+
+    def test_navigator_lives_inside_the_weekly_availability_card(self):
+        body = self.client.get(self.url).content.decode()
+        avail_heading_idx = body.index('Weekly Availability')
+        nav_idx = body.index('id="week-navigator"')
+        grid_idx = body.index('id="availability-grid"')
+        self.assertTrue(avail_heading_idx < nav_idx < grid_idx)
+
+
 class TimezoneCodeTests(TestCase):
     """time_parsing.timezone_code and Profile.timezone_code."""
 
