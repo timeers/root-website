@@ -1,9 +1,9 @@
 {% load i18n %}
 {% comment %}
-A 7x24 weekly availability grid, shared by the /availability settings page and
-WEEKLY_AVAILABILITY survey questions. Lives at the project level because both
-the_gatehouse and the_tavern include it -- putting it in either app's template
-dir would make the dependency direction arbitrary.
+A 7-or-8-column weekly availability grid, shared by the /availability settings
+page and WEEKLY_AVAILABILITY survey questions. Lives at the project level
+because both the_gatehouse and the_tavern include it -- putting it in either
+app's template dir would make the dependency direction arbitrary.
 
 The behaviour comes from the_keep/static/the_keep/availability_grid.js, which
 auto-initialises anything with .js-availability-grid. Everything it needs is
@@ -14,37 +14,108 @@ Parameters:
   field_id       id of the hidden input the selection serializes into
   count_id       optional id of a badge showing how many hours are selected
   clear_id       optional id of a "clear all" button
-  days           DAY_LABELS from the_gatehouse.services.availability
+  days           DAY_LABELS from the_gatehouse.services.availability -- used
+                 when `hour_rows` is absent (the dateless 7-day case: the
+                 general row, and every WEEKLY_AVAILABILITY survey grid).
+                 data-how is NOT rendered here; availability_grid.js derives
+                 it client-side as day*24+hour, exactly as before.
   hours          hour_labels() -> (hour, short_label, long_label) triples
   editable       adds the editor affordances (hover, cursor, selected colour)
+  columns        OPTIONAL. A week-specific (real-dated) grid's column list --
+                 each item a dict with `header_label` (e.g. "Mon"),
+                 `header_sublabel` (e.g. "9/14/26", rendered as a second
+                 line) and `header_title` (full accessible title). Supplies
+                 ONLY the header row; see `hour_rows` for the cell grid.
+  hour_rows      OPTIONAL, required alongside `columns`. Pre-assembled by the
+                 view as one entry per hour_labels() row: (hour, short_label,
+                 long_label, cells), where `cells` has exactly len(columns)
+                 entries in column order, each a LIST of 0/1/2 real
+                 UTC-hour-of-week ints for that (column, hour) position --
+                 see services.availability.week_grid_cells for why it's a
+                 list, not a single value (DST fall-back/spring-forward).
+                 Pre-assembled server-side because Django templates cannot
+                 index a list by a loop variable, so nesting two independent
+                 `{% for %}` loops (columns x hours) to look up a cell can't
+                 work here the way the dateless case's day*24+hour can.
 
-Cells carry data-day/data-hour; the JS derives data-how (LOCAL hour-of-week)
-from them, since a template cannot compute day*24+hour.
+Cells carry a server-rendered `data-how` in columns-mode (a real hour-of-week
+int) so the JS never needs to know it's looking at a real UTC week's
+non-contiguous encoding rather than the dateless 7-day one -- see
+availability_grid.js. A (column, hour) slot with 0 UTC hours (the DST
+spring-forward gap, or simply outside a partial boundary column) renders one
+DISABLED cell with no data-how; a slot with 2 (the DST fall-back repeat)
+renders two half-width cells side by side, each its own data-how.
 {% endcomment %}
 <div class="availability-scroll">
-  <div class="availability-grid js-availability-grid{% if editable %} availability-grid--editable{% endif %}"
+  <div class="availability-grid js-availability-grid{% if editable %} availability-grid--editable{% endif %}{% if columns %} availability-grid--{{ columns|length }}col{% endif %}"
        id="{{ grid_id|default:'availability-grid' }}"
        {% if field_id %}data-field-id="{{ field_id }}"{% endif %}
        {% if count_id %}data-count-id="{{ count_id }}"{% endif %}
        {% if clear_id %}data-clear-id="{{ clear_id }}"{% endif %}>
     <div class="avail-corner"></div>
-    {% for day in days %}
-      <button type="button" class="avail-day-header" data-day="{{ forloop.counter0 }}"
-              title="{% trans 'Toggle this day' %}">{{ day|slice:":3" }}</button>
-    {% endfor %}
-
-    {% for hour, short_label, long_label in hours %}
-      <button type="button" class="avail-hour-label" data-hour="{{ hour }}"
-              title="{{ long_label }} — {% trans 'toggle this hour across the week' %}">
-        <span class="hour-text">{{ short_label }}</span>
-      </button>
-      {% for day in days %}
-        <button type="button" class="avail-cell"
-                data-day="{{ forloop.counter0 }}"
-                data-hour="{{ hour }}"
-                aria-pressed="false"
-                aria-label="{{ day }} {{ long_label }}"><span class="cell-time">{{ short_label }}</span></button>
+    {% if columns %}
+      {% for column in columns %}
+        <button type="button" class="avail-day-header avail-day-header--dated" data-day="{{ forloop.counter0 }}"
+                title="{{ column.header_title }} — {% trans 'toggle this day' %}">
+          <span class="avail-day-weekday">{{ column.header_label }}</span>
+          <span class="avail-day-date">{{ column.header_sublabel }}</span>
+        </button>
       {% endfor %}
-    {% endfor %}
+
+      {% for hour, short_label, long_label, cells in hour_rows %}
+        <button type="button" class="avail-hour-label" data-hour="{{ hour }}"
+                title="{{ long_label }} — {% trans 'toggle this hour across the week' %}">
+          <span class="hour-text">{{ short_label }}</span>
+        </button>
+        {% for utc_hows in cells %}
+          {% if not utc_hows %}
+            {% comment %} Disabled: this local (column, hour) slot has no real UTC hour --
+            a DST spring-forward gap, or simply outside a partial boundary
+            column. Not clickable, not selectable, excluded from serialization. {% endcomment %}
+            <div class="avail-cell avail-cell--disabled" aria-hidden="true"><span class="cell-time">{{ short_label }}</span></div>
+          {% elif utc_hows|length == 1 %}
+            <button type="button" class="avail-cell"
+                    data-day="{{ forloop.counter0 }}"
+                    data-hour="{{ hour }}"
+                    data-how="{{ utc_hows.0 }}"
+                    aria-pressed="false"
+                    aria-label="{{ short_label }}"><span class="cell-time">{{ short_label }}</span></button>
+          {% else %}
+            {% comment %} DST fall-back: this local hour happened twice. Two independently
+            paintable half-width cells share the slot rather than growing the
+            grid by a 25th row. {% endcomment %}
+            <div class="avail-cell-split" data-day="{{ forloop.counter0 }}" data-hour="{{ hour }}">
+              {% for utc_how in utc_hows %}
+                <button type="button" class="avail-cell avail-cell--split"
+                        data-day="{{ forloop.parentloop.counter0 }}"
+                        data-hour="{{ hour }}"
+                        data-how="{{ utc_how }}"
+                        aria-pressed="false"
+                        aria-label="{{ short_label }} ({{ forloop.counter }})"><span class="cell-time">{{ short_label }}</span></button>
+              {% endfor %}
+            </div>
+          {% endif %}
+        {% endfor %}
+      {% endfor %}
+    {% else %}
+      {% for day in days %}
+        <button type="button" class="avail-day-header" data-day="{{ forloop.counter0 }}"
+                title="{% trans 'Toggle this day' %}">{{ day|slice:":3" }}</button>
+      {% endfor %}
+
+      {% for hour, short_label, long_label in hours %}
+        <button type="button" class="avail-hour-label" data-hour="{{ hour }}"
+                title="{{ long_label }} — {% trans 'toggle this hour across the week' %}">
+          <span class="hour-text">{{ short_label }}</span>
+        </button>
+        {% for day in days %}
+          <button type="button" class="avail-cell"
+                  data-day="{{ forloop.counter0 }}"
+                  data-hour="{{ hour }}"
+                  aria-pressed="false"
+                  aria-label="{{ day }} {{ long_label }}"><span class="cell-time">{{ short_label }}</span></button>
+        {% endfor %}
+      {% endfor %}
+    {% endif %}
   </div>
 </div>

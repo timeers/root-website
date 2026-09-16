@@ -5395,6 +5395,80 @@ body.forge-modal-open { overflow: hidden; }
     flex-shrink: 0;
   }
 
+  /* Mode header on /availability: replaces the old single "Weekly Availability"
+     heading with two full-width, evenly-split tabs (General / Weekly) that
+     double as the section title AND the general/week-specific mode switch. */
+  .avail-mode-tab {
+    flex: 1 1 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    padding: 0.6rem 0.5rem;
+    font-size: 1rem;
+    font-weight: 500;
+    color: #adb5bd;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .avail-mode-tab:hover {
+    color: #6c757d;
+  }
+
+  .avail-mode-tab.active {
+    color: var(--button-color, #0d6efd);
+    font-weight: 700;
+    border-bottom-color: var(--button-color, #0d6efd);
+  }
+
+  .avail-mode-tab:focus-visible {
+    outline: 2px solid var(--button-color, #0d6efd);
+    outline-offset: 2px;
+  }
+
+  /* Drops the trailing "Availability" on narrow screens -- "General"/"Weekly"
+     alone still reads clearly, and the tabs are tight on space at 50% width. */
+  @media (max-width: 576px) {
+    .avail-mode-tab-full {
+      display: none;
+    }
+  }
+
+  /* The week navigator row: arrows pinned to the card's left/right edges via
+     fixed-width slots, with the week label centered in the space between --
+     the slot stays put whether or not its arrow button is actually visible,
+     so the label never shifts as [<]/[>] appear/disappear at the navigable
+     range's edges. */
+  .avail-week-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .avail-week-arrow {
+    width: 2.4rem;
+    flex-shrink: 0;
+    display: flex;
+  }
+
+  .avail-week-arrow--prev {
+    justify-content: flex-start;
+  }
+
+  .avail-week-arrow--next {
+    justify-content: flex-end;
+  }
+
+  .avail-week-row #week-label {
+    flex: 1;
+    text-align: center;
+  }
+
   /* The grid must never force the PAGE to scroll sideways on a phone. */
   .availability-scroll {
     overflow-x: auto;
@@ -5411,6 +5485,16 @@ body.forge-modal-open { overflow: hidden; }
     gap: 2px;
     min-width: 28rem;
     user-select: none;
+  }
+
+  /* A week-specific grid: one UTC week almost always spans 8 distinct local
+     calendar days (the two ends are partial), not 7 -- see
+     services.availability.week_grid_columns. Applied by the template only
+     when the server actually rendered 8 columns that response; the general
+     row and every WEEKLY_AVAILABILITY survey grid stay at the default 7. */
+  .availability-grid--8col {
+    grid-template-columns: auto repeat(8, minmax(3.2rem, 1fr));
+    min-width: 32rem;
   }
 
   /* Only the EDITABLE grid constrains touch at all, and it allows BOTH axes:
@@ -5454,6 +5538,53 @@ body.forge-modal-open { overflow: hidden; }
     font-weight: 500;
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
+  }
+
+  /* A week-specific column header: weekday + real date on two stacked lines,
+     instead of the general grid's single "Mon" label -- the boundary columns
+     don't align to a clean local week, so the date disambiguates which real
+     day this column is. */
+  .avail-day-header--dated {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 1.15;
+  }
+  .avail-day-date {
+    font-weight: 500;
+    font-size: 0.9em;
+    color: #868e96;
+  }
+
+  /* A disabled cell: the (column, hour) position exists in the grid's layout
+     but has no real UTC hour behind it -- outside a partial boundary column,
+     or the one-night-a-year DST spring-forward gap. Not a button: nothing to
+     click, nothing to select, excluded from serialization entirely. */
+  .avail-cell--disabled {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 1.04rem;
+    border: 1px solid #eef0f2;
+    border-radius: 4px;
+    background: #f1f3f5;
+    opacity: 0.45;
+    font-size: 0.58rem;
+    color: #ced4da;
+    pointer-events: none;
+  }
+
+  /* A DST fall-back slot: the one local hour that happens twice that night
+     gets two independently paintable half-width cells sharing the row's
+     normal grid position, rather than growing the grid by a 25th row. */
+  .avail-cell-split {
+    display: flex;
+    gap: 1px;
+    min-width: 0;
+  }
+  .avail-cell--split {
+    flex: 1 1 50%;
+    min-width: 0;
   }
 
   .avail-cell {
@@ -5529,7 +5660,13 @@ body.forge-modal-open { overflow: hidden; }
       grid-template-columns: auto repeat(7, minmax(2.9rem, 1fr));
       min-width: 23rem;
     }
+    .availability-grid--8col {
+      grid-template-columns: auto repeat(8, minmax(2.9rem, 1fr));
+      min-width: 26rem;
+    }
     .avail-hour-label { font-size: 0.62rem; padding-right: 4px; }
     .avail-day-header { font-size: 0.64rem; }
+    .avail-day-date { font-size: 0.6rem; }
     .avail-cell { min-height: 0.95rem; font-size: 0.56rem; }
+    .avail-cell--disabled { min-height: 0.95rem; font-size: 0.56rem; }
   }

@@ -1393,10 +1393,10 @@ class PlayerSchedule(models.Model):
         eternal weekly pattern the /availability page has always edited, encoded
         through services.availability's fixed reference Monday. A row WITH a
         week_start is that player's availability for one real, specific ISO
-        calendar week (always a Monday, always UTC-week-anchored -- see
-        services.availability.local_week_to_utc_weeks for why it's UTC and not the
-        player's own local week), encoded through that real week's own dates
-        instead of the reference week.
+        calendar week (always a Monday, always UTC-week-anchored, not the
+        player's own local week -- see services.availability.week_grid_cells,
+        which maps this row's 168 real UTC hours onto the player's local-time
+        grid for display, rather than re-anchoring storage to their local week).
 
     A row that EXISTS wins at its level even when available_hours is [] -- see
     schedule_for's precedence chain. "No row" and "a row with no hours" are

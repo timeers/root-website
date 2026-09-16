@@ -127,51 +127,74 @@ def week_start_for(date):
     return date - timedelta(days=date.isoweekday() - 1)
 
 
-def local_week_to_utc_weeks(local_hours, tz_name, week_start):
-    """Local hour-of-week ints for the LOCAL week starting `week_start` (a date)
-    -> {utc_week_start: [utc_hour_of_week ints]}, split across the (up to two)
-    real UTC weeks those hours actually land in.
+def week_grid_cells(week_start, tz_name):
+    """{(local_date, local_hour): [utc_hour_of_week, ...]} for all 168 real
+    hours in the UTC week starting `week_start` (a date), keyed by where each
+    one is drawn. Almost always exactly one UTC hour per (date, hour) key --
+    the values ARE what's stored in PlayerSchedule.available_hours, so no
+    conversion is needed to paint or save a week-specific grid, only to know
+    WHICH (column, row) position each stored hour belongs in.
 
-    Unlike local_to_utc_hours, this does NOT wrap -- a dated week has a real "next
-    week" and "previous week" to spill into, and wrapping would silently misfile
-    hours near the boundary into the wrong calendar week for any timezone far
-    enough from UTC. Used only for week-specific rows; the general/standing row
-    keeps using local_to_utc_hours and the dateless reference week.
+    NOT a strict bijection: a value-list, not a single value, because ONE
+    local (date, hour) slot can legitimately hold two different real UTC
+    hours during the week a DST zone "falls back" -- 1:00-1:59am happens
+    twice that night, and both are real, independently storable hours. A
+    (date, hour) with an empty list is the OTHER DST edge case ("spring
+    forward": that local hour never occurs at all that week). Either way,
+    every one of the 168 UTC hours is accounted for exactly once across the
+    returned cells -- nothing is ever silently dropped.
     """
     tzinfo = _zone_or_utc(tz_name)
-    by_week = {}
-    for hour in _normalize(local_hours):
-        naive = datetime.combine(week_start, datetime.min.time()) + timedelta(hours=hour)
-        local_dt = naive.replace(tzinfo=tzinfo, fold=0)
-        utc_dt = local_dt.astimezone(dt_timezone.utc)
-        utc_week = week_start_for(utc_dt.date())
-        by_week.setdefault(utc_week, set()).add(_hour_of_week(utc_dt))
-    return {week: sorted(hours) for week, hours in by_week.items()}
+    cells = {}
+    for utc_how in range(HOURS_PER_WEEK):
+        utc_dt = (datetime.combine(week_start, datetime.min.time())
+                  + timedelta(hours=utc_how)).replace(tzinfo=dt_timezone.utc)
+        local_dt = utc_dt.astimezone(tzinfo)
+        cells.setdefault((local_dt.date(), local_dt.hour), []).append(utc_how)
+    return cells
 
 
-def utc_weeks_to_local_week(get_utc_hours, tz_name, week_start):
-    """The local hour-of-week ints for the LOCAL week starting `week_start`,
-    reassembled from up to three adjacent UTC weeks. `get_utc_hours(week_date)` is
-    a callable ({date: hours}.get, or a DB lookup) returning that UTC week's
-    stored hours (or None/[] if unset) -- kept generic so the caller can
-    batch-fetch the neighbor rows in one query instead of three round-trips.
-
-    Inverse of local_week_to_utc_weeks; used only for week-specific rows.
+def week_grid_columns(week_start, tz_name):
+    """The local calendar dates one real UTC week spans, in order -- derived
+    from week_grid_cells's keys. 8 dates whenever the viewer's current offset
+    is non-zero (the two ends are partial); exactly 7 (no partial columns)
+    only when the offset is exactly zero that week -- which is not a fixed
+    per-timezone fact: a DST zone at its zero-offset time of year (e.g.
+    Europe/London in GMT) gets a clean 7-column week too.
     """
-    tzinfo = _zone_or_utc(tz_name)
-    local_hours = set()
-    for neighbor in (week_start - timedelta(weeks=1), week_start, week_start + timedelta(weeks=1)):
-        for hour in _normalize(get_utc_hours(neighbor) or []):
-            utc_dt = (datetime.combine(neighbor, datetime.min.time())
-                     + timedelta(hours=hour)).replace(tzinfo=dt_timezone.utc)
-            local_dt = utc_dt.astimezone(tzinfo)
-            # Keep only hours whose LOCAL date actually falls inside the requested
-            # local week -- a neighbor UTC week mostly contributes nothing; only
-            # its boundary-adjacent hours do.
-            if week_start <= local_dt.date() < week_start + timedelta(weeks=1):
-                local_hours.add((local_dt.date() - week_start).days * HOURS_PER_DAY
-                                + local_dt.hour)
-    return sorted(local_hours)
+    dates = {d for d, _hour in week_grid_cells(week_start, tz_name)}
+    return sorted(dates)
+
+
+def general_pattern_local_slots(general_utc_hours, tz_name):
+    """The general/standing row's hours as a set of (local_weekday, local_hour)
+    pairs (weekday 0=Monday), via the existing utc_to_local_hours (reference-
+    Monday) conversion then divmod. This is what "Copy from general" checks
+    each live week-specific cell's (column.date.weekday(), row hour) against,
+    to find which of a real week's UTC hours the general pattern implies.
+    """
+    local_hours = utc_to_local_hours(general_utc_hours, tz_name)
+    return {divmod(h, HOURS_PER_DAY) for h in local_hours}
+
+
+def copy_from_general_utc_hours(general_utc_hours, week_start, tz_name):
+    """Which of THIS real week's UTC hours the general/standing pattern implies
+    -- the seed for "Copy from general" under the UTC-keyed grid model.
+    week_grid_cells' values are lists (see its docstring re: DST), so a
+    matching slot contributes every UTC hour at that position -- both of a
+    fall-back night's "1am" cells light up together if the general pattern
+    says that weekday/hour is free, since the pattern doesn't know about this
+    specific week's DST quirk and applies to both real hours that share the
+    label.
+    """
+    slots = general_pattern_local_slots(general_utc_hours, tz_name)
+    cells = week_grid_cells(week_start, tz_name)
+    return sorted(
+        utc_how
+        for (local_date, local_hour), utc_hows in cells.items()
+        if (local_date.weekday(), local_hour) in slots
+        for utc_how in utc_hows
+    )
 
 
 def _hour_of_week(moment):

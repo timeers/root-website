@@ -38,10 +38,21 @@
       : null;
 
     // ---- Cell indexing -----------------------------------------------------
-    // Template loops can't compute day*24+hour, so each cell's real hour-of-week
-    // is assigned here from its data-day / data-hour pair.
-    var cells = Array.prototype.slice.call(grid.querySelectorAll('.avail-cell'));
+    // The dateless 7-column grid (general row, surveys) renders no data-how at
+    // all -- template loops can't compute day*24+hour, so it's derived here
+    // from data-day/data-hour. A week-specific grid's cells DO carry a
+    // server-rendered data-how already (a real, possibly non-contiguous UTC
+    // hour-of-week -- see availability_grid.html), which must be preserved,
+    // not overwritten: two cells sharing one DST fall-back slot also share
+    // data-day/data-hour, so recomputing from those would collapse them onto
+    // the same key and silently alias one cell's selection onto the other's.
+    // A disabled cell (no real UTC hour behind it -- see availability_grid.html)
+    // is excluded entirely: no data-day/data-hour to derive from, never
+    // selectable, and must never enter byHow at all.
+    var cells = Array.prototype.slice.call(
+      grid.querySelectorAll('.avail-cell:not(.avail-cell--disabled)'));
     cells.forEach(function (cell) {
+      if (cell.dataset.how) { return; }
       var day = parseInt(cell.dataset.day, 10);
       var hour = parseInt(cell.dataset.hour, 10);
       cell.dataset.how = String(day * 24 + hour);

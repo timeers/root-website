@@ -40,8 +40,9 @@ from the_gatehouse.services.availability import (local_to_utc_hours, utc_to_loca
                                                  format_hour_12, hour_labels,
                                                  availability_matrix, overlap_summary,
                                                  heat_bucket, reachable_buckets,
-                                                 week_start_for, local_week_to_utc_weeks,
-                                                 utc_weeks_to_local_week)
+                                                 week_start_for, week_grid_cells,
+                                                 week_grid_columns, general_pattern_local_slots,
+                                                 copy_from_general_utc_hours)
 from the_gatehouse import views
 from the_gatehouse.signals import user_logged_in_handler
 from the_gatehouse.services.discord_oauth import update_discord_avatar
@@ -1663,72 +1664,130 @@ class PlayerSchedulePrecedenceTests(TestCase):
         self.assertNotIn(other_profile.id, bulk)
 
 
-class UtcWeekBoundarySplitTests(TestCase):
-    """local_week_to_utc_weeks / utc_weeks_to_local_week: the highest-risk new
-    logic, since it replaces wrap-around with a real cross-week split."""
+class WeekGridCellsTests(TestCase):
+    """week_grid_cells / week_grid_columns: the UTC-week-direct grid model.
+    Every one of the 168 real UTC hours must appear exactly once across the
+    returned cells, for any timezone and any week -- including the two DST
+    edge cases (fall-back's repeated local hour, spring-forward's skipped
+    one), where "once" means split across 2 cells or folded into 0 rather
+    than literally one dict entry."""
 
     WEEK = date(2026, 9, 14)  # a Monday
 
-    def test_a_zone_at_utc_produces_no_split(self):
-        hours = list(range(0, 24))  # Monday, all 24 local hours
-        result = local_week_to_utc_weeks(hours, 'UTC', self.WEEK)
-        self.assertEqual(list(result.keys()), [self.WEEK])
-        self.assertEqual(len(result[self.WEEK]), 24)
+    def _total_hours_accounted_for(self, cells):
+        return sum(len(v) for v in cells.values())
 
-    def test_a_zone_mid_week_produces_no_split(self):
-        """An offset far enough from UTC to shift hours, but not far enough to
-        push the WEEK's own boundary hours (Monday 00:00, Sunday 23:00) across a
-        UTC week line -- only hours actually near the edge should ever split."""
-        hours = [12, 13, 14]  # midday, nowhere near either boundary
-        result = local_week_to_utc_weeks(hours, 'Europe/Berlin', self.WEEK)
-        self.assertEqual(list(result.keys()), [self.WEEK])
-        self.assertEqual(len(result[self.WEEK]), 3)
-
-    def test_far_negative_offset_spills_late_sunday_into_the_next_week(self):
-        """Pago Pago is UTC-11: late Sunday local lands on UTC Monday of the
-        NEXT real week, not wrapped back into the current one."""
-        sunday_23 = 6 * 24 + 23  # Sunday 23:00 local, last hour of WEEK
-        result = local_week_to_utc_weeks([sunday_23], 'Pacific/Pago_Pago', self.WEEK)
-        next_week = self.WEEK + timedelta(weeks=1)
-        self.assertIn(next_week, result)
-        self.assertNotIn(self.WEEK, result)
-
-    def test_far_positive_offset_spills_early_monday_into_the_previous_week(self):
-        """Tonga is UTC+13: early Monday local lands on UTC Sunday of the
-        PREVIOUS real week."""
-        monday_0 = 0  # Monday 00:00 local, first hour of WEEK
-        result = local_week_to_utc_weeks([monday_0], 'Pacific/Tongatapu', self.WEEK)
-        prev_week = self.WEEK - timedelta(weeks=1)
-        self.assertIn(prev_week, result)
-        self.assertNotIn(self.WEEK, result)
-
-    def test_round_trip_reproduces_the_original_selection(self):
-        hours = sorted({0, 1, 2, 23, 24, 100, 143, 144, 167})
-        for tz_name in ('UTC', 'America/New_York', 'Pacific/Pago_Pago', 'Pacific/Tongatapu'):
+    def test_every_utc_hour_is_accounted_for_exactly_once(self):
+        for tz_name in ('UTC', 'America/New_York', 'Asia/Kolkata', 'Pacific/Tongatapu'):
             with self.subTest(tz=tz_name):
-                split = local_week_to_utc_weeks(hours, tz_name, self.WEEK)
-                back = utc_weeks_to_local_week(
-                    lambda d: split.get(d, []), tz_name, self.WEEK)
-                self.assertEqual(back, hours)
+                cells = week_grid_cells(self.WEEK, tz_name)
+                self.assertEqual(self._total_hours_accounted_for(cells), 168)
+                all_hours = sorted(h for hours in cells.values() for h in hours)
+                self.assertEqual(all_hours, list(range(168)))
 
-    def test_a_boundary_splitting_save_persists_two_rows(self):
-        user = User.objects.create_user(username='splitter', password='pw')
-        profile = user.profile
-        hours = [0, 6 * 24 + 23]  # Monday 00:00 and Sunday 23:00 local
-        split = local_week_to_utc_weeks(hours, 'Pacific/Tongatapu', self.WEEK)
-        self.assertEqual(len(split), 2)
-        for utc_week, week_hours in split.items():
-            PlayerSchedule.objects.create(
-                profile=profile, tournament=None, week_start=utc_week,
-                available_hours=week_hours,
-            )
-        self.assertEqual(
-            PlayerSchedule.objects.filter(profile=profile, week_start__isnull=False).count(), 2)
+    def test_utc_itself_has_no_partial_boundary_columns(self):
+        cells = week_grid_cells(self.WEEK, 'UTC')
+        columns = week_grid_columns(self.WEEK, 'UTC')
+        self.assertEqual(len(columns), 7)
+        for local_date in columns:
+            live_hours = [h for h in range(24) if cells.get((local_date, h))]
+            self.assertEqual(len(live_hours), 24)
+
+    def test_a_whole_hour_offset_produces_eight_columns_with_partial_ends(self):
+        columns = week_grid_columns(self.WEEK, 'America/New_York')
+        self.assertEqual(len(columns), 8)
+        cells = week_grid_cells(self.WEEK, 'America/New_York')
+        first_live = sum(1 for h in range(24) if cells.get((columns[0], h)))
+        last_live = sum(1 for h in range(24) if cells.get((columns[-1], h)))
+        # One full day's worth of hours split across the two partial ends.
+        self.assertEqual(first_live + last_live, 24)
+        for local_date in columns[1:-1]:
+            self.assertEqual(sum(1 for h in range(24) if cells.get((local_date, h))), 24)
+
+    def test_dst_fall_back_week_has_one_cell_with_two_utc_hours(self):
+        # US fall-back 2026: clocks repeat 1:00-1:59am on Nov 1.
+        cells = week_grid_cells(date(2026, 10, 26), 'America/New_York')
+        multi = {k: v for k, v in cells.items() if len(v) != 1}
+        self.assertEqual(len(multi), 1)
+        ((local_date, local_hour), utc_hours), = multi.items()
+        self.assertEqual(local_date, date(2026, 11, 1))
+        self.assertEqual(local_hour, 1)
+        self.assertEqual(len(utc_hours), 2)
+        self.assertEqual(self._total_hours_accounted_for(cells), 168)
+
+    def test_dst_spring_forward_week_has_one_local_hour_with_no_utc_mapping(self):
+        # US spring-forward 2026: 2:00-2:59am never happens on Mar 8. A
+        # (date, hour) key with no real UTC hour is simply ABSENT from the
+        # dict (not present with an empty list) -- callers use
+        # cells.get((date, hour), []), so the two are equivalent everywhere
+        # this is consumed.
+        cells = week_grid_cells(date(2026, 3, 2), 'America/New_York')
+        self.assertNotIn((date(2026, 3, 8), 2), cells)
+        self.assertEqual(cells.get((date(2026, 3, 8), 2), []), [])
+        self.assertEqual(self._total_hours_accounted_for(cells), 168)
+
+
+class CopyFromGeneralUtcHoursTests(TestCase):
+    """general_pattern_local_slots / copy_from_general_utc_hours: seeding a
+    week-specific grid from the general/standing pattern under the UTC-keyed
+    model -- the result must be real UTC hours for the SPECIFIC week asked
+    for, not a generic local-hour list."""
+
+    WEEK = date(2026, 9, 14)
+
+    def test_general_pattern_slots_use_monday_zero_weekday(self):
+        # UTC hour 9 on the reference week (a Monday) is Monday 09:00 UTC.
+        slots = general_pattern_local_slots([9], 'UTC')
+        self.assertEqual(slots, {(0, 9)})
+
+    def test_copy_from_general_lands_on_the_correct_real_week(self):
+        # A general pattern of "every Monday 9am UTC" should seed exactly one
+        # UTC hour in THIS week: hour 9 (Monday 09:00 UTC of self.WEEK).
+        result = copy_from_general_utc_hours([9], self.WEEK, 'UTC')
+        self.assertEqual(result, [9])
+
+    def test_copy_from_general_in_a_zone_with_no_dst(self):
+        # A zone with a constant offset year-round has no reference-week
+        # skew to worry about: the general pattern's local (weekday, hour)
+        # always lands on the same UTC hour, whichever real week you ask for.
+        result = copy_from_general_utc_hours([9], self.WEEK, 'Asia/Tokyo')
+        self.assertEqual(result, [9])
+
+    def test_copy_from_general_in_a_dst_zone_inherits_the_known_reference_week_skew(self):
+        """The general row is encoded against the FIXED reference week
+        (January, standard time) -- see _REFERENCE_MONDAY's own docstring.
+        Converting its pattern for a real week in a different DST season (here:
+        September, daylight time) shifts by the DST offset difference, exactly
+        the same documented, accepted tradeoff every OTHER consumer of the
+        general row already has (utc_to_local_hours itself). Not a bug in
+        copy_from_general_utc_hours -- it inherits this from the pattern it's
+        fed, which already encodes that skew before this function ever sees it."""
+        # September (EDT, UTC-4) vs the reference week (January, EST, UTC-5):
+        # a 1-hour skew, matching the zone's actual DST offset difference.
+        result = copy_from_general_utc_hours([9], self.WEEK, 'America/New_York')
+        self.assertEqual(result, [8])
+
+    def test_copy_from_general_lights_up_both_dst_split_cells(self):
+        """A general pattern matching the fall-back's repeated local hour
+        must seed BOTH real UTC hours at that slot -- the pattern doesn't
+        know about this specific week's DST quirk, so it applies to both."""
+        fallback_week = date(2026, 10, 26)
+        cells = week_grid_cells(fallback_week, 'America/New_York')
+        (local_date, local_hour), dst_utc_hours = next(
+            (k, v) for k, v in cells.items() if len(v) == 2)
+        # Build a general pattern directly targeting that (weekday, hour) slot
+        # by round-tripping through local_to_utc_hours on the reference week.
+        general_utc_hours = local_to_utc_hours(
+            [local_date.weekday() * 24 + local_hour], 'America/New_York')
+        result = copy_from_general_utc_hours(general_utc_hours, fallback_week, 'America/New_York')
+        self.assertTrue(set(dst_utc_hours).issubset(set(result)))
 
 
 class AvailabilityWeekNavigatorTests(_NoLoginSignalMixin, TestCase):
-    """The /availability week navigator: [General] [<] [Week of X] [>], the
-    "Copy from general" seed, and the "No availability" / "Use defaults" actions."""
+    """The /availability week navigator: [General] [<] [Week of X] [>], and
+    the "Fill from General" seed. "No availability"/"Use defaults" as
+    dedicated buttons were removed (Clear+Save and simply not-saving cover
+    the same two states)."""
 
     def setUp(self):
         super().setUp()
@@ -1797,7 +1856,11 @@ class AvailabilityWeekNavigatorTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual(response.context['next_week'], target + timedelta(days=7))
         self.assertEqual(response.context['prev_week'], target - timedelta(days=7))
 
-    def test_no_availability_action_creates_an_empty_row_that_sticks(self):
+    def test_saving_an_empty_grid_persists_an_explicit_empty_row(self):
+        """The replacement for the removed "No availability" button: Clear +
+        Save must still persist available_hours=[] with the row EXISTING (not
+        deleted), so schedule_for's existence-based precedence stops the
+        general fallback for this week on purpose."""
         general = general_schedule_for(self.profile)
         general.available_hours = [1, 2, 3]
         general.save(update_fields=['available_hours'])
@@ -1807,56 +1870,30 @@ class AvailabilityWeekNavigatorTests(_NoLoginSignalMixin, TestCase):
             'timezone': 'UTC', 'drawn_timezone': 'UTC',
             'available_hours': '',
             'week_start': target.isoformat(),
-            'action': 'no_availability',
+            'action': 'save',
         })
         row = PlayerSchedule.objects.get(profile=self.profile, tournament=None, week_start=target)
         self.assertEqual(row.available_hours, [])
         # Subsequent reads resolve to the empty row, NOT the general fallback.
         self.assertEqual(schedule_for(self.profile, week_start=target).pk, row.pk)
 
-    def test_use_defaults_action_deletes_the_row_and_falls_back(self):
+    def test_navigating_away_from_an_unsaved_week_leaves_no_row(self):
+        """The replacement for the removed "Use defaults" button: simply not
+        saving (e.g. switching weeks without hitting Save) leaves no row at
+        all, so the general fallback naturally applies -- no explicit delete
+        action needed."""
         general = general_schedule_for(self.profile)
         general.available_hours = [1, 2, 3]
         general.save(update_fields=['available_hours'])
         target = self.current_week + timedelta(weeks=1)
-        PlayerSchedule.objects.create(
-            profile=self.profile, tournament=None, week_start=target, available_hours=[9],
-        )
 
-        self.client.post(self.url, {
-            'timezone': 'UTC', 'drawn_timezone': 'UTC',
-            'available_hours': '',
-            'week_start': target.isoformat(),
-            'action': 'use_defaults',
-        })
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        self.assertEqual(response.status_code, 200)
         self.assertFalse(
             PlayerSchedule.objects.filter(
                 profile=self.profile, tournament=None, week_start=target).exists()
         )
         self.assertEqual(schedule_for(self.profile, week_start=target).pk, general.pk)
-
-    def test_no_availability_and_use_defaults_leave_different_db_state(self):
-        """The two actions must diverge in STORAGE, not just in a momentary UI
-        state: one leaves an empty row, the other leaves no row at all."""
-        target = self.current_week + timedelta(weeks=1)
-
-        self.client.post(self.url, {
-            'timezone': 'UTC', 'drawn_timezone': 'UTC', 'available_hours': '',
-            'week_start': target.isoformat(), 'action': 'no_availability',
-        })
-        self.assertTrue(
-            PlayerSchedule.objects.filter(
-                profile=self.profile, tournament=None, week_start=target).exists()
-        )
-
-        self.client.post(self.url, {
-            'timezone': 'UTC', 'drawn_timezone': 'UTC', 'available_hours': '',
-            'week_start': target.isoformat(), 'action': 'use_defaults',
-        })
-        self.assertFalse(
-            PlayerSchedule.objects.filter(
-                profile=self.profile, tournament=None, week_start=target).exists()
-        )
 
 
 class AvailabilityAjaxEndpointTests(_NoLoginSignalMixin, TestCase):
@@ -1904,6 +1941,32 @@ class AvailabilityAjaxEndpointTests(_NoLoginSignalMixin, TestCase):
         self.assertTrue(data['is_week_specific'])
         self.assertEqual(data['week_start'], target.isoformat())
         self.assertIn(target.strftime('%b'), data['week_label'])
+
+    def test_week_data_reflects_each_weeks_own_hours_not_the_previous_response(self):
+        """Regression for a real bug: the client used to keep showing (and
+        would then re-save) whichever hours were on the PREVIOUSLY viewed
+        week's grid after switching weeks, because the hidden field wasn't
+        updated from the new week's response before the grid repainted. The
+        server-side contract this depends on -- that each week's AJAX
+        response carries THAT week's own saved hours, not a stale/shared
+        value -- is what's verified here; the client-side wiring is the fix,
+        this guards the data it must be fed."""
+        week_a = self.current_week + timedelta(weeks=1)
+        week_b = self.current_week + timedelta(weeks=2)
+        PlayerSchedule.objects.create(
+            profile=self.profile, tournament=None, week_start=week_a, available_hours=[10, 20])
+        PlayerSchedule.objects.create(
+            profile=self.profile, tournament=None, week_start=week_b, available_hours=[99, 150])
+
+        data_a = self.client.get(self.week_url, {'week': week_a.isoformat()}).json()
+        data_b = self.client.get(self.week_url, {'week': week_b.isoformat()}).json()
+
+        self.assertEqual(data_a['selected_hours'], [10, 20])
+        self.assertEqual(data_b['selected_hours'], [99, 150])
+        # Fetching week B's data must not have mutated or been influenced by
+        # week A's -- re-fetch A to confirm it's still exactly what it was.
+        data_a_again = self.client.get(self.week_url, {'week': week_a.isoformat()}).json()
+        self.assertEqual(data_a_again['selected_hours'], [10, 20])
 
     def test_week_data_clamps_out_of_range_weeks_server_side(self):
         """A crafted ?week= beyond the bound must not escape the clamp just
@@ -1968,30 +2031,19 @@ class AvailabilityAjaxEndpointTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'application/json')
 
-    def test_save_no_availability_then_use_defaults_round_trip(self):
-        """Mirrors the classic-form test of the same name, through the AJAX
-        endpoint instead -- the two actions must still diverge in storage."""
+    def test_save_empty_grid_persists_an_explicit_empty_row(self):
+        """The AJAX equivalent of the removed "No availability" button:
+        Clear + Save must persist available_hours=[] with the row EXISTING."""
         target = self.current_week + timedelta(weeks=1)
 
-        r1 = self.client.post(self.save_url, {
+        response = self.client.post(self.save_url, {
             'timezone': 'UTC', 'drawn_timezone': 'UTC', 'available_hours': '',
-            'week_start': target.isoformat(), 'action': 'no_availability',
+            'week_start': target.isoformat(), 'action': 'save',
         })
-        self.assertTrue(r1.json()['has_own_row'])
-        self.assertTrue(
-            PlayerSchedule.objects.filter(
-                profile=self.profile, tournament=None, week_start=target).exists()
-        )
-
-        r2 = self.client.post(self.save_url, {
-            'timezone': 'UTC', 'drawn_timezone': 'UTC', 'available_hours': '',
-            'week_start': target.isoformat(), 'action': 'use_defaults',
-        })
-        self.assertFalse(r2.json()['has_own_row'])
-        self.assertFalse(
-            PlayerSchedule.objects.filter(
-                profile=self.profile, tournament=None, week_start=target).exists()
-        )
+        self.assertTrue(response.json()['has_own_row'])
+        row = PlayerSchedule.objects.get(
+            profile=self.profile, tournament=None, week_start=target)
+        self.assertEqual(row.available_hours, [])
 
     def test_save_with_an_invalid_timezone_returns_a_400_error_shape(self):
         response = self.client.post(self.save_url, {
@@ -2053,31 +2105,67 @@ class AvailabilityNavigatorRenderTests(_NoLoginSignalMixin, TestCase):
         response = self.client.get(self.url, {'week': target.isoformat()})
         self.assertIn('hidden', self._tag(response.content.decode(), 'nav-next'))
 
-    def test_next_arrow_is_never_hidden_on_general(self):
-        """[>] from General always has somewhere to go -- into the current week."""
+    def test_next_arrow_is_hidden_on_general(self):
+        """[>] only steps through real weeks -- switching into week-specific
+        mode is the tabs' job now, so the arrow stays hidden (space still
+        reserved) until Weekly Availability is actually selected."""
         response = self.client.get(self.url)
+        self.assertIn('hidden', self._tag(response.content.decode(), 'nav-next'))
+
+    def test_next_arrow_shown_once_a_week_is_selected(self):
+        target = self.current_week + timedelta(weeks=1)
+        response = self.client.get(self.url, {'week': target.isoformat()})
         self.assertNotIn('hidden', self._tag(response.content.decode(), 'nav-next'))
 
-    def test_week_action_buttons_hidden_on_general(self):
+    def test_arrows_sit_in_fixed_width_slot_wrappers(self):
+        """The arrow buttons are wrapped in .avail-week-arrow slots so the
+        week label stays centered whether or not the inner button is hidden
+        -- confirm the wrapper markup is actually present, not just the
+        buttons themselves."""
         response = self.client.get(self.url)
-        self.assertIn('hidden', self._tag(response.content.decode(), 'week-action-buttons'))
+        body = response.content.decode()
+        self.assertIn('avail-week-arrow--prev', body)
+        self.assertIn('avail-week-arrow--next', body)
 
-    def test_week_action_buttons_shown_for_a_specific_week(self):
+    def test_general_tab_active_on_general(self):
+        response = self.client.get(self.url)
+        self.assertIn('active', self._tag(response.content.decode(), 'tab-general'))
+        self.assertNotIn('active', self._tag(response.content.decode(), 'tab-weekly'))
+
+    def test_weekly_tab_active_for_a_specific_week(self):
         target = self.current_week + timedelta(weeks=1)
         response = self.client.get(self.url, {'week': target.isoformat()})
-        self.assertNotIn('hidden', self._tag(response.content.decode(), 'week-action-buttons'))
+        body = response.content.decode()
+        self.assertIn('active', self._tag(body, 'tab-weekly'))
+        self.assertNotIn('active', self._tag(body, 'tab-general'))
 
-    def test_use_defaults_hidden_without_an_own_row(self):
-        target = self.current_week + timedelta(weeks=1)
-        response = self.client.get(self.url, {'week': target.isoformat()})
-        self.assertIn('hidden', self._tag(response.content.decode(), 'use-defaults-btn'))
+    def test_weekly_tab_targets_the_current_week_when_on_general(self):
+        response = self.client.get(self.url)
+        tag = self._tag(response.content.decode(), 'tab-weekly')
+        self.assertIn(f'data-week="{self.current_week.isoformat()}"', tag)
 
-    def test_use_defaults_shown_with_an_own_row(self):
+    def test_hour_count_badge_is_gone_from_this_page(self):
+        response = self.client.get(self.url)
+        self.assertNotContains(response, 'id="hour-count"')
+
+    def test_fill_from_general_hidden_on_general(self):
+        response = self.client.get(self.url)
+        self.assertIn('hidden', self._tag(response.content.decode(), 'copy-from-general'))
+
+    def test_fill_from_general_still_shown_once_the_week_has_its_own_row(self):
+        """Confirmed with the user: Fill from General is a general-purpose
+        "start over from my usual" tool, not a one-time seed -- it stays
+        available even after the week already has its own saved row."""
         target = self.current_week + timedelta(weeks=1)
         PlayerSchedule.objects.create(
             profile=self.profile, tournament=None, week_start=target, available_hours=[1])
         response = self.client.get(self.url, {'week': target.isoformat()})
-        self.assertNotIn('hidden', self._tag(response.content.decode(), 'use-defaults-btn'))
+        self.assertNotIn('hidden', self._tag(response.content.decode(), 'copy-from-general'))
+
+    def test_fill_from_general_shown_for_a_week_with_no_row_yet(self):
+        target = self.current_week + timedelta(weeks=1)
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        self.assertNotIn('hidden', self._tag(response.content.decode(), 'copy-from-general'))
 
     def test_the_standalone_which_week_card_is_gone(self):
         """The navigator now lives inside the Weekly Availability card -- no
@@ -2086,11 +2174,126 @@ class AvailabilityNavigatorRenderTests(_NoLoginSignalMixin, TestCase):
         self.assertNotContains(response, 'Which week')
 
     def test_navigator_lives_inside_the_weekly_availability_card(self):
+        """The mode tabs (which now serve as the section header) sit above
+        the week navigator, which sits above the grid -- all inside the same
+        card, in that order."""
         body = self.client.get(self.url).content.decode()
-        avail_heading_idx = body.index('Weekly Availability')
+        tabs_idx = body.index('id="mode-tabs"')
         nav_idx = body.index('id="week-navigator"')
         grid_idx = body.index('id="availability-grid"')
-        self.assertTrue(avail_heading_idx < nav_idx < grid_idx)
+        self.assertTrue(tabs_idx < nav_idx < grid_idx)
+
+
+class WeekSpecificGridRenderTests(_NoLoginSignalMixin, TestCase):
+    """The week-specific grid actually renders the UTC-week-direct model:
+    real dated columns, disabled boundary cells, DST split cells -- and the
+    general row and no other page stay on the untouched dateless rendering."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username='gridrender', password='pw')
+        self.profile = self.user.profile
+        self.profile.timezone = 'America/New_York'
+        self.profile.save(update_fields=['timezone'])
+        self.client.force_login(self.user)
+        self.url = reverse('availability')
+        self.today = timezone.now().date()
+        self.current_week = week_start_for(self.today)
+
+    def test_week_specific_grid_has_eight_dated_columns(self):
+        target = self.current_week + timedelta(weeks=1)
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        body = response.content.decode()
+        self.assertIn('availability-grid--8col', body)
+        self.assertIn('avail-day-header--dated', body)
+        self.assertEqual(body.count('avail-day-header--dated'), 8)
+
+    def test_week_specific_grid_has_disabled_boundary_cells(self):
+        target = self.current_week + timedelta(weeks=1)
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        self.assertContains(response, 'avail-cell--disabled')
+
+    def test_general_grid_has_no_dated_headers_or_disabled_cells(self):
+        response = self.client.get(self.url)
+        body = response.content.decode()
+        self.assertNotIn('avail-day-header--dated', body)
+        self.assertNotIn('avail-cell--disabled', body)
+        self.assertNotIn('availability-grid--8col', body)
+
+    def test_dst_fallback_week_renders_split_cells(self):
+        response = self.client.get(self.url, {'week': '2026-10-26'})
+        self.assertContains(response, 'avail-cell--split')
+
+    def test_dst_split_cells_carry_two_distinct_data_how_values(self):
+        """Regression for a real bug: availability_grid.js used to overwrite
+        EVERY cell's data-how with a freshly computed day*24+hour, which
+        collapsed the two split cells (same data-day/data-hour, different
+        data-how) onto one key -- selecting the left cell silently saved as
+        the right one. The fix is JS-side (preserve a pre-existing data-how
+        instead of recomputing it), but the two real UTC hours must already
+        be distinct in the server-rendered HTML for that fix to have anything
+        correct to preserve -- assert that here."""
+        response = self.client.get(self.url, {'week': '2026-10-26'})
+        body = response.content.decode()
+        split_start = body.index('avail-cell-split')
+        split_end = body.index('</div>', body.index('</div>', split_start) + 1)
+        split_html = body[split_start:split_end]
+        import re
+        hows = re.findall(r'data-how="(\d+)"', split_html)
+        self.assertEqual(len(hows), 2)
+        self.assertNotEqual(hows[0], hows[1])
+
+    def test_a_zero_offset_week_has_seven_columns_not_eight(self):
+        """A DST zone at its zero-offset time of year renders like General --
+        exactly 7 columns, no partial/disabled boundary cells -- confirming
+        column count is decided by the real offset that week, not the zone.
+        Found by scanning forward for a week where London (a DST zone) is at
+        GMT (UTC+0), rather than a hardcoded date that would eventually fall
+        outside the navigator's rolling forward window and start clamping."""
+        from zoneinfo import ZoneInfo
+        self.profile.timezone = 'Europe/London'
+        self.profile.save(update_fields=['timezone'])
+        tz = ZoneInfo('Europe/London')
+        target = None
+        for i in range(13):
+            candidate = self.current_week + timedelta(weeks=i)
+            offset = datetime.combine(candidate, datetime.min.time(), dt_timezone.utc).astimezone(tz).utcoffset()
+            if offset == timedelta(0):
+                target = candidate
+                break
+        self.assertIsNotNone(target, "No zero-offset week found in the forward window")
+
+        response = self.client.get(self.url, {'week': target.isoformat()})
+        body = response.content.decode()
+        self.assertNotIn('availability-grid--8col', body)
+        self.assertNotIn('avail-cell--disabled', body)
+
+    def test_saving_a_week_specific_row_touches_no_neighboring_weeks(self):
+        """The old local-week reassembly could silently write up to 2-3
+        neighboring rows; the UTC-direct model must touch exactly one."""
+        target = self.current_week + timedelta(weeks=2)
+        self.client.post(self.url, {
+            'timezone': 'America/New_York', 'drawn_timezone': 'America/New_York',
+            'available_hours': '10,50,100',
+            'week_start': target.isoformat(),
+            'action': 'save',
+        })
+        self.assertEqual(
+            PlayerSchedule.objects.filter(profile=self.profile, tournament=None,
+                                          week_start__isnull=False).count(),
+            1,
+        )
+        row = PlayerSchedule.objects.get(
+            profile=self.profile, tournament=None, week_start=target)
+        self.assertEqual(row.available_hours, [10, 50, 100])
+
+    def test_ajax_week_data_grid_html_matches_full_page_render(self):
+        """The AJAX endpoint's grid_html must be the SAME grid a full page
+        load would show for that week -- one rendering path, not two."""
+        target = self.current_week + timedelta(weeks=1)
+        page = self.client.get(self.url, {'week': target.isoformat()})
+        ajax = self.client.get(reverse('availability-week-data'), {'week': target.isoformat()})
+        self.assertIn(ajax.json()['grid_html'].strip(), page.content.decode())
 
 
 class TimezoneCodeTests(TestCase):
