@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.8] - 2026-9-14 Better Notifications and Schedules
+## [1.13.8] - 2026-9-16 Better Notifications and Schedules
 
 ### New Features
 - You can now set up multiple reminders via the Databot for scheduled games
@@ -16,6 +16,7 @@
 - LFG Posts can now be cancelled by guild moderators
 - Clicking a selected time in Compare Availability deselects that time block
 - Markdown added to Series and Survey descriptions
+- Compare availability has fixed heights for Legend and Player sections
 
 ### Bug Fixes
 - Subscribing to a scheduling poll now notifies on every new "Yes" answer instead of just poll close.

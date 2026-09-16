@@ -117,11 +117,11 @@ is nothing worth indexing. {% endcomment %}
 
 
 
-          <div class="info-card h-100">
+          <div class="info-card h-100" id="compare-left-card">
             <div class="info-card-body">
+              <div class="compare-left-body">
 
-
-
+              <div class="compare-pane compare-pane--legend">
               <h2 class="info-card-title h6 mb-2">{% trans 'Legend' %}</h2>
 
               <div id="summary-line" class="mb-2"></div>
@@ -136,9 +136,11 @@ is nothing worth indexing. {% endcomment %}
               <div class="cell-detail" id="cell-detail">
                 <span class="text-muted">{% trans 'Tap a time to see who is free.' %}</span>
               </div>
+              </div>
 
               <hr class="card-section-divider">
 
+              <div class="compare-pane compare-pane--players">
               <div class="d-flex justify-content-between align-items-center flex-wrap mb-2 gap-2">
                 <h2 class="info-card-title h6 mb-0">
                   {% blocktrans count counter=player_count %}{{ counter }} Player{% plural %}{{ counter }} Players{% endblocktrans %}
@@ -181,9 +183,9 @@ is nothing worth indexing. {% endcomment %}
                   </li>
                 {% endfor %}
               </ul>
+              </div>
 
-
-
+              </div>
 
 
 
@@ -375,6 +377,75 @@ is nothing worth indexing. {% endcomment %}
        the heat-* class just set, leaving every swatch looking identical. */
     border-style: solid;
     border-width: 1px;
+  }
+
+  /* Legend/player card: both panes get a reserved, independently-scrollable
+     height so re-rendering their content (toggling a player, tapping a cell)
+     never changes the card's overall height or reflows the grid card beside
+     it.
+
+     Desktop: the card is h-100-matched to the grid card, so that fixed height
+     is split 1/3 legend, 2/3 players. .info-card-body is a plain block child
+     of .info-card (not itself a flex item), so it needs its own explicit
+     height:100% too -- otherwise .compare-left-body's height:100% has nothing
+     to resolve against and the split collapses to content height. Scoped to
+     #compare-left-card so it never leaks onto other pages sharing .info-card. */
+  @media (min-width: 992px) {
+    #compare-left-card .info-card-body {
+      height: 100%;
+    }
+    .compare-left-body {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-height: 0;
+    }
+    .compare-pane--legend {
+      flex: 1 1 33%;
+      min-height: 0;
+      overflow-y: auto;
+    }
+    .compare-pane--players {
+      flex: 2 1 67%;
+      min-height: 0;
+      overflow-y: auto;
+    }
+  }
+
+  /* Mobile: the card stacks above the grid with no h-100 partner to split, so
+     each pane gets its own FIXED height (not max-height) instead -- a cap
+     only stops growth past 35vh, it does nothing below that, so content
+     shrinking (fewer legend bands, fewer checked players) would still change
+     the pane's rendered height and defeat the point. */
+  @media (max-width: 991.98px) {
+    .compare-pane--legend,
+    .compare-pane--players {
+      height: 20vh;
+      overflow-y: auto;
+    }
+  }
+
+  /* Discord dynamic-timestamp copy pill in the click-detail panel: a grey
+     rounded highlight, right-justified next to the date/time label (see the
+     justify-content-between wrapper in showDetail()) so it never shifts
+     position as the label's text width changes. */
+  .discord-ts-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #e9ecef;
+    border-radius: 999px;
+    padding: 2px 10px;
+    font-size: 0.78rem;
+    color: #495057;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .discord-ts-pill:hover {
+    background: #dee2e6;
+  }
+  .discord-ts-copy-icon {
+    font-size: 0.85em;
   }
 </style>
 {% endblock styles %}
@@ -610,6 +681,30 @@ is nothing worth indexing. {% endcomment %}
       '<span class="text-muted">{% trans "Tap a time to see who is free." %}</span>';
   }
 
+  function cellUnixTimestamp(cell) {
+    // Same local Date construction as cellLabel(): data-date is the cell's
+    // real local calendar date, data-hour its local hour-of-day. setHours
+    // (not a fixed offset) so DST-affected days still land on the right
+    // real instant, same reasoning as cellLabel's own local-midnight parse.
+    //
+    // NOTE: on a fall-back split cell (avail-cell--split), both halves share
+    // the same data-date/data-hour and so produce the SAME timestamp here
+    // even though they are an hour apart in reality -- same ambiguity
+    // cellLabel has, disambiguated there only by an appended "(1)"/"(2)"
+    // suffix. Not resolved here; rare one-night-a-year edge case.
+    var d = new Date(cell.dataset.date + 'T00:00:00');
+    d.setHours(parseInt(cell.dataset.hour, 10));
+    return Math.floor(d.getTime() / 1000);
+  }
+
+  function discordTimestampPill(cell) {
+    var raw = '<t:' + cellUnixTimestamp(cell) + ':F>';
+    return '<span class="discord-ts-pill" data-link="' + raw + '" title="{% trans "Copy Discord timestamp" %}">'
+      + raw
+      + '<i class="bi bi-copy discord-ts-copy-icon"></i>'
+      + '</span>';
+  }
+
   function showDetail(cell) {
     var ids = checkedIds();
     var free = freeAtCell(cell);
@@ -621,8 +716,10 @@ is nothing worth indexing. {% endcomment %}
 
     var everyone = ids.length && free.length === ids.length;
     detail.innerHTML =
-      '<strong>' + cellLabel(cell) + '</strong>'
-      + (everyone ? ' <span class="badge text-bg-success">{% trans "All selected" %}</span>' : '')
+      '<div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">'
+      + '<strong>' + cellLabel(cell) + '</strong>'
+      + discordTimestampPill(cell)
+      + '</div>'
       + '<br><span class="text-muted">'
       + (ids.length === 0
           ? '{% trans "No players selected." %}'
@@ -684,6 +781,24 @@ is nothing worth indexing. {% endcomment %}
       + '<span class="badge text-bg-secondary me-1">' + longestRun(overlapHours) + '{% trans "h best block" %}</span>'
       + '<span class="badge text-bg-secondary">' + Object.keys(days).length + ' {% trans "days" %}</span>';
   }
+
+  // Delegated on #cell-detail itself: the pill is rebuilt by showDetail() on
+  // every tap, so a per-element listener would need rebinding each time --
+  // delegation on the stable container works without that.
+  detail.addEventListener('click', function (e) {
+    var pill = e.target.closest('.discord-ts-pill');
+    if (!pill) { return; }
+    var link = pill.getAttribute('data-link');
+    var icon = pill.querySelector('.discord-ts-copy-icon');
+    navigator.clipboard.writeText(link).then(function () {
+      icon.classList.remove('bi-copy');
+      icon.classList.add('bi-clipboard2-check', 'text-success');
+      setTimeout(function () {
+        icon.classList.remove('bi-clipboard2-check', 'text-success');
+        icon.classList.add('bi-copy');
+      }, 1700);
+    }).catch(function () { alert('{% trans "Failed to copy timestamp." %}'); });
+  });
 
   toggles.forEach(function (t) { t.addEventListener('change', render); });
 
