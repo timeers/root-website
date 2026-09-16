@@ -9674,8 +9674,7 @@ OWNER_LOCK_HINTS = {
 
 
 def _lfg_message_data(author, owner, description, players_value,
-                      content=None, title=LFG_DEFAULT_TITLE, ping_role=True,
-                      edit_button=False):
+                      content=None, title=LFG_DEFAULT_TITLE, ping_role=True):
     """Build the full join-message payload (embed + button row). Used ONLY for the
     initial post and the picker→join transition — never to re-render on Join/Notify
     (that would wipe the other field; those handlers mutate the echoed embed).
@@ -9684,13 +9683,7 @@ def _lfg_message_data(author, owner, description, players_value,
 
     `ping_role=False` renders the role mention WITHOUT notifying anyone — used
     inside a thread, where the ping is noise but the mention must still be in the
-    content for ✔ Start to recover the tag from (see _handle_lfg_start).
-
-    `edit_button` gates the 📝 Edit button (opens a modal to change the
-    description) -- OFF by default so every existing call site keeps posting
-    today's 4-button row unless a caller opts in. See _handle_lfg_command's
-    `_beta` flag: this is the beta-tested addition, not yet in the production row
-    everywhere."""
+    content for ✔ Start to recover the tag from (see _handle_lfg_start)."""
     embed = {
         "author": author,
         "title": title,
@@ -9699,9 +9692,9 @@ def _lfg_message_data(author, owner, description, players_value,
             {"name": LFG_PLAYERS_FIELD, "value": players_value, "inline": False},
         ],
     }
-    # Join, 🔔, 📝 and ✖ Cancel end in the non-snowflake PICK_OPEN marker so the
+    # Join, 🔔, Edit and ✖ Cancel end in the non-snowflake PICK_OPEN marker so the
     # dispatcher owner-lock does NOT fire; the owner rides in a non-last arg so
-    # those handlers can still identify the host. 📝 Edit is the one exception --
+    # those handlers can still identify the host. Edit is the one exception --
     # see below.
     #
     #   Join / 🔔 — anyone may click (they toggle: join/leave, subscribe/unsub).
@@ -9709,7 +9702,7 @@ def _lfg_message_data(author, owner, description, players_value,
     #               lock: that admits exactly one snowflake and cannot express a
     #               union. _handle_lfg_cancel makes the check instead, the same
     #               way the schedule poll's Close button does.
-    #   📝 Edit   — the host ALONE (no moderator carve-out), so unlike its
+    #   Edit      — the host ALONE (no moderator carve-out), so unlike its
     #               neighbors it ends in the bare owner snowflake and IS
     #               dispatcher-locked, the same way ✔ Start is.
     #
@@ -9720,11 +9713,7 @@ def _lfg_message_data(author, owner, description, players_value,
         button("Join", encode_custom_id("lfg_join", owner, PICK_OPEN), style=STYLE_PRIMARY),
         button("Notify", encode_custom_id("lfg_notify", owner, PICK_OPEN),
                style=STYLE_SECONDARY, emoji={"name": "🔔"}),
-    ]
-    if edit_button:
-        buttons.append(button("", encode_custom_id("lfg_edit", owner),
-                              style=STYLE_SECONDARY, emoji={"name": "📝"}))
-    buttons += [
+        button("Edit", encode_custom_id("lfg_edit", owner), style=STYLE_SECONDARY),
         button("", encode_custom_id("lfg_cancel", owner, PICK_OPEN),
                style=STYLE_DANGER, emoji={"name": "✖"}),
         button("", encode_custom_id("lfg_start", owner), style=STYLE_SUCCESS, emoji={"name": "✔"}),
@@ -9798,15 +9787,12 @@ def _handle_lfg_command(data):
     roles = list(guild.lfg_roles.all()) if guild else []
     players_value = _lfg_player_line(_author_display_from_data(data), owner)
 
-    edit_button = data.get("_beta", False)
-
     def plain_post():
         # No tag to name the game, so the host's title is the only thing that can.
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
             "data": _lfg_message_data(author, owner, description, players_value,
-                                      title=title_opt or LFG_DEFAULT_TITLE,
-                                      edit_button=edit_button),
+                                      title=title_opt or LFG_DEFAULT_TITLE),
         })
 
     # No tags configured. Post the plain call; if the invoker can manage the server,
@@ -9876,8 +9862,7 @@ def _handle_lfg_command(data):
                                   content=content, title=title,
                                   # In a thread the mention renders but notifies
                                   # nobody -- the people here are already here.
-                                  ping_role=not in_thread,
-                                  edit_button=edit_button),
+                                  ping_role=not in_thread),
     })
 
 
@@ -9988,7 +9973,7 @@ def _handle_lfg_notify(payload):
 
 
 def _handle_lfg_edit(payload):
-    """📝 Edit (host-only, dispatcher-locked): open a modal pre-filled with the
+    """Edit (host-only, dispatcher-locked): open a modal pre-filled with the
     current description.
 
     `max_length=4000`, not an arbitrary smaller cap: the /lfg description option

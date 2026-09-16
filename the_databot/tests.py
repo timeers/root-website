@@ -2212,16 +2212,17 @@ class UpcomingEmbedSummaryTests(ScheduleFixtureMixin, TestCase):
 
 
 class ScheduleAnnouncementDescriptionTests(ScheduleFixtureMixin, TestCase):
-    """Neither /schedule announcement path may reuse /upcoming's "next scheduled
-    game" line — the title already says the match was just scheduled."""
+    """/schedule's direct-write path (see 128f2be8, "schedule change messages to
+    discord thread") announces via a plain content post to the match's own
+    thread (_announce_schedule_to_thread), not a followup embed -- that older
+    embed-based announcement (with its /upcoming-style "next scheduled game"
+    line) no longer exists."""
 
     def setUp(self):
         self.build(populate_group=True)
         self.when = (timezone.now() + timedelta(days=2)).replace(microsecond=0)
 
-    def test_direct_write_names_the_scheduler_without_pinging(self):
-        self.match.scheduled_time = self.when
-        self.match.save(update_fields=["scheduled_time"])
+    def test_direct_write_pings_the_thread_with_the_new_time(self):
         payload = {
             "data": {"custom_id": di.encode_custom_id(
                 "schedule_confirm", self.match.pk, int(self.when.timestamp()),
@@ -2230,16 +2231,15 @@ class ScheduleAnnouncementDescriptionTests(ScheduleFixtureMixin, TestCase):
             "token": "tok",
         }
         with mock.patch.object(di, "_consensus_required", return_value=(False, [])), \
-             mock.patch.object(di.post_interaction_followup_task, "apply_async") as followup:
+             mock.patch.object(di.post_channel_message_task, "delay") as post, \
+             self.captureOnCommitCallbacks(execute=True):
             di._handle_schedule_confirm(payload)
 
-        (_token, data), _kwargs = followup.call_args[0][0], followup.call_args[1]
-        description = data["embeds"][0]["description"]
-        self.assertEqual(description, f"Scheduled by {self.player.discord}")
-        self.assertNotIn("next scheduled", description)
-        # A raw mention would ping the clicker: this followup sets no
-        # allowed_mentions, so the name must stay plain text.
-        self.assertNotIn("<@", description)
+        thread_id, content = post.call_args.args
+        self.assertEqual(thread_id, "555000111")
+        self.assertIn(f"<@{self.player.discord_id}>", content)
+        self.assertIn("scheduled for", content)
+        self.assertNotIn("next scheduled", content)
 
     def test_consensus_finalized_view_carries_only_the_closing_note(self):
         """summary=None still strips /upcoming's "next scheduled game" line. The
@@ -2763,24 +2763,17 @@ class LFGCancelPermissionTests(TestCase):
 
 
 class LFGEditButtonRowTests(TestCase):
-    """`edit_button` gates the 📝 button in _lfg_message_data's row -- OFF by
-    default so every pre-existing call site is unaffected."""
+    """The Edit button is a permanent part of _lfg_message_data's row."""
 
     HOST = "830000000000000033"
 
-    def _buttons(self, **kw):
+    def _buttons(self):
         data = di._lfg_message_data(
-            None, self.HOST, "a game", "Tim", title="Looking for Game", **kw)
+            None, self.HOST, "a game", "Tim", title="Looking for Game")
         return data["components"][0]["components"]
 
-    def test_edit_button_off_by_default(self):
-        buttons = self._buttons()
-        self.assertEqual(len(buttons), 4)
-        names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
-        self.assertNotIn("lfg_edit", names)
-
     def test_edit_button_sits_between_notify_and_cancel(self):
-        buttons = self._buttons(edit_button=True)
+        buttons = self._buttons()
         self.assertEqual(len(buttons), 5)
         names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
         self.assertEqual(names,
@@ -2789,14 +2782,14 @@ class LFGEditButtonRowTests(TestCase):
     def test_edit_is_dispatcher_locked_like_start(self):
         """No moderator carve-out, unlike ✖ -- the owner snowflake must be LAST,
         which is what makes the dispatcher's generic owner-lock fire."""
-        buttons = self._buttons(edit_button=True)
+        buttons = self._buttons()
         edit_button = next(b for b in buttons
                            if di.decode_custom_id(b["custom_id"])[0] == "lfg_edit")
         self.assertTrue(edit_button["custom_id"].endswith(f":{self.HOST}"))
 
 
 class LFGEditTests(TestCase):
-    """📝 Edit: host-only, opens a modal pre-filled with the current description,
+    """Edit: host-only, opens a modal pre-filled with the current description,
     and submitting it PATCHes the live message directly."""
 
     HOST = "830000000000000044"
@@ -4702,39 +4695,15 @@ class RegisterGuildCommandsBodyTests(TestCase):
 
     # ── beta-tester mechanism ──────────────────────────────────────────────
 
-    def test_a_non_beta_guild_gets_no_beta_commands(self):
-        self.guild.enabled_commands = ["lfg"]
-        self.guild.is_beta_tester = False
-        self.guild.save()
-        self.assertNotIn("lfg-beta", self._body())
-
-    def test_a_beta_guild_gets_lfg_beta_alongside_lfg(self):
+    def test_a_beta_guild_with_no_variants_configured_gets_no_beta_commands(self):
+        """BETA_COMMAND_VARIANTS is currently empty (/lfg's Edit button graduated
+        into the base command), so is_beta_tester alone adds nothing to the body."""
         self.guild.enabled_commands = ["lfg"]
         self.guild.is_beta_tester = True
         self.guild.save()
         body = self._body()
         self.assertIn("lfg", body)
-        self.assertIn("lfg-beta", body)
-
-    def test_a_beta_guild_without_lfg_enabled_gets_no_lfg_beta(self):
-        """The beta variant is always an ADDITION alongside the real command,
-        never a replacement -- a guild can't get it without lfg itself."""
-        self.guild.enabled_commands = ["stats"]
-        self.guild.is_beta_tester = True
-        self.guild.save()
-        self.assertNotIn("lfg-beta", self._body())
-
-    def test_the_beta_variant_matches_the_reals_lfg_shape(self):
-        """lfg-beta reuses lfg_command_for_roles, so it can never silently drift
-        from what the real /lfg would show this guild."""
-        self.guild.enabled_commands = ["lfg"]
-        self.guild.is_beta_tester = True
-        self.guild.save()
-        for i in range(2):
-            GuildLFGRole.objects.create(guild=self.guild, name="Tag %d" % i,
-                                        role_id=str(100000000000000800 + i))
-        body = self._body()
-        self.assertEqual(self._opts(body["lfg"]), self._opts(body["lfg-beta"]))
+        self.assertNotIn("lfg-beta", body)
 
 
 class ApplicationCommandBetaDispatchTests(TestCase):
@@ -4758,22 +4727,9 @@ class ApplicationCommandBetaDispatchTests(TestCase):
                 content_type="application/json")
         return json.loads(response.content)
 
-    def test_lfg_beta_reaches_the_same_handler_as_lfg(self):
-        """No players parsed from either invocation -> plain post either way; both
-        must succeed (an unknown-command ephemeral would mean the strip failed)."""
-        real = self._post("lfg")
-        beta = self._post("lfg-beta")
-        self.assertEqual(real["data"]["embeds"][0]["title"],
-                         beta["data"]["embeds"][0]["title"])
-
-    def test_lfg_reaches_it_with_the_beta_flag_unset(self):
+    def test_lfg_always_includes_the_edit_button(self):
+        """The Edit button graduated out of the beta gate into every /lfg post."""
         data = self._post("lfg")["data"]
-        buttons = data["components"][0]["components"]
-        names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
-        self.assertNotIn("lfg_edit", names)
-
-    def test_lfg_beta_reaches_it_with_the_beta_flag_set(self):
-        data = self._post("lfg-beta")["data"]
         buttons = data["components"][0]["components"]
         names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
         self.assertIn("lfg_edit", names)
