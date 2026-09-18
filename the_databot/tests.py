@@ -69,6 +69,14 @@ TZ = "America/New_York"
 # A fixed "now" so date-rollover and range assertions don't drift with the clock.
 NOW = datetime(2026, 8, 17, 15, 0, tzinfo=dt_timezone.utc)
 
+# A time text with NO year, so parse_user_datetime's "roll a yearless past date
+# forward" logic (services/time_parsing.py:429-436) keeps it valid indefinitely,
+# relative to whatever the real clock is when the suite runs -- unlike a fixed
+# "Sep 15 2026 8pm", which silently starts failing once the real date passes it.
+# Used by handler-level tests below that call the real clock (no now= override);
+# ParseUserDatetimeTests above is unaffected -- it always passes now=NOW.
+SCHEDULE_TIME_TEXT = "Sep 15 8pm"
+
 
 class ParseUserDatetimeTests(TestCase):
     """The parser accepts absolute date+time and epoch forms, resolves dateless
@@ -788,7 +796,7 @@ class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
     # it being read as "use the default".
     UNSET = object()
 
-    def _data(self, time="Sep 15 2026 8pm", tz=None, author=UNSET, channel=UNSET,
+    def _data(self, time=SCHEDULE_TIME_TEXT, tz=None, author=UNSET, channel=UNSET,
               guild=UNSET, channel_name=None):
         # time=None omits the option entirely, which is how Discord sends an
         # unfilled optional option — i.e. the clear flow.
@@ -860,7 +868,7 @@ class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
         # The typed time has to survive to the next interaction.
         self.assertEqual(
             di._schedule_input_text({"message": {"content": body["data"]["content"]}}),
-            "Sep 15 2026 8pm")
+            SCHEDULE_TIME_TEXT)
 
     def test_timezone_option_not_saved_when_time_is_bad(self):
         """The option and the time are one command: a bad time saves neither."""
@@ -1090,7 +1098,7 @@ class ScheduleTimezoneSelectTests(ScheduleFixtureMixin, TestCase):
     follows. Component handlers take the raw payload — none of the dispatcher's
     underscore keys — and recover the typed time from the message itself."""
 
-    TIME = "Sep 15 2026 8pm"
+    TIME = SCHEDULE_TIME_TEXT
 
     def setUp(self):
         self.build()
@@ -1486,7 +1494,7 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
         self.player.timezone = TZ
         self.player.save(update_fields=["timezone"])
 
-    def _data(self, time="Sep 15 2026 8pm", channel=None, author=None):
+    def _data(self, time=SCHEDULE_TIME_TEXT, channel=None, author=None):
         options = [] if time is None else [{"name": "time", "value": time}]
         return {
             "name": "schedule", "options": options,
@@ -1990,7 +1998,7 @@ class ScheduleUnlinkedTimezoneTests(ScheduleFixtureMixin, TestCase):
     def test_no_timezone_opens_the_region_picker_with_the_sentinel(self):
         data = self._body(di._handle_schedule_command({
             "name": "schedule",
-            "options": [{"name": "time", "value": "Sep 15 2026 8pm"}],
+            "options": [{"name": "time", "value": SCHEDULE_TIME_TEXT}],
             "_guild_id": self.guild.guild_id,
             "_channel_id": self.UNLINKED_CHANNEL,
             "_channel_name": None,
@@ -2008,7 +2016,8 @@ class ScheduleUnlinkedTimezoneTests(ScheduleFixtureMixin, TestCase):
             "data": {"custom_id": di.encode_custom_id(
                 "schedule_tz_region", di.SCHEDULE_NO_MATCH, self.player.discord_id),
                 "values": ["america"]},
-            "message": {"id": "m", "content": "-# From your input: `Sep 15 2026 8pm`",
+            "message": {"id": "m",
+                        "content": f"-# From your input: `{SCHEDULE_TIME_TEXT}`",
                         "components": []},
         }
         data = self._body(di._handle_schedule_tz_region(payload))["data"]
@@ -2022,7 +2031,8 @@ class ScheduleUnlinkedTimezoneTests(ScheduleFixtureMixin, TestCase):
             "data": {"custom_id": di.encode_custom_id(
                 "schedule_tz_region", self.match.id, self.outsider.discord_id),
                 "values": ["america"]},
-            "message": {"id": "m", "content": "-# From your input: `Sep 15 2026 8pm`",
+            "message": {"id": "m",
+                        "content": f"-# From your input: `{SCHEDULE_TIME_TEXT}`",
                         "components": []},
         }
         data = self._body(di._handle_schedule_tz_region(payload))["data"]
@@ -2040,7 +2050,8 @@ class ScheduleUnlinkedTimezoneTests(ScheduleFixtureMixin, TestCase):
                 "schedule_tz_zone", di.SCHEDULE_NO_MATCH, "america",
                 self.player.discord_id),
                 "values": [TZ]},
-            "message": {"id": "m", "content": "-# From your input: `Sep 15 2026 8pm`",
+            "message": {"id": "m",
+                        "content": f"-# From your input: `{SCHEDULE_TIME_TEXT}`",
                         "components": []},
         }
         data = self._body(di._handle_schedule_tz_zone(payload))["data"]
@@ -2057,7 +2068,8 @@ class ScheduleUnlinkedTimezoneTests(ScheduleFixtureMixin, TestCase):
                 "schedule_tz_zone", di.SCHEDULE_NO_MATCH, "america",
                 self.player.discord_id),
                 "values": [TZ]},
-            "message": {"id": "m", "content": "-# From your input: `Sep 15 2026 8pm`",
+            "message": {"id": "m",
+                        "content": f"-# From your input: `{SCHEDULE_TIME_TEXT}`",
                         "components": []},
         }
         di._handle_schedule_tz_zone(payload)
@@ -8813,7 +8825,7 @@ class SchedulePickerTests(ScheduleFixtureMixin, TestCase):
     def _ids(self, *, thread_id=None, channel="555000111"):
         data = {
             "name": "schedule",
-            "options": [{"name": "time", "value": "Sep 15 2026 8pm"}],
+            "options": [{"name": "time", "value": SCHEDULE_TIME_TEXT}],
             "_guild_id": self.guild.guild_id,
             "_channel_id": thread_id or channel,
             "_channel_name": None,
@@ -8890,7 +8902,7 @@ class SchedulePickerTests(ScheduleFixtureMixin, TestCase):
         to get the time back out and paste it elsewhere."""
         data = {
             "name": "schedule",
-            "options": [{"name": "time", "value": "Sep 15 2026 8pm"}],
+            "options": [{"name": "time", "value": SCHEDULE_TIME_TEXT}],
             "_guild_id": self.guild.guild_id, "_channel_id": "555000111",
             "_channel_name": None, "_author_id": self.player.discord_id,
             "_author_username": "player",
@@ -8910,7 +8922,7 @@ class TimestampCommandTests(ScheduleFixtureMixin, TestCase):
         self.player.timezone = TZ
         self.player.save(update_fields=["timezone"])
 
-    def _data(self, time_text="Sep 15 2026 8pm", channel="555000111", **extra):
+    def _data(self, time_text=SCHEDULE_TIME_TEXT, channel="555000111", **extra):
         options = [{"name": "time", "value": time_text}] if time_text else []
         options += [{"name": k, "value": v} for k, v in extra.items()]
         return {
