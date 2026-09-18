@@ -802,7 +802,7 @@ def _resolve_compare_roster(request):
         if thread.series_id:
             series_id = str(thread.series_id)
         else:
-            title = thread.description or _('Game Thread')
+            title = thread.nickname or _('Game Thread')
             profiles = list(thread.players.all())
             if not (viewer and _can_view_lfg_availability(viewer, thread)):
                 can_view = False
