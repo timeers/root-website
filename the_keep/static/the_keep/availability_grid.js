@@ -121,7 +121,24 @@
     function changed() {
       updateCount();
       serialize();
+      if (initialized) { clearPreviewStriping(); }
       if (onChange && initialized) { onChange(); }
+    }
+
+    // Once the user starts this week's real selection (any mutation at all --
+    // paint, click, row/col toggle, even Clear), the striped
+    // avail-cell--general-preview cells no longer mean anything: saving now
+    // writes exactly what's selected, including nothing. Leaving stripes on
+    // untouched cells would read as "still implied/selected" when they are
+    // not. One-way and per-grid-instance: never reinstated by Clear, and does
+    // not affect other grids on the same page (e.g. multiple survey
+    // questions). `initialized` above already gates this out of the initial
+    // load/re-init paint, same as onChange.
+    var previewCleared = false;
+    function clearPreviewStriping() {
+      if (previewCleared) { return; }
+      previewCleared = true;
+      cells.forEach(function (c) { c.classList.remove('avail-cell--general-preview'); });
     }
 
     function initialSelection() {
@@ -290,8 +307,11 @@
     changed();          // runs with initialized still false -- no onChange yet.
     initialized = true;
 
-    // Handed back so a page can serialize on its own submit or timezone change.
-    return { serialize: serialize, grid: grid };
+    // Handed back so a page can serialize on its own submit or timezone
+    // change, and so a page-level action that paints cells directly (e.g.
+    // "Fill from General" in availability.html) can trigger the same
+    // one-way striping cleanup without duplicating it.
+    return { serialize: serialize, clearPreviewStriping: clearPreviewStriping, grid: grid };
   }
 
   window.initAvailabilityGrid = initAvailabilityGrid;

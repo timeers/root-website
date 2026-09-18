@@ -306,7 +306,15 @@ on the fresh DOM, rather than trying to reconstruct the grid client-side.
       cell.classList.toggle('is-selected', on);
       cell.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
-    if (gridApi) { gridApi.serialize(); }
+    // "Fill from General" is itself a real selection, same as a manual
+    // click/drag: once used, the striped general-preview cells no longer
+    // reflect anything real, so strip them here too. This bypasses
+    // availability_grid.js's own changed() (it paints classes directly), so
+    // it has to call the grid's exported cleanup explicitly.
+    if (gridApi) {
+      gridApi.serialize();
+      gridApi.clearPreviewStriping();
+    }
   }
 
   // ---- Toasts ---------------------------------------------------------------
