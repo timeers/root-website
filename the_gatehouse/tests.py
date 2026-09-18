@@ -190,7 +190,7 @@ class InlineGuildSyncOnLoginTests(TestCase):
             return_value=display_name)
         derive_p = mock.patch(
             'the_gatehouse.services.discord_oauth.derive_guild_membership',
-            return_value=(bool(guilds), False, False))
+            return_value=(bool(guilds), False, False, False))
         update_p = mock.patch(
             'the_gatehouse.services.discord_oauth.update_user_guilds')
         # refresh_user_guilds imports the predicate INSIDE the function, so it resolves
@@ -316,7 +316,7 @@ class RefreshUserGuildsBudgetTests(TestCase):
                         side_effect=slow_guilds), \
              mock.patch('the_gatehouse.services.discord_oauth.update_user_guilds'), \
              mock.patch('the_gatehouse.services.discord_oauth.derive_guild_membership',
-                        return_value=(True, False, False)), \
+                        return_value=(True, False, False, False)), \
              mock.patch('the_gatehouse.services.discord_oauth.get_discord_display_name'
                         ) as name:
             ok = tasks.refresh_user_guilds(self.user, budget=6)
@@ -351,7 +351,7 @@ class RefreshUserGuildsBudgetTests(TestCase):
                         return_value=[]) as get_guilds, \
              mock.patch('the_gatehouse.services.discord_oauth.update_user_guilds'), \
              mock.patch('the_gatehouse.services.discord_oauth.derive_guild_membership',
-                        return_value=(False, False, False)), \
+                        return_value=(False, False, False, False)), \
              mock.patch('the_gatehouse.services.discord_oauth.get_discord_display_name',
                         return_value='x'):
             tasks.refresh_user_guilds(self.user)
@@ -3148,7 +3148,7 @@ class DismissNotificationTests(_NoLoginSignalMixin, TestCase):
         self.assertNotIn(self.notification, shown())
 
 
-class TournamentGuildChannelsFormReminderTests(TestCase):
+class TournamentGuildAutomationFormReminderTests(TestCase):
     """The match-reminder formset on the Edit Guild series-channels form.
 
     Reminders are rows rather than a field now, so "off" is no rows and a
@@ -3296,6 +3296,21 @@ class ReminderModalSaveTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual(self.tournament.reminders.count(), 1)
         # The edit to the surviving row was rolled back with the bad one.
         self.assertEqual(self.tournament.reminders.get().reminder_text, "keep me")
+
+    def test_thread_message_saves_through_the_modal(self):
+        """thread_message rides on this same guild-plumbing form/endpoint as the
+        channel ids -- it's gated by the same guild-moderator permission, not
+        edited from the tournament's own content form."""
+        data = {"results_channel": "", "schedule_channel": "",
+                "game_threads_channel": "", "game_threads_tag": "",
+                "thread_message": "Record it [here]({record_link}).",
+                "reminders-TOTAL_FORMS": "0", "reminders-INITIAL_FORMS": "0",
+                "reminders-MIN_NUM_FORMS": "0", "reminders-MAX_NUM_FORMS": "1000"}
+        response = self.client.post(self.url, data, HTTP_HX_REQUEST="true")
+        self.assertEqual(response.status_code, 200)
+        self.tournament.refresh_from_db()
+        self.assertEqual(self.tournament.thread_message,
+                         "Record it [here]({record_link}).")
 
 
 class RenderDescriptionMarkdownTests(TestCase):

@@ -34,7 +34,8 @@ from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, Asse
                      effort_counts_for_round_q, effort_counts_for_stage_q,
                      effort_counts_for_tournament_q,
                      game_counts_for_round_q, game_counts_for_stage_q,
-                     game_counts_for_tournament_q)
+                     game_counts_for_tournament_q,
+                     first_supported_tab)
 from .services.grouping import GroupingService, build_opponent_history
 from .services.box_score_import import (
     BoxScoreImportError, grid_cells_from_turns, parse_box_score_json, resolve_import)
@@ -3436,6 +3437,39 @@ def _attach_counted_game_player_counts(children):
     return children
 
 
+def tournament_landing_page(request, slug):
+    """Canonical tournament URL: renders whichever tab is first in tab_order,
+    in place (no redirect), so the address bar stays on the bare URL."""
+    from the_tavern.views import tournament_surveys_view
+
+    tournament = get_object_or_404(Tournament, slug=slug.lower())
+
+    bracket_view_by_url_name = {
+        'tournament-matches-page': tournament_matches_page,
+        'tournament-bracket-page': tournament_bracket_page,
+    }
+    tab_views = {
+        'overview': tournament_overview_page,
+        'leaderboard': tournament_leaderboard_page,
+        'games': tournament_games_page,
+        'players': tournament_roster_page,
+        'details': tournament_details_page,
+    }
+
+    key = first_supported_tab(tournament.visible_tabs(), tournament.TAB_URL_NAMES) or 'overview'
+
+    if key == 'bracket':
+        view = bracket_view_by_url_name[tournament._bracket_url_name()]
+        return view(request, slug=slug)
+    if key == 'surveys':
+        return tournament_surveys_view(request, tournament_slug=slug)
+    if key == 'elo':
+        return tournament_elo_page(request, tournament_slug=slug)
+
+    view = tab_views.get(key, tournament_overview_page)
+    return view(request, slug=slug)
+
+
 def tournament_overview_page(request, slug):
     tournament = get_object_or_404(Tournament, slug=slug.lower())
 
@@ -4745,6 +4779,49 @@ def user_can_record_in_round(tournament_round, user, as_role=None):
         tournament_player__profile=user.profile,
         status=StageParticipant.ParticipantStatus.ACTIVE,
     ).exists()
+
+
+def round_landing_page(request, tournament_slug, round_slug, stage_slug=None):
+    """Canonical round URL: renders whichever tab is first in the tournament's
+    tab_order, in place (no redirect), so the address bar stays on the bare URL."""
+    from the_warroom.utils import get_single_stage
+
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+
+    if stage_slug:
+        stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    else:
+        stage = get_single_stage(tournament)
+        if not stage:
+            return redirect(tournament.get_absolute_url())
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    # No rounds at this stage -- the round-scoped bare URL shouldn't exist in
+    # that layout, but fall back to the stage's own landing rather than 404.
+    if not stage.use_rounds:
+        return redirect(stage.get_absolute_url())
+
+    tab_views = {
+        'overview': round_overview_page,
+        'leaderboard': round_leaderboard_page,
+        'games': round_games_page,
+        'players': round_roster_page,
+        'details': round_details_page,
+    }
+
+    key = first_supported_tab(tournament.visible_tabs(), Round.ROUND_TAB_URL_METHODS) or 'overview'
+
+    if key == 'bracket':
+        # stage.use_rounds is guaranteed True here (checked above), so only
+        # Round.get_matches_url()'s first and last branches are reachable --
+        # mirrors that method's logic, dispatching to the view instead of
+        # reversing to its URL.
+        if tournament._is_simple_matches_mode():
+            return tournament_matches_page(request, slug=tournament.slug)
+        return round_matches_page(request, tournament_slug=tournament_slug, round_slug=round_slug, stage_slug=stage_slug)
+
+    view = tab_views.get(key, round_overview_page)
+    return view(request, tournament_slug=tournament_slug, round_slug=round_slug, stage_slug=stage_slug)
 
 
 def round_overview_page(request, tournament_slug, round_slug, stage_slug=None):
@@ -6281,6 +6358,41 @@ def stage_manage_view(request, tournament_slug, stage_slug=None):
         'is_double_elim': current_format == FormatChoices.DOUBLE_ELIM,
     }
     return render(request, 'the_warroom/stage_form.html', context)
+
+
+def stage_landing_page(request, tournament_slug, stage_slug):
+    """Canonical stage URL: renders whichever tab is first in the tournament's
+    tab_order, in place (no redirect), so the address bar stays on the bare URL."""
+    from the_tavern.views import tournament_surveys_view
+
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    if not tournament.use_stages:
+        return redirect(tournament.get_absolute_url())
+
+    bracket_view_by_url_name = {
+        'stage-bracket-page': stage_bracket_page,
+        'stage-matches-page': stage_matches_page,
+    }
+    tab_views = {
+        'overview': stage_overview_page,
+        'leaderboard': stage_leaderboard_page,
+        'games': stage_games_page,
+        'players': stage_roster_page,
+        'details': stage_details_page,
+    }
+
+    key = first_supported_tab(tournament.visible_tabs(), stage.TAB_URL_NAMES) or 'overview'
+
+    if key == 'bracket':
+        view = bracket_view_by_url_name[stage._bracket_url_name()]
+        return view(request, tournament_slug=tournament_slug, stage_slug=stage_slug)
+    if key == 'surveys':
+        return tournament_surveys_view(request, tournament_slug=tournament_slug, stage_slug=stage_slug)
+
+    view = tab_views.get(key, stage_overview_page)
+    return view(request, tournament_slug=tournament_slug, stage_slug=stage_slug)
 
 
 def stage_overview_page(request, tournament_slug, stage_slug):

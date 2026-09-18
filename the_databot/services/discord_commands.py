@@ -12,8 +12,8 @@ Add a new command by defining it here and adding it to COMMANDS (and, if it has
 behaviour, a handler in discord_interactions.py). Keeping definitions here means
 `/help` picks the command up automatically.
 
-The nine component lookups are SUBCOMMANDS of one /lookup command (see
-LOOKUP_SUBCOMMANDS) rather than nine top-level commands, so they take one slot in
+The component lookups (plus /card and /law) are SUBCOMMANDS of one /lookup command
+(see LOOKUP_SUBCOMMANDS) rather than top-level commands, so they take one slot in
 Discord's command picker. Each subcommand is still whitelisted individually --
 Discord only registers commands, so a guild's choices are honoured by varying
 /lookup's options (lookup_command_for_guild).
@@ -67,13 +67,47 @@ LOOKUP_SUBCOMMANDS = [_lookup_subcommand(n, l) for n, l in (
     ("houserule", "house rule"),
 )]
 
+# /card and /law join the lookups as subcommands below rather than through
+# _lookup_subcommand: unlike the nine above, they don't share its single
+# required "name" option shape (each has its own bespoke option list), so
+# they're defined the same way the standalone commands were, just with
+# type: 1 added and folded into this list. Their names double as their
+# whitelist keys (see subcommand_key) -- same "keep the old top-level name"
+# trick, so an existing guild's enabled_commands needs no migration.
+LOOKUP_SUBCOMMANDS += [
+    {
+        "name": "card",
+        "description": "Look up an individual card by name, source, or suit",
+        "type": 1,  # SUB_COMMAND
+        "options": [
+            {"name": "name", "description": "Card name to search",
+             "type": 3, "required": True, "autocomplete": True},
+            {"name": "from", "description": "Post the card is from",
+             "type": 3, "required": False, "autocomplete": True},
+            {"name": "tag", "description": "Card suit / tag",
+             "type": 3, "required": False,
+             "choices": [{"name": label, "value": value} for value, label in CardTag.choices]},
+        ],
+    },
+    {
+        "name": "law",
+        "description": "Look up a Root law by code/title, post, or text",
+        "type": 1,  # SUB_COMMAND
+        "options": [
+            {"name": "law", "description": "Law code or title", "type": 3, "required": False, "autocomplete": True},
+            {"name": "text", "description": "Text to search within the law", "type": 3, "required": False},
+            {"name": "post", "description": "Faction / component the law belongs to", "type": 3, "required": False, "autocomplete": True},
+        ],
+    },
+]
+
 LOOKUP_SUBCOMMAND_NAMES = [s["name"] for s in LOOKUP_SUBCOMMANDS]
 
 # The base COMMANDS entry (registration template + the full /help listing) carries every
 # subcommand; the per-guild subset is built by lookup_command_for_guild.
 LOOKUP_COMMAND = {
     "name": LOOKUP_COMMAND_NAME,
-    "description": "Look up a Root component by name",
+    "description": "Look up a Root component or law by name",
     "options": LOOKUP_SUBCOMMANDS,
 }
 
@@ -141,21 +175,6 @@ LINK_COMMAND = {
     "name": LINK_COMMAND_NAME,
     "description": "Link an external account to your profile",
     "options": LINK_SUBCOMMANDS,
-}
-
-
-CARD_COMMAND = {
-    "name": "card",
-    "description": "Look up an individual card by name, source, or suit",
-    "options": [
-        {"name": "name", "description": "Card name to search",
-         "type": 3, "required": True, "autocomplete": True},
-        {"name": "from", "description": "Post the card is from",
-         "type": 3, "required": False, "autocomplete": True},
-        {"name": "tag", "description": "Card suit / tag",
-         "type": 3, "required": False,
-         "choices": [{"name": label, "value": value} for value, label in CardTag.choices]},
-    ],
 }
 
 
@@ -332,17 +351,6 @@ def help_command_for_guild(enabled_names):
     return copy.deepcopy(HELP_COMMAND_BASE)
 
 
-LAW_COMMAND = {
-    "name": "law",
-    "description": "Look up a Root law by code/title, post, or text",
-    "options": [
-        {"name": "law", "description": "Law code or title", "type": 3, "required": False, "autocomplete": True},
-        {"name": "text", "description": "Text to search within the law", "type": 3, "required": False},
-        {"name": "post", "description": "Faction / component the law belongs to", "type": 3, "required": False, "autocomplete": True},
-    ],
-}
-
-
 # Platform values for /draft, shared with the handlers in discord_interactions.py
 # so the value strings (which also match the site's platform labels) have a single
 # source of truth.
@@ -434,7 +442,7 @@ BOXSCORE_SUBCOMMANDS = [
     {
         "name": "token",
         "whitelist_key": "boxscore_token",
-        "description": "Get a one-time token so the TTS object can upload this game",
+        "description": "Get a one-time token so the TTS Boxscore can upload this game",
         "type": 1,  # SUB_COMMAND
     },
 ]
@@ -687,14 +695,12 @@ LFG_HELP_STEPS = [
 COMMANDS = [
     HELP_COMMAND,
     LOOKUP_COMMAND,
-    CARD_COMMAND,
     STATS_COMMAND,
     UPCOMING_COMMAND,
     SCHEDULE_COMMAND,
     TIMESTAMP_COMMAND,
     AVAILABILITY_COMMAND,
     RECORD_COMMAND,
-    LAW_COMMAND,
     DRAFT_COMMAND,
     SEATING_COMMAND,
     PICK_COMMAND,

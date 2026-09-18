@@ -4646,7 +4646,10 @@ class MatchReminderResetTests(TestCase):
         self.group.save(update_fields=["discord_thread"])
 
         # Move it into the window; the setUp claim must not suppress this.
-        new_time = timezone.now() + timedelta(minutes=30)
+        # +35, not +30: the target moment (scheduled - the 60m lead) then
+        # lands at now-25, with margin inside the sweep's catch-up window
+        # rather than sitting exactly on its boundary.
+        new_time = timezone.now() + timedelta(minutes=35)
         self.match.scheduled_time = new_time
         self.match.save(update_fields=["scheduled_time"])
 

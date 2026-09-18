@@ -568,7 +568,7 @@ class GuildLFGRoleForm(forms.ModelForm):
                   'restricted_channel_id', 'thread_message']
         widgets = {
             'description': forms.Textarea(attrs={'rows': 2}),
-            'thread_message': forms.Textarea(attrs={'rows': 2}),
+            'thread_message': forms.Textarea(attrs={'rows': 3, 'class': 'form-control'}),
         }
 
     def __init__(self, *args, guild=None, **kwargs):
@@ -618,7 +618,7 @@ def make_reminder_formset(*args, **kwargs):
 
     Built HERE rather than as a module-level constant: inlineformset_factory
     resolves both models when it runs, and doing that at import time is the same
-    the_warroom <-> the_gatehouse cycle TournamentGuildChannelsForm.Meta dodges
+    the_warroom <-> the_gatehouse cycle TournamentGuildAutomationForm.Meta dodges
     with apps.get_model (see its comment) -- and it could also run before the app
     registry is ready.
 
@@ -641,7 +641,7 @@ def make_reminder_formset(*args, **kwargs):
     return formset_cls(*args, **kwargs)
 
 
-class TournamentGuildChannelsForm(forms.ModelForm):
+class TournamentGuildAutomationForm(forms.ModelForm):
     """The Discord channels a series posts into. Guild plumbing, edited from the Edit
     Guild page rather than any tournament form.
 
@@ -660,7 +660,10 @@ class TournamentGuildChannelsForm(forms.ModelForm):
         # (GuildLFGRoleForm dodges the same problem with a function-local import).
         model = apps.get_model('the_warroom', 'Tournament')
         fields = ['results_channel', 'schedule_channel', 'game_threads_channel',
-                  'game_threads_tag']
+                  'game_threads_tag', 'thread_message']
+        widgets = {
+            'thread_message': forms.Textarea(attrs={'rows': 3, 'class': 'form-control'}),
+        }
 
     def __init__(self, *args, guild=None, **kwargs):
         # `guild` is not a form field — it's the guild whose channels are valid choices,

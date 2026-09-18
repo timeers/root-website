@@ -69,6 +69,14 @@ TZ = "America/New_York"
 # A fixed "now" so date-rollover and range assertions don't drift with the clock.
 NOW = datetime(2026, 8, 17, 15, 0, tzinfo=dt_timezone.utc)
 
+# A time text with NO year, so parse_user_datetime's "roll a yearless past date
+# forward" logic (services/time_parsing.py:429-436) keeps it valid indefinitely,
+# relative to whatever the real clock is when the suite runs -- unlike a fixed
+# "Sep 15 2026 8pm", which silently starts failing once the real date passes it.
+# Used by handler-level tests below that call the real clock (no now= override);
+# ParseUserDatetimeTests above is unaffected -- it always passes now=NOW.
+SCHEDULE_TIME_TEXT = "Sep 15 8pm"
+
 
 class ParseUserDatetimeTests(TestCase):
     """The parser accepts absolute date+time and epoch forms, resolves dateless
@@ -788,7 +796,7 @@ class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
     # it being read as "use the default".
     UNSET = object()
 
-    def _data(self, time="Sep 15 2026 8pm", tz=None, author=UNSET, channel=UNSET,
+    def _data(self, time=SCHEDULE_TIME_TEXT, tz=None, author=UNSET, channel=UNSET,
               guild=UNSET, channel_name=None):
         # time=None omits the option entirely, which is how Discord sends an
         # unfilled optional option — i.e. the clear flow.
@@ -860,7 +868,7 @@ class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
         # The typed time has to survive to the next interaction.
         self.assertEqual(
             di._schedule_input_text({"message": {"content": body["data"]["content"]}}),
-            "Sep 15 2026 8pm")
+            SCHEDULE_TIME_TEXT)
 
     def test_timezone_option_not_saved_when_time_is_bad(self):
         """The option and the time are one command: a bad time saves neither."""
@@ -1090,7 +1098,7 @@ class ScheduleTimezoneSelectTests(ScheduleFixtureMixin, TestCase):
     follows. Component handlers take the raw payload — none of the dispatcher's
     underscore keys — and recover the typed time from the message itself."""
 
-    TIME = "Sep 15 2026 8pm"
+    TIME = SCHEDULE_TIME_TEXT
 
     def setUp(self):
         self.build()
@@ -1486,7 +1494,7 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
         self.player.timezone = TZ
         self.player.save(update_fields=["timezone"])
 
-    def _data(self, time="Sep 15 2026 8pm", channel=None, author=None):
+    def _data(self, time=SCHEDULE_TIME_TEXT, channel=None, author=None):
         options = [] if time is None else [{"name": "time", "value": time}]
         return {
             "name": "schedule", "options": options,
@@ -1990,7 +1998,7 @@ class ScheduleUnlinkedTimezoneTests(ScheduleFixtureMixin, TestCase):
     def test_no_timezone_opens_the_region_picker_with_the_sentinel(self):
         data = self._body(di._handle_schedule_command({
             "name": "schedule",
-            "options": [{"name": "time", "value": "Sep 15 2026 8pm"}],
+            "options": [{"name": "time", "value": SCHEDULE_TIME_TEXT}],
             "_guild_id": self.guild.guild_id,
             "_channel_id": self.UNLINKED_CHANNEL,
             "_channel_name": None,
@@ -2008,7 +2016,8 @@ class ScheduleUnlinkedTimezoneTests(ScheduleFixtureMixin, TestCase):
             "data": {"custom_id": di.encode_custom_id(
                 "schedule_tz_region", di.SCHEDULE_NO_MATCH, self.player.discord_id),
                 "values": ["america"]},
-            "message": {"id": "m", "content": "-# From your input: `Sep 15 2026 8pm`",
+            "message": {"id": "m",
+                        "content": f"-# From your input: `{SCHEDULE_TIME_TEXT}`",
                         "components": []},
         }
         data = self._body(di._handle_schedule_tz_region(payload))["data"]
@@ -2022,7 +2031,8 @@ class ScheduleUnlinkedTimezoneTests(ScheduleFixtureMixin, TestCase):
             "data": {"custom_id": di.encode_custom_id(
                 "schedule_tz_region", self.match.id, self.outsider.discord_id),
                 "values": ["america"]},
-            "message": {"id": "m", "content": "-# From your input: `Sep 15 2026 8pm`",
+            "message": {"id": "m",
+                        "content": f"-# From your input: `{SCHEDULE_TIME_TEXT}`",
                         "components": []},
         }
         data = self._body(di._handle_schedule_tz_region(payload))["data"]
@@ -2040,7 +2050,8 @@ class ScheduleUnlinkedTimezoneTests(ScheduleFixtureMixin, TestCase):
                 "schedule_tz_zone", di.SCHEDULE_NO_MATCH, "america",
                 self.player.discord_id),
                 "values": [TZ]},
-            "message": {"id": "m", "content": "-# From your input: `Sep 15 2026 8pm`",
+            "message": {"id": "m",
+                        "content": f"-# From your input: `{SCHEDULE_TIME_TEXT}`",
                         "components": []},
         }
         data = self._body(di._handle_schedule_tz_zone(payload))["data"]
@@ -2057,7 +2068,8 @@ class ScheduleUnlinkedTimezoneTests(ScheduleFixtureMixin, TestCase):
                 "schedule_tz_zone", di.SCHEDULE_NO_MATCH, "america",
                 self.player.discord_id),
                 "values": [TZ]},
-            "message": {"id": "m", "content": "-# From your input: `Sep 15 2026 8pm`",
+            "message": {"id": "m",
+                        "content": f"-# From your input: `{SCHEDULE_TIME_TEXT}`",
                         "components": []},
         }
         di._handle_schedule_tz_zone(payload)
@@ -2590,6 +2602,66 @@ class LFGNicknameFromTitleTests(TestCase):
         thread.save(update_fields=["nickname"])
         again = self._run("Chaos 4p", role_id=self.role.role_id)
         self.assertEqual(again.nickname, "Renamed")
+
+
+class LFGThreadMessageTests(TestCase):
+    """role.thread_message riding along with the kickoff -- and, when it uses a
+    {record_link}/{availability_link} placeholder, sent as a follow-up once the
+    LFGThread row (and so its pk, for ?lfg=<pk> links) exists."""
+
+    SITE = "https://www.therootdatabase.com"
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(guild_id="900000000000000088",
+                                                 name="Guild")
+
+    def _run(self, thread_message, thread_id="960000000000000088"):
+        self.role = GuildLFGRole.objects.create(
+            guild=self.guild, name="Digital LFG", role_id="910000000000000088",
+            thread_message=thread_message)
+        with mock.patch("the_databot.services.discordservice.create_message_thread",
+                        return_value=thread_id), \
+                mock.patch("the_databot.services.discordservice.create_forum_thread"), \
+                mock.patch("the_databot.services.discordservice.post_channel_message") as post, \
+                mock.patch.object(link_lfg_message_task, "apply_async"), \
+                mock.patch.dict(di.config, {"SITE_URL": self.SITE}):
+            create_lfg_thread_task(
+                "chan", "msg", self.guild.guild_id, self.role.role_id, "",
+                [{"id": "1", "name": "Bob"}], {"title": "Casual Game"},
+            )
+        thread = LFGThread.objects.get(thread_id=thread_id)
+        return post, thread
+
+    def test_a_plain_message_with_no_tokens_rides_with_the_kickoff(self):
+        """Unchanged legacy behavior: one message, text appended."""
+        post, _ = self._run("Please review the rules before starting.")
+        post.assert_called_once()
+        content = post.call_args.args[1]
+        self.assertIn("your game can start!", content)
+        self.assertIn("Please review the rules before starting.", content)
+
+    def test_a_message_with_a_record_link_token_is_a_follow_up(self):
+        post, thread = self._run("Record it [here]({record_link}).")
+        self.assertEqual(post.call_count, 2)
+        kickoff = post.call_args_list[0].args[1]
+        followup = post.call_args_list[1].args[1]
+        self.assertIn("your game can start!", kickoff)
+        self.assertNotIn("Record it", kickoff)
+        self.assertIn(f"[here]({self.SITE}/record/game/?lfg={thread.pk})", followup)
+
+    def test_an_availability_link_token_resolves_to_the_threads_own_pk(self):
+        post, thread = self._run("Compare availability [here]({availability_link}).")
+        followup = post.call_args_list[1].args[1]
+        self.assertIn(f"[here]({self.SITE}/availability/compare/?lfg={thread.pk})",
+                      followup)
+
+    def test_a_rules_link_token_with_no_linked_tournament_is_blank(self):
+        """No literal "{rules_link}" or the word "None" leaks into the message."""
+        post, _ = self._run("Rules: [here]({rules_link}).")
+        followup = post.call_args_list[1].args[1]
+        self.assertNotIn("{rules_link}", followup)
+        self.assertNotIn("None", followup)
+        self.assertIn("Rules: [here]().", followup)
 
 
 class LFGCancelNotifyTests(TestCase):
@@ -4325,14 +4397,14 @@ class LookupCommandShapeTests(TestCase):
         cmd = dc.lookup_command_for_guild(["faction"])
         cmd["options"].append({"name": "X"})
         cmd["options"][0]["description"] = "mutated"
-        self.assertEqual(len(dc.LOOKUP_COMMAND["options"]), 9)
+        self.assertEqual(len(dc.LOOKUP_COMMAND["options"]), len(dc.LOOKUP_SUBCOMMANDS))
         self.assertNotEqual(dc.LOOKUP_SUBCOMMANDS[0]["description"], "mutated")
 
     def test_every_lookup_subcommand_is_whitelistable(self):
         """Each stays an individual toggle -- and under its OLD top-level name, which
         is what lets an existing guild's enabled_commands survive without a migration."""
         for name in ("faction", "clockwork", "map", "deck", "vagabond",
-                     "captain", "landmark", "hireling", "houserule"):
+                     "captain", "landmark", "hireling", "houserule", "card", "law"):
             with self.subTest(sub=name):
                 self.assertIn(name, dc.WHITELISTABLE)
 
@@ -4357,30 +4429,30 @@ class LookupCommandShapeTests(TestCase):
         rows = {n: label for _g, rs in dc.grouped_commands() for n, label, _d in rs}
         self.assertEqual(rows["faction"], "lookup faction")
         self.assertEqual(rows["captain"], "lookup captain")
-        self.assertEqual(rows["card"], "card")
+        self.assertEqual(rows["card"], "lookup card")
+        self.assertEqual(rows["law"], "lookup law")
         self.assertNotIn("lookup", rows)
 
     def test_the_databot_page_collapses_parents_to_one_row(self):
         """The public page lists everything with no guild to filter against, so
-        nine near-identical /lookup rows are noise there."""
+        eleven near-identical /lookup rows are noise there."""
         rows = {n: label for _g, rs in dc.grouped_commands(collapse_parents=True)
                 for n, label, _d in rs}
         self.assertEqual(rows["lookup"], "lookup")
         self.assertEqual(rows["link"], "link")
         self.assertNotIn("faction", rows)      # subcommands are folded in
         self.assertNotIn("steam", rows)
+        self.assertNotIn("card", rows)         # card/law are subcommands too now
+        self.assertNotIn("law", rows)
         # Top-level commands are untouched.
-        self.assertEqual(rows["card"], "card")
         self.assertEqual(rows["boxscore"], "boxscore")
 
     def test_collapsing_keeps_the_group_ordering(self):
         groups = dict((g, [l for _n, l, _d in rs])
                       for g, rs in dc.grouped_commands(collapse_parents=True))
-        # /lookup sits where its subcommands did, between /law and /card. The
-        # rest of the group is asserted by position rather than as a frozen
-        # list, so regrouping a command in COMMAND_GROUPS does not break this
-        # -- what matters here is that collapsing preserves ordering.
-        self.assertEqual(groups["Lookups"][:3], ["law", "lookup", "card"])
+        # law, faction, ..., card all collapse to the single /lookup row, with
+        # stats (a plain top-level command) the only other Lookups entry left.
+        self.assertEqual(groups["Lookups"], ["lookup", "stats"])
         self.assertEqual(groups["Account"], ["link"])
         self.assertNotIn("Other", groups)      # nothing fell through
 
@@ -8050,7 +8122,9 @@ class LookupDispatchTests(TestCase):
         self.assertNotIn("Lookup Tinker", names)
 
     def test_every_subcommand_has_an_autocomplete_handler(self):
-        for name in dc.LOOKUP_SUBCOMMAND_NAMES:
+        # card/law are excluded here: unlike the other subcommands they don't share
+        # the uniform "name" option, so their keys are pinned individually below.
+        for name in (n for n in dc.LOOKUP_SUBCOMMAND_NAMES if n not in ("card", "law")):
             with self.subTest(sub=name):
                 self.assertIn((f"lookup {name}", "name"), di.AUTOCOMPLETE_HANDLERS)
 
@@ -8064,11 +8138,25 @@ class LookupDispatchTests(TestCase):
     def test_plain_command_autocompletes_are_untouched(self):
         # /schedule is deliberately absent: it took subcommands, so its key moved
         # to the composite ("schedule set", "timezone") -- see
-        # ScheduleCommandShapeTests, which pins that.
-        for key in (("card", "name"), ("law", "law"), ("stats", "player"),
-                    ("upcoming", "series")):
+        # ScheduleCommandShapeTests, which pins that. /card and /law are also
+        # absent: they moved under /lookup too, so their keys are now
+        # ("lookup card", ...) / ("lookup law", ...) -- see
+        # test_card_and_law_autocompletes_use_the_composite_key.
+        for key in (("stats", "player"), ("upcoming", "series")):
             with self.subTest(key=key):
                 self.assertIn(key, di.AUTOCOMPLETE_HANDLERS)
+
+    def test_card_and_law_autocompletes_use_the_composite_key(self):
+        """/card and /law moved under /lookup, so their autocomplete keys moved to
+        the composite "<parent> <sub>" form, same as every other /lookup subcommand."""
+        for key in (("lookup card", "name"), ("lookup card", "from"),
+                    ("lookup law", "law"), ("lookup law", "post")):
+            with self.subTest(key=key):
+                self.assertIn(key, di.AUTOCOMPLETE_HANDLERS)
+        for key in (("card", "name"), ("card", "from"),
+                    ("law", "law"), ("law", "post")):
+            with self.subTest(key=key):
+                self.assertNotIn(key, di.AUTOCOMPLETE_HANDLERS)
 
     def test_a_subcommand_autocomplete_uses_the_composite_key(self):
         """The dispatcher builds "<parent> <sub>", so a parent that grows
@@ -8077,11 +8165,14 @@ class LookupDispatchTests(TestCase):
 
     def test_guarded_set_and_handlers_cover_the_same_subcommands(self):
         """The two are built from different sources (LOOKUP_QUERYSETS + "captain" vs
-        the handler registry), so assert they can't drift apart."""
+        the handler registry), so assert they can't drift apart. card/law are the one
+        deliberate exception: they moved under /lookup but never captured into the roll
+        log, so they're excluded from the roster guard on both sides."""
         guarded = {n.split(" ", 1)[1] for n in di.ROSTER_GUARDED_COMMANDS
                    if n.startswith("lookup ")}
-        self.assertEqual(guarded, set(di.LOOKUP_SUBCOMMAND_HANDLERS))
-        self.assertEqual(guarded, set(dc.LOOKUP_SUBCOMMAND_NAMES))
+        handled = set(di.LOOKUP_SUBCOMMAND_HANDLERS) - {"card", "law"}
+        self.assertEqual(guarded, handled)
+        self.assertEqual(guarded, set(dc.LOOKUP_SUBCOMMAND_NAMES) - {"card", "law"})
 
 
 class RosterGuardedCommandTests(TestCase):
@@ -8794,7 +8885,7 @@ class SchedulePickerTests(ScheduleFixtureMixin, TestCase):
     def _ids(self, *, thread_id=None, channel="555000111"):
         data = {
             "name": "schedule",
-            "options": [{"name": "time", "value": "Sep 15 2026 8pm"}],
+            "options": [{"name": "time", "value": SCHEDULE_TIME_TEXT}],
             "_guild_id": self.guild.guild_id,
             "_channel_id": thread_id or channel,
             "_channel_name": None,
@@ -8871,7 +8962,7 @@ class SchedulePickerTests(ScheduleFixtureMixin, TestCase):
         to get the time back out and paste it elsewhere."""
         data = {
             "name": "schedule",
-            "options": [{"name": "time", "value": "Sep 15 2026 8pm"}],
+            "options": [{"name": "time", "value": SCHEDULE_TIME_TEXT}],
             "_guild_id": self.guild.guild_id, "_channel_id": "555000111",
             "_channel_name": None, "_author_id": self.player.discord_id,
             "_author_username": "player",
@@ -8891,7 +8982,7 @@ class TimestampCommandTests(ScheduleFixtureMixin, TestCase):
         self.player.timezone = TZ
         self.player.save(update_fields=["timezone"])
 
-    def _data(self, time_text="Sep 15 2026 8pm", channel="555000111", **extra):
+    def _data(self, time_text=SCHEDULE_TIME_TEXT, channel="555000111", **extra):
         options = [{"name": "time", "value": time_text}] if time_text else []
         options += [{"name": k, "value": v} for k, v in extra.items()]
         return {
@@ -11850,6 +11941,49 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
         self.assertIn("1 failed", note.message)
         self.assertNotIn("may require a tag", note.message)
 
+    # --- thread_message -----------------------------------------------------------
+    # Unlike the LFG-thread kickoff, this can go straight into the first message: the
+    # MatchSeries/PlayerGroup already exist (fetched by the queryset before this task
+    # ever calls Discord), so ?match=/?series= links need no follow-up step.
+
+    SITE = "https://www.therootdatabase.com"
+
+    def test_a_thread_message_with_link_tokens_is_in_the_first_post(self):
+        self.tournament.thread_message = (
+            "Record it [here]({record_link}) or compare availability "
+            "[here]({availability_link}).")
+        self.tournament.save()
+        with mock.patch.dict(di.config, {"SITE_URL": self.SITE}):
+            create = self._run()
+        content = create.call_args.kwargs["content"]
+        self.assertIn(
+            f"[here]({self.SITE}/record/game/?match={self.series.id})", content)
+        self.assertIn(
+            f"[here]({self.SITE}/availability/compare/?series={self.series.id})",
+            content)
+
+    def test_a_rules_link_token_uses_the_tournaments_rules_link(self):
+        self.tournament.thread_message = "Rules: [here]({rules_link})."
+        self.tournament.rules_link = "https://docs.google.com/document/d/abc"
+        self.tournament.save()
+        create = self._run()
+        content = create.call_args.kwargs["content"]
+        self.assertIn("Rules: [here](https://docs.google.com/document/d/abc).", content)
+
+    def test_a_rules_link_token_with_no_rules_link_is_blank(self):
+        self.tournament.thread_message = "Rules: [here]({rules_link})."
+        self.tournament.save()
+        create = self._run()
+        content = create.call_args.kwargs["content"]
+        self.assertNotIn("{rules_link}", content)
+        self.assertNotIn("None", content)
+        self.assertIn("Rules: [here]().", content)
+
+    def test_no_thread_message_leaves_content_unchanged(self):
+        create = self._run()
+        content = create.call_args.kwargs["content"]
+        self.assertTrue(content.strip().endswith("your match is ready!"))
+
 
 class CreateForumThreadResultTests(TestCase):
     """create_forum_thread_result: the payload it builds and what it reports back."""
@@ -11926,7 +12060,7 @@ class CreateForumThreadResultTests(TestCase):
         self.assertEqual(result, ("77", None))
 
 
-class TournamentGuildChannelsFormTagTests(TestCase):
+class TournamentGuildAutomationFormTagTests(TestCase):
     """Tag validation on the series-channels form. Catches a tag-required forum at SAVE
     time, so the moderator fixes it here rather than discovering it as a round of failed
     threads later."""
@@ -11946,7 +12080,7 @@ class TournamentGuildChannelsFormTagTests(TestCase):
 
     def _form(self, data, requires_tag=False, info=_UNSET):
         """Bind the form with Discord's channel lists and forum info stubbed."""
-        from the_gatehouse.forms import TournamentGuildChannelsForm
+        from the_gatehouse.forms import TournamentGuildAutomationForm
         finfo = ({"is_forum": True, "requires_tag": requires_tag, "tags": self.TAGS}
                  if info is self._UNSET else info)
         with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
@@ -11955,7 +12089,7 @@ class TournamentGuildChannelsFormTagTests(TestCase):
                         return_value=self.FORUM), \
              mock.patch("the_databot.services.discordservice.get_forum_channel_info",
                         return_value=finfo):
-            form = TournamentGuildChannelsForm(
+            form = TournamentGuildAutomationForm(
                 data, instance=self.tournament, guild=self.guild)
             form.is_valid()
         return form
@@ -14185,6 +14319,13 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
                                              discord_id=self.AUTHOR)
         self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
         self.thread.players.set([self.player])
+        # _run() posts a public "token generated" followup on every call; patch it
+        # at the class level so tests that don't care about it aren't sending real
+        # Celery messages, and let the one test that DOES care install its own mock
+        # to inspect (that patch shadows this one for the duration of its `with`).
+        patcher = mock.patch.object(di.post_interaction_followup_task, "apply_async")
+        self.mock_followup = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _run(self):
         data = {
@@ -14193,6 +14334,7 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
             "_channel_id": self.THREAD_ID, "_channel_type": 11,
             "_author_id": self.AUTHOR, "_author_username": "tokplayer",
             "_author": {"name": "tokplayer"}, "_guild_id": None,
+            "_token": "itok",
         }
         response = di._handle_boxscore_command(data)
         return json.loads(response.content)["data"]
@@ -14203,6 +14345,27 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
         # everyone who can read the channel.
         self.assertEqual(data["flags"], di.EPHEMERAL)
         self.assertEqual(BoxScoreUploadToken.objects.count(), 1)
+
+    def test_it_announces_publicly_that_a_token_was_generated(self):
+        """The token stays ephemeral, but the rest of the game's players get a
+        public heads-up (as a followup, since an interaction can only carry one
+        initial response) that one was issued."""
+        data = self._run()
+
+        self.mock_followup.assert_called_once()
+        args, kwargs = self.mock_followup.call_args
+        token, message_data = args[0]
+        self.assertEqual(token, "itok")
+        self.assertNotIn("flags", message_data)  # no EPHEMERAL flag: public
+        self.assertIn(f"<@{self.AUTHOR}>", message_data["content"])
+        self.assertIn("Export", message_data["content"])
+        self.assertIn("Tabletop Simulator", message_data["content"])
+        self.assertEqual(kwargs.get("countdown"), 2)
+        # The rerun tip moved here, off the ephemeral reply.
+        self.assertIn("rerun `/boxscore token`", message_data["content"])
+        self.assertNotIn("rerun", data["content"])
+        # The token itself must never appear in the public message.
+        self.assertNotIn("```", message_data["content"])
 
     def test_only_the_hash_is_stored(self):
         data = self._run()
@@ -15404,7 +15567,11 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         self.guild.bot_member = True
         self.guild.save(update_fields=["bot_member"])
         self.reminder = self._remind(self.tournament, 60)
-        self._schedule(self.match, minutes=30)
+        # +35, not +30: target moment (scheduled - lead) lands at now-25, with
+        # margin inside _REMINDER_CATCHUP_WINDOW rather than sitting exactly on
+        # its boundary where wall-clock drift between setup and the sweep could
+        # tip it either way.
+        self._schedule(self.match, minutes=35)
 
     def _remind(self, tournament, minutes, text=None):
         """Configure one reminder. Reminders are rows now, so 'off' is no rows."""
@@ -15612,13 +15779,49 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
             scheduled_time=timezone.now() - timedelta(minutes=10))
         self.assertEqual(self._sweep().call_count, 0)
 
+    # --- the catch-up window ---------------------------------------------
+    #
+    # The due test is open-ended on the early side (a match booked inside
+    # several configured leads must still get the tightest one, even though
+    # the looser windows "opened" earlier) -- but that must not mean a long
+    # lead fires the moment it's configured for a match nowhere near it.
+    def test_a_long_lead_reminder_does_not_fire_immediately(self):
+        """THE reported bug: a 7-day heads-up must not fire instantly just
+        because the match is scheduled less than 7 days out."""
+        self.tournament.reminders.all().delete()
+        self._remind(self.tournament, 7 * 24 * 60)   # one week lead
+        self._schedule(self.match, minutes=2 * 24 * 60)  # match in 2 days
+        self.assertEqual(self._sweep().call_count, 0)
+        self.assertEqual(self._sent_count(self.match), 0)
+
+    def test_a_reminder_within_the_catchup_window_still_sends(self):
+        """A sweep that runs late (outage, worker down) must still catch a
+        reminder whose target moment recently passed. The match itself must
+        stay in the future -- scheduled_time__gt=now excludes started matches
+        entirely, regardless of the reminder window -- so the lead is made
+        longer than the time to the match instead of moving the match itself
+        into the past."""
+        self.tournament.reminders.all().delete()
+        self._remind(self.tournament, 20)
+        self._schedule(self.match, minutes=5)  # target moment was 15m ago
+        self.assertEqual(self._sweep().call_count, 1)
+        self.assertEqual(self._sent_count(self.match), 1)
+
+    def test_a_reminder_past_the_catchup_window_is_not_sent(self):
+        self.tournament.reminders.all().delete()
+        self._remind(self.tournament, 50)
+        self._schedule(self.match, minutes=5)  # target moment was 45m ago
+        self.assertEqual(self._sweep().call_count, 0)
+        self.assertEqual(self._sent_count(self.match), 0)
+
     def test_each_tournament_uses_its_own_window(self):
         """The test that justifies the whole design: one sweep, two leads. A
         single fixed cutoff cannot satisfy both."""
-        # This tournament: lead 120, match at +60 -> INSIDE its window.
+        # This tournament: lead 120, match at +105 -> target is now-15,
+        # INSIDE its window (and inside the catch-up window too).
         self.reminder.match_reminder_minutes = 120
         self.reminder.save(update_fields=["match_reminder_minutes"])
-        self._schedule(self.match, minutes=60)
+        self._schedule(self.match, minutes=105)
 
         # A second tournament: lead 30, match also at +60 -> OUTSIDE its window.
         guild2 = DiscordGuild.objects.create(
@@ -15684,17 +15887,21 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
 
     def test_a_later_reminder_still_fires_after_an_earlier_one(self):
         """THE regression the old single timestamp made impossible: the 60 fires
-        now, and the 10 fires on a later sweep once its own window opens.
+        now, and the 35 fires on a later sweep once its own window opens. (Leads
+        kept within _REMINDER_CATCHUP_WINDOW of each other, and the schedule
+        times chosen explicitly, so both phases land comfortably inside the
+        window rather than on its edge.)
 
         Each sweep sends exactly one -- _sweep() hands back a FRESH mock, so
         these counts are per-sweep, not cumulative."""
-        self._remind(self.tournament, 10)
+        self._remind(self.tournament, 35)
+        self._schedule(self.match, minutes=45)  # 60's target is now-15; 35's is now+10 (not due)
         self.assertEqual(self._sweep().call_count, 1)   # only the 60 is due
         self.assertEqual(self._sent_count(self.match), 1)
 
         # Rescheduling re-arms: Match.save() deletes the sent records, so both
-        # reminders are due again and the tighter 10 is the one that goes out.
-        self._schedule(self.match, minutes=5)           # now inside the 10 too
+        # reminders are due again and the tighter 35 is the one that goes out.
+        self._schedule(self.match, minutes=32)  # 60's target now-28; 35's now-3
         self.assertEqual(self._sweep().call_count, 1)
         self.assertEqual(self._sent_count(self.match), 2)
 
@@ -15780,7 +15987,7 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
             series = MatchSeries.objects.create(
                 round=self.round, player_group=group, number_of_games=1)
             match = Match.objects.create(round=self.round, series=series)
-            self._schedule(match, minutes=30)
+            self._schedule(match, minutes=35)  # same margin as setUp's match
         MatchReminderSent.objects.all().delete()
 
         reads_five, writes_five = sweep_counts()

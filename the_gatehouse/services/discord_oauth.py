@@ -360,10 +360,10 @@ def is_user_in_guild(user, guild_id):
 
 
 def derive_guild_membership(guilds):
-    """Map an already-fetched Discord guild list to (in_ww, in_wr, in_fr).
+    """Map an already-fetched Discord guild list to (in_ww, in_wr, in_fr, in_rtt).
     Pure/no network so callers that already have `guilds` (e.g. the async
     refresh task) don't hit the Discord API a second time."""
-    in_ww = in_wr = in_fr = False
+    in_ww = in_wr = in_fr = in_rtt = False
     if guilds:
         for guild in guilds:
             if guild['id'] == config['WW_GUILD_ID']:
@@ -372,7 +372,9 @@ def derive_guild_membership(guilds):
                 in_wr = True
             if guild['id'] == config['FR_GUILD_ID']:
                 in_fr = True
-    return in_ww, in_wr, in_fr
+            if guild['id'] == config['RTT_GUILD_ID']:
+                in_rtt = True
+    return in_ww, in_wr, in_fr, in_rtt
 
 
 def check_user_guilds(user):

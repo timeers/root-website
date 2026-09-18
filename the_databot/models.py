@@ -99,7 +99,12 @@ class GuildLFGRole(models.Model):
         null=True,
         help_text=(
             "Optional extra text appended to the thread's first message when a "
-            "game with this role starts, e.g. a link to the rules."
+            "game with this role starts. Supports {record_link}, "
+            "{availability_link}, and {rules_link} placeholders -- each "
+            "substitutes to a plain link, so wrap it in markdown yourself for "
+            "link text, e.g. [record it here]({record_link}). A message using "
+            "any of these placeholders is sent as a follow-up once the thread "
+            "exists, rather than in the kickoff ping itself."
         ),
     )
     created_at = models.DateTimeField(auto_now_add=True)

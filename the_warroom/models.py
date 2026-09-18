@@ -598,7 +598,7 @@ class Tournament(models.Model):
 
     # Discord channels in `guild` that this series posts into. Deliberately NOT on any
     # Tournament form — they're guild plumbing, edited by a guild moderator from the Edit
-    # Guild page (see TournamentGuildChannelsForm / hx_save_tournament_channels).
+    # Guild page (see TournamentGuildAutomationForm / hx_save_tournament_channels).
     # Snowflake-only, matching every other channel id in the project: a stored name would
     # go stale the moment the channel is renamed, and the cached channel lists already
     # supply names for display.
@@ -616,9 +616,18 @@ class Tournament(models.Model):
     # forum_tag_id -- the equivalent field on the working /lfg path -- has none either.
     # Required by forums with Discord's "require tag when posting" flag, which reject any
     # post without applied_tags; validated against the forum's real tags in
-    # TournamentGuildChannelsForm.clean().
+    # TournamentGuildAutomationForm.clean().
     game_threads_tag = models.CharField(max_length=32, blank=True, null=True,
                                         help_text='Optional forum tag applied to each created game thread. Required if the forum requires a tag.')
+    thread_message = models.TextField(
+        blank=True, null=True,
+        help_text=(
+            "Optional extra text appended to a match thread's first message when it's "
+            "created. Supports {record_link}, {availability_link}, and {rules_link} "
+            "placeholders -- each substitutes to a plain link, so wrap it in markdown "
+            "yourself for link text, e.g. [record it here]({record_link})."
+        ),
+    )
     open_roster = models.BooleanField(default=True, help_text='Allow any player to be added to a game. If disabled, only registered players will be available.')
     recording_access = models.CharField(
         max_length=20,
@@ -861,15 +870,9 @@ class Tournament(models.Model):
         return self.name
 
     def get_absolute_url(self):
-        """Canonical URL: the first visible tab, per the owner's configuration."""
-        key = first_supported_tab(self.visible_tabs(), self.TAB_URL_NAMES) or 'overview'
-        # The bracket tab resolves to Matches in the simplified layout, so it
-        # can't come from the static mapping (mirrors Stage.get_absolute_url).
-        if key == 'bracket':
-            name, kwarg = self._bracket_url_name(), 'slug'
-        else:
-            name, kwarg = self.TAB_URL_NAMES[key]
-        return reverse(name, kwargs={kwarg: self.slug})
+        """Canonical URL: always the bare landing page, which renders whichever
+        tab is first per the owner's configuration (see tournament_landing_page)."""
+        return reverse('tournament-detail', kwargs={'slug': self.slug})
 
     def get_settings_url(self):
         return reverse('tournament-settings', kwargs={'slug': self.slug})
@@ -1151,7 +1154,7 @@ class Stage(models.Model):
     # per-route kwarg mapping is needed. 'bracket' is resolved in
     # get_absolute_url because it depends on use_rounds.
     TAB_URL_NAMES = {
-        'overview':    'stage-overview',
+        'overview':    'stage-main-page',
         'leaderboard': 'stage-leaderboard-page',
         'games':       'stage-games-page',
         'bracket':     None,  # see _bracket_url_name()
@@ -1387,14 +1390,12 @@ class Stage(models.Model):
         return 'stage-bracket-page' if self.use_rounds else 'stage-matches-page'
 
     def get_absolute_url(self):
-        # Stages collapse into the tournament when stages are disabled. This
-        # short-circuit must stay first -- the tab routes below need a stage slug.
+        """Canonical URL: always the bare landing page, which renders whichever
+        tab is first per the owner's configuration (see stage_landing_page)."""
+        # Stages collapse into the tournament when stages are disabled.
         if not self.tournament.use_stages:
             return self.tournament.get_absolute_url()
-
-        key = first_supported_tab(self.tournament.visible_tabs(), self.TAB_URL_NAMES) or 'overview'
-        name = self._bracket_url_name() if key == 'bracket' else self.TAB_URL_NAMES[key]
-        return reverse(name, kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
+        return reverse('stage-main-page', kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
 
     def get_settings_url(self):
         return reverse('stage-settings', kwargs={'tournament_slug': self.tournament.slug, 'stage_slug': self.slug})
@@ -1695,21 +1696,22 @@ class Round(models.Model):
     def get_overview_url(self):
         tournament = self.stage.tournament
         if not tournament.use_stages:
-            return reverse('round-overview-simple', kwargs={
+            return reverse('round-overview-page-simple', kwargs={
                 'tournament_slug': tournament.slug,
                 'round_slug': self.slug
             })
-        return reverse('round-overview', kwargs={
+        return reverse('round-overview-page', kwargs={
             'tournament_slug': tournament.slug,
             'stage_slug': self.stage.slug,
             'round_slug': self.slug
         })
 
     def get_absolute_url(self):
-        # The short-circuits below must stay FIRST. self.stage is nullable, and
-        # every get_*_url() helper dereferences self.stage.tournament without a
-        # guard -- dispatching to them before these checks raises AttributeError
-        # on a stage-less round.
+        """Canonical URL: always the bare landing page, which renders whichever
+        tab is first per the owner's configuration (see round_landing_page).
+
+        The short-circuits below must stay FIRST. self.stage is nullable, and
+        the tournament/stage URLs below need a non-null stage."""
         if not self.stage:
             tournament = self.get_tournament()
             if tournament:
@@ -1726,13 +1728,16 @@ class Round(models.Model):
         if not self.stage.use_rounds:
             return self.stage.get_absolute_url()
 
-        # self.stage is guaranteed non-null here, so the tab helpers are safe.
-        # 'surveys' is absent from the mapping (rounds have no surveys tab), so
-        # first_supported_tab skips past it without a special case.
-        key = first_supported_tab(tournament.visible_tabs(), self.ROUND_TAB_URL_METHODS)
-        if not key:
-            return self.get_overview_url()
-        return getattr(self, self.ROUND_TAB_URL_METHODS[key])()
+        if not tournament.use_stages:
+            return reverse('round-main-page-simple', kwargs={
+                'tournament_slug': tournament.slug,
+                'round_slug': self.slug
+            })
+        return reverse('round-main-page', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': self.stage.slug,
+            'round_slug': self.slug
+        })
 
     def get_settings_url(self):
         tournament = self.stage.tournament

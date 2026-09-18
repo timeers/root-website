@@ -125,6 +125,21 @@ description/thread_message. Hidden entirely when the guild has no linked series.
         {% endif %}
     </div>
 
-    {{ form.thread_message|as_crispy_field }}
+    {# ----- Thread message ----- #}
+    <div class="mb-3">
+        <label class="form-label">{% trans 'Thread message' %}</label>
+        {% if form.thread_message.errors %}
+            <div class="alert alert-danger py-2">{{ form.thread_message.errors|striptags }}</div>
+        {% endif %}
+        {{ form.thread_message }}
+        <div class="form-text text-muted">
+            {% trans 'Optional extra text posted with each game thread. Supports' %}
+            <code>{record_link}</code>, <code>{availability_link}</code>, {% trans 'and' %}
+            <code>{rules_link}</code>
+            {% trans 'placeholders. Uses a plain link, so wrap it in markdown for link text, e.g.' %}
+            <code>[record it here]({record_link})</code>.
+            {% trans 'A message using one of these placeholders is sent as a short follow-up message after the thread is created, rather than included with the initial ping — the link needs to know the new thread, which only exists once Discord creates it.' %}
+        </div>
+    </div>
 
 </div>

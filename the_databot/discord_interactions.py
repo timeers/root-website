@@ -69,6 +69,7 @@ from the_databot.services.discordservice import (
     get_guild_roles, rename_channel, THREAD_OK, THREAD_BLOCKED,
     edit_channel_message,
 )
+from the_databot.services.thread_messages import record_url
 from the_databot.services.discord_commands import (
     DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD, HELP_CATEGORY_LFG,
     # Defined there so tasks.py can import it without cycling back through this
@@ -410,10 +411,7 @@ def _guild_allows(guild_id, command_name):
     return command_name in (enabled or [])
 
 
-def _record_url(path):
-    """Absolute record-game URL, or None when SITE_URL isn't configured."""
-    site = (config.get("SITE_URL") or "").rstrip("/")
-    return f"{site}{path}" if site else None
+_record_url = record_url
 
 
 def _handle_availability_command(data):
@@ -440,8 +438,10 @@ def _handle_availability_command(data):
     channel_id = data.get("_channel_id")
 
     thread = _lfg_thread_for_channel(channel_id)
+    group = None
     if thread and not thread.series_id and thread.players.exists():
         path = f"/availability/compare/?lfg={thread.pk}"
+        profiles = list(thread.players.all())
     else:
         series_id = thread.series_id if thread else None
         if not series_id:
@@ -457,9 +457,29 @@ def _handle_availability_command(data):
                 "Run this inside your game's thread to compare player availability.")
         path = f"/availability/compare/?series={series_id}"
 
+        # `group` is already resolved above only on the fallback path (a thread
+        # not yet linked to its series). When thread.series_id was already set,
+        # there is no group here yet -- fetch the series to reach it via the
+        # forward player_group FK (safe when None, unlike the reverse
+        # group.series accessor).
+        if group is not None:
+            profiles = group_roster(group, series_id=series_id)
+        else:
+            from the_warroom.models import MatchSeries
+            series = MatchSeries.objects.filter(pk=series_id).select_related(
+                'player_group').first()
+            profiles = (group_roster(series.player_group, series_id=series_id)
+                        if series else [])
+
     url = _record_url(path)
     if not url:
         return _ephemeral("I can't build that link right now — try again later.")
+
+    lines = [f"Compare when this game's players are free:\n{url}",
+             "-# Only the players in this game (and moderators) can view it."]
+    missing_line = _missing_availability_line(profiles)
+    if missing_line:
+        lines.append(f"-# {missing_line}")
 
     # PUBLIC, unlike the two errors above: the whole point is that the other
     # players in the thread can open it too, and an ephemeral reply would make
@@ -468,9 +488,7 @@ def _handle_availability_command(data):
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": {
-            "content": (f"Compare when this game's players are free:\n{url}\n"
-                        "-# Only the players in this game (and moderators) can "
-                        "view it."),
+            "content": "\n".join(lines),
             # The URL is ours and the text is not user-supplied, but a thread
             # name could be -- keep the default parse off, as every other posted
             # message here does.
@@ -4968,6 +4986,37 @@ def _pick_pending_line(seats):
     return f"{', '.join(names[:-1])} & {names[-1]} pick."
 
 
+# Same reasoning as PICK_PENDING_NAMES_MAX above (a real tournament roster
+# must not push /availability's reply past Discord's 2000-char content
+# limit), kept as its own constant rather than reused: unrelated features,
+# no reason to couple their caps.
+AVAILABILITY_MISSING_NAMES_MAX = 8
+
+
+def _missing_availability_line(profiles):
+    """"X, Y and Z have not yet set their availability." for every profile in
+    `profiles` with no PlayerSchedule row at any level (see schedules_for).
+    "" when everyone has set theirs, so callers can skip the line entirely.
+
+    Plain names, not mentions -- same reason _pick_pending_line uses plain
+    names: /availability's reply already turns off allowed_mentions, and this
+    is exactly the kind of roster-wide line that would spam a ping to
+    everyone else if it mentioned them."""
+    from the_gatehouse.models import schedules_for
+    resolved_ids = schedules_for([p.pk for p in profiles])
+    missing = [p for p in profiles if p.pk not in resolved_ids]
+    if not missing:
+        return ""
+    names = [p.name for p in missing]
+    if len(names) == 1:
+        return f"{names[0]} has not yet set their availability."
+    if len(names) > AVAILABILITY_MISSING_NAMES_MAX:
+        shown = ", ".join(names[:AVAILABILITY_MISSING_NAMES_MAX])
+        more = len(names) - AVAILABILITY_MISSING_NAMES_MAX
+        return f"{shown} and {more} more have not yet set their availability."
+    return f"{', '.join(names[:-1])} and {names[-1]} have not yet set their availability."
+
+
 # Stands in for a faction that has been taken, in the Factions row. Discord
 # cannot dim or grey a custom emoji (they are fixed images, and ~~strikethrough~~
 # draws a line across the picture), so a neutral placeholder is the only way to
@@ -7843,7 +7892,7 @@ def _handle_boxscore_token_command(data):
         (data.get("_author") or {}).get("name"))
 
     # site = (config.get("SITE_URL") or "").rstrip("/")
-    _token, raw = BoxScoreUploadToken.issue(thread, profile)
+    minted, raw = BoxScoreUploadToken.issue(thread, profile)
     hours = int(BoxScoreUploadToken.TOKEN_TTL.total_seconds() // 3600)
 
     lines = [
@@ -7851,7 +7900,6 @@ def _handle_boxscore_token_command(data):
         f"```\n{BoxScoreUploadToken.group(raw)}\n```",
         f"-# This token works for this game only and expires in {hours} hours. "
         "Anyone who sees it can upload the box score for this game, so don't post it.",
-        "If you need a new token you can rerun `/boxscore token` at any time.",
     ]
     # if site:
     #     lines.append(f"-# The object uploads to {site}/api/boxscore/upload/")
@@ -7873,6 +7921,26 @@ def _handle_boxscore_token_command(data):
                    encode_custom_id("boxscore_restore", str(restorable.pk),
                                     data.get("_author_id") or PICK_OPEN),
                    style=STYLE_PRIMARY))]
+
+    # A public heads-up that a token exists, so the rest of the game's players see
+    # one was generated without the token itself ever leaving the ephemeral reply
+    # below. A followup WITHOUT the ephemeral flag is public; countdown=2 lets this
+    # response's ACK land first (a followup that races ahead 404s). Swallowed on a
+    # broker outage: the token is what actually matters, so losing this courtesy
+    # message must not stop the ephemeral reply from going out.
+    interaction_token = data.get("_token")
+    if interaction_token:
+        announcement = (
+            f"<@{data.get('_author_id')}> has generated a boxscore token for this "
+            'game. When the game is complete, click "Export" on the boxscore '
+            "object in Tabletop Simulator and paste in this token.\n"
+            "-# If you need a new token you can rerun `/boxscore token` at any time."
+        )
+        try:
+            post_interaction_followup_task.apply_async(
+                (interaction_token, {"content": announcement}), countdown=2)
+        except Exception:
+            logger.exception("Could not enqueue the box score token announcement")
 
     # MUST stay ephemeral: the token is a capability, and posting it in the
     # thread would hand it to everyone who can read the channel.
@@ -10174,14 +10242,20 @@ def _handle_lfg_start(payload):
     })
 
 
-# The nine /lookup sub-handlers, keyed by SUBCOMMAND name. Eight are the generic
-# title lookup; captain is bespoke (the captain/Advanced profile with the flip-side
-# image), which is why it isn't in LOOKUP_QUERYSETS.
+# The /lookup sub-handlers, keyed by SUBCOMMAND name. Most are the generic title
+# lookup; captain is bespoke (the captain/Advanced profile with the flip-side
+# image), which is why it isn't in LOOKUP_QUERYSETS. card and law are the former
+# standalone /card and /law handlers, reused unchanged -- both already read their
+# arguments via _get_option(data, ...), which works identically whether `data` is
+# the top-level interaction or the rewritten subcommand payload _handle_lookup_command
+# builds.
 LOOKUP_SUBCOMMAND_HANDLERS = {
     name: _make_lookup_handler(_LOOKUP_LABELS[name], qs)
     for name, qs in LOOKUP_QUERYSETS.items()
 }
 LOOKUP_SUBCOMMAND_HANDLERS["captain"] = _handle_captain_command
+LOOKUP_SUBCOMMAND_HANDLERS["card"] = _handle_card_command
+LOOKUP_SUBCOMMAND_HANDLERS["law"] = _handle_law_command
 
 
 def _handle_lookup_command(data):
@@ -10264,8 +10338,6 @@ def _handle_link_command(data):
 COMMAND_HANDLERS = {"lookup": _handle_lookup_command}
 COMMAND_HANDLERS["link"] = _handle_link_command
 COMMAND_HANDLERS["stats"] = _handle_stats_command
-COMMAND_HANDLERS["card"] = _handle_card_command
-COMMAND_HANDLERS["law"] = _handle_law_command
 COMMAND_HANDLERS["help"] = _handle_help_command
 COMMAND_HANDLERS["upcoming"] = _handle_upcoming_command
 COMMAND_HANDLERS["schedule"] = _handle_schedule_command
@@ -10549,8 +10621,11 @@ AUTOCOMPLETE_HANDLERS = {
     ("stats", "player"): _ac_players,
     ("stats", "faction"): _ac_factions,
     ("stats", "series"): _ac_series,
-    ("card", "name"): _ac_card_name,
-    ("card", "from"): _ac_card_from,
+    # "lookup card"/"lookup law", not "card"/"law": both moved under /lookup as
+    # subcommands, so the dispatcher keys autocomplete by the composite
+    # "<parent> <sub>", same as every other /lookup subcommand.
+    ("lookup card", "name"): _ac_card_name,
+    ("lookup card", "from"): _ac_card_from,
     ("upcoming", "series"): _ac_upcoming_series,
     ("upcoming", "player"): _ac_upcoming_player,
     # "schedule set", not "schedule": the dispatcher keys autocomplete by the
@@ -10558,8 +10633,8 @@ AUTOCOMPLETE_HANDLERS = {
     ("schedule set", "timezone"): _ac_schedule_timezone,
     # A TOP-LEVEL command, so the key is the bare name -- no composite here.
     ("timestamp", "timezone"): _ac_schedule_timezone,
-    ("law", "law"): _ac_law,
-    ("law", "post"): _ac_law_post,
+    ("lookup law", "law"): _ac_law,
+    ("lookup law", "post"): _ac_law_post,
 }
 for _name, _qs in LOOKUP_QUERYSETS.items():
     AUTOCOMPLETE_HANDLERS[(f"lookup {_name}", "name")] = _title_ac(_qs)

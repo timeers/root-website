@@ -220,6 +220,25 @@
           </div>
         </div>
 
+        {# Guilds. Any onboarded player can reach this -- moderator status (or admin) is what the page itself shows/edits, not a precondition for having a guild to add. #}
+        <div class="col-lg-6">
+          <div class="info-card h-100">
+            <div class="info-card-body">
+              <h2 class="info-card-title"><i class="bi bi-discord me-2"></i>{% trans 'Guilds' %}</h2>
+
+              <p class="text-secondary">
+                {% trans 'Manage the Discord servers you moderate, or add a new one for the Databot.' %}
+              </p>
+
+              <div class="d-flex gap-2 mb-3 justify-content-center">
+                <a href="{% url 'manage-guilds' %}" class="databot-btn databot-btn-primary btn-sm">
+                  <i class="bi bi-discord me-2"></i> {% trans 'Manage Guilds' %}
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {# Availability. Stored in UTC so players in different timezones can be compared; edited in the player's own timezone on the /availability page. #}
         <div class="col-lg-6">
           <div class="info-card h-100">

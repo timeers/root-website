@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.13.9] - 2026-9-18 Halloween & Kickoff Messages
+
+### New Features
+- Halloween theme images by tinthefoil, redzeraus and xluevi
+- Match threads can now have a customized kickoff message. Kickoff messages for scheduled games and lfg games can reference {record_link}, {availability_link}, and {rules_link}.
+
+### Improvements
+- Standardized series overview urls
+- Added reminder window for schedule reminder messages so that unnecessary reminders are not sent
+- /card and /law are now subcommands of /lookup (/lookup card, /lookup law), to match the other component lookups
+- /boxscore token now posts a public message in the thread announcing a token was generated, so other players know one exists
+- Added "Manage Guilds" card to the settings page
+- /availability now lists which players still need to fill in their availability
+
+### Bug Fixes
+- Selecting a time for the first time in Weekly Availability clears the general availability styling to show that it will not be used
+- Fixed meta title for Compare Availability page
+
 ## [1.13.8] - 2026-9-16 Better Notifications and Schedules
 
 ### New Features
