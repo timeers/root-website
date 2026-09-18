@@ -1,8 +1,9 @@
 # Changelog
 
-## [1.13.9] - 2026-9-18
+## [1.13.9] - 2026-9-18 Halloween & Kickoff Messages
 
 ### New Features
+- Halloween theme images by tinthefoil, redzeraus and xluevi
 - Match threads can now have a customized kickoff message. Kickoff messages for scheduled games and lfg games can reference {record_link}, {availability_link}, and {rules_link}.
 
 ### Improvements
