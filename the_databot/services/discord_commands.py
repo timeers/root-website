@@ -442,7 +442,7 @@ BOXSCORE_SUBCOMMANDS = [
     {
         "name": "token",
         "whitelist_key": "boxscore_token",
-        "description": "Get a one-time token so the TTS object can upload this game",
+        "description": "Get a one-time token so the TTS Boxscore can upload this game",
         "type": 1,  # SUB_COMMAND
     },
 ]
