@@ -7938,7 +7938,9 @@ def _handle_boxscore_token_command(data):
         )
         try:
             post_interaction_followup_task.apply_async(
-                (interaction_token, {"content": announcement}), countdown=2)
+                (interaction_token,
+                 {"content": announcement, "allowed_mentions": {"parse": []}}),
+                countdown=2)
         except Exception:
             logger.exception("Could not enqueue the box score token announcement")
 
