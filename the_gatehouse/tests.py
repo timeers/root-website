@@ -190,7 +190,7 @@ class InlineGuildSyncOnLoginTests(TestCase):
             return_value=display_name)
         derive_p = mock.patch(
             'the_gatehouse.services.discord_oauth.derive_guild_membership',
-            return_value=(bool(guilds), False, False))
+            return_value=(bool(guilds), False, False, False))
         update_p = mock.patch(
             'the_gatehouse.services.discord_oauth.update_user_guilds')
         # refresh_user_guilds imports the predicate INSIDE the function, so it resolves
@@ -316,7 +316,7 @@ class RefreshUserGuildsBudgetTests(TestCase):
                         side_effect=slow_guilds), \
              mock.patch('the_gatehouse.services.discord_oauth.update_user_guilds'), \
              mock.patch('the_gatehouse.services.discord_oauth.derive_guild_membership',
-                        return_value=(True, False, False)), \
+                        return_value=(True, False, False, False)), \
              mock.patch('the_gatehouse.services.discord_oauth.get_discord_display_name'
                         ) as name:
             ok = tasks.refresh_user_guilds(self.user, budget=6)
@@ -351,7 +351,7 @@ class RefreshUserGuildsBudgetTests(TestCase):
                         return_value=[]) as get_guilds, \
              mock.patch('the_gatehouse.services.discord_oauth.update_user_guilds'), \
              mock.patch('the_gatehouse.services.discord_oauth.derive_guild_membership',
-                        return_value=(False, False, False)), \
+                        return_value=(False, False, False, False)), \
              mock.patch('the_gatehouse.services.discord_oauth.get_discord_display_name',
                         return_value='x'):
             tasks.refresh_user_guilds(self.user)

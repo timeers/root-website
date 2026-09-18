@@ -382,13 +382,14 @@ def refresh_user_guilds(user, budget=None):
         return GuildSyncResult.TRANSIENT
 
     update_user_guilds(user, guilds)
-    in_ww, in_wr, in_fr = derive_guild_membership(guilds)
+    in_ww, in_wr, in_fr, in_rtt = derive_guild_membership(guilds)
 
     updated = False
 
-    # Promote a Woodland Warriors member who's still Outcast/Player (moved here from the
-    # login signal so it runs against FRESH membership, incl. first login).
-    if profile.group in ('O', 'P') and in_ww:
+    # Promote a Woodland Warriors or RTT member who's still Outcast/Player
+    # (moved here from the login signal so it runs against FRESH membership, incl.
+    # first login).
+    if profile.group in ('O', 'P') and (in_ww or in_rtt):
         has_posts = Post.objects.filter(
             Q(designer=profile) | Q(co_designers=profile) | Q(moderators=profile)
         ).exists()
