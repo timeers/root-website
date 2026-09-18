@@ -14216,6 +14216,13 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
                                              discord_id=self.AUTHOR)
         self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
         self.thread.players.set([self.player])
+        # _run() posts a public "token generated" followup on every call; patch it
+        # at the class level so tests that don't care about it aren't sending real
+        # Celery messages, and let the one test that DOES care install its own mock
+        # to inspect (that patch shadows this one for the duration of its `with`).
+        patcher = mock.patch.object(di.post_interaction_followup_task, "apply_async")
+        self.mock_followup = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _run(self):
         data = {
@@ -14224,6 +14231,7 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
             "_channel_id": self.THREAD_ID, "_channel_type": 11,
             "_author_id": self.AUTHOR, "_author_username": "tokplayer",
             "_author": {"name": "tokplayer"}, "_guild_id": None,
+            "_token": "itok",
         }
         response = di._handle_boxscore_command(data)
         return json.loads(response.content)["data"]
@@ -14234,6 +14242,27 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
         # everyone who can read the channel.
         self.assertEqual(data["flags"], di.EPHEMERAL)
         self.assertEqual(BoxScoreUploadToken.objects.count(), 1)
+
+    def test_it_announces_publicly_that_a_token_was_generated(self):
+        """The token stays ephemeral, but the rest of the game's players get a
+        public heads-up (as a followup, since an interaction can only carry one
+        initial response) that one was issued."""
+        data = self._run()
+
+        self.mock_followup.assert_called_once()
+        args, kwargs = self.mock_followup.call_args
+        token, message_data = args[0]
+        self.assertEqual(token, "itok")
+        self.assertNotIn("flags", message_data)  # no EPHEMERAL flag: public
+        self.assertIn(f"<@{self.AUTHOR}>", message_data["content"])
+        self.assertIn("Export", message_data["content"])
+        self.assertIn("Tabletop Simulator", message_data["content"])
+        self.assertEqual(kwargs.get("countdown"), 2)
+        # The rerun tip moved here, off the ephemeral reply.
+        self.assertIn("rerun `/boxscore token`", message_data["content"])
+        self.assertNotIn("rerun", data["content"])
+        # The token itself must never appear in the public message.
+        self.assertNotIn("```", message_data["content"])
 
     def test_only_the_hash_is_stored(self):
         data = self._run()

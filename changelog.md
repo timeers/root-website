@@ -6,6 +6,7 @@
 - Standardized series overview urls
 - Added reminder window for schedule reminder messages so that unnecessary reminders are not sent
 - /card and /law are now subcommands of /lookup (/lookup card, /lookup law), to match the other component lookups
+- /boxscore token now posts a public message in the thread announcing a token was generated, so other players know one exists
 
 ## [1.13.8] - 2026-9-16 Better Notifications and Schedules
 

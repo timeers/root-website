@@ -7843,7 +7843,7 @@ def _handle_boxscore_token_command(data):
         (data.get("_author") or {}).get("name"))
 
     # site = (config.get("SITE_URL") or "").rstrip("/")
-    _token, raw = BoxScoreUploadToken.issue(thread, profile)
+    minted, raw = BoxScoreUploadToken.issue(thread, profile)
     hours = int(BoxScoreUploadToken.TOKEN_TTL.total_seconds() // 3600)
 
     lines = [
@@ -7851,7 +7851,6 @@ def _handle_boxscore_token_command(data):
         f"```\n{BoxScoreUploadToken.group(raw)}\n```",
         f"-# This token works for this game only and expires in {hours} hours. "
         "Anyone who sees it can upload the box score for this game, so don't post it.",
-        "If you need a new token you can rerun `/boxscore token` at any time.",
     ]
     # if site:
     #     lines.append(f"-# The object uploads to {site}/api/boxscore/upload/")
@@ -7873,6 +7872,26 @@ def _handle_boxscore_token_command(data):
                    encode_custom_id("boxscore_restore", str(restorable.pk),
                                     data.get("_author_id") or PICK_OPEN),
                    style=STYLE_PRIMARY))]
+
+    # A public heads-up that a token exists, so the rest of the game's players see
+    # one was generated without the token itself ever leaving the ephemeral reply
+    # below. A followup WITHOUT the ephemeral flag is public; countdown=2 lets this
+    # response's ACK land first (a followup that races ahead 404s). Swallowed on a
+    # broker outage: the token is what actually matters, so losing this courtesy
+    # message must not stop the ephemeral reply from going out.
+    interaction_token = data.get("_token")
+    if interaction_token:
+        announcement = (
+            f"<@{data.get('_author_id')}> has generated a boxscore token for this "
+            'game. When the game is complete, click "Export" on the boxscore '
+            "object in Tabletop Simulator and paste in this token.\n"
+            "-# If you need a new token you can rerun `/boxscore token` at any time."
+        )
+        try:
+            post_interaction_followup_task.apply_async(
+                (interaction_token, {"content": announcement}), countdown=2)
+        except Exception:
+            logger.exception("Could not enqueue the box score token announcement")
 
     # MUST stay ephemeral: the token is a capability, and posting it in the
     # thread would hand it to everyone who can read the channel.
