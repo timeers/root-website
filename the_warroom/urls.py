@@ -10,6 +10,7 @@ from .views import (game_list_view, leaderboard_view,
                     scorecard_assign_view, scorecard_delete_view, scorecard_list_view, effort_assign_view,
                     scorecard_manage_view,
                     tournament_overview_page, round_overview_page,
+                    tournament_landing_page, stage_landing_page, round_landing_page,
                     set_view_as,
                     TournamentDeleteView, tournaments_home,
                     tournament_dynamic_create, tournament_dynamic_update,
@@ -118,7 +119,8 @@ urlpatterns = [
     path('series/<slug:slug>/players/import/', tournament_players_import, name='tournament-players-import'),
     path('series/<slug:slug>/assets/', tournament_manage_assets, name='tournament-manage-assets'),
 
-    path('series/<slug:slug>/', tournament_overview_page, name='tournament-detail'),
+    path('series/<slug:slug>/', tournament_landing_page, name='tournament-detail'),
+    path('series/<slug:slug>/overview/', tournament_overview_page, name='tournament-overview-page'),
     path('series/<slug:slug>/delete/', TournamentDeleteView.as_view(), name='tournament-delete'),
 
     path('hx/round/<int:id>/game-list/', round_games_pagination, name='round-games-pagination'),
@@ -152,11 +154,13 @@ urlpatterns = [
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/advancement/', stage_advancement_page, name='stage-advancement-page'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/advancement/submit/', stage_advancement_submit, name='stage-advancement-submit'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/advancement/config/', stage_advancement_config, name='stage-advancement-config'),
-    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/', stage_overview_page, name='stage-overview'),
+    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/overview/', stage_overview_page, name='stage-overview-page'),
+    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/', stage_landing_page, name='stage-main-page'),
 
     # Rounds - Simplified URLs (no stage_slug) for tournaments with use_stages=False
     path('series/<slug:tournament_slug>/new/round/', round_manage_view, name='round-create-simple'),
-    path('series/<slug:tournament_slug>/round/<slug:round_slug>/', round_overview_page, name='round-overview-simple'),
+    path('series/<slug:tournament_slug>/round/<slug:round_slug>/', round_landing_page, name='round-main-page-simple'),
+    path('series/<slug:tournament_slug>/round/<slug:round_slug>/overview/', round_overview_page, name='round-overview-page-simple'),
     path('series/<slug:tournament_slug>/round/<slug:round_slug>/leaderboard/', round_leaderboard_page, name='round-leaderboard-simple'),
     path('series/<slug:tournament_slug>/round/<slug:round_slug>/component/<slug:post_slug>/', tournament_component_leaderboard, name='round-component-leaderboard-simple'),
     path('series/<slug:tournament_slug>/round/<slug:round_slug>/player/<slug:profile_slug>/', tournament_player_leaderboard, name='round-player-leaderboard-simple'),
@@ -173,7 +177,8 @@ urlpatterns = [
 
     # Rounds - Full URLs (with stage_slug) for all tournaments
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/new/round/', round_manage_view, name='round-create'),
-    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/', round_overview_page, name='round-overview'),
+    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/', round_landing_page, name='round-main-page'),
+    path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/overview/', round_overview_page, name='round-overview-page'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/leaderboard/', round_leaderboard_page, name='round-leaderboard-page'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/component/<slug:post_slug>/', tournament_component_leaderboard, name='round-component-leaderboard'),
     path('series/<slug:tournament_slug>/stage/<slug:stage_slug>/round/<slug:round_slug>/player/<slug:profile_slug>/', tournament_player_leaderboard, name='round-player-leaderboard'),

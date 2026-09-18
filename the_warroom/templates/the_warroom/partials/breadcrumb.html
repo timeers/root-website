@@ -12,7 +12,7 @@
 
         {% if stage and tournament.use_stages and not breadcrumb_hide_stage %}
             {% if round or breadcrumb_page %}
-                <li class="breadcrumb-item"><a href="{% url 'stage-overview' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
+                <li class="breadcrumb-item"><a href="{% url 'stage-main-page' tournament_slug=tournament.slug stage_slug=stage.slug %}">{{ stage.name }}</a></li>
             {% else %}
                 <li class="breadcrumb-item active">{{ stage.name }}</li>
             {% endif %}

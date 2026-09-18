@@ -11,7 +11,7 @@
         <nav class="section-nav-tabs">
             {% for key in tab_order %}
                 {% if key == 'overview' %}
-            <a href="{% url 'stage-overview' tournament.slug stage.slug %}"
+            <a href="{% url 'stage-overview-page' tournament.slug stage.slug %}"
                class="section-nav-tab root-title {% if active_page == 'overview' %}active{% endif %}">
                 {% trans 'Overview' %}
             </a>

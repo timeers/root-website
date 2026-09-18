@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.9] - 2026-9-18
+
+### Improvements
+- Standardized series overview urls
+
 ## [1.13.8] - 2026-9-16 Better Notifications and Schedules
 
 ### New Features
