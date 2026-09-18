@@ -4325,14 +4325,14 @@ class LookupCommandShapeTests(TestCase):
         cmd = dc.lookup_command_for_guild(["faction"])
         cmd["options"].append({"name": "X"})
         cmd["options"][0]["description"] = "mutated"
-        self.assertEqual(len(dc.LOOKUP_COMMAND["options"]), 9)
+        self.assertEqual(len(dc.LOOKUP_COMMAND["options"]), len(dc.LOOKUP_SUBCOMMANDS))
         self.assertNotEqual(dc.LOOKUP_SUBCOMMANDS[0]["description"], "mutated")
 
     def test_every_lookup_subcommand_is_whitelistable(self):
         """Each stays an individual toggle -- and under its OLD top-level name, which
         is what lets an existing guild's enabled_commands survive without a migration."""
         for name in ("faction", "clockwork", "map", "deck", "vagabond",
-                     "captain", "landmark", "hireling", "houserule"):
+                     "captain", "landmark", "hireling", "houserule", "card", "law"):
             with self.subTest(sub=name):
                 self.assertIn(name, dc.WHITELISTABLE)
 
@@ -4357,30 +4357,30 @@ class LookupCommandShapeTests(TestCase):
         rows = {n: label for _g, rs in dc.grouped_commands() for n, label, _d in rs}
         self.assertEqual(rows["faction"], "lookup faction")
         self.assertEqual(rows["captain"], "lookup captain")
-        self.assertEqual(rows["card"], "card")
+        self.assertEqual(rows["card"], "lookup card")
+        self.assertEqual(rows["law"], "lookup law")
         self.assertNotIn("lookup", rows)
 
     def test_the_databot_page_collapses_parents_to_one_row(self):
         """The public page lists everything with no guild to filter against, so
-        nine near-identical /lookup rows are noise there."""
+        eleven near-identical /lookup rows are noise there."""
         rows = {n: label for _g, rs in dc.grouped_commands(collapse_parents=True)
                 for n, label, _d in rs}
         self.assertEqual(rows["lookup"], "lookup")
         self.assertEqual(rows["link"], "link")
         self.assertNotIn("faction", rows)      # subcommands are folded in
         self.assertNotIn("steam", rows)
+        self.assertNotIn("card", rows)         # card/law are subcommands too now
+        self.assertNotIn("law", rows)
         # Top-level commands are untouched.
-        self.assertEqual(rows["card"], "card")
         self.assertEqual(rows["boxscore"], "boxscore")
 
     def test_collapsing_keeps_the_group_ordering(self):
         groups = dict((g, [l for _n, l, _d in rs])
                       for g, rs in dc.grouped_commands(collapse_parents=True))
-        # /lookup sits where its subcommands did, between /law and /card. The
-        # rest of the group is asserted by position rather than as a frozen
-        # list, so regrouping a command in COMMAND_GROUPS does not break this
-        # -- what matters here is that collapsing preserves ordering.
-        self.assertEqual(groups["Lookups"][:3], ["law", "lookup", "card"])
+        # law, faction, ..., card all collapse to the single /lookup row, with
+        # stats (a plain top-level command) the only other Lookups entry left.
+        self.assertEqual(groups["Lookups"], ["lookup", "stats"])
         self.assertEqual(groups["Account"], ["link"])
         self.assertNotIn("Other", groups)      # nothing fell through
 
@@ -8050,7 +8050,9 @@ class LookupDispatchTests(TestCase):
         self.assertNotIn("Lookup Tinker", names)
 
     def test_every_subcommand_has_an_autocomplete_handler(self):
-        for name in dc.LOOKUP_SUBCOMMAND_NAMES:
+        # card/law are excluded here: unlike the other subcommands they don't share
+        # the uniform "name" option, so their keys are pinned individually below.
+        for name in (n for n in dc.LOOKUP_SUBCOMMAND_NAMES if n not in ("card", "law")):
             with self.subTest(sub=name):
                 self.assertIn((f"lookup {name}", "name"), di.AUTOCOMPLETE_HANDLERS)
 
@@ -8064,11 +8066,25 @@ class LookupDispatchTests(TestCase):
     def test_plain_command_autocompletes_are_untouched(self):
         # /schedule is deliberately absent: it took subcommands, so its key moved
         # to the composite ("schedule set", "timezone") -- see
-        # ScheduleCommandShapeTests, which pins that.
-        for key in (("card", "name"), ("law", "law"), ("stats", "player"),
-                    ("upcoming", "series")):
+        # ScheduleCommandShapeTests, which pins that. /card and /law are also
+        # absent: they moved under /lookup too, so their keys are now
+        # ("lookup card", ...) / ("lookup law", ...) -- see
+        # test_card_and_law_autocompletes_use_the_composite_key.
+        for key in (("stats", "player"), ("upcoming", "series")):
             with self.subTest(key=key):
                 self.assertIn(key, di.AUTOCOMPLETE_HANDLERS)
+
+    def test_card_and_law_autocompletes_use_the_composite_key(self):
+        """/card and /law moved under /lookup, so their autocomplete keys moved to
+        the composite "<parent> <sub>" form, same as every other /lookup subcommand."""
+        for key in (("lookup card", "name"), ("lookup card", "from"),
+                    ("lookup law", "law"), ("lookup law", "post")):
+            with self.subTest(key=key):
+                self.assertIn(key, di.AUTOCOMPLETE_HANDLERS)
+        for key in (("card", "name"), ("card", "from"),
+                    ("law", "law"), ("law", "post")):
+            with self.subTest(key=key):
+                self.assertNotIn(key, di.AUTOCOMPLETE_HANDLERS)
 
     def test_a_subcommand_autocomplete_uses_the_composite_key(self):
         """The dispatcher builds "<parent> <sub>", so a parent that grows
@@ -8077,11 +8093,14 @@ class LookupDispatchTests(TestCase):
 
     def test_guarded_set_and_handlers_cover_the_same_subcommands(self):
         """The two are built from different sources (LOOKUP_QUERYSETS + "captain" vs
-        the handler registry), so assert they can't drift apart."""
+        the handler registry), so assert they can't drift apart. card/law are the one
+        deliberate exception: they moved under /lookup but never captured into the roll
+        log, so they're excluded from the roster guard on both sides."""
         guarded = {n.split(" ", 1)[1] for n in di.ROSTER_GUARDED_COMMANDS
                    if n.startswith("lookup ")}
-        self.assertEqual(guarded, set(di.LOOKUP_SUBCOMMAND_HANDLERS))
-        self.assertEqual(guarded, set(dc.LOOKUP_SUBCOMMAND_NAMES))
+        handled = set(di.LOOKUP_SUBCOMMAND_HANDLERS) - {"card", "law"}
+        self.assertEqual(guarded, handled)
+        self.assertEqual(guarded, set(dc.LOOKUP_SUBCOMMAND_NAMES) - {"card", "law"})
 
 
 class RosterGuardedCommandTests(TestCase):

@@ -10174,14 +10174,20 @@ def _handle_lfg_start(payload):
     })
 
 
-# The nine /lookup sub-handlers, keyed by SUBCOMMAND name. Eight are the generic
-# title lookup; captain is bespoke (the captain/Advanced profile with the flip-side
-# image), which is why it isn't in LOOKUP_QUERYSETS.
+# The /lookup sub-handlers, keyed by SUBCOMMAND name. Most are the generic title
+# lookup; captain is bespoke (the captain/Advanced profile with the flip-side
+# image), which is why it isn't in LOOKUP_QUERYSETS. card and law are the former
+# standalone /card and /law handlers, reused unchanged -- both already read their
+# arguments via _get_option(data, ...), which works identically whether `data` is
+# the top-level interaction or the rewritten subcommand payload _handle_lookup_command
+# builds.
 LOOKUP_SUBCOMMAND_HANDLERS = {
     name: _make_lookup_handler(_LOOKUP_LABELS[name], qs)
     for name, qs in LOOKUP_QUERYSETS.items()
 }
 LOOKUP_SUBCOMMAND_HANDLERS["captain"] = _handle_captain_command
+LOOKUP_SUBCOMMAND_HANDLERS["card"] = _handle_card_command
+LOOKUP_SUBCOMMAND_HANDLERS["law"] = _handle_law_command
 
 
 def _handle_lookup_command(data):
@@ -10264,8 +10270,6 @@ def _handle_link_command(data):
 COMMAND_HANDLERS = {"lookup": _handle_lookup_command}
 COMMAND_HANDLERS["link"] = _handle_link_command
 COMMAND_HANDLERS["stats"] = _handle_stats_command
-COMMAND_HANDLERS["card"] = _handle_card_command
-COMMAND_HANDLERS["law"] = _handle_law_command
 COMMAND_HANDLERS["help"] = _handle_help_command
 COMMAND_HANDLERS["upcoming"] = _handle_upcoming_command
 COMMAND_HANDLERS["schedule"] = _handle_schedule_command
@@ -10549,8 +10553,11 @@ AUTOCOMPLETE_HANDLERS = {
     ("stats", "player"): _ac_players,
     ("stats", "faction"): _ac_factions,
     ("stats", "series"): _ac_series,
-    ("card", "name"): _ac_card_name,
-    ("card", "from"): _ac_card_from,
+    # "lookup card"/"lookup law", not "card"/"law": both moved under /lookup as
+    # subcommands, so the dispatcher keys autocomplete by the composite
+    # "<parent> <sub>", same as every other /lookup subcommand.
+    ("lookup card", "name"): _ac_card_name,
+    ("lookup card", "from"): _ac_card_from,
     ("upcoming", "series"): _ac_upcoming_series,
     ("upcoming", "player"): _ac_upcoming_player,
     # "schedule set", not "schedule": the dispatcher keys autocomplete by the
@@ -10558,8 +10565,8 @@ AUTOCOMPLETE_HANDLERS = {
     ("schedule set", "timezone"): _ac_schedule_timezone,
     # A TOP-LEVEL command, so the key is the bare name -- no composite here.
     ("timestamp", "timezone"): _ac_schedule_timezone,
-    ("law", "law"): _ac_law,
-    ("law", "post"): _ac_law_post,
+    ("lookup law", "law"): _ac_law,
+    ("lookup law", "post"): _ac_law_post,
 }
 for _name, _qs in LOOKUP_QUERYSETS.items():
     AUTOCOMPLETE_HANDLERS[(f"lookup {_name}", "name")] = _title_ac(_qs)
