@@ -30,7 +30,7 @@ from the_warroom.models import (Tournament, Round, Effort, Game, EloSystem,
                                  effort_counts_for_tournament_q)
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
-from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm, TournamentGuildChannelsForm, PlayerScheduleForm, make_reminder_formset
+from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm, TournamentGuildAutomationForm, PlayerScheduleForm, make_reminder_formset
 from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, PlayerSchedule, general_schedule_for, schedule_for, schedules_for
 from the_databot.models import GuildLFGRole
 from the_databot.services.discordservice import (get_guild_roles, get_guild_forum_channels,
@@ -3482,7 +3482,7 @@ def hx_save_tournament_channels(request, guild_id, pk):
     tournament = get_object_or_404(Tournament, pk=pk, guild=guild)
 
     if request.method == 'GET':
-        edit_form = TournamentGuildChannelsForm(instance=tournament, guild=guild)
+        edit_form = TournamentGuildAutomationForm(instance=tournament, guild=guild)
         return render(request, 'the_gatehouse/partials/tournament_channels_form.html',
                       {'form': edit_form, 'tournament': tournament, 'guild': guild,
                        'formset': make_reminder_formset(instance=tournament),
@@ -3490,7 +3490,7 @@ def hx_save_tournament_channels(request, guild_id, pk):
     if request.method != 'POST':
         return JsonResponse({'error': 'POST required'}, status=405)
 
-    form = TournamentGuildChannelsForm(request.POST, instance=tournament, guild=guild)
+    form = TournamentGuildAutomationForm(request.POST, instance=tournament, guild=guild)
     formset = make_reminder_formset(request.POST, instance=tournament)
     # BOTH must validate before EITHER is written: a bad reminder row must not
     # leave the channels saved and the modal reopened showing an error, which

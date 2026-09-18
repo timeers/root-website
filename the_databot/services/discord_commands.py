@@ -107,7 +107,7 @@ LOOKUP_SUBCOMMAND_NAMES = [s["name"] for s in LOOKUP_SUBCOMMANDS]
 # subcommand; the per-guild subset is built by lookup_command_for_guild.
 LOOKUP_COMMAND = {
     "name": LOOKUP_COMMAND_NAME,
-    "description": "Look up a Root component by name",
+    "description": "Look up a Root component or law by name",
     "options": LOOKUP_SUBCOMMANDS,
 }
 

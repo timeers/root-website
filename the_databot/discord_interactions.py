@@ -69,6 +69,7 @@ from the_databot.services.discordservice import (
     get_guild_roles, rename_channel, THREAD_OK, THREAD_BLOCKED,
     edit_channel_message,
 )
+from the_databot.services.thread_messages import record_url
 from the_databot.services.discord_commands import (
     DRAFT_PLATFORM_TTS, DRAFT_PLATFORM_RD, HELP_CATEGORY_LFG,
     # Defined there so tasks.py can import it without cycling back through this
@@ -410,10 +411,7 @@ def _guild_allows(guild_id, command_name):
     return command_name in (enabled or [])
 
 
-def _record_url(path):
-    """Absolute record-game URL, or None when SITE_URL isn't configured."""
-    site = (config.get("SITE_URL") or "").rstrip("/")
-    return f"{site}{path}" if site else None
+_record_url = record_url
 
 
 def _handle_availability_command(data):

@@ -2604,6 +2604,66 @@ class LFGNicknameFromTitleTests(TestCase):
         self.assertEqual(again.nickname, "Renamed")
 
 
+class LFGThreadMessageTests(TestCase):
+    """role.thread_message riding along with the kickoff -- and, when it uses a
+    {record_link}/{availability_link} placeholder, sent as a follow-up once the
+    LFGThread row (and so its pk, for ?lfg=<pk> links) exists."""
+
+    SITE = "https://www.therootdatabase.com"
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(guild_id="900000000000000088",
+                                                 name="Guild")
+
+    def _run(self, thread_message, thread_id="960000000000000088"):
+        self.role = GuildLFGRole.objects.create(
+            guild=self.guild, name="Digital LFG", role_id="910000000000000088",
+            thread_message=thread_message)
+        with mock.patch("the_databot.services.discordservice.create_message_thread",
+                        return_value=thread_id), \
+                mock.patch("the_databot.services.discordservice.create_forum_thread"), \
+                mock.patch("the_databot.services.discordservice.post_channel_message") as post, \
+                mock.patch.object(link_lfg_message_task, "apply_async"), \
+                mock.patch.dict(di.config, {"SITE_URL": self.SITE}):
+            create_lfg_thread_task(
+                "chan", "msg", self.guild.guild_id, self.role.role_id, "",
+                [{"id": "1", "name": "Bob"}], {"title": "Casual Game"},
+            )
+        thread = LFGThread.objects.get(thread_id=thread_id)
+        return post, thread
+
+    def test_a_plain_message_with_no_tokens_rides_with_the_kickoff(self):
+        """Unchanged legacy behavior: one message, text appended."""
+        post, _ = self._run("Please review the rules before starting.")
+        post.assert_called_once()
+        content = post.call_args.args[1]
+        self.assertIn("your game can start!", content)
+        self.assertIn("Please review the rules before starting.", content)
+
+    def test_a_message_with_a_record_link_token_is_a_follow_up(self):
+        post, thread = self._run("Record it [here]({record_link}).")
+        self.assertEqual(post.call_count, 2)
+        kickoff = post.call_args_list[0].args[1]
+        followup = post.call_args_list[1].args[1]
+        self.assertIn("your game can start!", kickoff)
+        self.assertNotIn("Record it", kickoff)
+        self.assertIn(f"[here]({self.SITE}/record/game/?lfg={thread.pk})", followup)
+
+    def test_an_availability_link_token_resolves_to_the_threads_own_pk(self):
+        post, thread = self._run("Compare availability [here]({availability_link}).")
+        followup = post.call_args_list[1].args[1]
+        self.assertIn(f"[here]({self.SITE}/availability/compare/?lfg={thread.pk})",
+                      followup)
+
+    def test_a_rules_link_token_with_no_linked_tournament_is_blank(self):
+        """No literal "{rules_link}" or the word "None" leaks into the message."""
+        post, _ = self._run("Rules: [here]({rules_link}).")
+        followup = post.call_args_list[1].args[1]
+        self.assertNotIn("{rules_link}", followup)
+        self.assertNotIn("None", followup)
+        self.assertIn("Rules: [here]().", followup)
+
+
 class LFGCancelNotifyTests(TestCase):
     """✖ Cancel tells the 🔔 subscribers, so they stop waiting on a game that
     isn't happening. The host is excluded — they cancelled it."""
@@ -11881,6 +11941,49 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
         self.assertIn("1 failed", note.message)
         self.assertNotIn("may require a tag", note.message)
 
+    # --- thread_message -----------------------------------------------------------
+    # Unlike the LFG-thread kickoff, this can go straight into the first message: the
+    # MatchSeries/PlayerGroup already exist (fetched by the queryset before this task
+    # ever calls Discord), so ?match=/?series= links need no follow-up step.
+
+    SITE = "https://www.therootdatabase.com"
+
+    def test_a_thread_message_with_link_tokens_is_in_the_first_post(self):
+        self.tournament.thread_message = (
+            "Record it [here]({record_link}) or compare availability "
+            "[here]({availability_link}).")
+        self.tournament.save()
+        with mock.patch.dict(di.config, {"SITE_URL": self.SITE}):
+            create = self._run()
+        content = create.call_args.kwargs["content"]
+        self.assertIn(
+            f"[here]({self.SITE}/record/game/?match={self.series.id})", content)
+        self.assertIn(
+            f"[here]({self.SITE}/availability/compare/?series={self.series.id})",
+            content)
+
+    def test_a_rules_link_token_uses_the_tournaments_rules_link(self):
+        self.tournament.thread_message = "Rules: [here]({rules_link})."
+        self.tournament.rules_link = "https://docs.google.com/document/d/abc"
+        self.tournament.save()
+        create = self._run()
+        content = create.call_args.kwargs["content"]
+        self.assertIn("Rules: [here](https://docs.google.com/document/d/abc).", content)
+
+    def test_a_rules_link_token_with_no_rules_link_is_blank(self):
+        self.tournament.thread_message = "Rules: [here]({rules_link})."
+        self.tournament.save()
+        create = self._run()
+        content = create.call_args.kwargs["content"]
+        self.assertNotIn("{rules_link}", content)
+        self.assertNotIn("None", content)
+        self.assertIn("Rules: [here]().", content)
+
+    def test_no_thread_message_leaves_content_unchanged(self):
+        create = self._run()
+        content = create.call_args.kwargs["content"]
+        self.assertTrue(content.strip().endswith("your match is ready!"))
+
 
 class CreateForumThreadResultTests(TestCase):
     """create_forum_thread_result: the payload it builds and what it reports back."""
@@ -11957,7 +12060,7 @@ class CreateForumThreadResultTests(TestCase):
         self.assertEqual(result, ("77", None))
 
 
-class TournamentGuildChannelsFormTagTests(TestCase):
+class TournamentGuildAutomationFormTagTests(TestCase):
     """Tag validation on the series-channels form. Catches a tag-required forum at SAVE
     time, so the moderator fixes it here rather than discovering it as a round of failed
     threads later."""
@@ -11977,7 +12080,7 @@ class TournamentGuildChannelsFormTagTests(TestCase):
 
     def _form(self, data, requires_tag=False, info=_UNSET):
         """Bind the form with Discord's channel lists and forum info stubbed."""
-        from the_gatehouse.forms import TournamentGuildChannelsForm
+        from the_gatehouse.forms import TournamentGuildAutomationForm
         finfo = ({"is_forum": True, "requires_tag": requires_tag, "tags": self.TAGS}
                  if info is self._UNSET else info)
         with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
@@ -11986,7 +12089,7 @@ class TournamentGuildChannelsFormTagTests(TestCase):
                         return_value=self.FORUM), \
              mock.patch("the_databot.services.discordservice.get_forum_channel_info",
                         return_value=finfo):
-            form = TournamentGuildChannelsForm(
+            form = TournamentGuildAutomationForm(
                 data, instance=self.tournament, guild=self.guild)
             form.is_valid()
         return form

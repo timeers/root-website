@@ -414,6 +414,7 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
     from the_warroom.services.channel_posts import resolve_tournament_channel
     from the_databot.services.discordservice import create_forum_thread_result
     from the_databot.services.lfg_game import group_roster, link_group_thread
+    from the_databot.services.thread_messages import record_url, render_thread_message
 
     round = Round.objects.filter(pk=round_id).select_related('stage').first()
     tournament = Tournament.objects.filter(pk=tournament_id).select_related('guild').first()
@@ -472,6 +473,13 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
         title = group.name or f"Group {group.group_number}"
         content = (f"{pings} your match is ready!".strip() if pings
                    else "Your match is ready!")
+        if tournament.thread_message:
+            links = {
+                "record_link": record_url(f"/record/game/?match={series.id}"),
+                "availability_link": record_url(f"/availability/compare/?series={series.id}"),
+                "rules_link": tournament.rules_link,
+            }
+            content = f"{content} {render_thread_message(tournament.thread_message, links)}".strip()
 
         # Space the requests out. A big round is dozens of thread creations, and
         # firing them back to back is what trips Discord's limit in the first place.
@@ -562,6 +570,9 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
         create_message_thread, create_forum_thread, post_channel_message,
         apply_thread_tag,
     )
+    from the_databot.services.thread_messages import (
+        record_url, render_thread_message, has_thread_message_tokens,
+    )
     guild = DiscordGuild.objects.filter(guild_id=guild_id).first() if guild_id else None
     # `role_pk` is preferred over `role_id` when supplied: role_id is the DISCORD
     # snowflake and is nullable ("leave blank if you only want the display tag"),
@@ -576,7 +587,12 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
 
     pings = " ".join(f"<@{p['id']}>" for p in players)
     kickoff = f"{pings} your game can start!".strip()
-    if role and role.thread_message:
+    # A thread_message with link placeholders needs the LFGThread row's own pk (for
+    # ?lfg=<pk> links), which doesn't exist until it's created further down -- so it
+    # can't go in the kickoff itself. It's sent as a follow-up message once that pk
+    # is known. A plain thread_message (no tokens) has no such dependency and keeps
+    # riding along with the kickoff exactly as before.
+    if role and role.thread_message and not has_thread_message_tokens(role.thread_message):
         kickoff = f"{kickoff} {role.thread_message}".strip()
 
     # The LFG message's own title, which /lfg already resolved as
@@ -714,6 +730,18 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
             thread.save(update_fields=["host"])
         else:
             logger.warning("LFG thread %s: could not resolve host %s", thread_id, host_id)
+
+    # A thread_message with link placeholders is deferred to here: it needs thread.pk
+    # (for ?lfg=<pk> links), which only exists now that the LFGThread row is created.
+    if role and role.thread_message and has_thread_message_tokens(role.thread_message):
+        links = {
+            "record_link": record_url(f"/record/game/?lfg={thread.pk}"),
+            "availability_link": record_url(f"/availability/compare/?lfg={thread.pk}"),
+            "rules_link": role.tournament.rules_link if role.tournament_id else None,
+        }
+        rendered = render_thread_message(role.thread_message, links)
+        if rendered.strip():
+            post_channel_message(thread_id, rendered)
 
 
 def _lfg_message_jump_url(guild_id, channel_id, message_id):

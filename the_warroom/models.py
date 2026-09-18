@@ -598,7 +598,7 @@ class Tournament(models.Model):
 
     # Discord channels in `guild` that this series posts into. Deliberately NOT on any
     # Tournament form — they're guild plumbing, edited by a guild moderator from the Edit
-    # Guild page (see TournamentGuildChannelsForm / hx_save_tournament_channels).
+    # Guild page (see TournamentGuildAutomationForm / hx_save_tournament_channels).
     # Snowflake-only, matching every other channel id in the project: a stored name would
     # go stale the moment the channel is renamed, and the cached channel lists already
     # supply names for display.
@@ -616,9 +616,18 @@ class Tournament(models.Model):
     # forum_tag_id -- the equivalent field on the working /lfg path -- has none either.
     # Required by forums with Discord's "require tag when posting" flag, which reject any
     # post without applied_tags; validated against the forum's real tags in
-    # TournamentGuildChannelsForm.clean().
+    # TournamentGuildAutomationForm.clean().
     game_threads_tag = models.CharField(max_length=32, blank=True, null=True,
                                         help_text='Optional forum tag applied to each created game thread. Required if the forum requires a tag.')
+    thread_message = models.TextField(
+        blank=True, null=True,
+        help_text=(
+            "Optional extra text appended to a match thread's first message when it's "
+            "created. Supports {record_link}, {availability_link}, and {rules_link} "
+            "placeholders -- each substitutes to a plain link, so wrap it in markdown "
+            "yourself for link text, e.g. [record it here]({record_link})."
+        ),
+    )
     open_roster = models.BooleanField(default=True, help_text='Allow any player to be added to a game. If disabled, only registered players will be available.')
     recording_access = models.CharField(
         max_length=20,

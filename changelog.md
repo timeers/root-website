@@ -2,6 +2,9 @@
 
 ## [1.13.9] - 2026-9-18
 
+### New Features
+- Match threads can now have a customized kickoff message. Kickoff messages for scheduled games and lfg games can reference {record_link}, {availability_link}, and {rules_link}.
+
 ### Improvements
 - Standardized series overview urls
 - Added reminder window for schedule reminder messages so that unnecessary reminders are not sent
