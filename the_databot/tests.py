@@ -15404,7 +15404,11 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         self.guild.bot_member = True
         self.guild.save(update_fields=["bot_member"])
         self.reminder = self._remind(self.tournament, 60)
-        self._schedule(self.match, minutes=30)
+        # +35, not +30: target moment (scheduled - lead) lands at now-25, with
+        # margin inside _REMINDER_CATCHUP_WINDOW rather than sitting exactly on
+        # its boundary where wall-clock drift between setup and the sweep could
+        # tip it either way.
+        self._schedule(self.match, minutes=35)
 
     def _remind(self, tournament, minutes, text=None):
         """Configure one reminder. Reminders are rows now, so 'off' is no rows."""
@@ -15612,13 +15616,49 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
             scheduled_time=timezone.now() - timedelta(minutes=10))
         self.assertEqual(self._sweep().call_count, 0)
 
+    # --- the catch-up window ---------------------------------------------
+    #
+    # The due test is open-ended on the early side (a match booked inside
+    # several configured leads must still get the tightest one, even though
+    # the looser windows "opened" earlier) -- but that must not mean a long
+    # lead fires the moment it's configured for a match nowhere near it.
+    def test_a_long_lead_reminder_does_not_fire_immediately(self):
+        """THE reported bug: a 7-day heads-up must not fire instantly just
+        because the match is scheduled less than 7 days out."""
+        self.tournament.reminders.all().delete()
+        self._remind(self.tournament, 7 * 24 * 60)   # one week lead
+        self._schedule(self.match, minutes=2 * 24 * 60)  # match in 2 days
+        self.assertEqual(self._sweep().call_count, 0)
+        self.assertEqual(self._sent_count(self.match), 0)
+
+    def test_a_reminder_within_the_catchup_window_still_sends(self):
+        """A sweep that runs late (outage, worker down) must still catch a
+        reminder whose target moment recently passed. The match itself must
+        stay in the future -- scheduled_time__gt=now excludes started matches
+        entirely, regardless of the reminder window -- so the lead is made
+        longer than the time to the match instead of moving the match itself
+        into the past."""
+        self.tournament.reminders.all().delete()
+        self._remind(self.tournament, 20)
+        self._schedule(self.match, minutes=5)  # target moment was 15m ago
+        self.assertEqual(self._sweep().call_count, 1)
+        self.assertEqual(self._sent_count(self.match), 1)
+
+    def test_a_reminder_past_the_catchup_window_is_not_sent(self):
+        self.tournament.reminders.all().delete()
+        self._remind(self.tournament, 50)
+        self._schedule(self.match, minutes=5)  # target moment was 45m ago
+        self.assertEqual(self._sweep().call_count, 0)
+        self.assertEqual(self._sent_count(self.match), 0)
+
     def test_each_tournament_uses_its_own_window(self):
         """The test that justifies the whole design: one sweep, two leads. A
         single fixed cutoff cannot satisfy both."""
-        # This tournament: lead 120, match at +60 -> INSIDE its window.
+        # This tournament: lead 120, match at +105 -> target is now-15,
+        # INSIDE its window (and inside the catch-up window too).
         self.reminder.match_reminder_minutes = 120
         self.reminder.save(update_fields=["match_reminder_minutes"])
-        self._schedule(self.match, minutes=60)
+        self._schedule(self.match, minutes=105)
 
         # A second tournament: lead 30, match also at +60 -> OUTSIDE its window.
         guild2 = DiscordGuild.objects.create(
@@ -15684,17 +15724,21 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
 
     def test_a_later_reminder_still_fires_after_an_earlier_one(self):
         """THE regression the old single timestamp made impossible: the 60 fires
-        now, and the 10 fires on a later sweep once its own window opens.
+        now, and the 35 fires on a later sweep once its own window opens. (Leads
+        kept within _REMINDER_CATCHUP_WINDOW of each other, and the schedule
+        times chosen explicitly, so both phases land comfortably inside the
+        window rather than on its edge.)
 
         Each sweep sends exactly one -- _sweep() hands back a FRESH mock, so
         these counts are per-sweep, not cumulative."""
-        self._remind(self.tournament, 10)
+        self._remind(self.tournament, 35)
+        self._schedule(self.match, minutes=45)  # 60's target is now-15; 35's is now+10 (not due)
         self.assertEqual(self._sweep().call_count, 1)   # only the 60 is due
         self.assertEqual(self._sent_count(self.match), 1)
 
         # Rescheduling re-arms: Match.save() deletes the sent records, so both
-        # reminders are due again and the tighter 10 is the one that goes out.
-        self._schedule(self.match, minutes=5)           # now inside the 10 too
+        # reminders are due again and the tighter 35 is the one that goes out.
+        self._schedule(self.match, minutes=32)  # 60's target now-28; 35's now-3
         self.assertEqual(self._sweep().call_count, 1)
         self.assertEqual(self._sent_count(self.match), 2)
 
@@ -15780,7 +15824,7 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
             series = MatchSeries.objects.create(
                 round=self.round, player_group=group, number_of_games=1)
             match = Match.objects.create(round=self.round, series=series)
-            self._schedule(match, minutes=30)
+            self._schedule(match, minutes=35)  # same margin as setUp's match
         MatchReminderSent.objects.all().delete()
 
         reads_five, writes_five = sweep_counts()

@@ -50,6 +50,12 @@ EPHEMERAL = 64
 _THREAD_CREATE_INTERVAL = 1.0      # seconds between creations
 _THREAD_CREATE_MAX_BACKOFF = 30.0  # seconds; longest we honour a retry_after inline
 
+# How late a sweep may still fire a reminder whose target moment has already
+# passed -- covers a missed sweep (outage, worker down) without letting a
+# reminder configured with a long lead (e.g. days) fire immediately for a
+# match booked inside that lead but outside this window.
+_REMINDER_CATCHUP_WINDOW = timedelta(minutes=30)
+
 
 @shared_task(
     autoretry_for=(Exception,),
@@ -1523,9 +1529,16 @@ def remind_upcoming_matches():
         due = [r for r in tournament.reminders.all()
                if r.pk not in already
                # This reminder's OWN window -- max_window above is the loosest
-               # possible bound; this is the exact test.
-               and match.scheduled_time <= now + timedelta(
-                   minutes=r.match_reminder_minutes)]
+               # possible bound; this is the exact test. Bounded on both
+               # sides: the window must have OPENED (catches a sweep that ran
+               # late or was down) but not by more than
+               # _REMINDER_CATCHUP_WINDOW, so a reminder configured with a
+               # long lead doesn't fire immediately for a match scheduled
+               # inside that lead but nowhere near it.
+               and now - _REMINDER_CATCHUP_WINDOW
+                   <= match.scheduled_time - timedelta(
+                       minutes=r.match_reminder_minutes)
+                   <= now]
         if not due:
             continue
 

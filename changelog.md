@@ -4,6 +4,7 @@
 
 ### Improvements
 - Standardized series overview urls
+- Added reminder window for schedule reminder messages so that unnecessary reminders are not sent
 
 ## [1.13.8] - 2026-9-16 Better Notifications and Schedules
 
