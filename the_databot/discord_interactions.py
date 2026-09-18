@@ -440,8 +440,10 @@ def _handle_availability_command(data):
     channel_id = data.get("_channel_id")
 
     thread = _lfg_thread_for_channel(channel_id)
+    group = None
     if thread and not thread.series_id and thread.players.exists():
         path = f"/availability/compare/?lfg={thread.pk}"
+        profiles = list(thread.players.all())
     else:
         series_id = thread.series_id if thread else None
         if not series_id:
@@ -457,9 +459,29 @@ def _handle_availability_command(data):
                 "Run this inside your game's thread to compare player availability.")
         path = f"/availability/compare/?series={series_id}"
 
+        # `group` is already resolved above only on the fallback path (a thread
+        # not yet linked to its series). When thread.series_id was already set,
+        # there is no group here yet -- fetch the series to reach it via the
+        # forward player_group FK (safe when None, unlike the reverse
+        # group.series accessor).
+        if group is not None:
+            profiles = group_roster(group, series_id=series_id)
+        else:
+            from the_warroom.models import MatchSeries
+            series = MatchSeries.objects.filter(pk=series_id).select_related(
+                'player_group').first()
+            profiles = (group_roster(series.player_group, series_id=series_id)
+                        if series else [])
+
     url = _record_url(path)
     if not url:
         return _ephemeral("I can't build that link right now — try again later.")
+
+    lines = [f"Compare when this game's players are free:\n{url}",
+             "-# Only the players in this game (and moderators) can view it."]
+    missing_line = _missing_availability_line(profiles)
+    if missing_line:
+        lines.append(f"-# {missing_line}")
 
     # PUBLIC, unlike the two errors above: the whole point is that the other
     # players in the thread can open it too, and an ephemeral reply would make
@@ -468,9 +490,7 @@ def _handle_availability_command(data):
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": {
-            "content": (f"Compare when this game's players are free:\n{url}\n"
-                        "-# Only the players in this game (and moderators) can "
-                        "view it."),
+            "content": "\n".join(lines),
             # The URL is ours and the text is not user-supplied, but a thread
             # name could be -- keep the default parse off, as every other posted
             # message here does.
@@ -4966,6 +4986,37 @@ def _pick_pending_line(seats):
         shown = ", ".join(names[:PICK_PENDING_NAMES_MAX])
         return f"{shown} & {len(names) - PICK_PENDING_NAMES_MAX} more pick."
     return f"{', '.join(names[:-1])} & {names[-1]} pick."
+
+
+# Same reasoning as PICK_PENDING_NAMES_MAX above (a real tournament roster
+# must not push /availability's reply past Discord's 2000-char content
+# limit), kept as its own constant rather than reused: unrelated features,
+# no reason to couple their caps.
+AVAILABILITY_MISSING_NAMES_MAX = 8
+
+
+def _missing_availability_line(profiles):
+    """"X, Y and Z have not yet set their availability." for every profile in
+    `profiles` with no PlayerSchedule row at any level (see schedules_for).
+    "" when everyone has set theirs, so callers can skip the line entirely.
+
+    Plain names, not mentions -- same reason _pick_pending_line uses plain
+    names: /availability's reply already turns off allowed_mentions, and this
+    is exactly the kind of roster-wide line that would spam a ping to
+    everyone else if it mentioned them."""
+    from the_gatehouse.models import schedules_for
+    resolved_ids = schedules_for([p.pk for p in profiles])
+    missing = [p for p in profiles if p.pk not in resolved_ids]
+    if not missing:
+        return ""
+    names = [p.name for p in missing]
+    if len(names) == 1:
+        return f"{names[0]} has not yet set their availability."
+    if len(names) > AVAILABILITY_MISSING_NAMES_MAX:
+        shown = ", ".join(names[:AVAILABILITY_MISSING_NAMES_MAX])
+        more = len(names) - AVAILABILITY_MISSING_NAMES_MAX
+        return f"{shown} and {more} more have not yet set their availability."
+    return f"{', '.join(names[:-1])} and {names[-1]} have not yet set their availability."
 
 
 # Stands in for a faction that has been taken, in the Factions row. Discord

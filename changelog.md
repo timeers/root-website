@@ -8,6 +8,7 @@
 - /card and /law are now subcommands of /lookup (/lookup card, /lookup law), to match the other component lookups
 - /boxscore token now posts a public message in the thread announcing a token was generated, so other players know one exists
 - Added "Manage Guilds" card to the settings page
+- /availability now lists which players still need to fill in their availability
 
 ### Bug Fixes
 - Selecting a time for the first time in Weekly Availability clears the general availability styling to show that it will not be used
