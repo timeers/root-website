@@ -12170,9 +12170,11 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
             component="Faction", type=Faction.TypeChoices.MILITANT)
 
         self.alice = Profile.objects.create(discord="bsalice", discord_id="901",
-                                            display_name="Alice")
+                                            display_name="Alice",
+                                            steam_id="76561198000000901")
         self.bob = Profile.objects.create(discord="bsbob", discord_id="902",
-                                          display_name="Bob")
+                                          display_name="Bob",
+                                          steam_id="76561198000000902")
         self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
         self.thread.players.set([self.alice, self.bob])
 
@@ -12301,12 +12303,24 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
             data = self._press(action, key)
         return data["content"]
 
+    def _matchable_steam_id(self, profile):
+        """The Steam id that resolves `profile` for THIS test class.
+
+        BoxScoreCommandTests' profiles carry a verified steam_id;
+        BoxScoreGateZeroTests overrides this to hand back an assumed one
+        instead, since a verified id would make the profile ineligible for
+        Gate 0's dropdown. Tests that build their own participant dicts (rather
+        than going through _doc) call this so they work under either class."""
+        return profile.steam_id
+
     def _doc(self, **kw):
         doc = {"participants": [
             {"turn_order": 1, "player": self.alice.slug,
+             "player_steam_id": self._matchable_steam_id(self.alice),
              "turns": [{"turn": 1, "score": 3}, {"turn": 2, "score": 9}]},
-            {"turn_order": 2, "player": self.bob.slug, "dominance": "Fox",
-             "brazen_demagogue": True,
+            {"turn_order": 2, "player": self.bob.slug,
+             "player_steam_id": self._matchable_steam_id(self.bob),
+             "dominance": "Fox", "brazen_demagogue": True,
              "turns": [{"turn": 1, "score": 5},
                        {"turn": 2, "score": 11, "dominance": True}]},
         ]}
@@ -12422,6 +12436,7 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
     def test_unmatched_players_are_named_then_seated_blank_on_continue(self):
         doc = {"participants": [
             {"turn_order": 1, "player": self.alice.slug,
+             "player_steam_id": self.alice.steam_id,
              "turns": [{"turn": 1, "score": 2}]},
             {"turn_order": 2, "player": "nobody-with-this-slug",
              "turns": [{"turn": 1, "score": 4}]},
@@ -12488,16 +12503,19 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         """Re-resolution must not undo the decision. The identifiers are still
         on the seat now, so without the guard the seat would silently re-fill
         the moment that player linked their account."""
-        # That player now exists and is on the roster -- exactly what Try Again
-        # is for. The accepted seat must still NOT take them.
-        latecomer = Profile.objects.create(discord="late-linker", discord_id="8801")
+        # That player now exists, is on the roster, AND has since verified the
+        # Steam id the file carried -- exactly what Try Again is for. The
+        # accepted seat must still NOT take them.
+        latecomer = Profile.objects.create(discord="late-linker", discord_id="8801",
+                                           steam_id="76561198000000903")
         latecomer.slug = "late-linker"
         latecomer.save()
         self.thread.players.add(latecomer)
 
         pending = {"seats": [
             {"profile_pk": None, "label": "late-linker", "accepted_blank": True,
-             "player_slug": "late-linker", "player_steam_id": None,
+             "player_slug": "late-linker",
+             "player_steam_id": "76561198000000903",
              "faction_slug": None, "vagabond_slug": None,
              "captain_slugs": [], "discarded_slug": None},
         ]}
@@ -12505,7 +12523,9 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         self.assertIsNone(pending["seats"][0]["profile_pk"])
 
         # Control: the SAME seat without the flag does re-resolve, so the
-        # assertion above is the flag's doing and not a broken fixture.
+        # assertion above is the flag's doing and not a broken fixture. Matching
+        # here is by the now-verified Steam id, not the slug -- /boxscore's
+        # batched resolver no longer trusts a slug on its own.
         pending["seats"][0]["accepted_blank"] = False
         di._boxscore_reresolve(self.thread, pending, self.thread.thread_id)
         self.assertEqual(pending["seats"][0]["profile_pk"], latecomer.pk)
@@ -12662,6 +12682,7 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         seat fills in -- with no re-upload and no new token."""
         doc = {"participants": [
             {"turn_order": 1, "player": self.alice.slug,
+             "player_steam_id": self.alice.steam_id,
              "turns": [{"turn": 1, "score": 2}]},
             {"turn_order": 2, "player_steam_id": "76561197960265728",
              "turns": [{"turn": 1, "score": 4}]},
@@ -12692,9 +12713,11 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
     def test_try_again_picks_up_a_player_added_to_the_roster(self):
         """The roster is RE-READ, not taken from the stored payload."""
         stranger = Profile.objects.create(discord="bslate", discord_id="907",
-                                          display_name="Latecomer")
+                                          display_name="Latecomer",
+                                          steam_id="76561198000000905")
         doc = {"participants": [
             {"turn_order": 1, "player": stranger.slug,
+             "player_steam_id": stranger.steam_id,
              "turns": [{"turn": 1, "score": 2}]}]}
         data = self._run_data(doc)
         self.thread.players.add(stranger)
@@ -12805,13 +12828,24 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual([s.profile_id for s in self.thread.seats.all()],
                          [self.alice.pk])
 
-    def test_an_unknown_steam_id_falls_back_to_the_slug(self):
-        self._run({"participants": [
+    def test_an_unknown_steam_id_reaches_gate_zero(self):
+        """/boxscore no longer trusts the slug on its own: an unverified Steam id
+        paired with a name now stops at Gate 0 for a human to confirm, rather
+        than auto-matching the name to whoever's slug it happens to equal."""
+        # Gate 0 only renders when a roster player is actually free to offer --
+        # Alice and Bob are both already verified in this fixture, so a third,
+        # unverified player is added here purely to give the dropdown someone.
+        candidate = Profile.objects.create(discord="bscandidate",
+                                           discord_id="903",
+                                           display_name="Candidate")
+        self.thread.players.add(candidate)
+
+        data = self._run_data({"participants": [
             {"turn_order": 1, "player_steam_id": "76561190000000000",
              "player": self.alice.slug, "turns": [{"turn": 1, "score": 2}]}]})
+        self.assertEqual(len(self._selects(data)), 1)
         self.thread.refresh_from_db()
-        self.assertEqual([s.profile_id for s in self.thread.seats.all()],
-                         [self.alice.pk])
+        self.assertEqual(self.thread.seats.count(), 0)
 
     def test_a_high_range_steam_id_is_matched(self):
         """Regression: a "7656119" prefix match would reject real accounts."""
@@ -12836,11 +12870,14 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         """They HAVE a profile, so telling them to run /link steam would be wrong
         advice -- it's a roster disagreement."""
         stranger = Profile.objects.create(discord="bsstranger", discord_id="909",
-                                          display_name="Stranger")
+                                          display_name="Stranger",
+                                          steam_id="76561198000000904")
         data = self._run_data({"participants": [
             {"turn_order": 1, "player": self.alice.slug,
+             "player_steam_id": self.alice.steam_id,
              "turns": [{"turn": 1, "score": 2}]},
             {"turn_order": 2, "player": stranger.slug,
+             "player_steam_id": stranger.steam_id,
              "turns": [{"turn": 1, "score": 4}]},
         ]})
         self.assertNotIn("/link steam", data["content"])
@@ -12881,9 +12918,13 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
 
         # The file swaps them, each keeping their own faction.
         data = self._run_data({"participants": [
-            {"turn_order": 1, "player": self.bob.slug, "faction": other.slug,
+            {"turn_order": 1, "player": self.bob.slug,
+             "player_steam_id": self._matchable_steam_id(self.bob),
+             "faction": other.slug,
              "turns": [{"turn": 1, "score": 2}]},
-            {"turn_order": 2, "player": self.alice.slug, "faction": self.faction.slug,
+            {"turn_order": 2, "player": self.alice.slug,
+             "player_steam_id": self._matchable_steam_id(self.alice),
+             "faction": self.faction.slug,
              "turns": [{"turn": 1, "score": 4}]},
         ]})
         self.assertIn("From this box score", data["content"])
@@ -12906,7 +12947,9 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         self.thread.save(update_fields=["seating_set"])
 
         data = self._run_data({"participants": [
-            {"turn_order": 1, "player": self.bob.slug, "faction": self.faction.slug,
+            {"turn_order": 1, "player": self.bob.slug,
+             "player_steam_id": self._matchable_steam_id(self.bob),
+             "faction": self.faction.slug,
              "vagabond": vagabond.slug, "turns": [{"turn": 1, "score": 2}]}]})
         self._press("boxscore_ok", self._pending_key(data))
 
@@ -13563,6 +13606,32 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
 
     STEAM_A = "76561198000000123"
     STEAM_B = "76561198000000124"
+    BOB_ASSUMED_STEAM_ID = "76561198000000906"
+
+    def setUp(self):
+        super().setUp()
+        # Gate 0 only offers a roster player who is NOT yet verified -- a
+        # verified steam_id is a settled identity and is excluded from its
+        # dropdown (see _boxscore_gate_zero_needed's "not p.steam_id"). This
+        # whole class is about that dropdown, so Bob has to stay free for it to
+        # have anyone to offer, and several tests below assert his
+        # assumed_steam_id is None until a dropdown actually assigns it -- so
+        # nothing here may pre-seed one.
+        self.bob.steam_id = None
+        self.bob.save(update_fields=["steam_id"])
+
+    def _matchable_steam_id(self, profile):
+        """Bob resolves here the way HE now can: an assumed Steam id, as if an
+        earlier Gate 0 had already identified him -- a verified one would make
+        him ineligible for the dropdown this whole class is about. Stamped
+        fresh on first use rather than in setUp, since several tests below
+        assert his assumed_steam_id is untouched until a dropdown sets it."""
+        if profile.pk == self.bob.pk:
+            if profile.assumed_steam_id is None:
+                profile.assumed_steam_id = self.BOB_ASSUMED_STEAM_ID
+                profile.save(update_fields=["assumed_steam_id"])
+            return profile.assumed_steam_id
+        return super()._matchable_steam_id(profile)
 
     def _stashed(self, key):
         """The parked payload for a Gate 0 prompt. `key` is the ref from
@@ -13573,6 +13642,7 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
     def _doc_unknown(self, *names_and_ids):
         """A file whose first seat is Alice and whose rest are strangers."""
         participants = [{"turn_order": 1, "player": self.alice.slug,
+                         "player_steam_id": self.alice.steam_id,
                          "turns": [{"turn": 1, "score": 2}]}]
         for i, (name, steam_id) in enumerate(names_and_ids, start=2):
             participants.append({"turn_order": i, "player": name,
@@ -13687,6 +13757,7 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
              "player_steam_id": self.STEAM_A,
              "turns": [{"turn": 1, "score": 4}]},
             {"turn_order": 1, "player": self.alice.slug,
+             "player_steam_id": self._matchable_steam_id(self.alice),
              "turns": [{"turn": 1, "score": 2}]},
         ]}
         data = self._run_data(doc)

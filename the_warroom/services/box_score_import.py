@@ -379,8 +379,8 @@ class ImportResult:
         }
 
 
-def resolve_participant_player(participant, player_queryset):
-    """The Profile for one participant, or None.
+def _resolve_participants(participants, player_queryset, include_slug):
+    """[Profile|None, ...] aligned with `participants`, in up to three queries.
 
     Three tiers, in descending order of how much the identity can be trusted:
 
@@ -405,41 +405,26 @@ def resolve_participant_player(participant, player_queryset):
     All lookups are scoped to `player_queryset` (the roster this game may draw
     from), so no key can pull in someone who isn't playing.
 
-    Per-participant, for the website importer where each seat is resolved on its
-    own. /boxscore uses resolve_participant_players instead -- see its docstring.
-    """
-    steam_id = participant.get('player_steam_id')
-    if steam_id:
-        # Both columns are unique=True, so each matches at most one profile.
-        found = player_queryset.filter(steam_id=str(steam_id)).first()
-        if found is not None:
-            return found
-        found = player_queryset.filter(assumed_steam_id=str(steam_id)).first()
-        if found is not None:
-            return found
+    `include_slug` gates tier 3. /boxscore (resolve_participant_players) passes
+    False: an automated Discord match should rely only on an actual Steam
+    identity, not a name match wearing an id's clothing -- a seat that misses
+    tiers 1-2 there instead goes through Gate 0 (if it carries a plausible Steam
+    id) or is reported unlinkable, either of which puts a human in the loop. The
+    website importer (resolve_participant_player) passes True: a hand-authored
+    file may carry no Steam id at all, so the slug is worth keeping as a last
+    resort there.
 
-    slug = participant.get('player')
-    if slug and isinstance(slug, str):
-        # iexact, not exact: slugs are always lowercase (slugify lowercases),
-        # while a box score carries whatever the exporter wrote -- so a file
-        # naming "WyvernElement" missed the profile slugged "wyvernelement".
-        return player_queryset.filter(slug__iexact=slug).first()
-    return None
-
-
-def resolve_participant_players(participants, player_queryset):
-    """[Profile|None, ...] aligned with `participants`, in three queries.
-
-    Same precedence and scoping as resolve_participant_player, batched: /boxscore
-    runs inside Discord's 3-second interaction budget and has already spent up to
-    2s downloading the attachment, so resolving a 6-seat file one .first() at a
-    time would add a dozen round trips it cannot afford. One query per tier
-    (verified, assumed, slug) keeps that guarantee as the tiers grow.
+    Batched because /boxscore runs inside Discord's 3-second interaction budget
+    and has already spent up to 2s downloading the attachment, so resolving a
+    6-seat file one .first() at a time would add a dozen round trips it cannot
+    afford. One query per tier keeps that guarantee as the tiers grow.
     """
     steam_ids = {str(p['player_steam_id']) for p in participants
                  if p.get('player_steam_id')}
-    slugs = {p['player'] for p in participants
-             if isinstance(p.get('player'), str) and p.get('player')}
+    slugs = set()
+    if include_slug:
+        slugs = {p['player'] for p in participants
+                 if isinstance(p.get('player'), str) and p.get('player')}
 
     by_steam, by_assumed, by_slug = {}, {}, {}
     if steam_ids:
@@ -448,12 +433,12 @@ def resolve_participant_players(participants, player_queryset):
         by_assumed = {p.assumed_steam_id: p for p
                       in player_queryset.filter(assumed_steam_id__in=steam_ids)}
     if slugs:
-        # Case-insensitive, matching resolve_participant_player's iexact. Django
-        # has no __iin, so lowercase BOTH sides instead of an OR chain: every
-        # stored slug is already lowercase (slugify lowercases, and 0 of 1814
-        # profile slugs contain uppercase), so this is equivalent in one query.
-        # A slug set by hand could break that equivalence -- ParticipantResolutionTests
-        # runs every case through both resolvers and would catch the divergence.
+        # Case-insensitive. Django has no __iin, so lowercase BOTH sides instead
+        # of an OR chain: every stored slug is already lowercase (slugify
+        # lowercases, and 0 of 1814 profile slugs contain uppercase), so this is
+        # equivalent in one query. A slug set by hand could break that
+        # equivalence -- ParticipantResolutionTests covers the case-insensitive
+        # match and would catch the divergence.
         by_slug = {p.slug.lower(): p for p
                    in player_queryset.filter(slug__in={s.lower() for s in slugs})}
 
@@ -467,11 +452,31 @@ def resolve_participant_players(participants, player_queryset):
             # guarantee that a verified id beats an assumed one, including when
             # they sit on different profiles. Do not collapse these lookups.
             found = by_steam.get(steam_id) or by_assumed.get(steam_id)
-        if found is None:
+        if found is None and include_slug:
             slug = participant.get('player')
             found = by_slug.get(slug.lower()) if isinstance(slug, str) else None
         out.append(found)
     return out
+
+
+def resolve_participant_player(participant, player_queryset):
+    """The Profile for one participant, or None. All three tiers -- see
+    _resolve_participants.
+
+    Per-participant, for the website importer where each seat is resolved on its
+    own. /boxscore uses resolve_participant_players instead -- see its docstring.
+    """
+    return _resolve_participants([participant], player_queryset,
+                                  include_slug=True)[0]
+
+
+def resolve_participant_players(participants, player_queryset):
+    """[Profile|None, ...] aligned with `participants`. Tiers 1-2 only (verified
+    and assumed Steam id) -- see _resolve_participants for why /boxscore excludes
+    the slug tier.
+    """
+    return _resolve_participants(participants, player_queryset,
+                                  include_slug=False)
 
 
 def participant_label(participant):

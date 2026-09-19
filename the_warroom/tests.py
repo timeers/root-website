@@ -2706,19 +2706,24 @@ class BoxScoreUploadApiTests(TestCase):
     These tests are mostly about what that token CANNOT do.
     """
 
-    def setUp(self):
-        self.alice = Profile.objects.create(discord='ttsalice', discord_id='801',
-                                            display_name='Alice')
-        self.bob = Profile.objects.create(discord='ttsbob', discord_id='802',
-                                          display_name='Bob')
-        self.thread = LFGThread.objects.create(thread_id='tts-thread-1')
-        self.thread.players.set([self.alice, self.bob])
-
     # Every participant carries a Steam id: the API path requires one, since the
     # TTS object identifies players by Steam account and a seat without one can't
-    # be resolved by Gate 0 either.
+    # be resolved by Gate 0 either. The batched resolver /boxscore uses now
+    # trusts ONLY a verified (or previously-assumed) Steam id -- never the slug
+    # -- so Alice and Bob must actually hold these ids for a clean upload to
+    # auto-match at all.
     ALICE_STEAM = '76561198000000001'
     BOB_STEAM = '76561198000000002'
+
+    def setUp(self):
+        self.alice = Profile.objects.create(discord='ttsalice', discord_id='801',
+                                            display_name='Alice',
+                                            steam_id=self.ALICE_STEAM)
+        self.bob = Profile.objects.create(discord='ttsbob', discord_id='802',
+                                          display_name='Bob',
+                                          steam_id=self.BOB_STEAM)
+        self.thread = LFGThread.objects.create(thread_id='tts-thread-1')
+        self.thread.players.set([self.alice, self.bob])
 
     def _doc(self, **kw):
         return {'participants': [
@@ -2790,11 +2795,12 @@ class BoxScoreUploadApiTests(TestCase):
         """An explicit id list, not parse: ["users"]: a box score's labels are
         arbitrary text from the file, so a broad parse would let an uploaded
         name ping the channel."""
-        stranger = Profile.objects.create(discord='ttsgated', discord_id='804')
+        stranger = Profile.objects.create(discord='ttsgated', discord_id='804',
+                                          steam_id='76561198000000804')
         _t, raw = self._token()
         doc = {'participants': [
             {'turn_order': 1, 'player': stranger.slug,
-             'player_steam_id': self.ALICE_STEAM,
+             'player_steam_id': stranger.steam_id,
              'turns': [{'turn': 1, 'score': 3}]}]}
         _response, prompt = self._post(doc, raw)
 
@@ -2975,7 +2981,8 @@ class BoxScoreUploadApiTests(TestCase):
         """A file with one player too many can be undone by uploading the right
         one: the reseat deletes every prior seat rather than merging, so the
         stray seat goes. This is what makes keeping an over-sized file safe."""
-        stranger = Profile.objects.create(discord='ttsextra', discord_id='804')
+        stranger = Profile.objects.create(discord='ttsextra', discord_id='804',
+                                          steam_id='76561198000000003')
         self.thread.players.add(stranger)
         _token, raw = self._token()
         big = {'participants': [
@@ -2986,7 +2993,7 @@ class BoxScoreUploadApiTests(TestCase):
              'player_steam_id': self.BOB_STEAM,
              'turns': [{'turn': 1, 'score': 5}]},
             {'turn_order': 3, 'player': stranger.slug,
-             'player_steam_id': '76561198000000003',
+             'player_steam_id': stranger.steam_id,
              'turns': [{'turn': 1, 'score': 7}]},
         ]}
         self._post(big, raw)
@@ -3071,11 +3078,15 @@ class BoxScoreUploadApiTests(TestCase):
     # ── a mismatch continues in Discord ──
 
     def test_a_mismatch_parks_the_payload_and_prompts_in_the_thread(self):
-        stranger = Profile.objects.create(discord='ttsstranger', discord_id='803')
+        """A seat that resolves to a real profile who is NOT in this game is a
+        roster mismatch -- worth confirming, unlike a seat that names nobody at
+        all."""
+        stranger = Profile.objects.create(discord='ttsstranger', discord_id='803',
+                                          steam_id='76561198000000803')
         token, raw = self._token()
         doc = {'participants': [
             {'turn_order': 1, 'player': stranger.slug,
-             'player_steam_id': self.ALICE_STEAM,
+             'player_steam_id': stranger.steam_id,
              'turns': [{'turn': 1, 'score': 3}]}]}
         response, prompt = self._post(doc, raw)
 
@@ -3110,7 +3121,7 @@ class BoxScoreUploadApiTests(TestCase):
         token, raw = self._token()
         doc = {'participants': [
             {'turn_order': 1, 'player': 'x' * 5000 + '@everyone `**',
-             'player_steam_id': self.ALICE_STEAM,
+             'player_steam_id': '76561198000000805',
              'turns': [{'turn': 1, 'score': 3}]}]}
         self._post(doc, raw)
         token.refresh_from_db()
@@ -3217,16 +3228,18 @@ class BoxScoreUploadTestModeTokenTests(TestCase):
     roster/seat-count comparison that would otherwise stage a Confirm/Cancel
     prompt no scripted client can answer."""
 
-    def setUp(self):
-        self.alice = Profile.objects.create(discord='testalice', discord_id='901',
-                                            display_name='Alice')
-        self.bob = Profile.objects.create(discord='testbob', discord_id='902',
-                                          display_name='Bob')
-        self.thread = LFGThread.objects.create(thread_id='tts-test-thread')
-        self.thread.players.set([self.alice, self.bob])
-
     ALICE_STEAM = '76561198000000101'
     BOB_STEAM = '76561198000000102'
+
+    def setUp(self):
+        self.alice = Profile.objects.create(discord='testalice', discord_id='901',
+                                            display_name='Alice',
+                                            steam_id=self.ALICE_STEAM)
+        self.bob = Profile.objects.create(discord='testbob', discord_id='902',
+                                          display_name='Bob',
+                                          steam_id=self.BOB_STEAM)
+        self.thread = LFGThread.objects.create(thread_id='tts-test-thread')
+        self.thread.players.set([self.alice, self.bob])
 
     def _seat(self, turn_order, profile, steam_id):
         return {'turn_order': turn_order, 'player': profile.slug,
@@ -3299,10 +3312,11 @@ class BoxScoreUploadTestModeTokenTests(TestCase):
         """The uploaded seat count/roster doesn't match the thread at all --
         an off-roster player, fewer seats than the roster -- and it still
         auto-applies instead of staging a Discord prompt nobody would answer."""
-        stranger = Profile.objects.create(discord='teststranger', discord_id='903')
+        stranger = Profile.objects.create(discord='teststranger', discord_id='903',
+                                          steam_id='76561198000000199')
         _t, raw = self._token()
         doc = {'participants': [
-            self._seat(1, stranger, '76561198000000199'),
+            self._seat(1, stranger, stranger.steam_id),
         ]}
         response, prompt = self._post(doc, raw)
         self.assertEqual(response.status_code, 200)
@@ -3350,11 +3364,12 @@ class BoxScoreUploadTestModeTokenTests(TestCase):
         test_a_match_threads_roster_is_never_touched avoids standing up a real
         Round/Stage/MatchSeries just to make the FK truthy."""
         from the_databot import discord_interactions as di
-        stranger = Profile.objects.create(discord='teststranger2', discord_id='904')
+        stranger = Profile.objects.create(discord='teststranger2', discord_id='904',
+                                          steam_id='76561198000000197')
         self.thread.series_id = 1     # truthy: the branch only checks series_id
         token, _raw = self._token()
         raw_body = json.dumps({'participants': [
-            self._seat(1, stranger, '76561198000000197'),
+            self._seat(1, stranger, stranger.steam_id),
         ]}).encode()
         with mock.patch('the_databot.discord_interactions.post_boxscore_result_task.delay'), \
                 mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
@@ -4321,7 +4336,13 @@ class MatchesPageAvailabilityButtonTests(_AvailabilityFixtureMixin, TestCase):
 class ParticipantResolutionTests(TestCase):
     """Three tiers of identity, in descending order of trust: a VERIFIED steam
     id, an ASSUMED one (a human's answer at Gate 0), then the slug -- which is
-    derived from the Discord name and so is a name match in an id's clothing."""
+    derived from the Discord name and so is a name match in an id's clothing.
+
+    resolve_participant_player (website importer) uses all three tiers.
+    resolve_participant_players (/boxscore) excludes the slug tier -- an
+    automated Discord match relies only on an actual Steam identity -- so the
+    two resolvers agree everywhere EXCEPT a slug-only participant, where the
+    batched one intentionally returns None instead of matching by name."""
 
     STEAM = "76561198000000201"
 
@@ -4333,7 +4354,8 @@ class ParticipantResolutionTests(TestCase):
                                              discord_id="803")
 
     def _both(self, participant, queryset=None):
-        """(single, batched) results -- the two resolvers must never disagree."""
+        """(single, batched) results. The two resolvers agree except on a
+        slug-only participant -- see the class docstring."""
         qs = queryset if queryset is not None else Profile.objects.all()
         return (resolve_participant_player(participant, qs),
                 resolve_participant_players([participant], qs)[0])
@@ -4370,20 +4392,26 @@ class ParticipantResolutionTests(TestCase):
         self.assertEqual(batched, self.bob)
 
     def test_the_slug_still_matches_when_no_steam_id_does(self):
-        """Kept as a last resort: a hand-authored file may carry no id at all."""
+        """Kept as a last resort for the website importer: a hand-authored file
+        may carry no id at all. /boxscore has no use for it -- with no Steam id
+        to go on, there's nothing to write as an assumed identity either, so the
+        batched resolver leaves the seat for Gate 0 / unlinkable to handle."""
         single, batched = self._both({"player": self.alice.slug})
         self.assertEqual(single, self.alice)
-        self.assertEqual(batched, self.alice)
+        self.assertIsNone(batched)
 
     def test_a_slug_matches_regardless_of_case(self):
         """A box score carries whatever the exporter typed, while every stored
         slug is lowercase -- so "WyvernElement" used to miss "wyvernelement"
-        entirely and the player was reported as unmatched."""
+        entirely and the player was reported as unmatched. Only the website
+        importer's slug tier is exercised here; see
+        test_the_slug_still_matches_when_no_steam_id_does for why /boxscore
+        does not match this participant at all."""
         for sent in ("wyvernelement", "WyvernElement", "WYVERNELEMENT"):
             with self.subTest(sent=sent):
                 single, batched = self._both({"player": sent})
                 self.assertEqual(single, self.wyvern)
-                self.assertEqual(batched, self.wyvern)
+                self.assertIsNone(batched)
 
     def test_a_verified_id_still_beats_a_case_insensitive_slug(self):
         """Loosening the slug tier must not let it overtake a real identity."""
@@ -4405,6 +4433,19 @@ class ParticipantResolutionTests(TestCase):
         single, batched = self._both({"player_steam_id": self.STEAM},
                                      queryset=only_alice)
         self.assertIsNone(single)
+        self.assertIsNone(batched)
+
+    def test_boxscore_never_matches_by_slug_alone(self):
+        """The one deliberate divergence between the two resolvers: a
+        steam-id-less participant is a name match wearing an id's clothing, fine
+        for the website importer's error messaging but not for an automated
+        Discord match. /boxscore leaves it for Gate 0 (if it has a Steam id to
+        ask about) or unlinkable reporting instead."""
+        single = resolve_participant_player(
+            {"player": self.alice.slug}, Profile.objects.all())
+        batched = resolve_participant_players(
+            [{"player": self.alice.slug}], Profile.objects.all())[0]
+        self.assertEqual(single, self.alice)
         self.assertIsNone(batched)
 
 

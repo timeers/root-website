@@ -8170,8 +8170,8 @@ def _boxscore_reresolve(thread, pending, channel_id, channel_name=None, guild_id
     This is what Try Again runs: somebody linked their Steam account (or was
     added to the roster) since the upload, so the same identifiers may now find a
     profile. Rebuilds a minimal participants list from the raw keys the payload
-    kept and hands it to resolve_participant_players, so the
-    Steam-id-beats-slug precedence stays defined in exactly one place.
+    kept and hands it to resolve_participant_players, so the verified-beats-
+    assumed Steam id precedence stays defined in exactly one place.
 
     The roster is RE-READ rather than taken from the payload: being added to the
     thread is a legitimate way to fix an off-roster seat.
