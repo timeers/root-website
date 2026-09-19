@@ -7811,12 +7811,8 @@ def boxscore_upload_from_api(thread, raw, token):
             # No label: each title now carries its own kind ("Autumn Map").
             summary.append(" · ".join(component_titles))
         summary.extend(applied_notes)
-        body_without_record_line = "\n".join(l for l in summary if l)
-        if record_url:
-            summary.append(f"Review and record the game [here]({record_url}).")
-        content = "\n".join(l for l in summary if l)
-        post_boxscore_result_task.delay(
-            thread.pk, thread.thread_id, content, body_without_record_line,
+        _boxscore_finish_posted(
+            thread, summary, mention,
             allowed_mentions=({"users": [token.issued_by.discord_id]}
                               if mention else None))
         turn_count = max((len(e.get("turns") or []) for e in entries), default=0)
@@ -8286,7 +8282,8 @@ def _boxscore_decide(thread, pending, roster, owner, ref, skip_roster_check=Fals
 
 
 def _boxscore_next_step(thread, pending, channel_id, owner, roster=None,
-                        channel_name=None, guild_id=None, save=None, ref=None):
+                        channel_name=None, guild_id=None, save=None, ref=None,
+                        payload=None):
     """Decide what a staged upload needs next: a gate, or apply it.
 
     THE single entry point for the interaction paths, shared by the command,
@@ -8330,7 +8327,7 @@ def _boxscore_next_step(thread, pending, channel_id, owner, roster=None,
     if ref:
         # Reached from a BUTTON: edit the prompt in place and drop the stored
         # payload, so no live button is left behind pointing at a spent upload.
-        return _boxscore_apply_in_place(thread, pending, channel_id, ref)
+        return _boxscore_apply_in_place(thread, pending, channel_id, ref, payload)
     return _boxscore_reply(thread, pending, channel_id)
 
 
@@ -8351,7 +8348,7 @@ def _boxscore_resolved(text):
     })
 
 
-def _boxscore_apply_in_place(thread, pending, channel_id, ref):
+def _boxscore_apply_in_place(thread, pending, channel_id, ref, payload=None):
     """Apply a staged upload and REPLACE the prompt message with the result."""
     from the_databot.models import BoxScoreUploadToken
 
@@ -8375,10 +8372,11 @@ def _boxscore_apply_in_place(thread, pending, channel_id, ref):
         out.append(" · ".join(pending["component_titles"]))
     out.extend(notes)
 
+    content = _boxscore_finish(thread, ref, payload or {}, channel_id, out)
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {
-            "content": "\n".join(line for line in out if line),
+            "content": content,
             "components": [],
             "allowed_mentions": {"parse": []},
         },
@@ -8931,7 +8929,7 @@ def _handle_boxscore_gate_zero_save(payload):
     _boxscore_save(ref, thread, pending)
     return _boxscore_next_step(
         thread, pending, thread.thread_id, _boxscore_owner_arg(payload),
-        roster=roster, save=lambda: ref, ref=ref)
+        roster=roster, save=lambda: ref, ref=ref, payload=payload)
 
 
 def _handle_boxscore_retry(payload):
@@ -8953,7 +8951,7 @@ def _handle_boxscore_retry(payload):
     _boxscore_save(ref, thread, pending)
     return _boxscore_next_step(
         thread, pending, thread.thread_id, _boxscore_owner_arg(payload),
-        roster=roster, save=lambda: ref, ref=ref)
+        roster=roster, save=lambda: ref, ref=ref, payload=payload)
 
 
 def _handle_boxscore_link(payload):
@@ -8989,7 +8987,7 @@ def _handle_boxscore_link(payload):
     _boxscore_save(ref, thread, pending)
     return _boxscore_next_step(
         thread, pending, thread.thread_id, _boxscore_owner_arg(payload),
-        save=lambda: ref, ref=ref)
+        save=lambda: ref, ref=ref, payload=payload)
 
 
 def _handle_boxscore_confirm(payload):
@@ -9011,6 +9009,65 @@ def _boxscore_owner_arg(payload):
     (a prompt posted into the thread)."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])
     return args[-1] if args else PICK_OPEN
+
+
+def _boxscore_finish_posted(thread, summary, mention, allowed_mentions):
+    """The shared tail of a box score result POSTED fresh into a thread (as
+    opposed to editing an existing prompt -- see _boxscore_finish): split off
+    the pre-record-line body, append the record-game line, and hand the result
+    to post_boxscore_result_task, which posts it, retires any older tracked
+    message, and remembers this one's id for manage_game to rewrite later.
+
+    `summary` is the caller's list of content lines built so far (greeting/
+    mention line, seating lines, component titles, notes) -- mutated in place
+    with the record line, same as _boxscore_finish's `out`.
+    """
+    body_without_record_line = "\n".join(l for l in summary if l)
+    if not thread.game_id:
+        url = _record_url(f"/record/game/?lfg={thread.id}")
+        if url:
+            summary.append(f"Review and record the game [here]({url}).")
+    content = "\n".join(l for l in summary if l)
+    post_boxscore_result_task.delay(
+        thread.pk, thread.thread_id, content, body_without_record_line,
+        allowed_mentions=allowed_mentions)
+
+
+def _boxscore_finish(thread, ref, payload, channel_id, out):
+    """The shared tail of every gate's terminal edit: append the record-game
+    line and remember this message's id (token-backed uploads only), so
+    manage_game can strip the link once the game is actually recorded.
+
+    Returns the final content string for the RESPONSE_UPDATE_MESSAGE body.
+
+    Token-backed only ("t:<pk>"): the cache-backed "c:<key>" path is /boxscore
+    upload's own EPHEMERAL confirm, whose message has no stable id the normal
+    REST edit call can use later, and which only the uploader can see anyway --
+    a record link there would point somewhere nobody else in the thread could
+    reach it from.
+    """
+    if ref.startswith("t:"):
+        message_id = (payload.get("message") or {}).get("id")
+        body_without_record_line = "\n".join(line for line in out if line)
+        if not thread.game_id:
+            url = _record_url(f"/record/game/?lfg={thread.id}")
+            if url:
+                out.append(f"Review and record the game [here]({url}).")
+        if message_id:
+            # This upload's own message IS the one being edited in place (the
+            # gate prompt becomes the result), so there is nothing to retire
+            # for THIS message -- but a re-upload can still be replacing an
+            # OLDER, already-resolved boxscore message from a previous upload
+            # that this one's gates never touched (e.g. that upload applied
+            # cleanly with no gate, so it's a different message entirely).
+            if thread.boxscore_message_id and thread.boxscore_message_id != message_id:
+                _retire_boxscore_message(channel_id,
+                                         thread.boxscore_message_id, thread.boxscore_message_body)
+            thread.boxscore_message_id = message_id
+            thread.boxscore_message_body = body_without_record_line
+            thread.save(update_fields=["boxscore_message_id", "boxscore_message_body"])
+
+    return "\n".join(line for line in out if line)
 
 
 def _boxscore_commit(payload, pending, thread, ref):
@@ -9049,36 +9106,11 @@ def _boxscore_commit(payload, pending, thread, ref):
         out.append(" · ".join(pending["component_titles"]))
     out.extend(notes)
 
-    # Token-backed only ("t:<pk>"): the cache-backed "c:<key>" path is /boxscore
-    # upload's own EPHEMERAL confirm, whose message has no stable id the normal
-    # REST edit call can use later, and which only the uploader can see anyway --
-    # a record link there would point somewhere nobody else in the thread could
-    # reach it from.
-    if ref.startswith("t:"):
-        message_id = (payload.get("message") or {}).get("id")
-        body_without_record_line = "\n".join(line for line in out if line)
-        if not thread.game_id:
-            url = _record_url(f"/record/game/?lfg={thread.id}")
-            if url:
-                out.append(f"Review and record the game [here]({url}).")
-        if message_id:
-            # This upload's own message IS the one being edited in place (the
-            # gate prompt becomes the result), so there is nothing to retire
-            # for THIS message -- but a re-upload can still be replacing an
-            # OLDER, already-resolved boxscore message from a previous upload
-            # that this one's gates never touched (e.g. that upload applied
-            # cleanly with no gate, so it's a different message entirely).
-            if thread.boxscore_message_id and thread.boxscore_message_id != message_id:
-                _retire_boxscore_message(channel_id,
-                                         thread.boxscore_message_id, thread.boxscore_message_body)
-            thread.boxscore_message_id = message_id
-            thread.boxscore_message_body = body_without_record_line
-            thread.save(update_fields=["boxscore_message_id", "boxscore_message_body"])
-
+    content = _boxscore_finish(thread, ref, payload, channel_id, out)
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {
-            "content": "\n".join(line for line in out if line),
+            "content": content,
             "components": [],
             "allowed_mentions": {"parse": []},
         },
@@ -9236,14 +9268,8 @@ def _handle_boxscore_restore(payload):
         if pending["component_titles"]:
             summary.append(" · ".join(pending["component_titles"]))
         summary.extend(notes)
-        body_without_record_line = "\n".join(l for l in summary if l)
-        if not thread.game_id:
-            url = _record_url(f"/record/game/?lfg={thread.id}")
-            if url:
-                summary.append(f"Review and record the game [here]({url}).")
-        content = "\n".join(l for l in summary if l)
-        post_boxscore_result_task.delay(
-            thread.pk, thread.thread_id, content, body_without_record_line,
+        _boxscore_finish_posted(
+            thread, summary, mention,
             allowed_mentions=({"users": [profile.discord_id]} if mention else None))
         return _ephemeral("Restored — the box score has been added to the thread.")
 

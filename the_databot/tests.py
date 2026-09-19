@@ -14508,6 +14508,18 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
                          {"users": [self.player.discord_id]})
         self.assertEqual(data["flags"], di.EPHEMERAL)
 
+    def test_restoring_a_clean_upload_adds_the_record_link(self):
+        """Same _boxscore_finish_posted tail boxscore_upload_from_api uses --
+        the restored, cleanly-applied upload must get the record link too."""
+        token = self._discarded()
+
+        _data, _prompt, post = self._press_restore(token, capture=True)
+
+        content = post.call_args.args[2]
+        body_without_record_line = post.call_args.args[3]
+        self.assertIn("Review and record the game", content)
+        self.assertNotIn("Review and record the game", body_without_record_line)
+
     def test_it_offers_restore_alongside_a_fresh_token(self):
         """Both, never one instead of the other: a fresh upload of a DIFFERENT
         game to the same thread is legitimate, so the offer must not suppress
@@ -14717,6 +14729,58 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
                 mock.patch.object(di, "_retire_boxscore_message") as retire:
             di._boxscore_commit(
                 self._commit_payload("222"), self._commit_pending(), self.thread, "t:2")
+
+        retire.assert_called_once_with(self.THREAD_ID, "111", first_body)
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.boxscore_message_id, "222")
+
+    # ── _boxscore_apply_in_place: Gates 0/1's exit, same _boxscore_finish tail
+    # _boxscore_commit (Gate 2's exit) already gets above ──
+
+    def test_gate_0_1_exit_tracks_the_message_and_adds_the_record_link(self):
+        """_boxscore_apply_in_place is reached from Gate 0/1's Continue/Try
+        Again buttons -- it must get the same record-link + message-id
+        treatment _boxscore_commit gets for Gate 2's Confirm, not a separate,
+        divergent copy of it."""
+        with mock.patch.object(di, "_capture_lfg_components"):
+            response = di._boxscore_apply_in_place(
+                self.thread, self._commit_pending(), self.THREAD_ID, "t:1",
+                self._commit_payload())
+        content = json.loads(response.content)["data"]["content"]
+        self.assertIn("Review and record the game", content)
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.boxscore_message_id, "777666555")
+        self.assertNotIn("Review and record the game",
+                         self.thread.boxscore_message_body)
+
+    def test_gate_0_1_exit_cache_backed_does_neither(self):
+        """Same ephemeral/no-stable-id reasoning as _boxscore_commit's
+        cache-backed case: /boxscore upload's own gate prompts are
+        uploader-only, so no record link and no tracked message id."""
+        with mock.patch.object(di, "_capture_lfg_components"):
+            response = di._boxscore_apply_in_place(
+                self.thread, self._commit_pending(), self.THREAD_ID, "c:1",
+                self._commit_payload())
+        content = json.loads(response.content)["data"]["content"]
+        self.assertNotIn("Review and record the game", content)
+        self.thread.refresh_from_db()
+        self.assertIsNone(self.thread.boxscore_message_id)
+
+    def test_gate_0_1_exit_retires_a_previous_boxscore_message(self):
+        """A re-upload resolved through Gate 0/1 must retire an older tracked
+        message the same way Gate 2's exit already does."""
+        with mock.patch.object(di, "_capture_lfg_components"):
+            di._boxscore_apply_in_place(
+                self.thread, self._commit_pending(), self.THREAD_ID, "t:1",
+                self._commit_payload("111"))
+        self.thread.refresh_from_db()
+        first_body = self.thread.boxscore_message_body
+
+        with mock.patch.object(di, "_capture_lfg_components"), \
+                mock.patch.object(di, "_retire_boxscore_message") as retire:
+            di._boxscore_apply_in_place(
+                self.thread, self._commit_pending(), self.THREAD_ID, "t:2",
+                self._commit_payload("222"))
 
         retire.assert_called_once_with(self.THREAD_ID, "111", first_body)
         self.thread.refresh_from_db()
