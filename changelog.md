@@ -17,6 +17,7 @@
 ### Bug Fixes
 - Selecting a time for the first time in Weekly Availability clears the general availability styling to show that it will not be used
 - Fixed meta title for Compare Availability page
+- Boxscores that needed player confirmation now include the record link upon completion
 
 ## [1.13.8] - 2026-9-16 Better Notifications and Schedules
 
