@@ -11,6 +11,7 @@
 - Compare Availability now only shows "none" and disables a player's checkbox if they have never set any availability - a player with availability set for other weeks now shows "0h" for a week they haven't filled in, and stays selectable
 - Boxscores for match games now alert roster mismatches in discord instead of erroring on the API
 - The record link sent with a boxscore for a match now shows the correct link
+- The player list on /lfg and /schedule posts now shows the name you go by in that server
 
 ## [1.13.9] - 2026-9-18 Halloween & Kickoff Messages
 

@@ -10098,10 +10098,19 @@ def _handle_lfg_command(data):
 
 
 def _author_display_from_data(data):
-    """The invoker's guild display name for the initial Players line. The command
-    payload doesn't carry member.nick down to `data`, so use the author embed name
-    (global_name/username) — good enough for the poster's own line."""
-    return (data.get("_author") or {}).get("name") or "Player"
+    """The invoker's guild display name for the initial Players line: their
+    per-guild nick when they've set one, else the author embed name
+    (global_name/username).
+
+    Mirrors _lfg_member_display_name, which does the same for button clickers
+    straight from the raw payload -- so a player's own line reads the same
+    whether they created the post or joined it.
+
+    `or` rather than a key check: a member with no nick sends it as absent OR
+    null, and both must fall through to the author name."""
+    return (data.get("_member_nick")
+            or (data.get("_author") or {}).get("name")
+            or "Player")
 
 
 def _lfg_jump_url(payload):
@@ -10862,7 +10871,8 @@ def discord_interactions(request):
                 # so handlers can build author-attributed embeds (_author) and
                 # owner-lock the prompts they post (_author_id). Also stash the guild
                 # (for /lfg role lookup + invoker onboarding), the invoker's username
-                # (onboarding), and the channel id (so /random Captain — resolved in
+                # (onboarding), their per-guild nickname (_member_nick, for the
+                # player lists), and the channel id (so /random Captain — resolved in
                 # the command handler — can capture into an LFG thread).
                 member_user = (payload.get("member") or {}).get("user") or payload.get("user") or {}
                 data["_author"] = _interaction_author(payload)
@@ -10889,6 +10899,11 @@ def discord_interactions(request):
                 # roles/owner/admin for us). Lets /help decide, without an API call,
                 # whether to offer the "enable more commands" link.
                 data["_member_permissions"] = (payload.get("member") or {}).get("permissions")
+                # The invoker's per-guild nickname, when they've set one. Lets the
+                # player lists show the name THIS server knows them by -- matching
+                # what button clicks already do via _lfg_member_display_name --
+                # with no API call. Absent in a DM and for a member with no nick.
+                data["_member_nick"] = (payload.get("member") or {}).get("nick")
                 # Interaction token, so a handler can send a followup after its ACK
                 # (e.g. /lfg's ephemeral "add tags" nudge).
                 data["_token"] = payload.get("token")
