@@ -4,6 +4,11 @@
 
 ### Improvements
 - Removed slug matching to Steam name to reduce chances of a player getting automatically assigned incorrectly
+- Home page uses theme color for lifecycle nodes
+
+### Bug Fixes
+- Compare Availability now updates each player's hour count when switching weeks instead of showing the count from whichever week the page first loaded on
+- Compare Availability now only shows "none" and disables a player's checkbox if they have never set any availability - a player with availability set for other weeks now shows "0h" for a week they haven't filled in, and stays selectable
 
 ## [1.13.9] - 2026-9-18 Halloween & Kickoff Messages
 
