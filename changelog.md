@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.10] - 2026-9-19 Boxscore Bugs
+## [1.13.10] - 2026-9-20 Boxscore Bugs
 
 ### Improvements
 - Removed slug matching to Steam name to reduce chances of a player getting automatically assigned incorrectly
