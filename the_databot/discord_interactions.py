@@ -531,6 +531,52 @@ def _record_thread_detail_lines(thread):
     return lines
 
 
+def _thread_record_url(thread):
+    """(url, is_record_link) for `thread`, or (None, False) without a SITE_URL.
+
+    Same rule /record applies below, for the callers that have a thread rather
+    than a channel. A SERIES-linked thread is a tournament group thread: it
+    spans every game of a best-of-N, so LFGThread.game cannot hold its result
+    (see the model's note on that field) and ?lfg= would record it in LFG mode,
+    skipping the bracket and seat wiring. Such a thread's game_id is therefore
+    ALWAYS None -- which is why the callers can't gate on it.
+
+    `is_record_link` says which of the two the URL is, so the caller's wording
+    can't drift from what it points at.
+    """
+    if thread.series_id:
+        match = (Match.objects
+                 .filter(series_id=thread.series_id, game__isnull=True)
+                 .exclude(status=CompetitionStatus.COMPLETED)
+                 .order_by("match_number").first())
+        if match:
+            return _record_url(f"/record/game/?match={match.id}"), True
+        # Every game is in the books -- point at the last one, the way /record's
+        # branch (3) reports a finished series.
+        recorded = (Match.objects
+                    .filter(series_id=thread.series_id, game__isnull=False)
+                    .order_by("match_number").last())
+        if recorded:
+            return _record_url(f"/game/{recorded.game_id}/"), False
+        return None, False
+    if thread.game_id:
+        return _record_url(f"/game/{thread.game_id}/"), False
+    return _record_url(f"/record/game/?lfg={thread.id}"), True
+
+
+def _boxscore_record_line(thread):
+    """The record/view line for a box score result, or None.
+
+    One place so the posted tail and the edited-in-place tail can't disagree
+    about either the URL or the wording that introduces it."""
+    url, is_record = _thread_record_url(thread)
+    if not url:
+        return None
+    if is_record:
+        return f"Review and record the game [here]({url})."
+    return f"This game is already recorded — view it [here]({url})."
+
+
 def _handle_record_command(data):
     """/record: hand back a link to record this game's result, picking the form's
     mode from the channel the command was used in.
@@ -7764,9 +7810,6 @@ def boxscore_upload_from_api(thread, raw, token):
     }
     pending["fingerprint"] = _boxscore_seat_fingerprint(thread)
 
-    site = (config.get("SITE_URL") or "").rstrip("/")
-    record_url = f"{site}/record/game/?lfg={thread.id}" if site else None
-
     def post_gate(body, ask="confirm some details for", client_message=(
             "Box score uploaded, but it doesn't match this game's players or "
             "seating. Check the Discord thread to confirm or cancel.")):
@@ -7798,7 +7841,6 @@ def boxscore_upload_from_api(thread, raw, token):
         return {
             "ok": True, "status": "pending_confirmation",
             "message": client_message,
-            "record_url": record_url,
         }
 
     # The same decision the interaction paths make -- asked once, here, rather
@@ -7855,12 +7897,13 @@ def boxscore_upload_from_api(thread, raw, token):
         allowed_mentions=({"users": [token.issued_by.discord_id]}
                           if mention else None))
     turn_count = max((len(e.get("turns") or []) for e in entries), default=0)
+    # No record link: whoever is holding the TTS object is at the table and
+    # usually isn't the one who records. The link goes to the thread instead,
+    # where everyone who can act on it already is.
     return {
         "ok": True, "status": "applied",
         "message": (f"Box score uploaded — {len(entries)} seats, "
-                    f"{turn_count} turns."
-                    + (f" Record the game at {record_url}" if record_url else "")),
-        "record_url": record_url,
+                    f"{turn_count} turns."),
         "seats": len(entries), "turns": turn_count,
     }
 
@@ -9112,10 +9155,12 @@ def _boxscore_finish_posted(thread, summary, mention, allowed_mentions):
     with the record line, same as _boxscore_finish's `out`.
     """
     body_without_record_line = "\n".join(l for l in summary if l)
-    if not thread.game_id:
-        url = _record_url(f"/record/game/?lfg={thread.id}")
-        if url:
-            summary.append(f"Review and record the game [here]({url}).")
+    # NOT gated on thread.game_id: a series thread never has one, so that test
+    # would drop the link for exactly the threads that need a match-mode one.
+    # _boxscore_record_line decides record-vs-view instead.
+    line = _boxscore_record_line(thread)
+    if line:
+        summary.append(line)
     content = "\n".join(l for l in summary if l)
     post_boxscore_result_task.delay(
         thread.pk, thread.thread_id, content, body_without_record_line,
@@ -9138,10 +9183,11 @@ def _boxscore_finish(thread, ref, payload, channel_id, out):
     if ref.startswith("t:"):
         message_id = (payload.get("message") or {}).get("id")
         body_without_record_line = "\n".join(line for line in out if line)
-        if not thread.game_id:
-            url = _record_url(f"/record/game/?lfg={thread.id}")
-            if url:
-                out.append(f"Review and record the game [here]({url}).")
+        # See _boxscore_finish_posted: gated on the link, not thread.game_id,
+        # which a series thread never has.
+        record_line = _boxscore_record_line(thread)
+        if record_line:
+            out.append(record_line)
         if message_id:
             # This upload's own message IS the one being edited in place (the
             # gate prompt becomes the result), so there is nothing to retire

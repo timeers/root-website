@@ -1438,6 +1438,59 @@ class ResultsChannelViewAnnounceTests(TestCase):
             thread.thread_id, "555444333",
             "Box score uploaded — 2 seats, 1 turns.")
 
+    def test_recording_a_match_strips_the_group_threads_record_line(self):
+        """The same rewrite, for a thread that records in MATCH mode.
+
+        A tournament group thread is promoted out of lfg_mode (its ?lfg= link
+        can't record a series), so while this rewrite lived inside the lfg_mode
+        branch it never ran for exactly the threads a box score is uploaded
+        from -- leaving a stale "record the game" link in the thread forever.
+        """
+        series = MatchSeries.objects.create(round=self.round)
+        match = Match.objects.create(round=self.round, series=series,
+                                     match_number=1)
+        self._seat(series, self.profile, 1)
+        self._seat(series, self.opponent, 2)
+        LFGThread.objects.create(
+            thread_id="300000000000000097", guild=self.guild, series=series,
+            boxscore_message_id="555444222",
+            boxscore_message_body="Box score uploaded — 2 seats, 1 turns.")
+
+        url = f"{reverse('record-game')}?match={match.id}"
+        _, _, _, edit_task = self._record_committed(
+            url, self._payload(match_id=match.id))
+
+        edit_task.delay.assert_called_once_with(
+            "300000000000000097", "555444222",
+            "Box score uploaded — 2 seats, 1 turns.")
+
+    def test_editing_a_recorded_game_does_not_rewrite_the_message_again(self):
+        """The rewrite is a one-shot: the message is already back to its stored
+        body, so later edits must not keep re-sending the same edit."""
+        role = GuildLFGRole.objects.create(guild=self.guild, name="TTS LFG 4",
+                                           tournament=self.tournament)
+        thread = LFGThread.objects.create(
+            thread_id="300000000000000096", guild=self.guild, lfg_role=role,
+            host=self.profile, boxscore_message_id="555444111",
+            boxscore_message_body="Box score uploaded.")
+        thread.players.add(self.profile, self.opponent)
+
+        url = f"{reverse('record-game')}?lfg={thread.pk}"
+        _, _, _, edit_task = self._record_committed(
+            url, self._payload(lfg_id=thread.pk))
+        edit_task.delay.assert_called_once()
+
+        game = Game.objects.get()
+        efforts = list(game.efforts.order_by('seat'))
+        edit_url = reverse('game-update', kwargs={'id': game.id})
+        _, _, _, edit_task2 = self._record_committed(edit_url, self._payload(**{
+            'form-INITIAL_FORMS': '2',
+            'form-0-id': efforts[0].pk,
+            'form-1-id': efforts[1].pk,
+            'nickname': 'renamed',
+        }))
+        edit_task2.delay.assert_not_called()
+
     def test_recording_the_game_leaves_no_boxscore_message_untouched(self):
         """The common case: no boxscore-API upload ever happened for this
         thread, so there is nothing to edit."""
@@ -2823,11 +2876,17 @@ class BoxScoreUploadApiTests(TestCase):
         self.assertIn('Box score uploaded from Tabletop Simulator', content)
         self.assertIsNone(post.call_args.kwargs['allowed_mentions'])
 
-    def test_the_response_carries_a_printable_message_and_record_url(self):
+    def test_the_response_carries_a_printable_message_and_no_link(self):
+        """The object at the table gets a confirmation, not a record link.
+
+        Whoever is holding it usually isn't the one who records -- and for a
+        match game the link it used to carry was the wrong shape anyway. The
+        link lives in the Discord thread, where everyone who can act on it is."""
         _t, raw = self._token()
         body = self._post(self._doc(), raw)[0].json()
         self.assertTrue(body['message'])
-        self.assertIn('/record/game/?lfg=', body['record_url'])
+        self.assertNotIn('record_url', body)
+        self.assertNotIn('http', body['message'])
 
     def test_a_dashed_lowercase_token_is_accepted(self):
         """Humans retype these; normalize() folds case and strips separators."""
@@ -3618,6 +3677,175 @@ class BoxScoreMatchRosterGateTests(TestCase):
         labels = [b['label'] for b
                   in prompt.call_args.args[1]['components'][0]['components']]
         self.assertEqual(labels, ['Confirm', 'Cancel'])
+
+
+class ThreadRecordUrlTests(TestCase):
+    """The record link a box score result posts, per kind of thread.
+
+    A tournament group thread spans a whole best-of-N, so LFGThread.game can't
+    hold its result: recording it has to be ?match=<Match pk>, the same mode
+    /record picks. It used to emit ?lfg=<thread pk> for every thread alike,
+    which lands on a form that cannot record the game.
+    """
+
+    SITE = 'https://www.therootdatabase.com'
+
+    def setUp(self):
+        self.alice = Profile.objects.create(discord='urlalice', discord_id='971')
+        tournament = Tournament.objects.create(name='URL Cup', is_active=True)
+        stage = Stage.objects.create(tournament=tournament, name='S1', order=1,
+                                     is_active=True)
+        self.round = Round.objects.create(stage=stage, round_number=1,
+                                          is_active=True)
+        self.series = MatchSeries.objects.create(round=self.round)
+
+    def _url(self, thread):
+        from the_databot import discord_interactions as di
+        with mock.patch.dict(di.config, {'SITE_URL': self.SITE}):
+            return di._thread_record_url(thread)
+
+    def test_a_plain_lfg_thread_records_by_thread(self):
+        """Unchanged: an LFG thread IS the game, so ?lfg= is right for it."""
+        thread = LFGThread.objects.create(thread_id='url-plain')
+        url, is_record = self._url(thread)
+        self.assertEqual(url, f'{self.SITE}/record/game/?lfg={thread.id}')
+        self.assertTrue(is_record)
+
+    def test_a_series_thread_records_by_match(self):
+        """THE bug: a group thread must record in match mode."""
+        match = Match.objects.create(round=self.round, series=self.series,
+                                     match_number=1)
+        thread = LFGThread.objects.create(thread_id='url-series',
+                                          series=self.series)
+        url, is_record = self._url(thread)
+        self.assertEqual(url, f'{self.SITE}/record/game/?match={match.id}')
+        self.assertTrue(is_record)
+
+    def test_a_series_thread_picks_the_first_unrecorded_match(self):
+        """Best-of-N: game 1 is in the books, so the link is for game 2."""
+        game = Game.objects.create()
+        Match.objects.create(round=self.round, series=self.series,
+                             match_number=1, game=game)
+        second = Match.objects.create(round=self.round, series=self.series,
+                                      match_number=2)
+        thread = LFGThread.objects.create(thread_id='url-bo3',
+                                          series=self.series)
+        url, is_record = self._url(thread)
+        self.assertEqual(url, f'{self.SITE}/record/game/?match={second.id}')
+        self.assertTrue(is_record)
+
+    def test_a_fully_recorded_series_links_to_the_game(self):
+        """Nothing left to record -- so don't offer a recording form."""
+        game = Game.objects.create()
+        Match.objects.create(round=self.round, series=self.series,
+                             match_number=1, game=game)
+        thread = LFGThread.objects.create(thread_id='url-done',
+                                          series=self.series)
+        url, is_record = self._url(thread)
+        self.assertEqual(url, f'{self.SITE}/game/{game.id}/')
+        self.assertFalse(is_record)
+
+    def test_a_recorded_lfg_thread_links_to_the_game(self):
+        game = Game.objects.create()
+        thread = LFGThread.objects.create(thread_id='url-recorded', game=game)
+        url, is_record = self._url(thread)
+        self.assertEqual(url, f'{self.SITE}/game/{game.id}/')
+        self.assertFalse(is_record)
+
+    def test_the_wording_follows_the_link(self):
+        """A view link must not be introduced as "record the game"."""
+        from the_databot import discord_interactions as di
+        game = Game.objects.create()
+        recorded = LFGThread.objects.create(thread_id='url-word-1', game=game)
+        pending = LFGThread.objects.create(thread_id='url-word-2')
+        with mock.patch.dict(di.config, {'SITE_URL': self.SITE}):
+            self.assertIn('already recorded',
+                          di._boxscore_record_line(recorded))
+            self.assertIn('Review and record',
+                          di._boxscore_record_line(pending))
+
+    def test_no_site_url_means_no_line(self):
+        from the_databot import discord_interactions as di
+        thread = LFGThread.objects.create(thread_id='url-nosite')
+        with mock.patch.dict(di.config, {'SITE_URL': ''}):
+            self.assertIsNone(di._boxscore_record_line(thread))
+
+
+class ManageGameModeTests(TestCase):
+    """manage_game's mode resolution and its already-recorded redirects.
+
+    Two hardening rules, both about landing somewhere that can't do the wrong
+    thing: a ?lfg= pointing at a tournament group thread records in MATCH mode
+    (old links are already posted in threads, so the view can't trust the
+    param), and a request to record a game that already exists shows the game
+    rather than opening an editable form over a saved result.
+    """
+
+    def setUp(self):
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+
+        self.user = User.objects.create_user(username='mgmode', password='x')
+        profile = self.user.profile
+        # ADMIN: `admin` is derived from group, and it's what clears the
+        # per-mode permission gates so these tests can reach the mode logic.
+        profile.group = Profile.GroupChoices.ADMIN
+        profile.player_onboard = True
+        profile.save()
+        self.profile = profile
+
+        self.tournament = Tournament.objects.create(name='Mode Cup',
+                                                    is_active=True)
+        self.stage = Stage.objects.create(tournament=self.tournament,
+                                          name='S1', order=1, is_active=True)
+        self.round = Round.objects.create(
+            stage=self.stage, round_number=1, is_active=True,
+            bracket_status=Round.BracketStatusChoices.FINALIZED)
+        self.series = MatchSeries.objects.create(round=self.round)
+        self.client.force_login(self.user)
+
+    def test_a_series_thread_is_promoted_to_match_mode(self):
+        """?lfg= on a group thread would otherwise record in LFG mode, which
+        skips the bracket wiring and tries to set LFGThread.game -- a field the
+        model forbids a series thread from having."""
+        match = Match.objects.create(round=self.round, series=self.series,
+                                     match_number=1)
+        thread = LFGThread.objects.create(thread_id='mode-series',
+                                          series=self.series)
+        response = self.client.get(f'/record/game/?lfg={thread.id}')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['match_mode'])
+        self.assertFalse(response.context['lfg_mode'])
+        self.assertEqual(response.context['match'], match)
+
+    def test_a_plain_lfg_thread_stays_in_lfg_mode(self):
+        thread = LFGThread.objects.create(thread_id='mode-plain')
+        thread.players.add(self.profile)
+        response = self.client.get(f'/record/game/?lfg={thread.id}')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context['lfg_mode'])
+        self.assertFalse(response.context['match_mode'])
+
+    def test_an_already_recorded_match_shows_the_game(self):
+        """Not the edit form: the link said "record", so opening an editable
+        form over a saved result invites overwriting it by accident."""
+        game = Game.objects.create()
+        Match.objects.create(round=self.round, series=self.series,
+                             match_number=1, game=game)
+        match = Match.objects.get(game=game)
+        response = self.client.get(f'/record/game/?match={match.id}')
+        self.assertRedirects(response, f'/game/{game.id}/',
+                             fetch_redirect_response=False)
+
+    def test_an_already_recorded_lfg_thread_shows_the_game(self):
+        game = Game.objects.create()
+        thread = LFGThread.objects.create(thread_id='mode-recorded', game=game)
+        thread.players.add(self.profile)
+        response = self.client.get(f'/record/game/?lfg={thread.id}')
+        self.assertRedirects(response, f'/game/{game.id}/',
+                             fetch_redirect_response=False)
 
 
 class _AvailabilityFixtureMixin:

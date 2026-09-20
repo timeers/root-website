@@ -410,7 +410,8 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
     call. Permission was checked by the enqueueing view; this re-reads the tournament's
     channel through post-time verification rather than trusting an id passed in.
     """
-    from the_warroom.models import Round, MatchSeries, Tournament
+    from the_warroom.models import (CompetitionStatus, Match, MatchSeries, Round,
+                                    Tournament)
     from the_warroom.services.channel_posts import resolve_tournament_channel
     from the_databot.services.discordservice import create_forum_thread_result
     from the_databot.services.lfg_game import group_roster, link_group_thread
@@ -474,8 +475,16 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
         content = (f"{pings} your match is ready!".strip() if pings
                    else "Your match is ready!")
         if tournament.thread_message:
+            # ?match= takes a MATCH id, not a series id -- the record form does
+            # get_object_or_404(Match, ...) with it. Passing series.id here sent
+            # people to an unrelated match or a 404.
+            _match = (Match.objects
+                      .filter(series_id=series.id, game__isnull=True)
+                      .exclude(status=CompetitionStatus.COMPLETED)
+                      .order_by("match_number").first())
             links = {
-                "record_link": record_url(f"/record/game/?match={series.id}"),
+                "record_link": (record_url(f"/record/game/?match={_match.id}")
+                                if _match else None),
                 "availability_link": record_url(f"/availability/compare/?series={series.id}"),
                 "rules_link": tournament.rules_link,
             }

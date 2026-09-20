@@ -11728,6 +11728,11 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
             round=self.round, group_number=1, name="Group A")
         self.series = MatchSeries.objects.create(
             round=self.round, player_group=self.group, number_of_games=1)
+        # The record link points at a MATCH, not the series -- ?match= is read as
+        # a Match pk by the record form. Without a real row here the link has
+        # nothing to name.
+        self.match = Match.objects.create(
+            round=self.round, series=self.series, match_number=1)
 
         tp = TournamentPlayer.objects.create(tournament=self.tournament,
                                              profile=self.player)
@@ -11943,8 +11948,9 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
 
     # --- thread_message -----------------------------------------------------------
     # Unlike the LFG-thread kickoff, this can go straight into the first message: the
-    # MatchSeries/PlayerGroup already exist (fetched by the queryset before this task
-    # ever calls Discord), so ?match=/?series= links need no follow-up step.
+    # Match/MatchSeries/PlayerGroup already exist (the series is fetched by the
+    # queryset before this task ever calls Discord), so the links need no follow-up
+    # step. Note ?match= takes a Match pk and ?series= a MatchSeries pk.
 
     SITE = "https://www.therootdatabase.com"
 
@@ -11956,8 +11962,11 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
         with mock.patch.dict(di.config, {"SITE_URL": self.SITE}):
             create = self._run()
         content = create.call_args.kwargs["content"]
+        # ?match= is a MATCH pk (the form does get_object_or_404(Match, ...)),
+        # while ?series= really is the series -- the two tokens do not take the
+        # same id, which is exactly what this used to get wrong.
         self.assertIn(
-            f"[here]({self.SITE}/record/game/?match={self.series.id})", content)
+            f"[here]({self.SITE}/record/game/?match={self.match.id})", content)
         self.assertIn(
             f"[here]({self.SITE}/availability/compare/?series={self.series.id})",
             content)
