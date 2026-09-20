@@ -3378,6 +3378,248 @@ class BoxScoreUploadTestModeTokenTests(TestCase):
         self.assertEqual(result['status'], 'applied')
 
 
+class BoxScoreMatchRosterGateTests(TestCase):
+    """A match roster mismatch continues in DISCORD, never as an API error.
+
+    A match thread's roster is a closed set -- only an admin editing the match
+    on the site can change it -- so the upload can't be confirmed past, and
+    can't be fixed at the table either. It used to raise straight out to the
+    TTS client as a 400 invalid_box_score: the token died, nothing was posted,
+    and the one person who could act (an admin, in Discord) never heard about
+    it. Now it posts Gate 3 -- the box score plus who's wrong, with Try Again
+    and Cancel.
+    """
+
+    ALICE_STEAM = '76561198000000301'
+    BOB_STEAM = '76561198000000302'
+
+    def setUp(self):
+        self.alice = Profile.objects.create(discord='gatealice', discord_id='951',
+                                            display_name='Alice',
+                                            steam_id=self.ALICE_STEAM)
+        self.bob = Profile.objects.create(discord='gatebob', discord_id='952',
+                                          display_name='Bob',
+                                          steam_id=self.BOB_STEAM)
+        # A REAL series: the button handler re-reads the thread from the
+        # database, so a series_id set only on the instance would read back as
+        # None there and take the plain-LFG branch instead of this gate.
+        tournament = Tournament.objects.create(name='Gate Tournament',
+                                               is_active=True)
+        stage = Stage.objects.create(tournament=tournament, name='Stage 1',
+                                     order=1, is_active=True)
+        round_ = Round.objects.create(stage=stage, round_number=1, is_active=True)
+        self.series = MatchSeries.objects.create(round=round_)
+        self.thread = LFGThread.objects.create(thread_id='tts-match-thread',
+                                               series=self.series)
+        self.thread.players.set([self.alice, self.bob])
+
+    def _seat(self, turn_order, profile, steam_id):
+        return {'turn_order': turn_order, 'player': profile.slug,
+                'player_steam_id': steam_id, 'turns': [{'turn': 1, 'score': 3}]}
+
+    def _upload(self, participants, roster=None):
+        """boxscore_upload_from_api against a MATCH thread, with the prompt task
+        captured.
+
+        _thread_roster is patched because a real match roster lives behind a
+        PlayerGroup/MatchSeat this fixture doesn't build -- standing one up
+        would test that wiring instead of this gate."""
+        from the_databot import discord_interactions as di
+        roster = self.thread.players.all() if roster is None else roster
+        token, _raw = BoxScoreUploadToken.issue(self.thread, self.alice)
+        raw_body = json.dumps({'participants': participants}).encode()
+        with mock.patch('the_databot.discord_interactions.post_boxscore_result_task.delay'), \
+                mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay') as prompt, \
+                mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'), \
+                mock.patch.object(di, '_thread_roster',
+                                  return_value=(list(roster), None)):
+            result = di.boxscore_upload_from_api(self.thread, raw_body, token)
+        return result, prompt, token
+
+    def test_an_intruder_prompts_in_the_thread_instead_of_raising(self):
+        """THE reported bug: a seat naming somebody outside the match answered
+        the TTS object with an error and posted nothing anyone could act on."""
+        stranger = Profile.objects.create(discord='gatestranger', discord_id='953',
+                                          steam_id='76561198000000399')
+        result, prompt, _token = self._upload([
+            self._seat(1, self.alice, self.ALICE_STEAM),
+            self._seat(2, stranger, stranger.steam_id),
+        ])
+        self.assertEqual(result['status'], 'pending_confirmation')
+        self.assertTrue(prompt.called)
+
+    def test_the_prompt_names_who_and_says_an_admin_must_fix_it(self):
+        """The summary is the point: a bare "couldn't save" would drop exactly
+        the part the reader can act on."""
+        stranger = Profile.objects.create(discord='gatestranger2', discord_id='954',
+                                          display_name='Stranger',
+                                          steam_id='76561198000000398')
+        _result, prompt, _token = self._upload([
+            self._seat(1, self.alice, self.ALICE_STEAM),
+            self._seat(2, stranger, stranger.steam_id),
+        ])
+        content = prompt.call_args.args[1]['content']
+        self.assertIn('Stranger', content)
+        self.assertIn('not in this match', content)
+        # The box score itself is summarised, not just the complaint.
+        self.assertIn('From this box score', content)
+
+    def test_the_client_is_told_to_look_in_discord_not_to_confirm(self):
+        """The TTS object reads this at the table. Telling it to "confirm or
+        cancel" would point at buttons this gate doesn't have -- and the person
+        holding it usually isn't the admin who can fix the roster anyway."""
+        stranger = Profile.objects.create(discord='gatemsg', discord_id='961',
+                                          steam_id='76561198000000391')
+        result, _prompt, _token = self._upload([
+            self._seat(1, self.alice, self.ALICE_STEAM),
+            self._seat(2, stranger, stranger.steam_id),
+        ])
+        self.assertIn('admin', result['message'])
+        self.assertNotIn('confirm', result['message'].lower())
+        # Still no names in the response -- those live in the thread.
+        self.assertNotIn('Alice', result['message'])
+
+    def test_the_prompt_offers_try_again_and_cancel(self):
+        """Not Confirm/Cancel: confirming can't add somebody to a match, so the
+        only moves are re-check (after an admin fixes it) or give up."""
+        stranger = Profile.objects.create(discord='gatestranger3', discord_id='955',
+                                          steam_id='76561198000000397')
+        _result, prompt, _token = self._upload([
+            self._seat(1, self.alice, self.ALICE_STEAM),
+            self._seat(2, stranger, stranger.steam_id),
+        ])
+        buttons = prompt.call_args.args[1]['components'][0]['components']
+        labels = [b['label'] for b in buttons]
+        self.assertEqual(labels, ['Try Again', 'Cancel'])
+        self.assertTrue(buttons[0]['custom_id'].startswith('boxscore_roster_retry:'))
+
+    def test_the_token_stays_pending_so_try_again_can_find_it(self):
+        """The old path CANCELLED the token on its way out, so even after an
+        admin fixed the roster there was nothing left to retry."""
+        stranger = Profile.objects.create(discord='gatestranger4', discord_id='956',
+                                          steam_id='76561198000000396')
+        _result, _prompt, token = self._upload([
+            self._seat(1, self.alice, self.ALICE_STEAM),
+            self._seat(2, stranger, stranger.steam_id),
+        ])
+        token.refresh_from_db()
+        # Not CANCELLED, and the payload is parked where Try Again looks for it.
+        # (The ISSUED -> PENDING claim is the VIEW's, which this in-process call
+        # skips -- what matters here is that the gate didn't retire the token.)
+        self.assertNotEqual(token.status, BoxScoreUploadToken.Status.CANCELLED)
+        self.assertTrue(token.payload)
+        self.assertTrue(token.prompt_expires_at)
+
+    def test_a_missing_match_player_also_prompts(self):
+        """The other half of the balance: the file has no seat for somebody the
+        match says played."""
+        carol = Profile.objects.create(discord='gatecarol', discord_id='957',
+                                       display_name='Carol',
+                                       steam_id='76561198000000395')
+        self.thread.players.add(carol)
+        result, prompt, _token = self._upload([
+            self._seat(1, self.alice, self.ALICE_STEAM),
+            self._seat(2, self.bob, self.BOB_STEAM),
+        ])
+        self.assertEqual(result['status'], 'pending_confirmation')
+        self.assertIn('Carol', prompt.call_args.args[1]['content'])
+
+    def test_a_clean_match_upload_still_applies(self):
+        """The gate must not fire when the file and the match agree."""
+        result, prompt, _token = self._upload([
+            self._seat(1, self.alice, self.ALICE_STEAM),
+            self._seat(2, self.bob, self.BOB_STEAM),
+        ])
+        self.assertEqual(result['status'], 'applied')
+        self.assertFalse(prompt.called)
+
+    def _press_try_again(self, token, roster):
+        """Click Try Again on the posted gate.
+
+        PICK_OPEN as the last arg, never a snowflake: the prompt is posted into
+        the thread, so an owner-locked id would short-circuit the authorization
+        the handler is supposed to do itself.
+        """
+        from the_databot import discord_interactions as di
+        # The VIEW claims ISSUED -> PENDING before the upload runs; this suite
+        # calls boxscore_upload_from_api in-process and skips that, and
+        # _boxscore_load only finds PENDING tokens.
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.PENDING)
+        payload = {
+            'data': {'custom_id': f'boxscore_roster_retry:t:{token.pk}:{di.PICK_OPEN}'},
+            'channel_id': self.thread.thread_id,
+            'member': {'user': {'id': self.alice.discord_id,
+                                'username': 'gatealice'}},
+        }
+        with mock.patch.object(di.record_lfg_components_task, 'delay', mock.Mock()), \
+                mock.patch.object(di, '_thread_roster',
+                                  return_value=(list(roster), None)):
+            response = di.COMPONENT_HANDLERS['boxscore_roster_retry'](payload)
+        return json.loads(response.content)['data']
+
+    def test_try_again_re_renders_the_gate_while_it_still_mismatches(self):
+        """Nothing changed on the site yet, so the same gate comes back -- with
+        a "last checked" line, which is the only way to tell the click did
+        anything at all."""
+        stranger = Profile.objects.create(discord='gateretry1', discord_id='959',
+                                          display_name='Stranger',
+                                          steam_id='76561198000000393')
+        _result, _prompt, token = self._upload([
+            self._seat(1, self.alice, self.ALICE_STEAM),
+            self._seat(2, stranger, stranger.steam_id),
+        ])
+        token.refresh_from_db()
+
+        data = self._press_try_again(token, self.thread.players.all())
+
+        self.assertIn('Stranger', data['content'])
+        self.assertIn('Last checked', data['content'])
+        labels = [b['label'] for b in data['components'][0]['components']]
+        self.assertEqual(labels, ['Try Again', 'Cancel'])
+
+    def test_try_again_applies_once_an_admin_fixes_the_roster(self):
+        """THE point of the button: the admin adds the player on the site, this
+        re-checks against the CURRENT roster, and the upload goes through with
+        no re-upload and no new token."""
+        stranger = Profile.objects.create(discord='gateretry2', discord_id='960',
+                                          display_name='Stranger',
+                                          steam_id='76561198000000392')
+        _result, _prompt, token = self._upload([
+            self._seat(1, self.alice, self.ALICE_STEAM),
+            self._seat(2, stranger, stranger.steam_id),
+        ])
+        token.refresh_from_db()
+
+        # What an admin editing the match on the site amounts to here.
+        fixed = [self.alice, stranger]
+        data = self._press_try_again(token, fixed)
+
+        self.assertNotIn('not in this match', data['content'])
+        self.assertEqual(data.get('components'), [])
+        self.thread.refresh_from_db()
+        self.assertTrue(self.thread.turns_data)
+
+    def test_a_plain_lfg_thread_keeps_its_confirm_prompt(self):
+        """Gate 3 is for CLOSED rosters. A plain LFG thread adds whoever the
+        file names, so an off-roster seat there is still Gate 2's Confirm."""
+        from the_databot import discord_interactions as di
+        stranger = Profile.objects.create(discord='gateopen', discord_id='958',
+                                          steam_id='76561198000000394')
+        open_thread = LFGThread.objects.create(thread_id='tts-open-thread')
+        open_thread.players.set([self.alice, self.bob])
+        token, _raw = BoxScoreUploadToken.issue(open_thread, self.alice)
+        raw_body = json.dumps({'participants': [
+            self._seat(1, stranger, stranger.steam_id)]}).encode()
+        with mock.patch('the_databot.discord_interactions.post_boxscore_result_task.delay'), \
+                mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay') as prompt, \
+                mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
+            di.boxscore_upload_from_api(open_thread, raw_body, token)
+        labels = [b['label'] for b
+                  in prompt.call_args.args[1]['components'][0]['components']]
+        self.assertEqual(labels, ['Confirm', 'Cancel'])
+
+
 class _AvailabilityFixtureMixin:
     """A tournament, stage, round, and a roster with hand-picked availability.
 

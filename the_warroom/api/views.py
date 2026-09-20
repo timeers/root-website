@@ -382,9 +382,11 @@ class BoxScoreUploadView(APIView):
     a token with /boxscore token and pastes it in, and the token dies on use.
 
     This stages onto the LFGThread exactly as /boxscore upload does; it never
-    creates a Game. Anything the file gets wrong is resolved by the same
-    Confirm/Cancel gates, posted into the Discord thread -- so TTS never has to
-    render an error or assume the file is clean.
+    creates a Game. Anything the file gets wrong is resolved by the same gates
+    /boxscore upload uses -- Confirm/Cancel for a seating disagreement,
+    Try Again/Cancel for a roster mismatch only an admin can fix on the site --
+    posted into the Discord thread, so TTS never has to render an error or
+    assume the file is clean.
 
     THE CONTRACT the TTS client is written against: this endpoint answers with an
     error for exactly three things, and every one of them is something no button
