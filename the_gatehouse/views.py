@@ -1023,6 +1023,21 @@ def _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profi
     tournament = resolved['tournament']
     can_view = resolved['can_view']
 
+    # Distinguishes "0 hours THIS week" from "no availability, ever" -- a
+    # profile with any PlayerSchedule row at all (any tournament, any week,
+    # even one whose available_hours is []) counts as having availability, so
+    # a week with nothing shown just means they haven't filled in that
+    # particular week. Only a profile with zero rows anywhere is genuinely
+    # "none". One query for the whole roster rather than one per player.
+    # Named distinctly from the page-level `has_any_availability` context key
+    # below (whether ANYONE in the roster has hours THIS week) -- the two are
+    # unrelated despite the similar name.
+    has_any_schedule_ids = set(
+        PlayerSchedule.objects.filter(
+            profile_id__in=[p.id for p in profiles]
+        ).values_list('profile_id', flat=True).distinct()
+    ) if can_view else set()
+
     players = []
     for profile in (profiles if can_view else []):
         local = hours_by_profile.get(profile.id, [])
@@ -1030,6 +1045,7 @@ def _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profi
             'profile': profile,
             'hours': local,
             'hour_count': len(local),
+            'has_schedule': profile.id in has_any_schedule_ids,
             'is_viewer': viewer is not None and profile.id == viewer.id,
         })
     players.sort(key=lambda p: (-p['hour_count'], (p['profile'].display_name or '').lower()))

@@ -158,12 +158,13 @@ is nothing worth indexing. {% endcomment %}
                   per-player id is on the checkbox, which would mean walking up
                   to the row on every cell. {% endcomment %}
                   <li class="player-row d-flex align-items-center gap-2 py-1 mb-1"
-                      data-player-id="{{ p.profile.id }}">
+                      data-player-id="{{ p.profile.id }}"
+                      {% if not p.has_schedule %}data-no-schedule="1"{% endif %}>
                     <input class="form-check-input mt-0 player-toggle" type="checkbox"
                            id="player-{{ p.profile.id }}" value="{{ p.profile.id }}"
-                           {% if p.hour_count %}checked{% else %}disabled{% endif %}>
+                           {% if p.has_schedule %}checked{% else %}disabled{% endif %}>
                     <label class="d-flex align-items-center gap-2 flex-grow-1 mb-0" for="player-{{ p.profile.id }}"
-                           style="min-width:0; cursor:{% if p.hour_count %}pointer{% else %}default{% endif %};">
+                           style="min-width:0; cursor:{% if p.has_schedule %}pointer{% else %}default{% endif %};">
                       {% if p.profile.image %}
                         <img src="{{ p.profile.image.url }}" alt="" class="rounded-circle" style="width:24px;height:24px;">
                       {% else %}
@@ -175,7 +176,7 @@ is nothing worth indexing. {% endcomment %}
                       {% endif %}
                       {% if p.is_viewer %}<span class="badge text-bg-secondary">{% trans 'You' %}</span>{% endif %}
                     </label>
-                    {% if p.hour_count %}
+                    {% if p.has_schedule %}
                       <small class="text-muted">{{ p.hour_count }}h</small>
                     {% else %}
                       <small class="text-muted fst-italic">{% trans 'none' %}</small>
@@ -519,6 +520,23 @@ is nothing worth indexing. {% endcomment %}
   var detail = document.getElementById('cell-detail');
   var playerRows = Array.prototype.slice.call(document.querySelectorAll('.player-row'));
   var focusedCell = null;
+
+  // Each row's hour badge is stale after a week-switch reassigns PLAYER_HOURS
+  // (applyState() below) -- it was only ever rendered once, server-side, for
+  // whichever week the page first loaded on. Checked/disabled state is
+  // deliberately left alone here: a player with SOME availability is always
+  // selectable regardless of this week's count, so only the visible count
+  // needs to catch up. A player flagged data-no-schedule has no PlayerSchedule
+  // row at all -- that never changes with the week being viewed, so their
+  // disabled "none" row is left completely untouched.
+  function updatePlayerHourLabels() {
+    playerRows.forEach(function (row) {
+      if (row.dataset.noSchedule) { return; }
+      var hourCount = (PLAYER_HOURS[row.dataset.playerId] || []).length;
+      var badge = row.querySelector('small');
+      if (badge) { badge.textContent = hourCount + 'h'; }
+    });
+  }
 
   var BUCKET_LABELS = {
     'heat-0': '{% trans "All Selected" %}',
@@ -896,6 +914,7 @@ is nothing worth indexing. {% endcomment %}
     PLAYER_HOURS = data.player_hours_json || {};
     NAMES = data.player_names_json || {};
     indexPlayerHours();
+    updatePlayerHourLabels();
 
     // A week-switch drops whatever was pinned/hovered -- the old cell nodes
     // are gone with the swap, and the new grid's cells mean something

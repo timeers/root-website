@@ -1235,6 +1235,20 @@ def manage_game(request, id=None):
         # can't carry this: when a thread already has a game, a POST rebinds
         # `obj` to it below while initial_game_status stays False.
         lfg_initial_status = lfgthread.status
+        # A SERIES-linked thread is a tournament group thread, not an LFG game:
+        # it spans every game of a best-of-N, so LFGThread.game can't hold the
+        # result and lfg_mode would skip the bracket and seat wiring entirely.
+        # Recording it has to be match mode -- the same rule /record applies.
+        # `lfgthread` stays bound: match mode still prefills the grid from the
+        # captured thread, and the boxscore-message rewrite below needs it.
+        if lfgthread.series_id and not match_mode:
+            match = (Match.objects
+                     .filter(series_id=lfgthread.series_id, game__isnull=True)
+                     .exclude(status=CompetitionStatus.COMPLETED)
+                     .order_by('match_number').first())
+            if match:
+                match_mode = True
+                lfg_mode = False
 
     # Load or create game
     if id:
@@ -1276,17 +1290,17 @@ def manage_game(request, id=None):
         if not _can_record_match(user.profile, match):
             messages.error(request, "You do not have permission to record this match.")
             return redirect('games-home')
-        # If the match already has a game, this request must edit that game rather
-        # than record a new one. On GET, redirect to the canonical id-based edit
-        # route so the form renders with the game's efforts, correct INITIAL_FORMS,
-        # and per-row hidden id fields -- otherwise a POST built from a "new game"
-        # page would recreate every effort as a duplicate. On POST we don't
-        # redirect (that would drop the submission); the atomic/select_for_update
-        # block below re-resolves the game under lock and the mismatch guard
-        # rejects stale new-game-shaped payloads.
+        # If the match already has a game, this is not a recording. On GET, show
+        # the game rather than the edit form: the link that got here says
+        # "record", so landing straight in an editable form invites overwriting
+        # a result the visitor only meant to look at. Editing stays one click
+        # away from the detail page. On POST we don't redirect (that would drop
+        # the submission); the atomic/select_for_update block below re-resolves
+        # the game under lock and the mismatch guard rejects stale
+        # new-game-shaped payloads.
         if match.game_id:
             if request.method != 'POST':
-                return redirect('game-update', id=match.game_id)
+                return redirect('game-detail', id=match.game_id)
             obj = match.game
             id = obj.id
 
@@ -1304,10 +1318,10 @@ def manage_game(request, id=None):
             messages.error(request, "You do not have permission to record this game.")
             return redirect('games-home')
         # Same anti-duplicate guard as match mode: a thread yields at most one
-        # Game (OneToOne), so a second visit edits it rather than recording again.
+        # Game (OneToOne), so a second visit shows it rather than recording again.
         if lfgthread.game_id:
             if request.method != 'POST':
-                return redirect('game-update', id=lfgthread.game_id)
+                return redirect('game-detail', id=lfgthread.game_id)
             obj = lfgthread.game
             id = obj.id
     elif lfg_mode:
@@ -2320,20 +2334,6 @@ def manage_game(request, id=None):
                                 lambda tid=lfgthread.thread_id, msg=_message:
                                     post_channel_message_task.delay(tid, msg))
 
-                        # The boxscore-API success message (if any) still carries a
-                        # "record the game" link at this point -- rewrite it back to
-                        # its stored pre-record-line content now that recording it is
-                        # exactly what just happened. Same on_commit reasoning as
-                        # above: the message being rewritten belongs to a Game this
-                        # transaction might yet roll back.
-                        if (lfgthread.boxscore_message_id
-                                and lfgthread.boxscore_message_body is not None):
-                            transaction.on_commit(
-                                lambda tid=lfgthread.thread_id,
-                                       mid=lfgthread.boxscore_message_id,
-                                       body=lfgthread.boxscore_message_body:
-                                    edit_channel_message_task.delay(tid, mid, body))
-
                     # Same courtesy for a tournament match: announce into the player
                     # group's thread, but only when it demonstrably belongs to the
                     # tournament's own guild (see match_thread_id).
@@ -2347,6 +2347,40 @@ def manage_game(request, id=None):
                             transaction.on_commit(
                                 lambda tid=_thread_id, msg=_message:
                                     post_channel_message_task.delay(tid, msg))
+
+                    # The box score message (if any) still carries a "record the
+                    # game" link at this point -- rewrite it back to its stored
+                    # pre-record-line content now that recording it is exactly what
+                    # just happened. Same on_commit reasoning as above: the message
+                    # being rewritten belongs to a Game this transaction might yet
+                    # roll back.
+                    #
+                    # OUTSIDE the mode chain, and not gated on lfg_mode: a tournament
+                    # group thread records in MATCH mode (see the promotion where the
+                    # modes are decided), so keying this off lfg_mode left exactly
+                    # those threads showing a stale record link forever. The thread
+                    # is whichever one is in play -- its own, or the match's captured
+                    # group thread.
+                    #
+                    # The tracked ids are CLEARED as it fires, which is what makes
+                    # this one-shot: the message now matches its stored body, so
+                    # every later edit of the same game would otherwise re-send an
+                    # identical edit to Discord. The old lfg_mode placement got that
+                    # for free from the OPEN -> RECORDED transition around it.
+                    _bs_thread = lfgthread or (_match_captured_thread(match)
+                                               if match_mode and match else None)
+                    if (_bs_thread and _bs_thread.thread_id
+                            and _bs_thread.boxscore_message_id
+                            and _bs_thread.boxscore_message_body is not None):
+                        transaction.on_commit(
+                            lambda tid=_bs_thread.thread_id,
+                                   mid=_bs_thread.boxscore_message_id,
+                                   body=_bs_thread.boxscore_message_body:
+                                edit_channel_message_task.delay(tid, mid, body))
+                        _bs_thread.boxscore_message_id = None
+                        _bs_thread.boxscore_message_body = None
+                        _bs_thread.save(update_fields=['boxscore_message_id',
+                                                       'boxscore_message_body'])
 
                     # Announce in the tournament's results channel, if it has one.
                     # Deliberately OUTSIDE the mode chain above: every game recorded

@@ -531,6 +531,52 @@ def _record_thread_detail_lines(thread):
     return lines
 
 
+def _thread_record_url(thread):
+    """(url, is_record_link) for `thread`, or (None, False) without a SITE_URL.
+
+    Same rule /record applies below, for the callers that have a thread rather
+    than a channel. A SERIES-linked thread is a tournament group thread: it
+    spans every game of a best-of-N, so LFGThread.game cannot hold its result
+    (see the model's note on that field) and ?lfg= would record it in LFG mode,
+    skipping the bracket and seat wiring. Such a thread's game_id is therefore
+    ALWAYS None -- which is why the callers can't gate on it.
+
+    `is_record_link` says which of the two the URL is, so the caller's wording
+    can't drift from what it points at.
+    """
+    if thread.series_id:
+        match = (Match.objects
+                 .filter(series_id=thread.series_id, game__isnull=True)
+                 .exclude(status=CompetitionStatus.COMPLETED)
+                 .order_by("match_number").first())
+        if match:
+            return _record_url(f"/record/game/?match={match.id}"), True
+        # Every game is in the books -- point at the last one, the way /record's
+        # branch (3) reports a finished series.
+        recorded = (Match.objects
+                    .filter(series_id=thread.series_id, game__isnull=False)
+                    .order_by("match_number").last())
+        if recorded:
+            return _record_url(f"/game/{recorded.game_id}/"), False
+        return None, False
+    if thread.game_id:
+        return _record_url(f"/game/{thread.game_id}/"), False
+    return _record_url(f"/record/game/?lfg={thread.id}"), True
+
+
+def _boxscore_record_line(thread):
+    """The record/view line for a box score result, or None.
+
+    One place so the posted tail and the edited-in-place tail can't disagree
+    about either the URL or the wording that introduces it."""
+    url, is_record = _thread_record_url(thread)
+    if not url:
+        return None
+    if is_record:
+        return f"Review and record the game [here]({url})."
+    return f"This game is already recorded — view it [here]({url})."
+
+
 def _handle_record_command(data):
     """/record: hand back a link to record this game's result, picking the form's
     mode from the channel the command was used in.
@@ -7764,19 +7810,38 @@ def boxscore_upload_from_api(thread, raw, token):
     }
     pending["fingerprint"] = _boxscore_seat_fingerprint(thread)
 
-    site = (config.get("SITE_URL") or "").rstrip("/")
-    record_url = f"{site}/record/game/?lfg={thread.id}" if site else None
+    def post_gate(body, ask="confirm some details for", client_message=(
+            "Box score uploaded, but it doesn't match this game's players or "
+            "seating. Check the Discord thread to confirm or cancel.")):
+        # Park the staged upload on the token row -- not in the cache -- because
+        # the sweep task has to FIND unanswered prompts and Django's Redis
+        # backend has no key enumeration.
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            payload=pending, channel_id=thread.thread_id,
+            prompt_expires_at=timezone.now() + BoxScoreUploadToken.PROMPT_TTL)
 
-    # A match game is exactly its match roster -- refused HERE rather than left to
-    # the apply, so the TTS uploader is told at the table instead of the file
-    # sitting in a thread prompt nobody can resolve. Raises rather than returns:
-    # this path reports failures to the object through BoxScoreImportError.
-    # A test_mode token is minted for a throwaway test thread specifically to
-    # ignore this -- test participants are never the match roster.
-    if thread.series_id and not token.test_mode:
-        mismatch = _boxscore_roster_mismatch(pending["seats"], roster)
-        if mismatch:
-            raise BoxScoreImportError(mismatch)
+        # Ping the issuer, and ONLY the issuer. The mention has to be in the
+        # content -- allowed_mentions is a filter over what the content already
+        # says, not a trigger -- and the id list is explicit rather than parse:
+        # ["users"] because a box score's labels are arbitrary text from the
+        # file, so a broad parse would let an uploaded name ping the channel.
+        #
+        # Set here rather than inside the _body functions: this assignment
+        # overwrites whatever they set (only gate 0 sets one at all), so a
+        # per-gate allowed_mentions would be silently discarded.
+        mention = _boxscore_issuer_mention(token)
+        body["content"] = ("**Box score uploaded from Tabletop Simulator**\n"
+                           + (f"{mention} — {ask} your box score.\n"
+                              if mention else "")
+                           + body["content"])
+        body["allowed_mentions"] = (
+            {"users": [token.issued_by.discord_id]} if mention else {"parse": []})
+        post_boxscore_prompt_task.delay(token.pk, body)
+
+        return {
+            "ok": True, "status": "pending_confirmation",
+            "message": client_message,
+        }
 
     # The same decision the interaction paths make -- asked once, here, rather
     # than restated as a boolean plus an if/elif chain that could disagree with
@@ -7786,76 +7851,60 @@ def boxscore_upload_from_api(thread, raw, token):
                             lambda: f"t:{token.pk}",
                             skip_roster_check=token.test_mode)
 
-    if body is None:
-        # match_roster re-checks the SAME roster balance _boxscore_roster_mismatch
-        # already skipped above -- omitted here too for a test_mode token, or
-        # this second check would silently reinstate what the first one waived.
-        match_roster = (None if token.test_mode else
-                        _boxscore_match_roster(thread, thread.thread_id))
-        lines, applied_notes = _boxscore_apply(
-            thread, pending, thread.thread_id, match_roster)
-        # A test_mode token stays ISSUED so it can be reused for the next
-        # test upload -- everything else still retires normally.
-        if not token.test_mode:
-            BoxScoreUploadToken.objects.filter(pk=token.pk).update(
-                status=BoxScoreUploadToken.Status.APPLIED, payload=None)
-        if lines is None:
-            raise BoxScoreImportError(_boxscore_apply_error(applied_notes))
-        # The clean case pings too, with different wording: it confirms the paste
-        # worked, which is what someone sitting in TTS is waiting to know.
-        mention = _boxscore_issuer_mention(token)
-        summary = [f"{mention} — your box score was saved." if mention
-                   else "Box score uploaded from Tabletop Simulator."]
-        summary.extend(lines)
-        if component_titles:
-            # No label: each title now carries its own kind ("Autumn Map").
-            summary.append(" · ".join(component_titles))
-        summary.extend(applied_notes)
-        _boxscore_finish_posted(
-            thread, summary, mention,
-            allowed_mentions=({"users": [token.issued_by.discord_id]}
-                              if mention else None))
-        turn_count = max((len(e.get("turns") or []) for e in entries), default=0)
-        return {
-            "ok": True, "status": "applied",
-            "message": (f"Box score uploaded — {len(entries)} seats, "
-                        f"{turn_count} turns."
-                        + (f" Record the game at {record_url}" if record_url else "")),
-            "record_url": record_url,
-            "seats": len(entries), "turns": turn_count,
-        }
+    if body is not None:
+        if _boxscore_is_gate_three(body):
+            return post_gate(body, BOXSCORE_GATE_THREE_ASK,
+                             BOXSCORE_GATE_THREE_MESSAGE)
+        return post_gate(body)
 
-    # Park the staged upload on the token row -- not in the cache -- because the
-    # sweep task has to FIND unanswered prompts and Django's Redis backend has no
-    # key enumeration.
-    BoxScoreUploadToken.objects.filter(pk=token.pk).update(
-        payload=pending, channel_id=thread.thread_id,
-        prompt_expires_at=timezone.now() + BoxScoreUploadToken.PROMPT_TTL)
+    # match_roster re-checks the SAME roster balance _boxscore_decide already
+    # checked above -- omitted here too for a test_mode token, or this second
+    # check would silently reinstate what the first one waived.
+    match_roster = (None if token.test_mode else
+                    _boxscore_match_roster(thread, thread.thread_id))
+    lines, applied_notes = _boxscore_apply(
+        thread, pending, thread.thread_id, match_roster)
+    if lines is None:
+        if applied_notes:
+            # The roster changed out from under us between the gate check above
+            # and this write (or test_mode skipped the gate outright) -- an
+            # admin can still fix it, so re-post the SAME gate rather than
+            # failing the upload outright. The token stays PENDING so Try Again
+            # can find it again.
+            return post_gate(
+                _boxscore_gate_three_body(thread, pending, applied_notes[0],
+                                          PICK_OPEN, ref=f"t:{token.pk}"),
+                BOXSCORE_GATE_THREE_ASK, BOXSCORE_GATE_THREE_MESSAGE)
+        raise BoxScoreImportError(_boxscore_apply_error(applied_notes))
 
-    # Ping the issuer, and ONLY the issuer. The mention has to be in the content
-    # -- allowed_mentions is a filter over what the content already says, not a
-    # trigger -- and the id list is explicit rather than parse: ["users"] because
-    # a box score's labels are arbitrary text from the file, so a broad parse
-    # would let an uploaded name ping the channel.
-    #
-    # Set here rather than inside the _body functions: this assignment
-    # overwrites whatever they set (only gate 0 sets one at all), so a
-    # per-gate allowed_mentions would be silently discarded.
+    # A test_mode token stays ISSUED so it can be reused for the next
+    # test upload -- everything else still retires normally.
+    if not token.test_mode:
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.APPLIED, payload=None)
+    # The clean case pings too, with different wording: it confirms the paste
+    # worked, which is what someone sitting in TTS is waiting to know.
     mention = _boxscore_issuer_mention(token)
-    body["content"] = ("**Box score uploaded from Tabletop Simulator**\n"
-                       + (f"{mention} — confirm some details for your box "
-                          "score.\n" if mention else "")
-                       + body["content"])
-    body["allowed_mentions"] = (
-        {"users": [token.issued_by.discord_id]} if mention else {"parse": []})
-    post_boxscore_prompt_task.delay(token.pk, body)
-
+    summary = [f"{mention} — your box score was saved." if mention
+               else "Box score uploaded from Tabletop Simulator."]
+    summary.extend(lines)
+    if component_titles:
+        # No label: each title now carries its own kind ("Autumn Map").
+        summary.append(" · ".join(component_titles))
+    summary.extend(applied_notes)
+    _boxscore_finish_posted(
+        thread, summary, mention,
+        allowed_mentions=({"users": [token.issued_by.discord_id]}
+                          if mention else None))
+    turn_count = max((len(e.get("turns") or []) for e in entries), default=0)
+    # No record link: whoever is holding the TTS object is at the table and
+    # usually isn't the one who records. The link goes to the thread instead,
+    # where everyone who can act on it already is.
     return {
-        "ok": True, "status": "pending_confirmation",
-        "message": ("Box score uploaded, but it doesn't match this game's "
-                    "players or seating. Check the Discord thread to confirm "
-                    "or cancel."),
-        "record_url": record_url,
+        "ok": True, "status": "applied",
+        "message": (f"Box score uploaded — {len(entries)} seats, "
+                    f"{turn_count} turns."),
+        "seats": len(entries), "turns": turn_count,
     }
 
 
@@ -8170,8 +8219,8 @@ def _boxscore_reresolve(thread, pending, channel_id, channel_name=None, guild_id
     This is what Try Again runs: somebody linked their Steam account (or was
     added to the roster) since the upload, so the same identifiers may now find a
     profile. Rebuilds a minimal participants list from the raw keys the payload
-    kept and hands it to resolve_participant_players, so the
-    Steam-id-beats-slug precedence stays defined in exactly one place.
+    kept and hands it to resolve_participant_players, so the verified-beats-
+    assumed Steam id precedence stays defined in exactly one place.
 
     The roster is RE-READ rather than taken from the payload: being added to the
     thread is a legitimate way to fix an off-roster seat.
@@ -8268,6 +8317,18 @@ def _boxscore_decide(thread, pending, roster, owner, ref, skip_roster_check=Fals
     current = _boxscore_current_seats(thread)
     if _boxscore_seats_differ(current, pending["seats"]):
         return _boxscore_gate_two_body(thread, pending, current, owner, ref=ref())
+
+    # A match thread's roster is a CLOSED set -- only an admin editing the match
+    # on the site can add or remove someone, so a mismatch there is Gate 3
+    # (Try Again/Cancel), not something Confirm can fix. A plain LFG thread's
+    # roster is open -- Gate 2's Confirm already handles it by adding whoever
+    # the file names (see _boxscore_apply), so that stays exactly as it was.
+    if thread.series_id:
+        mismatch = _boxscore_roster_mismatch(pending["seats"], roster)
+        if mismatch:
+            return _boxscore_gate_three_body(thread, pending, mismatch, owner,
+                                             ref=ref())
+        return None
 
     roster_pks = {p.pk for p in roster}
     off_roster = [s for s in pending["seats"]
@@ -8602,6 +8663,52 @@ def _boxscore_gate_two(thread, pending, current, owner,
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": {**body, "flags": EPHEMERAL},
     })
+
+
+# Gate 3 says something different to both audiences than the Confirm/Cancel
+# gates do: nobody in Discord is confirming anything, and the TTS client should
+# not tell the table to go press Confirm.
+BOXSCORE_GATE_THREE_ASK = "an admin needs to fix the roster for"
+BOXSCORE_GATE_THREE_MESSAGE = (
+    "Box score uploaded, but it doesn't match this match's roster. Check the "
+    "Discord thread — an admin has to fix the roster on the site.")
+
+
+def _boxscore_is_gate_three(body):
+    """Is this the roster gate? Asked of the BODY rather than re-deriving the
+    condition, so the wording can't disagree with the gate that rendered."""
+    return any(c.get("custom_id", "").startswith("boxscore_roster_retry:")
+               for row in body.get("components") or []
+               for c in row.get("components") or [])
+
+
+def _boxscore_gate_three_body(thread, pending, mismatch, owner, ref=None):
+    """Gate 3's {content, components}: the file's seats don't match the match
+    roster, and nothing a gate answer can fix -- only an admin editing the
+    match on the site can. See _boxscore_gate_one_body for why this returns a
+    body rather than a response.
+
+    Unlike Gates 0-2, there is no Confirm: the roster IS the match, so the only
+    actions are to check again after it's fixed, or give up.
+    """
+    ref = ref or _boxscore_stash(thread, pending)
+    lines = _boxscore_seat_lines(pending["seats"], "**From this box score**")
+    lines += ["", mismatch]
+    checked_at = pending.get("roster_mismatch_checked_at")
+    if checked_at:
+        lines.append(f"-# Last checked <t:{checked_at}:R>.")
+
+    return {
+        "content": "\n".join(lines),
+        "components": [action_row(
+            # Try Again re-checks the roster against the current database, so
+            # an admin fixing it on the site is actionable without a re-upload.
+            button("Try Again", encode_custom_id("boxscore_roster_retry", ref, owner),
+                   style=STYLE_PRIMARY),
+            button("Cancel", encode_custom_id("boxscore_no", ref, owner),
+                   style=STYLE_SECONDARY),
+        )],
+    }
 
 
 def _boxscore_pending_for_click(payload):
@@ -8954,6 +9061,31 @@ def _handle_boxscore_retry(payload):
         roster=roster, save=lambda: ref, ref=ref, payload=payload)
 
 
+def _handle_boxscore_roster_retry(payload):
+    """Try Again on Gate 3: re-check the match roster against the CURRENT
+    database.
+
+    Only an admin editing the match on the site can fix this -- there is
+    nothing to answer here the way Gates 0/1 have a pick or a link. Routes
+    back through _boxscore_next_step, so a roster that now balances applies
+    (or moves on to whatever gate is next), and one that still doesn't
+    re-renders Gate 3 with an updated "last checked" time.
+    """
+    pending, thread, ref = _boxscore_pending_for_click(payload)
+    if not pending:
+        return _ephemeral("That box score is no longer waiting — upload it again.")
+    _who, error = _boxscore_click_owner(payload, thread, ref)
+    if error:
+        return error
+
+    pending["roster_mismatch_checked_at"] = int(timezone.now().timestamp())
+    roster = _boxscore_reresolve(thread, pending, thread.thread_id)
+    _boxscore_save(ref, thread, pending)
+    return _boxscore_next_step(
+        thread, pending, thread.thread_id, _boxscore_owner_arg(payload),
+        roster=roster, save=lambda: ref, ref=ref, payload=payload)
+
+
 def _handle_boxscore_link(payload):
     """Continue past Gate 1, leaving unresolved seats blank.
 
@@ -9023,10 +9155,12 @@ def _boxscore_finish_posted(thread, summary, mention, allowed_mentions):
     with the record line, same as _boxscore_finish's `out`.
     """
     body_without_record_line = "\n".join(l for l in summary if l)
-    if not thread.game_id:
-        url = _record_url(f"/record/game/?lfg={thread.id}")
-        if url:
-            summary.append(f"Review and record the game [here]({url}).")
+    # NOT gated on thread.game_id: a series thread never has one, so that test
+    # would drop the link for exactly the threads that need a match-mode one.
+    # _boxscore_record_line decides record-vs-view instead.
+    line = _boxscore_record_line(thread)
+    if line:
+        summary.append(line)
     content = "\n".join(l for l in summary if l)
     post_boxscore_result_task.delay(
         thread.pk, thread.thread_id, content, body_without_record_line,
@@ -9049,10 +9183,11 @@ def _boxscore_finish(thread, ref, payload, channel_id, out):
     if ref.startswith("t:"):
         message_id = (payload.get("message") or {}).get("id")
         body_without_record_line = "\n".join(line for line in out if line)
-        if not thread.game_id:
-            url = _record_url(f"/record/game/?lfg={thread.id}")
-            if url:
-                out.append(f"Review and record the game [here]({url}).")
+        # See _boxscore_finish_posted: gated on the link, not thread.game_id,
+        # which a series thread never has.
+        record_line = _boxscore_record_line(thread)
+        if record_line:
+            out.append(record_line)
         if message_id:
             # This upload's own message IS the one being edited in place (the
             # gate prompt becomes the result), so there is nothing to retire
@@ -10393,6 +10528,7 @@ COMPONENT_HANDLERS = {
     "boxscore_link": _handle_boxscore_link,
     "boxscore_ok": _handle_boxscore_confirm,
     "boxscore_no": _handle_boxscore_cancel,
+    "boxscore_roster_retry": _handle_boxscore_roster_retry,
     # Ends in the invoker's snowflake (the offer is an ephemeral reply, so there
     # IS one), which owner-locks it at the dispatcher. The handler re-authorizes
     # anyway: the offer and the click are separate interactions.

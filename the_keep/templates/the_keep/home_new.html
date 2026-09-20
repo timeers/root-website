@@ -182,7 +182,7 @@
 </section>
 
 <!-- 4. FACTION LIFECYCLE -->
-<section class="home-lifecycle">
+<section class="home-lifecycle" {% if theme %}style='--theme-color: {{theme.theme_color}};'{% endif %}>
     <picture class="home-lifecycle-bg">
         <source media="(max-width: 500px)" srcset="{% static 'images/homepage/lifecycle-small.webp' %}">
         <img src="{% static 'images/homepage/lifecycle.webp' %}" alt="" loading="lazy">
