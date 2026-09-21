@@ -794,6 +794,18 @@ HOWTOPLAY_BODY_MIN_SIZE = 6                 # smallest body size before we stop 
 HOWTOPLAY_BODY_BOTTOM_MARGIN = 0.12 * inch  # buffer kept below the body so text clears the page edge
 HOWTOPLAY_IMAGE_GAP = 0.10 * inch          # horizontal gap between text and the image
 
+# Floor for the shrink-to-fit applied to the Setup / How-to-Play section titles.
+# A lower bound on shrinking, not a size: it only binds for titles that would
+# otherwise overflow their column, so every title that already fits renders at
+# exactly the same size as before.
+# 12 rather than 14 because how_to_play_title is an unconstrained TextField. In
+# the 350pt right column, 22pt fits ~30 characters, 14pt ~47, 12pt ~55 -- at a
+# 14pt floor a title past ~36 characters still ran off the page, i.e. the floor
+# stopped protecting the exact case it exists for. This doesn't make overflow
+# impossible (a long enough title still runs over); as with _fit_full_width_body
+# below, the trade is to render too small rather than reject.
+BACK_SECTION_TITLE_MIN_SIZE = 12
+
 BACK_X_MARGIN = 0.7 * inch             # left/right page margin for the FactionBack
 BACK_TOP_MARGIN = 0.75 * inch             # top page margin for the FactionBack
 BACK_BOTTOM_MARGIN = 0.15 * inch         # bottom page margin for the FactionBack
@@ -7815,8 +7827,12 @@ class FactionBackLayoutEngine:
         setup_order = getattr(self.back, 'setup_order', '') or ''
         setup_word = self._label('setup', 'Setup')
         title = f'{setup_word} ({setup_order})' if setup_order else setup_word
+        # Same shrink-to-fit as the How-to-Play title, in the narrower left
+        # column: 'Przygotowanie Rozgrywki (ABCD)' (pl) overflows at 22pt.
+        # Baseline stays on the nominal size so the step cursor below is unchanged.
         c.saveState()
-        c.setFont('Baskerville', SETUP_TITLE_SIZE)
+        c.setFont('Baskerville',
+                  self._fit_section_title_size(title, w, SETUP_TITLE_SIZE))
         c.setFillColorRGB(0, 0, 0)
         title_baseline = top_y - SETUP_TITLE_SIZE
         c.drawString(x, title_baseline, title)
@@ -7895,6 +7911,21 @@ class FactionBackLayoutEngine:
             spaceAfter=size * 0.5,
         )
 
+    def _fit_section_title_size(self, title, max_w, size,
+                                min_size=BACK_SECTION_TITLE_MIN_SIZE,
+                                font='Baskerville'):
+        """Largest font size <= `size` at which `title` fits `max_w`, floored at
+        `min_size`. Titles that already fit are returned unchanged.
+
+        stringWidth is linear in font size, so the single ratio is exact and no
+        search loop is needed (cf. the 'ADVANCED SETUP' title below). `size` is
+        required rather than defaulting, since the two call sites have their own
+        nominal constants that should stay independently tunable."""
+        w = pdfmetrics.stringWidth(title, font, size)
+        if w <= max_w or w <= 0 or max_w <= 0:
+            return size
+        return max(min_size, size * (max_w / w))
+
     def _fit_full_width_body(self, markup, avail_w, avail_h):
         """Build a full-width body Paragraph, stepping the font size down from
         HOWTOPLAY_BODY_SIZE to HOWTOPLAY_BODY_MIN_SIZE until its wrapped height
@@ -7958,8 +7989,14 @@ class FactionBackLayoutEngine:
         title = f"{self._label('playing', 'Playing the')} {suffix}"
         body = getattr(self.back, 'how_to_play_text', '') or ''
 
+        # The localized prefix ('Jogando com' is the longest) plus a user-supplied
+        # how_to_play_title can exceed the column, so the title shrinks in place
+        # rather than wrapping. The baseline stays derived from the NOMINAL size,
+        # not the fitted one, so body_top below is unchanged and the body text
+        # never moves; a shrunk title just sits a little lower under top_y.
         c.saveState()
-        c.setFont('Baskerville', HOWTOPLAY_TITLE_SIZE)
+        c.setFont('Baskerville',
+                  self._fit_section_title_size(title, w, HOWTOPLAY_TITLE_SIZE))
         c.setFillColorRGB(0, 0, 0)
         title_baseline = top_y - HOWTOPLAY_TITLE_SIZE
         c.drawString(x, title_baseline, title)

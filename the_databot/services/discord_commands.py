@@ -523,8 +523,8 @@ LFG_DEFAULT_TITLE = "Looking for Game"
 # its LFG-tag count (see lfg_command_for_roles):
 #   * SINGLE — no `type` option; used for 0 or 1 tags (0 → plain post, 1 → sole tag used).
 #   * MULTI  — a required `type` dropdown of the guild's tags; used for 2+ tags.
-# `title` and `description` are optional in both. Discord requires every REQUIRED
-# option to precede the optional ones, which is why `type` stays first in MULTI.
+# `title`, `description` and `ping_role` are optional in both. Discord requires every
+# REQUIRED option to precede the optional ones, which is why `type` stays first in MULTI.
 LFG_COMMAND_SINGLE = {
     "name": "lfg",
     "description": "Post a Looking For Game message others can join",
@@ -533,6 +533,10 @@ LFG_COMMAND_SINGLE = {
          "type": 3, "required": False},
         {"name": "description", "description": "What kind of game you're looking for",
          "type": 3, "required": False},
+        # Tri-state by design: omitted keeps the default ping, so absent and "No"
+        # mean DIFFERENT things here (see _handle_lfg_command).
+        {"name": "ping_role", "description": "Ping the LFG role (default: Yes)",
+         "type": 5, "required": False},  # BOOLEAN (Yes/No)
     ],
 }
 
@@ -546,6 +550,10 @@ LFG_COMMAND_MULTI = {
          "type": 3, "required": False},
         {"name": "description", "description": "What kind of game you're looking for",
          "type": 3, "required": False},
+        # See LFG_COMMAND_SINGLE: must be kept in both variants, or the option shows
+        # up only for guilds on one side of the 2-tag split.
+        {"name": "ping_role", "description": "Ping the LFG role (default: Yes)",
+         "type": 5, "required": False},  # BOOLEAN (Yes/No)
     ],
 }
 

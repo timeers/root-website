@@ -8578,10 +8578,10 @@ def _boxscore_gate_one_body(thread, pending, unlinkable, owner, ref=None,
     # _guild_allows(None, ...) answers True ("no whitelist to consult"), which
     # would otherwise recommend a command on a guild-less thread.
     if guild_id and _guild_allows(guild_id, "steam"):
-        how = "with the `/link steam` command"
+        how = f"with the `/link steam` command or in their [settings]({settings_url})"
     else:
         settings_url = _record_url("/settings/")
-        how = f"at {settings_url}" if settings_url else "on the site"
+        how = f"in their [settings]({settings_url})" if settings_url else "in their settings on Root Database"
 
     lines = [
         f"{len(unlinkable)} {plural} linked to a profile:",
@@ -9912,9 +9912,10 @@ def _lfg_message_data(author, owner, description, players_value,
 
     The Notify field is omitted until someone subscribes (added on first 🔔).
 
-    `ping_role=False` renders the role mention WITHOUT notifying anyone — used
-    inside a thread, where the ping is noise but the mention must still be in the
-    content for ✔ Start to recover the tag from (see _handle_lfg_start)."""
+    `ping_role=False` renders the role mention WITHOUT notifying anyone — either
+    inside a thread, where the ping is noise, or because the host passed
+    `ping_role: No` to /lfg. Either way the mention must still be in the content
+    for ✔ Start to recover the tag from (see _handle_lfg_start)."""
     embed = {
         "author": author,
         "title": title,
@@ -9987,6 +9988,10 @@ def _handle_lfg_command(data):
     # The host's name for this game. Titles the embed, names the thread at ✔ Start,
     # and becomes the recorded game's nickname. Blank falls back to the tag name.
     title_opt = (_get_option(data, "title") or "").strip()
+    # Tri-state: absent (None) means "unspecified" and keeps the default ping, so this
+    # cannot use the bool() idiom the other optional booleans use -- that would collapse
+    # absent into No. Only an explicit No suppresses.
+    silent = _get_option(data, "ping_role") is False
     author = data.get("_author")
     owner = data.get("_author_id")
     if not owner:
@@ -10091,17 +10096,29 @@ def _handle_lfg_command(data):
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": _lfg_message_data(author, owner, description, players_value,
                                   content=content, title=title,
-                                  # In a thread the mention renders but notifies
-                                  # nobody -- the people here are already here.
-                                  ping_role=not in_thread),
+                                  # Two ways to land on a silent post: in a thread
+                                  # the mention notifies nobody anyway (the people
+                                  # here are already here), or the host asked for
+                                  # no ping. The thread rule is not overridable --
+                                  # ping_role:Yes in a thread still doesn't ping.
+                                  ping_role=not (in_thread or silent)),
     })
 
 
 def _author_display_from_data(data):
-    """The invoker's guild display name for the initial Players line. The command
-    payload doesn't carry member.nick down to `data`, so use the author embed name
-    (global_name/username) — good enough for the poster's own line."""
-    return (data.get("_author") or {}).get("name") or "Player"
+    """The invoker's guild display name for the initial Players line: their
+    per-guild nick when they've set one, else the author embed name
+    (global_name/username).
+
+    Mirrors _lfg_member_display_name, which does the same for button clickers
+    straight from the raw payload -- so a player's own line reads the same
+    whether they created the post or joined it.
+
+    `or` rather than a key check: a member with no nick sends it as absent OR
+    null, and both must fall through to the author name."""
+    return (data.get("_member_nick")
+            or (data.get("_author") or {}).get("name")
+            or "Player")
 
 
 def _lfg_jump_url(payload):
@@ -10862,7 +10879,8 @@ def discord_interactions(request):
                 # so handlers can build author-attributed embeds (_author) and
                 # owner-lock the prompts they post (_author_id). Also stash the guild
                 # (for /lfg role lookup + invoker onboarding), the invoker's username
-                # (onboarding), and the channel id (so /random Captain — resolved in
+                # (onboarding), their per-guild nickname (_member_nick, for the
+                # player lists), and the channel id (so /random Captain — resolved in
                 # the command handler — can capture into an LFG thread).
                 member_user = (payload.get("member") or {}).get("user") or payload.get("user") or {}
                 data["_author"] = _interaction_author(payload)
@@ -10889,6 +10907,11 @@ def discord_interactions(request):
                 # roles/owner/admin for us). Lets /help decide, without an API call,
                 # whether to offer the "enable more commands" link.
                 data["_member_permissions"] = (payload.get("member") or {}).get("permissions")
+                # The invoker's per-guild nickname, when they've set one. Lets the
+                # player lists show the name THIS server knows them by -- matching
+                # what button clicks already do via _lfg_member_display_name --
+                # with no API call. Absent in a DM and for a member with no nick.
+                data["_member_nick"] = (payload.get("member") or {}).get("nick")
                 # Interaction token, so a handler can send a followup after its ACK
                 # (e.g. /lfg's ephemeral "add tags" nudge).
                 data["_token"] = payload.get("token")

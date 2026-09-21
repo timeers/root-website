@@ -2,6 +2,9 @@
 
 ## [1.13.10] - 2026-9-20 Boxscore Bugs
 
+### New Features
+- Added ping_role to /lfg command. Default to 'Yes'. If 'No' the role will not be pinged
+
 ### Improvements
 - Removed slug matching to Steam name to reduce chances of a player getting automatically assigned incorrectly
 - Home page uses theme color for lifecycle nodes
@@ -11,6 +14,9 @@
 - Compare Availability now only shows "none" and disables a player's checkbox if they have never set any availability - a player with availability set for other weeks now shows "0h" for a week they haven't filled in, and stays selectable
 - Boxscores for match games now alert roster mismatches in discord instead of erroring on the API
 - The record link sent with a boxscore for a match now shows the correct link
+- The player list on /lfg and /schedule posts now shows the name you go by in that server
+- LFG threads created by a user are now linked the same as if the bot had created them
+- "Playing the Faction" text on Forge faction backs will scale down in size to no longer overflow off the page
 
 ## [1.13.9] - 2026-9-18 Halloween & Kickoff Messages
 

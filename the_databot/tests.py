@@ -2497,9 +2497,15 @@ class LFGThreadNameTests(TestCase):
     made a poor title, and the `title` option now exists for naming."""
 
     def _create(self, description, embed):
-        """Run create_lfg_thread_task far enough to capture the thread name."""
+        """Run create_lfg_thread_task far enough to capture the thread name.
+
+        get_channel_message is patched because a failed create now looks for a
+        thread a player made by hand (see LFGAdoptMessageThreadTests); without it
+        these would reach the network."""
         with mock.patch("the_databot.services.discordservice.create_message_thread",
                         return_value=None) as create, \
+                mock.patch("the_databot.services.discordservice.get_channel_message",
+                           return_value=None), \
                 mock.patch("the_databot.services.discordservice.create_forum_thread"), \
                 mock.patch("the_databot.services.discordservice.post_channel_message"):
             create_lfg_thread_task(
@@ -2531,6 +2537,105 @@ class LFGThreadNameTests(TestCase):
 
     def test_the_name_is_capped_at_discords_limit(self):
         self.assertEqual(len(self._create("", {"title": "x" * 200})), 100)
+
+
+class LFGAdoptMessageThreadTests(TestCase):
+    """A player can start a thread off the LFG embed by hand before anyone clicks
+    ✔ Start. Discord allows exactly one thread per message, so our create then
+    fails -- and the game used to end up with no thread and no LFGThread row at
+    all, behind a misleading "check my permissions" notice.
+
+    That thread is where the table is already talking, so ✔ Start adopts it and
+    renames it to the title a thread we created would have carried."""
+
+    THREAD = "970000000000000001"
+    TITLE = "Casual Game"
+    # Distinguishes "caller said nothing" from an explicit None (which is what
+    # get_channel_message returns on an HTTP failure, and is itself under test).
+    DEFAULT = object()
+
+    def _run(self, *, created_id=None, existing=DEFAULT, rename=(ds.THREAD_OK, None),
+             token=None):
+        """Start a game whose create returns `created_id` (None = it failed).
+
+        `existing` is what GET /messages/{id} reports; default is a hand-made
+        thread to adopt. Returns the four mocks."""
+        message = ({"thread": {"id": self.THREAD}}
+                   if existing is self.DEFAULT else existing)
+        with mock.patch("the_databot.services.discordservice.create_message_thread",
+                        return_value=created_id) as create, \
+                mock.patch("the_databot.services.discordservice.get_channel_message",
+                           return_value=message) as fetch, \
+                mock.patch("the_databot.services.discordservice.rename_channel",
+                           return_value=rename) as rename_mock, \
+                mock.patch("the_databot.services.discordservice.create_forum_thread"), \
+                mock.patch("the_databot.services.discordservice.post_channel_message") as post, \
+                mock.patch("the_databot.tasks.post_interaction_followup_task.delay") as followup, \
+                mock.patch.object(link_lfg_message_task, "apply_async"):
+            create_lfg_thread_task(
+                "chan", "msg", None, None, "a game",
+                [{"id": "980000000000000001", "name": "Bob"}],
+                {"title": self.TITLE}, token=token,
+            )
+        return create, fetch, rename_mock, post, followup
+
+    def test_an_existing_thread_is_adopted(self):
+        """The row is keyed on the hand-made thread, not on nothing at all."""
+        self._run()
+        self.assertTrue(LFGThread.objects.filter(thread_id=self.THREAD).exists())
+
+    def test_the_adopted_thread_gets_the_kickoff(self):
+        _, _, _, post, _ = self._run()
+        post.assert_called_once()
+        self.assertEqual(post.call_args.args[0], self.THREAD)
+        self.assertIn("your game can start!", post.call_args.args[1])
+
+    def test_the_adopted_thread_is_renamed(self):
+        """The whole point: it reads like a thread we created."""
+        _, _, rename_mock, _, _ = self._run()
+        rename_mock.assert_called_once_with(self.THREAD, self.TITLE)
+
+    def test_a_failed_rename_still_keeps_the_thread(self):
+        """A rename is cosmetic -- and Discord caps them at 2 per 10 minutes, so
+        a 429 here is routine. It must never cost the game its thread."""
+        _, _, _, post, _ = self._run(rename=(ds.THREAD_ERROR, 480))
+        self.assertTrue(LFGThread.objects.filter(thread_id=self.THREAD).exists())
+        post.assert_called_once()
+
+    def test_no_thread_on_the_message_keeps_the_old_failure(self):
+        """A create that failed for a real reason (no permission, or a private
+        thread we cannot see) still reports failure and persists nothing."""
+        _, _, rename_mock, post, followup = self._run(existing={}, token="tok")
+        self.assertFalse(LFGThread.objects.exists())
+        rename_mock.assert_not_called()
+        post.assert_not_called()
+        followup.assert_called_once()
+
+    def test_an_unreadable_message_keeps_the_old_failure(self):
+        """get_channel_message returns None on any HTTP failure."""
+        self._run(existing=None)
+        self.assertFalse(LFGThread.objects.exists())
+
+    def test_an_adopted_thread_that_already_has_a_game_is_left_alone(self):
+        """The hand-made thread already hosted a game (or captured a roll). Its
+        roster is not ours to replace -- same guard the in_thread path has."""
+        owner = Profile.objects.create(discord="owner", discord_id="980000000000000009")
+        thread = LFGThread.objects.create(thread_id=self.THREAD)
+        thread.players.set([owner])
+
+        self._run()
+
+        thread.refresh_from_db()
+        self.assertEqual([p.pk for p in thread.players.all()], [owner.pk])
+
+    def test_the_normal_path_spends_no_extra_request(self):
+        """A create that worked must not pay for the lookup or the rename."""
+        _, fetch, rename_mock, post, _ = self._run(created_id="990000000000000001")
+        fetch.assert_not_called()
+        rename_mock.assert_not_called()
+        self.assertTrue(LFGThread.objects.filter(
+            thread_id="990000000000000001").exists())
+        post.assert_called_once()
 
 
 class LFGNicknameFromTitleTests(TestCase):
@@ -3091,7 +3196,7 @@ class LFGInThreadCommandTests(TestCase):
             guild=self.guild, name="Digital LFG", role_id="910000000000000001")
 
     def _data(self, channel_id="920000000000000001", channel_type=11, parent_id=None,
-              role=None):
+              role=None, ping_role=None):
         data = {
             "_author": {"name": "Tim"}, "_author_id": "830000000000000001",
             "_author_username": "tim", "_guild_id": self.guild.guild_id,
@@ -3101,6 +3206,10 @@ class LFGInThreadCommandTests(TestCase):
         }
         if role is not None:
             data["options"] = [{"name": "type", "value": str(role.pk)}]
+        # `is not None`, not a truth test: False is a value the option can carry and
+        # is the whole point of the option, so it must reach the payload.
+        if ping_role is not None:
+            data["options"] = data["options"] + [{"name": "ping_role", "value": ping_role}]
         return data
 
     def _run(self, **kwargs):
@@ -3139,6 +3248,31 @@ class LFGInThreadCommandTests(TestCase):
     def test_a_plain_channel_still_pings(self):
         body = self._run(channel_type=0)
         self.assertEqual(body["data"]["allowed_mentions"], {"parse": ["roles"]})
+
+    def test_ping_role_no_suppresses_the_ping_in_a_plain_channel(self):
+        body = self._run(channel_type=0, ping_role=False)
+        self.assertEqual(body["data"]["allowed_mentions"], {"parse": []})
+
+    def test_ping_role_no_keeps_the_mention_in_the_content(self):
+        """Suppression goes through allowed_mentions, never by stripping the
+        content -- the mention is the only place the tag survives to ✔ Start."""
+        body = self._run(channel_type=0, ping_role=False)
+        self.assertIn(self.role.mention(), body["data"]["content"])
+
+    def test_ping_role_yes_pings_in_a_plain_channel(self):
+        body = self._run(channel_type=0, ping_role=True)
+        self.assertEqual(body["data"]["allowed_mentions"], {"parse": ["roles"]})
+
+    def test_an_omitted_ping_role_still_pings(self):
+        """The tri-state guard: absent must keep pinging, so the handler cannot
+        read this option with bool() -- that would collapse absent into No and
+        silence every /lfg that didn't ask to be silenced."""
+        body = self._run(channel_type=0, ping_role=None)
+        self.assertEqual(body["data"]["allowed_mentions"], {"parse": ["roles"]})
+
+    def test_ping_role_yes_cannot_force_a_ping_in_a_thread(self):
+        body = self._run(ping_role=True)
+        self.assertEqual(body["data"]["allowed_mentions"], {"parse": []})
 
     def test_a_thread_in_the_wrong_forum_is_refused(self):
         self.role.forum_channel_id = "930000000000000001"
@@ -4313,16 +4447,26 @@ class LFGCommandShapeTests(TestCase):
         so `type` must stay first; `title` sits ahead of `description` because it is
         the field a host reaches for."""
         self.assertEqual([o["name"] for o in dc.lfg_command_for_roles(self._roles(2))["options"]],
-                         ["type", "title", "description"])
+                         ["type", "title", "description", "ping_role"])
         GuildLFGRole.objects.all().delete()
         self.assertEqual([o["name"] for o in dc.lfg_command_for_roles(self._roles(1))["options"]],
-                         ["title", "description"])
+                         ["title", "description", "ping_role"])
 
     def test_title_is_an_optional_string_in_both_variants(self):
         for cmd in (dc.LFG_COMMAND_SINGLE, dc.LFG_COMMAND_MULTI):
             title_opt = next(o for o in cmd["options"] if o["name"] == "title")
             self.assertEqual(title_opt["type"], 3)
             self.assertFalse(title_opt["required"])
+
+    def test_ping_role_is_an_optional_boolean_in_both_variants(self):
+        """Only one variant is registered per guild, so an option added to just one
+        of them would appear on one side of the 2-tag split and vanish on the
+        other, with nothing else surfacing the mistake."""
+        for cmd in (dc.LFG_COMMAND_SINGLE, dc.LFG_COMMAND_MULTI):
+            ping_opt = next((o for o in cmd["options"] if o["name"] == "ping_role"), None)
+            self.assertIsNotNone(ping_opt)
+            self.assertEqual(ping_opt["type"], 5)
+            self.assertFalse(ping_opt["required"])
 
 
 class HelpCommandShapeTests(TestCase):
