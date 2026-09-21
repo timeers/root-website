@@ -3196,7 +3196,7 @@ class LFGInThreadCommandTests(TestCase):
             guild=self.guild, name="Digital LFG", role_id="910000000000000001")
 
     def _data(self, channel_id="920000000000000001", channel_type=11, parent_id=None,
-              role=None):
+              role=None, ping_role=None):
         data = {
             "_author": {"name": "Tim"}, "_author_id": "830000000000000001",
             "_author_username": "tim", "_guild_id": self.guild.guild_id,
@@ -3206,6 +3206,10 @@ class LFGInThreadCommandTests(TestCase):
         }
         if role is not None:
             data["options"] = [{"name": "type", "value": str(role.pk)}]
+        # `is not None`, not a truth test: False is a value the option can carry and
+        # is the whole point of the option, so it must reach the payload.
+        if ping_role is not None:
+            data["options"] = data["options"] + [{"name": "ping_role", "value": ping_role}]
         return data
 
     def _run(self, **kwargs):
@@ -3244,6 +3248,31 @@ class LFGInThreadCommandTests(TestCase):
     def test_a_plain_channel_still_pings(self):
         body = self._run(channel_type=0)
         self.assertEqual(body["data"]["allowed_mentions"], {"parse": ["roles"]})
+
+    def test_ping_role_no_suppresses_the_ping_in_a_plain_channel(self):
+        body = self._run(channel_type=0, ping_role=False)
+        self.assertEqual(body["data"]["allowed_mentions"], {"parse": []})
+
+    def test_ping_role_no_keeps_the_mention_in_the_content(self):
+        """Suppression goes through allowed_mentions, never by stripping the
+        content -- the mention is the only place the tag survives to ✔ Start."""
+        body = self._run(channel_type=0, ping_role=False)
+        self.assertIn(self.role.mention(), body["data"]["content"])
+
+    def test_ping_role_yes_pings_in_a_plain_channel(self):
+        body = self._run(channel_type=0, ping_role=True)
+        self.assertEqual(body["data"]["allowed_mentions"], {"parse": ["roles"]})
+
+    def test_an_omitted_ping_role_still_pings(self):
+        """The tri-state guard: absent must keep pinging, so the handler cannot
+        read this option with bool() -- that would collapse absent into No and
+        silence every /lfg that didn't ask to be silenced."""
+        body = self._run(channel_type=0, ping_role=None)
+        self.assertEqual(body["data"]["allowed_mentions"], {"parse": ["roles"]})
+
+    def test_ping_role_yes_cannot_force_a_ping_in_a_thread(self):
+        body = self._run(ping_role=True)
+        self.assertEqual(body["data"]["allowed_mentions"], {"parse": []})
 
     def test_a_thread_in_the_wrong_forum_is_refused(self):
         self.role.forum_channel_id = "930000000000000001"
@@ -4418,16 +4447,26 @@ class LFGCommandShapeTests(TestCase):
         so `type` must stay first; `title` sits ahead of `description` because it is
         the field a host reaches for."""
         self.assertEqual([o["name"] for o in dc.lfg_command_for_roles(self._roles(2))["options"]],
-                         ["type", "title", "description"])
+                         ["type", "title", "description", "ping_role"])
         GuildLFGRole.objects.all().delete()
         self.assertEqual([o["name"] for o in dc.lfg_command_for_roles(self._roles(1))["options"]],
-                         ["title", "description"])
+                         ["title", "description", "ping_role"])
 
     def test_title_is_an_optional_string_in_both_variants(self):
         for cmd in (dc.LFG_COMMAND_SINGLE, dc.LFG_COMMAND_MULTI):
             title_opt = next(o for o in cmd["options"] if o["name"] == "title")
             self.assertEqual(title_opt["type"], 3)
             self.assertFalse(title_opt["required"])
+
+    def test_ping_role_is_an_optional_boolean_in_both_variants(self):
+        """Only one variant is registered per guild, so an option added to just one
+        of them would appear on one side of the 2-tag split and vanish on the
+        other, with nothing else surfacing the mistake."""
+        for cmd in (dc.LFG_COMMAND_SINGLE, dc.LFG_COMMAND_MULTI):
+            ping_opt = next((o for o in cmd["options"] if o["name"] == "ping_role"), None)
+            self.assertIsNotNone(ping_opt)
+            self.assertEqual(ping_opt["type"], 5)
+            self.assertFalse(ping_opt["required"])
 
 
 class HelpCommandShapeTests(TestCase):

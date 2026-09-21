@@ -9912,9 +9912,10 @@ def _lfg_message_data(author, owner, description, players_value,
 
     The Notify field is omitted until someone subscribes (added on first 🔔).
 
-    `ping_role=False` renders the role mention WITHOUT notifying anyone — used
-    inside a thread, where the ping is noise but the mention must still be in the
-    content for ✔ Start to recover the tag from (see _handle_lfg_start)."""
+    `ping_role=False` renders the role mention WITHOUT notifying anyone — either
+    inside a thread, where the ping is noise, or because the host passed
+    `ping_role: No` to /lfg. Either way the mention must still be in the content
+    for ✔ Start to recover the tag from (see _handle_lfg_start)."""
     embed = {
         "author": author,
         "title": title,
@@ -9987,6 +9988,10 @@ def _handle_lfg_command(data):
     # The host's name for this game. Titles the embed, names the thread at ✔ Start,
     # and becomes the recorded game's nickname. Blank falls back to the tag name.
     title_opt = (_get_option(data, "title") or "").strip()
+    # Tri-state: absent (None) means "unspecified" and keeps the default ping, so this
+    # cannot use the bool() idiom the other optional booleans use -- that would collapse
+    # absent into No. Only an explicit No suppresses.
+    silent = _get_option(data, "ping_role") is False
     author = data.get("_author")
     owner = data.get("_author_id")
     if not owner:
@@ -10091,9 +10096,12 @@ def _handle_lfg_command(data):
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": _lfg_message_data(author, owner, description, players_value,
                                   content=content, title=title,
-                                  # In a thread the mention renders but notifies
-                                  # nobody -- the people here are already here.
-                                  ping_role=not in_thread),
+                                  # Two ways to land on a silent post: in a thread
+                                  # the mention notifies nobody anyway (the people
+                                  # here are already here), or the host asked for
+                                  # no ping. The thread rule is not overridable --
+                                  # ping_role:Yes in a thread still doesn't ping.
+                                  ping_role=not (in_thread or silent)),
     })
 
 

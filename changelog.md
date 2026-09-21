@@ -2,6 +2,9 @@
 
 ## [1.13.10] - 2026-9-20 Boxscore Bugs
 
+### New Features
+- Added ping_role to /lfg command. Default to 'Yes'. If 'No' the role will not be pinged
+
 ### Improvements
 - Removed slug matching to Steam name to reduce chances of a player getting automatically assigned incorrectly
 - Home page uses theme color for lifecycle nodes
