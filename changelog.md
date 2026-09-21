@@ -13,6 +13,7 @@
 - The record link sent with a boxscore for a match now shows the correct link
 - The player list on /lfg and /schedule posts now shows the name you go by in that server
 - LFG threads created by a user are now linked the same as if the bot had created them
+- "Playing the Faction" text on Forge faction backs will scale down in size to no longer overflow off the page
 
 ## [1.13.9] - 2026-9-18 Halloween & Kickoff Messages
 
