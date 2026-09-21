@@ -12,6 +12,7 @@
 - Boxscores for match games now alert roster mismatches in discord instead of erroring on the API
 - The record link sent with a boxscore for a match now shows the correct link
 - The player list on /lfg and /schedule posts now shows the name you go by in that server
+- LFG threads created by a user are now linked the same as if the bot had created them
 
 ## [1.13.9] - 2026-9-18 Halloween & Kickoff Messages
 

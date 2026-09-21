@@ -2497,9 +2497,15 @@ class LFGThreadNameTests(TestCase):
     made a poor title, and the `title` option now exists for naming."""
 
     def _create(self, description, embed):
-        """Run create_lfg_thread_task far enough to capture the thread name."""
+        """Run create_lfg_thread_task far enough to capture the thread name.
+
+        get_channel_message is patched because a failed create now looks for a
+        thread a player made by hand (see LFGAdoptMessageThreadTests); without it
+        these would reach the network."""
         with mock.patch("the_databot.services.discordservice.create_message_thread",
                         return_value=None) as create, \
+                mock.patch("the_databot.services.discordservice.get_channel_message",
+                           return_value=None), \
                 mock.patch("the_databot.services.discordservice.create_forum_thread"), \
                 mock.patch("the_databot.services.discordservice.post_channel_message"):
             create_lfg_thread_task(
@@ -2531,6 +2537,105 @@ class LFGThreadNameTests(TestCase):
 
     def test_the_name_is_capped_at_discords_limit(self):
         self.assertEqual(len(self._create("", {"title": "x" * 200})), 100)
+
+
+class LFGAdoptMessageThreadTests(TestCase):
+    """A player can start a thread off the LFG embed by hand before anyone clicks
+    ✔ Start. Discord allows exactly one thread per message, so our create then
+    fails -- and the game used to end up with no thread and no LFGThread row at
+    all, behind a misleading "check my permissions" notice.
+
+    That thread is where the table is already talking, so ✔ Start adopts it and
+    renames it to the title a thread we created would have carried."""
+
+    THREAD = "970000000000000001"
+    TITLE = "Casual Game"
+    # Distinguishes "caller said nothing" from an explicit None (which is what
+    # get_channel_message returns on an HTTP failure, and is itself under test).
+    DEFAULT = object()
+
+    def _run(self, *, created_id=None, existing=DEFAULT, rename=(ds.THREAD_OK, None),
+             token=None):
+        """Start a game whose create returns `created_id` (None = it failed).
+
+        `existing` is what GET /messages/{id} reports; default is a hand-made
+        thread to adopt. Returns the four mocks."""
+        message = ({"thread": {"id": self.THREAD}}
+                   if existing is self.DEFAULT else existing)
+        with mock.patch("the_databot.services.discordservice.create_message_thread",
+                        return_value=created_id) as create, \
+                mock.patch("the_databot.services.discordservice.get_channel_message",
+                           return_value=message) as fetch, \
+                mock.patch("the_databot.services.discordservice.rename_channel",
+                           return_value=rename) as rename_mock, \
+                mock.patch("the_databot.services.discordservice.create_forum_thread"), \
+                mock.patch("the_databot.services.discordservice.post_channel_message") as post, \
+                mock.patch("the_databot.tasks.post_interaction_followup_task.delay") as followup, \
+                mock.patch.object(link_lfg_message_task, "apply_async"):
+            create_lfg_thread_task(
+                "chan", "msg", None, None, "a game",
+                [{"id": "980000000000000001", "name": "Bob"}],
+                {"title": self.TITLE}, token=token,
+            )
+        return create, fetch, rename_mock, post, followup
+
+    def test_an_existing_thread_is_adopted(self):
+        """The row is keyed on the hand-made thread, not on nothing at all."""
+        self._run()
+        self.assertTrue(LFGThread.objects.filter(thread_id=self.THREAD).exists())
+
+    def test_the_adopted_thread_gets_the_kickoff(self):
+        _, _, _, post, _ = self._run()
+        post.assert_called_once()
+        self.assertEqual(post.call_args.args[0], self.THREAD)
+        self.assertIn("your game can start!", post.call_args.args[1])
+
+    def test_the_adopted_thread_is_renamed(self):
+        """The whole point: it reads like a thread we created."""
+        _, _, rename_mock, _, _ = self._run()
+        rename_mock.assert_called_once_with(self.THREAD, self.TITLE)
+
+    def test_a_failed_rename_still_keeps_the_thread(self):
+        """A rename is cosmetic -- and Discord caps them at 2 per 10 minutes, so
+        a 429 here is routine. It must never cost the game its thread."""
+        _, _, _, post, _ = self._run(rename=(ds.THREAD_ERROR, 480))
+        self.assertTrue(LFGThread.objects.filter(thread_id=self.THREAD).exists())
+        post.assert_called_once()
+
+    def test_no_thread_on_the_message_keeps_the_old_failure(self):
+        """A create that failed for a real reason (no permission, or a private
+        thread we cannot see) still reports failure and persists nothing."""
+        _, _, rename_mock, post, followup = self._run(existing={}, token="tok")
+        self.assertFalse(LFGThread.objects.exists())
+        rename_mock.assert_not_called()
+        post.assert_not_called()
+        followup.assert_called_once()
+
+    def test_an_unreadable_message_keeps_the_old_failure(self):
+        """get_channel_message returns None on any HTTP failure."""
+        self._run(existing=None)
+        self.assertFalse(LFGThread.objects.exists())
+
+    def test_an_adopted_thread_that_already_has_a_game_is_left_alone(self):
+        """The hand-made thread already hosted a game (or captured a roll). Its
+        roster is not ours to replace -- same guard the in_thread path has."""
+        owner = Profile.objects.create(discord="owner", discord_id="980000000000000009")
+        thread = LFGThread.objects.create(thread_id=self.THREAD)
+        thread.players.set([owner])
+
+        self._run()
+
+        thread.refresh_from_db()
+        self.assertEqual([p.pk for p in thread.players.all()], [owner.pk])
+
+    def test_the_normal_path_spends_no_extra_request(self):
+        """A create that worked must not pay for the lookup or the rename."""
+        _, fetch, rename_mock, post, _ = self._run(created_id="990000000000000001")
+        fetch.assert_not_called()
+        rename_mock.assert_not_called()
+        self.assertTrue(LFGThread.objects.filter(
+            thread_id="990000000000000001").exists())
+        post.assert_called_once()
 
 
 class LFGNicknameFromTitleTests(TestCase):

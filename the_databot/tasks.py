@@ -577,7 +577,7 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
     the host typed. Keyword-defaulted for the same deserialization reason."""
     from the_databot.services.discordservice import (
         create_message_thread, create_forum_thread, post_channel_message,
-        apply_thread_tag,
+        apply_thread_tag, get_channel_message, rename_channel, THREAD_OK,
     )
     from the_databot.services.thread_messages import (
         record_url, render_thread_message, has_thread_message_tokens,
@@ -630,6 +630,11 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
         fallback_titles.add(role_name)
     typed_title = "" if embed_title in fallback_titles else embed_title
 
+    # Set by the message-thread branch when it takes over a thread a player created
+    # by hand. Initialised here, above the whole chain, because the persistence guard
+    # further down reads it on every path.
+    adopted = False
+
     if in_thread:
         # /lfg was run inside a thread: that thread IS the game thread. Discord
         # cannot nest a thread on a message already inside one -- attempting it is
@@ -661,7 +666,30 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
                                         tag_id=role.forum_tag_id)
     else:
         thread_id = create_message_thread(channel_id, message_id, thread_name)
+        if not thread_id:
+            # Discord allows exactly one thread per message, so the create fails
+            # (400 / 160004) when a player already started one off this embed by
+            # hand. That thread is where the table is already talking, so adopt it
+            # rather than leaving the game with no thread at all.
+            #
+            # Only reached on failure, so the normal path spends no extra request.
+            # `thread` is absent when the bot cannot SEE the thread (a private one
+            # it isn't in), which correctly falls through to the notice below.
+            msg = get_channel_message(channel_id, message_id)
+            thread_id = ((msg or {}).get("thread") or {}).get("id")
+            adopted = bool(thread_id)
         if thread_id:
+            if adopted:
+                # Retitle it to what a thread we created would have been called, so
+                # an adopted game reads like every other one. Best-effort, like
+                # apply_thread_tag on an adopted forum post: Discord caps thread
+                # renames at 2 per 10 minutes, and losing a title must not cost the
+                # game its thread.
+                result, retry_after = rename_channel(thread_id, thread_name)
+                if result != THREAD_OK:
+                    logger.warning(
+                        "LFG thread %s adopted but not renamed (%s, retry_after=%s)",
+                        thread_id, result, retry_after)
             post_channel_message(thread_id, kickoff)
 
     if not thread_id:
@@ -699,15 +727,19 @@ def create_lfg_thread_task(channel_id, message_id, guild_id, role_id, descriptio
                   "nickname": typed_title[:50]},
     )
     # An adopted thread that ALREADY had a row is not ours to write to: players.set
-    # below would replace the existing game's roster wholesale. /lfg refuses in a
-    # linked thread, so the only way here is a race -- two /lfg in one thread, both
-    # started before either persisted. Bail, keeping the first game intact; the
-    # kickoff already posted above is harmless.
+    # below would replace the existing game's roster wholesale. Two ways in, both
+    # adoptions of a thread this game did not create:
+    #   in_thread -- /lfg run inside a thread. /lfg refuses in a linked thread, so
+    #     this is a race: two /lfg in one thread, both started before either persisted.
+    #   adopted   -- a hand-made thread on the LFG message that already hosted a game
+    #     or captured a roll.
+    # Bail either way, keeping the first game intact; the kickoff already posted above
+    # is harmless.
     #
     # Deliberately NOT applied to the other paths: there, created=False means a task
     # retry on a thread this same game created, where re-running these writes is the
     # correct idempotent behaviour.
-    if in_thread and not created:
+    if (in_thread or adopted) and not created:
         logger.warning("LFG thread %s already linked; refusing to adopt (race with "
                        "another /lfg in this thread)", thread_id)
         return
