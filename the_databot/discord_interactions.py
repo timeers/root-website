@@ -8578,10 +8578,10 @@ def _boxscore_gate_one_body(thread, pending, unlinkable, owner, ref=None,
     # _guild_allows(None, ...) answers True ("no whitelist to consult"), which
     # would otherwise recommend a command on a guild-less thread.
     if guild_id and _guild_allows(guild_id, "steam"):
-        how = "with the `/link steam` command"
+        how = f"with the `/link steam` command or in their [settings]({settings_url})"
     else:
         settings_url = _record_url("/settings/")
-        how = f"at {settings_url}" if settings_url else "on the site"
+        how = f"in their [settings]({settings_url})" if settings_url else "in their settings on Root Database"
 
     lines = [
         f"{len(unlinkable)} {plural} linked to a profile:",
