@@ -4,6 +4,7 @@ from unittest import mock
 from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_logged_in
 from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.db.models import Prefetch
 from django.template.loader import render_to_string
@@ -3097,7 +3098,9 @@ class BoxScoreUploadApiTests(TestCase):
                 content_type='application/json',
                 HTTP_AUTHORIZATION=f'Game-Token {raw}')
         summary = posted.call_args[0][2] if posted.call_args else ''
-        self.assertIn('Seating:', summary)
+        # No "Seating:" label any more: the summary's own heading titles the list,
+        # so a second title under it was noise. The seat lines are the assertion.
+        self.assertNotIn('Seating:', summary)
         self.assertIn('1. Alice', summary)
         # The faction TITLE when the asset exists, else the slug -- this test DB
         # has no Faction rows, so the slug is the correct fallback here. Either
@@ -5168,3 +5171,126 @@ class MatchReminderResetTests(TestCase):
             tasks.remind_upcoming_matches()
         self.assertEqual(delay.call_count, 1)
         self.assertIn(f"<t:{int(new_time.timestamp())}:", delay.call_args.args[1])
+
+
+class ImportBoxScoreSourceTests(TestCase):
+    """`import_box_score` accepts a .json upload OR pasted text.
+
+    Both doorways share every check below the parse -- the mode/permission logic
+    especially, which the view's own docstring warns is what stops this endpoint
+    becoming a way to read a tournament's roster from a game you may not record.
+    Before this pair of doorways existed the view had NO test coverage at all, so
+    these also pin the file path.
+    """
+
+    def setUp(self):
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+        super().setUp()
+
+        self.user = User.objects.create_user(username="importer", password="x")
+        self.profile = self.user.profile
+        self.profile.discord = "importer"
+        self.profile.group = "P"
+        self.profile.player_onboard = True
+        self.profile.save()
+
+        self.faction = Faction.objects.create(
+            title="Marquise", type="M", reach=10, animal="cat",
+            designer=self.profile)
+        self.client.force_login(self.user)
+
+    DOC = {"participants": [
+        {"turn_order": 1, "faction": "marquise",
+         "turns": [{"turn": 1, "score": 3}, {"turn": 2, "score": 7}]},
+    ]}
+
+    def _post(self, **data):
+        return self.client.post(reverse('import-box-score'), data=data)
+
+    def _as_file(self, doc):
+        return SimpleUploadedFile(
+            "game.json", json.dumps(doc).encode(), content_type="application/json")
+
+    # ── the two doorways agree ──
+
+    def test_pasted_text_resolves_like_the_same_file(self):
+        """THE requirement: a second doorway, not a second importer."""
+        pasted = self._post(box_score_text=json.dumps(self.DOC))
+        uploaded = self._post(box_score_file=self._as_file(self.DOC))
+
+        self.assertEqual(pasted.status_code, 200)
+        self.assertEqual(uploaded.status_code, 200)
+        self.assertTrue(pasted.json()['ok'])
+        self.assertEqual(pasted.json(), uploaded.json())
+
+    def test_a_file_wins_when_both_are_sent(self):
+        """Documented precedence, so a stale textarea can't override the file the
+        user just picked."""
+        other = {"participants": [
+            {"turn_order": 1, "turns": [{"turn": 1, "score": 99}]}]}
+        response = self._post(box_score_file=self._as_file(self.DOC),
+                              box_score_text=json.dumps(other))
+        self.assertEqual(response.status_code, 200)
+        cells = response.json()['participants'][0]['cells']
+        self.assertNotIn(99, [c['value'] for c in cells])
+
+    # ── refusals ──
+
+    def test_neither_source_is_refused(self):
+        response = self._post()
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("choose a file", response.json()['error'])
+
+    def test_whitespace_only_text_is_refused(self):
+        response = self._post(box_score_text="   \n  ")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("choose a file", response.json()['error'])
+
+    def test_oversized_text_is_refused(self):
+        response = self._post(box_score_text="x" * (512 * 1024 + 1))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("too large", response.json()['error'])
+
+    def test_the_text_cap_is_measured_in_bytes(self):
+        """Characters would let a multi-byte paste past the file threshold."""
+        # Just under the cap in characters, comfortably over it in UTF-8 bytes.
+        response = self._post(box_score_text="é" * (512 * 1024 - 10))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("too large", response.json()['error'])
+
+    def test_malformed_text_reports_the_parser_error(self):
+        response = self._post(box_score_text="{not json")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("JSON", response.json()['error'])
+
+    def test_malformed_text_and_file_report_the_same_thing(self):
+        pasted = self._post(box_score_text="{not json")
+        uploaded = self._post(box_score_file=SimpleUploadedFile(
+            "game.json", b"{not json", content_type="application/json"))
+        self.assertEqual(pasted.json()['error'], uploaded.json()['error'])
+
+    # ── permissions are not bypassed by the new doorway ──
+
+    def test_pasted_text_still_fails_the_match_permission_check(self):
+        """The check that matters: the docstring warns this endpoint would
+        otherwise leak a tournament's roster to someone who may not record it."""
+        tournament = Tournament.objects.create(name="Cup", is_active=True)
+        stage = Stage.objects.create(tournament=tournament, name="S1", order=1,
+                                     is_active=True)
+        round_obj = Round.objects.create(stage=stage, round_number=1,
+                                         is_active=True)
+        group = PlayerGroup.objects.create(round=round_obj, group_number=1,
+                                           name="Group A")
+        series = MatchSeries.objects.create(round=round_obj, player_group=group,
+                                            number_of_games=1)
+        match = Match.objects.create(round=round_obj, series=series)
+
+        response = self._post(box_score_text=json.dumps(self.DOC),
+                              match_id=match.id)
+        self.assertEqual(response.status_code, 403)
+
+    def test_an_anonymous_user_cannot_paste(self):
+        self.client.logout()
+        response = self._post(box_score_text=json.dumps(self.DOC))
+        self.assertNotEqual(response.status_code, 200)

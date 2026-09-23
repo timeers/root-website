@@ -1046,8 +1046,8 @@ LAW_EMOJI_NAMES = {
 }
 
 # ── Official faction emoji ─────────────────────────────────────────────────
-# The 13 official factions each have a bot application emoji whose name ends in
-# "100". Keyed by faction slug (the stable identity — animal/status vary and are
+# Each official faction has a bot application emoji whose name ends in "100".
+# Keyed by faction slug (the stable identity — animal/status vary and are
 # ambiguous). Used to prefix faction names in the /stats leaderboards. Emoji are
 # rendered via faction_emoji_for(); a missing upload just yields no prefix.
 FACTION_EMOJI_NAMES = {
@@ -1064,6 +1064,27 @@ FACTION_EMOJI_NAMES = {
     "riverfolk-company": "otter100",
     "vagabond": "vb100",
     "woodland-alliance": "wa100",
+    # Clockwork (bot) factions. Named CW + the faction's initials, so CWMM is the
+    # Mechanical Marquise and CWV the Vagabot (the only single-letter one).
+    # faction_emoji_for returns "" and the name renders unprefixed.
+    "automated-alliance": "CWAA100",
+    "cogwheel-corvids": "CWCC100",
+    "drillbit-duchy": "CWDD100",
+    "electric-eyrie": "CWEE100",
+    "logical-lizards": "CWLL100",
+    "mechanical-marquise-20": "CWMM100",
+    "riverfolk-robots": "CWRR100",
+    "vagabot": "CWV100",
+}
+
+# ── Official deck emoji ────────────────────────────────────────────────────
+# The three official decks, keyed by deck slug, same arrangement as the faction
+# map above. Rendered via deck_emoji_for(); a missing upload just yields no
+# prefix. Fan decks have no emoji and render unprefixed.
+DECK_EMOJI_NAMES = {
+    "base": "basedeck100",
+    "exiles-partisans": "exilespartisansdeck100",
+    "squires-disciples": "squiresdisciplesdeck100",
 }
 
 # Human-friendly label for a LawGroup.type, shown as a sub-header in the embed.
@@ -1121,9 +1142,19 @@ def law_emoji_for(keyword):
 
 def faction_emoji_for(slug):
     """Return the application-emoji string for an official faction slug, or "" if
-    the slug isn't one of the 13 official factions or its emoji hasn't been
-    uploaded (the name is then shown without an icon prefix)."""
+    the slug isn't an official faction or its emoji hasn't been uploaded (the name
+    is then shown without an icon prefix)."""
     name = FACTION_EMOJI_NAMES.get(slug)
+    if not name:
+        return ""
+    return get_application_emoji().get(name, "")
+
+
+def deck_emoji_for(slug):
+    """Return the application-emoji string for an official deck slug, or "" if the
+    slug isn't one of the three official decks or its emoji hasn't been uploaded
+    (the name is then shown without an icon prefix). Mirrors faction_emoji_for."""
+    name = DECK_EMOJI_NAMES.get(slug)
     if not name:
         return ""
     return get_application_emoji().get(name, "")
@@ -1153,6 +1184,11 @@ def faction_emoji_object(slug):
     return parse_emoji_object(faction_emoji_for(slug))
 
 
+def deck_emoji_object(slug):
+    """Component-emoji object for an official deck slug, or None."""
+    return parse_emoji_object(deck_emoji_for(slug))
+
+
 def vagabond_emoji_for(vagabond):
     """Return the application-emoji string for a Vagabond, or "" if its emoji
     hasn't been uploaded. The bot's vagabond meeple emoji are named "Meeple"
@@ -1169,6 +1205,21 @@ def suit_emoji_for(suit, variant):
     (clearing) form — there is no bird clearing."""
     name = f"{suit.lower()}_{variant}"
     return get_application_emoji().get(name, "")
+
+
+def dominance_emoji_for(value):
+    """Return the application-emoji string for an Effort.DominanceChoices value,
+    or "" if it hasn't been uploaded (the value's own name is then shown instead).
+
+    Emoji are named "{Value}_Tag" using the value's OWN capitalisation -- Fox_Tag,
+    Frog_Tag. Deliberately NOT lowercased the way suit_emoji_for does it: these
+    were uploaded capitalised, and "fox_tag" misses.
+
+    Only Mouse/Fox/Rabbit/Bird/Frog exist. "Dark" and "Mountain King" have no
+    emoji (the latter would need a name containing a space), so they fall back to
+    the word -- the same degradation every other emoji here uses.
+    """
+    return get_application_emoji().get(f"{value}_Tag", "")
 
 
 def suit_static_image_url(suit, variant):

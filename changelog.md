@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.13.11] - 2026-9-23 Boxscore and LFG Refinements
+
+### New Features
+- Added "/boxscore paste" command to directly paste in a boxscore's json string
+- Added the ability to paste json as text directly into the Record Game page using the Import Json button. Works the same as selecting a .json file
+
+### Improvements
+- LFG message now explains that a thread will be created automatically on game start
+- LFG buttons: Removed "Notify" added "Start" because notify is not a core feature but start is critical
+- Added instruction method for when boxscore token fails due to unrecognized thread
+- Better box score message layout
+
+### Bug Fixes
+- Survey responses using "other" and a write in response now display correctly on CSV export
+
 ## [1.13.10] - 2026-9-20 Boxscore Bugs
 
 ### New Features

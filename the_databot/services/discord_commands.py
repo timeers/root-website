@@ -440,6 +440,15 @@ BOXSCORE_SUBCOMMANDS = [
         ],
     },
     {
+        "name": "paste",
+        "whitelist_key": "boxscore_paste",
+        "description": "Add a box score by pasting its JSON",
+        "type": 1,  # SUB_COMMAND
+        # No options: the JSON arrives through the modal this opens. A string option
+        # would be a single-line field, which is a poor home for multi-line JSON, and
+        # a modal's paragraph input is the only multi-line paste box Discord offers.
+    },
+    {
         "name": "token",
         "whitelist_key": "boxscore_token",
         "description": "Get a one-time token so the TTS Boxscore can upload this game",

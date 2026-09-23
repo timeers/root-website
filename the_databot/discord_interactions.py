@@ -64,7 +64,7 @@ from the_databot.services.discordservice import (
     build_captain_embed, build_card_embed, build_law_embed, build_help_embed,
     build_lfg_help_embed, build_upcoming_embed,
     faction_emoji_for, faction_emoji_object, vagabond_emoji_for, suit_emoji_for,
-    parse_emoji_object,
+    deck_emoji_for, dominance_emoji_for, parse_emoji_object,
     roll_emoji_for, suit_static_image_url, embed_color, permissions_can_manage_guild,
     get_guild_roles, rename_channel, THREAD_OK, THREAD_BLOCKED,
     edit_channel_message,
@@ -4692,6 +4692,24 @@ PICK_MODE_PLAYERS = "p"
 PICK_OPEN = "g"
 
 
+# The "I don't recognize this thread" refusal, shared by /rename and both /boxscore
+# subcommands -- one constant because three separate literals is how they drifted
+# apart in the first place. The guidance is small text (-#) so the refusal itself
+# stays prominent.
+#
+# Both named causes are the real ones: no LFGThread row exists until ✔ Start runs, and
+# player_group_for_channel falls back to matching the thread TITLE against the group's
+# name, which is what a scheduled match relies on when the thread isn't linked by id
+# yet. The ✔ is the monochrome U+2714 the Start button actually carries, so the message
+# points at the glyph the host sees.
+UNKNOWN_THREAD_MESSAGE = (
+    "This isn't a game thread I know about.\n"
+    "-# For this command to work inside a LFG thread the game host must first press "
+    "✔Start. If this is a scheduled match make sure the title of the thread matches "
+    "the game's title on Root Database."
+)
+
+
 def _pick_thread_for_channel(channel_id, channel_name=None, guild_id=None):
     """The LFGThread for this channel, creating one for a tournament group thread
     on first use. None when the channel is neither.
@@ -6963,7 +6981,7 @@ def _handle_rename_command(data):
         channel_type = data.get("_channel_type")
         if channel_type is not None and channel_type not in _THREAD_CHANNEL_TYPES:
             return _ephemeral("Run this inside your game's thread to rename it.")
-        return _ephemeral("This isn't a game thread I know about.")
+        return _ephemeral(UNKNOWN_THREAD_MESSAGE)
 
     # A tournament group thread spans a whole series and has no host, so it isn't
     # any one player's to retitle. Same series_id guard /seating uses.
@@ -7049,7 +7067,7 @@ _BOXSCORE_MAX_PARTICIPANTS = 12   # a Root table is at most 6; this is slack, no
 
 
 def _boxscore_decompose(participants, payload):
-    """(entries, notes, items, component_titles) from a parsed box score.
+    """(entries, notes, items, component_lines, undrafted) from a parsed box score.
 
     Trims the file to what turns_data can hold, normalizing turns on the way in
     so the stored shape is canonical however the file was written, and resolves
@@ -7059,7 +7077,7 @@ def _boxscore_decompose(participants, payload):
     disagree about what a file means. Raises BoxScoreImportError on malformed
     turns; each caller renders that its own way.
     """
-    from the_keep.models import Map, Deck, Landmark, Hireling
+    from the_keep.models import Map, Deck, Landmark, Hireling, Tweak
     from the_warroom.services.box_score_import import normalize_turns
 
     notes = []
@@ -7136,35 +7154,53 @@ def _boxscore_decompose(participants, payload):
     # Titles are kept for the reply: the capture is a Celery enqueue, so
     # thread.map/.deck are NOT set yet by the time a message is built.
     items = []
-    component_titles = []
+    # One entry per RENDERED LINE, in display order: deck+map, then landmarks,
+    # then hirelings, then tweaks. Grouping by kind rather than flattening
+    # everything into one run-on line is the whole point -- the callers just
+    # extend with these.
+    component_lines = []
+    # Keyed by kind so the DISPLAY order (deck first) can differ from the
+    # iteration order, which stays Map-then-Deck: `items` feeds the roll log and
+    # a test pins that sequence.
+    deck_map_marks = {}
     for key, kind, model in (("board_map", "Map", Map), ("deck", "Deck", Deck)):
         slug = payload.get(key)
         if not slug:
             continue
         obj = model.objects.filter(slug=slug).first()
-        if obj:
-            items.append({"kind": kind, "slug": slug})
-            # "Autumn Map", not a bare "Autumn": the summary lists these on one
-            # line, and a title alone doesn't say which is the map and which the
-            # deck -- several assets share a name across both kinds.
-            component_titles.append(f"{obj.title} {kind}")
-        else:
+        if not obj:
             notes.append(f"I didn't recognise the {kind.lower()} `{slug}`.")
+            continue
+        items.append({"kind": kind, "slug": slug})
+        # A mapped deck collapses to its emoji; everything else keeps the kind
+        # word. "Autumn Map", not a bare "Autumn": a title alone doesn't say
+        # which is the map and which the deck, and several assets share a name
+        # across both kinds.
+        emoji = deck_emoji_for(slug) if kind == "Deck" else ""
+        deck_map_marks[kind] = emoji or f"{obj.title} {kind}"
+    deck_map_parts = [deck_map_marks[k] for k in ("Deck", "Map")
+                      if k in deck_map_marks]
+    if deck_map_parts:
+        component_lines.append(" · ".join(deck_map_parts))
 
     # Unlike map/deck, an unrecognised slug here gets no note -- these are
     # existence-checked again by _boxscore_component_items below (which does
     # report/skip them for the roll log), and a second warning would just repeat
-    # the first.
-    for key, model in (("landmarks", Landmark), ("hirelings", Hireling)):
+    # the first. Tweaks follow the same silence.
+    for key, model in (("landmarks", Landmark), ("hirelings", Hireling),
+                       ("tweaks", Tweak)):
+        titles = []
         for slug in (payload.get(key) or []):
             obj = model.objects.filter(slug=slug).first()
             if obj:
-                component_titles.append(obj.title)
+                titles.append(obj.title)
+        if titles:
+            component_lines.append(" · ".join(titles))
 
     component_items, undrafted = _boxscore_component_items(participants, payload)
     items += component_items
 
-    return entries, notes, items, component_titles, undrafted
+    return entries, notes, items, component_lines, undrafted
 
 
 def _boxscore_match_roster(thread, channel_id):
@@ -7485,7 +7521,7 @@ def _boxscore_seat_fingerprint(thread):
             for s in thread.seats.all().order_by("seat_number")]
 
 
-def _boxscore_seat_lines(seats, header, numbered=True, scores=None):
+def _boxscore_seat_lines(seats, header, numbered=True, scores=None, dominance=None):
     """Render one side of the comparison: "1. Name - <emoji> Faction".
 
     `numbered=False` for a list with no seat order -- the thread's roster, shown
@@ -7531,7 +7567,11 @@ def _boxscore_seat_lines(seats, header, numbered=True, scores=None):
         vagabonds_by_slug = {v.slug: v for v in
                              Vagabond.objects.filter(slug__in=vagabond_slugs | captain_slugs)}
 
-    lines = [header]
+    # A falsy header emits NO line: the completion summary's "### … Box Score"
+    # heading already titles the list, and a "" here would open it with a blank
+    # line. The comparison prompts still pass real headers -- they show two lists
+    # side by side and would be unreadable unlabelled.
+    lines = [header] if header else []
     for index, seat in enumerate(seats, 1):
         pk = seat.get("profile_pk")
         if pk:
@@ -7558,8 +7598,22 @@ def _boxscore_seat_lines(seats, header, numbered=True, scores=None):
         # None, not "", when there is no score: a seat whose participant had no
         # turns is dropped from `entries` entirely, so it has no total to show and
         # must render without an empty "()".
+        #
+        # A dominance win is not a points win, so the tag REPLACES the score --
+        # except for Brazen Demagogue, which scores AND dominates, so it shows
+        # both as "(24/🦊)". _boxscore_decompose already refuses a brazen flag
+        # without a dominance, so that branch cannot fire without a tag.
         score = (scores or {}).get(index)
-        suffix = f" ({score})" if score is not None else ""
+        dom, brazen = (dominance or {}).get(index, (None, False))
+        dom_mark = (dominance_emoji_for(dom) or dom) if dom else ""
+        if dom_mark and brazen and score is not None:
+            suffix = f" ({score}/{dom_mark})"
+        elif dom_mark:
+            suffix = f" ({dom_mark})"
+        elif score is not None:
+            suffix = f" ({score})"
+        else:
+            suffix = ""
         if slug:
             emoji = faction_emoji_for(slug)
             title = titles.get(slug, slug)
@@ -7586,6 +7640,68 @@ def _boxscore_seat_lines(seats, header, numbered=True, scores=None):
         else:
             lines.append(f"{prefix}{who}{suffix}")
     return lines
+
+
+def _boxscore_component_lines(pending):
+    """The component lines to append to a summary, one per rendered line.
+
+    Falls back to the OLD `component_titles` key: a box score parked in the cache
+    or in BoxScoreUploadToken.payload before this deploy still carries it, and a
+    bare pending["component_lines"] would KeyError on confirm. A legacy value was
+    one pre-joined line's worth of titles, so it is joined the way it used to be.
+    """
+    lines = (pending or {}).get("component_lines")
+    if lines:
+        return list(lines)
+    legacy = (pending or {}).get("component_titles")
+    if legacy:
+        return [" · ".join(legacy)]
+    return []
+
+
+def _boxscore_undrafted_line(undrafted):
+    """The leftover faction nobody drafted, or "" when the file named none.
+
+    Rendered like _pick_undrafted_line's board row -- emoji, faction, an optional
+    vagabond/captains parenthetical, then a trailing "Undrafted" instead of a
+    name. Same idiom, but NOT a call to it: that one (and _pick_seat_detail) reads
+    ORM objects off an LFGSeat/LFGDraftPick, while `undrafted` is a dict of
+    validated SLUGS, so calling it would mean re-fetching rows this path
+    deliberately keeps as slugs.
+
+    The slugs are already existence-filtered by _boxscore_component_items, so a
+    typo'd one arrives as None rather than a dangling name.
+    """
+    from the_keep.models import Faction, Vagabond
+
+    slug = (undrafted or {}).get("faction")
+    if not slug:
+        return ""
+
+    faction = Faction.objects.filter(slug=slug).first()
+    title = faction.title if faction else slug
+    emoji = faction_emoji_for(slug)
+    mark = f"{emoji} {title}" if emoji else title
+
+    # Vagabond and captains are mutually exclusive, exactly as on a seat: the
+    # single vagabond shows emoji AND name (it names one character), the captains
+    # show emoji only (three names would crowd the line).
+    vagabond_slug = undrafted.get("vagabond")
+    captain_slugs = undrafted.get("captains") or []
+    if vagabond_slug:
+        vg = Vagabond.objects.filter(slug=vagabond_slug).first()
+        vg_title = vg.title if vg else vagabond_slug
+        vg_emoji = vagabond_emoji_for(vg) if vg else ""
+        mark += f" ({vg_emoji} {vg_title})" if vg_emoji else f" ({vg_title})"
+    elif captain_slugs:
+        by_slug = {v.slug: v for v in
+                   Vagabond.objects.filter(slug__in=captain_slugs)}
+        marks = [vagabond_emoji_for(by_slug[c]) or by_slug[c].title
+                 for c in captain_slugs if c in by_slug]
+        if marks:
+            mark += f" ({' '.join(marks)})"
+
+    return f"{mark} Undrafted"
 
 
 def _boxscore_reseat(thread, seats):
@@ -7714,14 +7830,28 @@ def _boxscore_apply(thread, pending, channel_id, match_roster=None):
         # entries and seats are separate lists and a seat with no turns is absent
         # from entries, so zipping them would slide every score up by one.
         scores = {}
+        # Dominance rides the same {turn_order: …} keying for the same reason.
+        dominance = {}
         for entry in entries:
             cells = entry.get("turns") or []
             if cells:
                 scores[entry.get("turn_order")] = cells[-1].get("score")
+            if entry.get("dominance"):
+                dominance[entry.get("turn_order")] = (
+                    entry["dominance"], bool(entry.get("brazen_demagogue")))
         # The same renderer the confirm prompt uses, so what you approved and what
         # you are told was saved read identically. It was a bare "1. Name  2. Name"
         # here, which dropped the factions the prompt had just shown.
-        lines.extend(_boxscore_seat_lines(seats, "Seating:", scores=scores))
+        #
+        # No header: the "### … Box Score" heading the callers add already titles
+        # this list, so a "Seating:" line under it would be a second title.
+        lines.extend(_boxscore_seat_lines(seats, "", scores=scores,
+                                          dominance=dominance))
+
+    # After the last player, before the component lines the callers append.
+    undrafted_line = _boxscore_undrafted_line(pending.get("undrafted"))
+    if undrafted_line:
+        lines.append(undrafted_line)
 
     # AFTER the writes, never inside a transaction with them: this is a Celery
     # enqueue, and a worker picking the task up before a commit would read stale
@@ -7793,7 +7923,7 @@ def boxscore_upload_from_api(thread, raw, token):
         participants,
         key=lambda p: int(p.get("turn_order", p.get("seat"))))
 
-    entries, notes, items, component_titles, undrafted = _boxscore_decompose(
+    entries, notes, items, component_lines, undrafted = _boxscore_decompose(
         participants, payload)
 
     roster, _group = _thread_roster(thread, thread.thread_id)
@@ -7806,7 +7936,7 @@ def boxscore_upload_from_api(thread, raw, token):
         "entries": entries, "items": items, "notes": notes,
         "seats": _boxscore_file_seats(participants, profiles),
         "thread_pk": thread.pk, "filename": "Tabletop Simulator",
-        "component_titles": component_titles, "undrafted": undrafted,
+        "component_lines": component_lines, "undrafted": undrafted,
     }
     pending["fingerprint"] = _boxscore_seat_fingerprint(thread)
 
@@ -7888,9 +8018,7 @@ def boxscore_upload_from_api(thread, raw, token):
     summary = [f"{mention} — your box score was saved." if mention
                else "Box score uploaded from Tabletop Simulator."]
     summary.extend(lines)
-    if component_titles:
-        # No label: each title now carries its own kind ("Autumn Map").
-        summary.append(" · ".join(component_titles))
+    summary.extend(component_lines)
     summary.extend(applied_notes)
     _boxscore_finish_posted(
         thread, summary, mention,
@@ -7925,7 +8053,7 @@ def _handle_boxscore_token_command(data):
         channel_type = data.get("_channel_type")
         if channel_type is not None and channel_type not in _THREAD_CHANNEL_TYPES:
             return _ephemeral("Run this inside your game's thread to get a token.")
-        return _ephemeral("This isn't a game thread I know about.")
+        return _ephemeral(UNKNOWN_THREAD_MESSAGE)
 
     if thread.game_id or thread.status == LFGThread.Status.RECORDED:
         return _ephemeral(
@@ -7998,9 +8126,6 @@ def _handle_boxscore_token_command(data):
     })
 
 
-BOXSCORE_SUBCOMMAND_HANDLERS = {"token": _handle_boxscore_token_command}
-
-
 def _handle_boxscore_command(data):
     """/boxscore <sub>. Routes to the subcommand handlers.
 
@@ -8025,12 +8150,10 @@ def _handle_boxscore_upload_command(data):
     Writes three places, none of which overwrite work the thread already has a
     better source for: the roll log + map/deck, the seating (ONLY when there
     isn't one -- a reseat would cascade away /pick's factions), and turns_data.
-    """
-    from the_warroom.services.box_score_import import (
-        BoxScoreImportError, normalize_turns, parse_box_score_json,
-        participant_label, resolve_participant_players,
-    )
 
+    This half only fetches the bytes; everything from the parse onward lives in
+    _boxscore_from_raw, which /boxscore paste shares.
+    """
     channel_id = data.get("_channel_id")
     thread = _pick_thread_for_channel(
         channel_id, data.get("_channel_name"), data.get("_guild_id"))
@@ -8038,7 +8161,7 @@ def _handle_boxscore_upload_command(data):
         channel_type = data.get("_channel_type")
         if channel_type is not None and channel_type not in _THREAD_CHANNEL_TYPES:
             return _ephemeral("Run this inside your game's thread to add a box score.")
-        return _ephemeral("This isn't a game thread I know about.")
+        return _ephemeral(UNKNOWN_THREAD_MESSAGE)
 
     attachment = _get_attachment(data, "file")
     if not attachment:
@@ -8068,6 +8191,25 @@ def _handle_boxscore_upload_command(data):
         logger.warning("boxscore download failed for thread %s", channel_id)
         return _ephemeral("Couldn't download that file — try again.")
 
+    return _boxscore_from_raw(data, thread, channel_id, raw, filename)
+
+
+def _boxscore_from_raw(data, thread, channel_id, raw, filename):
+    """Stage a box score from raw JSON text -- THE shared body of /boxscore upload
+    and /boxscore paste, i.e. everything after "where did the bytes come from".
+
+    `raw` may be str or bytes: parse_box_score_json accepts both, so upload passes
+    the downloaded response.content and paste passes the modal's text unchanged.
+
+    `filename` is a LABEL, not a path. It is rendered back to the user as the
+    summary's heading ("### x Box Score"), so paste passes a human phrase the same
+    way the upload API passes "Tabletop Simulator".
+    """
+    from the_warroom.services.box_score_import import (
+        BoxScoreImportError, parse_box_score_json,
+        participant_label, resolve_participant_players,
+    )
+
     try:
         payload = parse_box_score_json(raw)
     except BoxScoreImportError as exc:
@@ -8087,7 +8229,7 @@ def _handle_boxscore_upload_command(data):
         key=lambda p: int(p.get("turn_order", p.get("seat"))))
 
     try:
-        entries, notes, items, component_titles, undrafted = _boxscore_decompose(
+        entries, notes, items, component_lines, undrafted = _boxscore_decompose(
             participants, payload)
     except BoxScoreImportError as exc:
         return _ephemeral(f"That box score couldn't be read: {exc}")
@@ -8133,7 +8275,7 @@ def _handle_boxscore_upload_command(data):
     pending = {
         "entries": entries, "items": items, "notes": notes, "seats": file_seats,
         "thread_pk": thread.pk, "filename": filename,
-        "component_titles": component_titles, "undrafted": undrafted,
+        "component_lines": component_lines, "undrafted": undrafted,
     }
 
     if not strict:
@@ -8157,6 +8299,147 @@ def _handle_boxscore_upload_command(data):
             return _ephemeral(error)
 
     return _boxscore_next_step(thread, pending, channel_id, data.get("_author_id"))
+
+
+# Discord's hard cap for a modal text input. Declared as the input's max_length so
+# Discord's own client refuses to submit anything longer -- an over-long paste is cut
+# off inside the box instead, which is what the truncation check below catches.
+_BOXSCORE_PASTE_MAX = 4000
+# How close to the cap counts as "probably truncated". A box score that ends within 50
+# characters of the limit AND fails to parse is far more likely to be a cut-off paste
+# than valid JSON with a syntax error, and saying so is what tells the user to switch
+# methods rather than retrying the same way. A near-cap paste that PARSES is accepted
+# normally -- length alone never rejects.
+_PASTE_TRUNCATION_MARGIN = 50
+
+
+def _boxscore_paste_too_long(guild_id):
+    """What to suggest when a paste was cut off by Discord's input limit.
+
+    Names only a route this guild actually has, the same way the unlinkable-players
+    prompt only advertises /link steam where it exists: `guild_id and _guild_allows`,
+    because _guild_allows(None, ...) answers True ("no whitelist to consult") and
+    would otherwise recommend a subcommand that isn't registered here.
+    """
+    lines = [
+        "That box score is too long to paste — Discord cuts the input off at "
+        f"{_BOXSCORE_PASTE_MAX} characters, so what arrived isn't complete JSON.",
+    ]
+    if guild_id and _guild_allows(guild_id, "boxscore_upload"):
+        lines.append("Use `/boxscore upload` with the .json file instead.")
+    elif guild_id and _guild_allows(guild_id, "boxscore_token"):
+        lines.append("Use `/boxscore token` to upload it straight from Tabletop "
+                     "Simulator instead.")
+    else:
+        lines.append("Ask a moderator to enable `/boxscore upload` so you can send "
+                     "it as a file.")
+    # The cheapest fix, and the only realistic overflow is a pretty-printed file:
+    # the same game compacted is less than half the size.
+    lines.append("-# Pasting the JSON without indentation may also bring it under "
+                 "the limit.")
+    return "\n".join(lines)
+
+
+def _handle_boxscore_paste_command(data):
+    """/boxscore paste: open a modal to paste a box score into.
+
+    Resolves the thread BEFORE opening the modal. Both an ephemeral (type 4) and a
+    modal (type 9) are valid INITIAL responses to a slash command, so someone in the
+    wrong channel is turned away before they paste rather than after -- the usual
+    reason to avoid a modal here does not apply.
+    """
+    channel_id = data.get("_channel_id")
+    thread = _pick_thread_for_channel(
+        channel_id, data.get("_channel_name"), data.get("_guild_id"))
+    if not thread:
+        channel_type = data.get("_channel_type")
+        if channel_type is not None and channel_type not in _THREAD_CHANNEL_TYPES:
+            return _ephemeral("Run this inside your game's thread to paste a box score.")
+        return _ephemeral(UNKNOWN_THREAD_MESSAGE)
+
+    # Only the channel id rides in the custom_id (100-char cap): the thread is
+    # re-resolved from it on submit, which a modal submission needs anyway since it
+    # carries none of the dispatcher's stashed channel context.
+    return JsonResponse({
+        "type": RESPONSE_MODAL,
+        "data": modal(
+            encode_custom_id("boxscore_paste_modal", channel_id),
+            "Paste box score",
+            label_component(
+                "Box score JSON",
+                text_input("json", style=TEXT_INPUT_PARAGRAPH, required=True,
+                           max_length=_BOXSCORE_PASTE_MAX,
+                           placeholder="Paste the game's JSON here"),
+            ),
+        ),
+    })
+
+
+def _handle_boxscore_paste_modal_submit(payload, args):
+    """boxscore_paste_modal:<channel_id> submit: hand the pasted JSON to the same
+    pipeline /boxscore upload uses.
+
+    A MODAL_SUBMIT carries none of the `_`-prefixed context the dispatcher stashes
+    for a slash command, so the handful of keys the shared body reads are rebuilt
+    here from the raw payload.
+    """
+    from the_warroom.services.box_score_import import (
+        BoxScoreImportError, parse_box_score_json,
+    )
+
+    # The custom_id is authoritative: it records the channel the COMMAND ran in,
+    # which is what the thread lookup must use. The payload's own channel_id is only
+    # a fallback.
+    channel_id = (args[0] if args else None) or payload.get("channel_id")
+    raw = _modal_text_value(payload, "json").strip()
+    if not raw:
+        return _ephemeral("Paste your box score JSON into the box to add it.")
+
+    thread = _pick_thread_for_channel(channel_id)
+    if not thread:
+        return _ephemeral(UNKNOWN_THREAD_MESSAGE)
+
+    data = {
+        "_channel_id": channel_id,
+        "_channel_name": (payload.get("channel") or {}).get("name"),
+        "_guild_id": payload.get("guild_id"),
+        "_author_id": _interaction_user_id(payload),
+        "_author_username": ((payload.get("member") or {}).get("user")
+                             or payload.get("user") or {}).get("username"),
+        "_author": _interaction_author(payload),
+    }
+
+    # The dispatcher's roster guard only runs in the APPLICATION_COMMAND branch, so
+    # the command that opened this modal was guarded but the submit is not. Cheap and
+    # idempotent, so re-check rather than trust that the modal is unreachable.
+    refusal = _thread_actor_error(data)
+    if refusal is not None:
+        return refusal
+
+    # A paste that arrives at the cap and does not parse was almost certainly cut off
+    # rather than malformed, and saying "invalid JSON" would send the user round the
+    # same loop. Checked here rather than in the shared body because only the paste
+    # path has an input limit to blame.
+    if len(raw) >= _BOXSCORE_PASTE_MAX - _PASTE_TRUNCATION_MARGIN:
+        try:
+            parse_box_score_json(raw)
+        except BoxScoreImportError:
+            return _ephemeral(_boxscore_paste_too_long(payload.get("guild_id")))
+
+    return _boxscore_from_raw(data, thread, channel_id, raw, "pasted JSON")
+
+
+# Keyed by SUBCOMMAND name. Defined here, below the handlers, rather than up beside
+# _handle_boxscore_command: a module-level dict is built at import, so naming a
+# handler defined further down would raise NameError. _handle_boxscore_command only
+# reads it when a command arrives, so its position doesn't matter.
+#
+# `upload` is deliberately absent -- it is the fall-through, which also keeps a stale
+# pre-subcommand registration working.
+BOXSCORE_SUBCOMMAND_HANDLERS = {
+    "token": _handle_boxscore_token_command,
+    "paste": _handle_boxscore_paste_command,
+}
 
 
 def _boxscore_gate_zero_needed(pending, roster):
@@ -8421,16 +8704,12 @@ def _boxscore_apply_in_place(thread, pending, channel_id, ref, payload=None):
     _boxscore_discard(ref, status=BoxScoreUploadToken.Status.APPLIED)
 
     entries = pending["entries"]
-    turn_count = max((len(e.get("turns") or []) for e in entries), default=0)
     out = [
-        f"Box score added from `{pending['filename']}` — "
-        f"{len(entries)} seats, {turn_count} turns."
+        f"### {pending['filename']} Box Score"
         if entries else f"Read `{pending['filename']}`."
     ]
     out.extend(lines)
-    if pending["component_titles"]:
-        # No label: each title now carries its own kind ("Autumn Map").
-        out.append(" · ".join(pending["component_titles"]))
+    out.extend(_boxscore_component_lines(pending))
     out.extend(notes)
 
     content = _boxscore_finish(thread, ref, payload or {}, channel_id, out)
@@ -9229,16 +9508,12 @@ def _boxscore_commit(payload, pending, thread, ref):
     _boxscore_discard(ref, status=BoxScoreUploadToken.Status.APPLIED)
 
     entries = pending["entries"]
-    turn_count = max((len(e.get("turns") or []) for e in entries), default=0)
     out = [
-        f"Box score added from `{pending['filename']}` — "
-        f"{len(entries)} seats, {turn_count} turns."
+        f"### {pending['filename']} Box Score"
         if entries else f"Read `{pending['filename']}`."
     ]
     out.extend(lines)
-    if pending["component_titles"]:
-        # No label: each title now carries its own kind ("Autumn Map").
-        out.append(" · ".join(pending["component_titles"]))
+    out.extend(_boxscore_component_lines(pending))
     out.extend(notes)
 
     content = _boxscore_finish(thread, ref, payload, channel_id, out)
@@ -9400,8 +9675,7 @@ def _handle_boxscore_restore(payload):
         summary = [f"{mention} — your box score was saved." if mention
                    else "Box score restored."]
         summary.extend(lines)
-        if pending["component_titles"]:
-            summary.append(" · ".join(pending["component_titles"]))
+        summary.extend(_boxscore_component_lines(pending))
         summary.extend(notes)
         _boxscore_finish_posted(
             thread, summary, mention,
@@ -9428,15 +9702,12 @@ def _boxscore_reply(thread, pending, channel_id):
 
     entries = pending["entries"]
     filename = pending["filename"]
-    turn_count = max((len(e.get("turns") or []) for e in entries), default=0)
     out = [
-        f"Box score added from `{filename}` — {len(entries)} seats, {turn_count} turns."
+        f"### {filename} Box Score"
         if entries else f"Read `{filename}`."
     ]
     out.extend(lines)
-    if pending["component_titles"]:
-        # No label: each title now carries its own kind ("Autumn Map").
-        out.append(" · ".join(pending["component_titles"]))
+    out.extend(_boxscore_component_lines(pending))
     out.extend(notes)
 
     return JsonResponse({
@@ -9804,12 +10075,20 @@ def _handle_random_roll(payload):
 # ── /lfg ─────────────────────────────────────────────────────────────────────
 # A Looking-For-Game post. The message is stateless: the Players and Notify lists
 # live in embed fields and are parsed back out on each interaction. Buttons:
-#   Join / Notify  — clickable by ANYONE (custom_id ends in the non-snowflake "g",
+#   Join / 🔔      — clickable by ANYONE (custom_id ends in the non-snowflake "g",
 #                    so the dispatcher owner-lock does not fire).
-#   ❌ Cancel / ✅ Start — owner-only (owner snowflake is the last custom_id arg,
+#   ✖ Cancel / ✔ Start — owner-only (owner snowflake is the last custom_id arg,
 #                    which the dispatcher owner-lock enforces before the handler).
 LFG_PLAYERS_FIELD = "Players"
+# NOT the 🔔 button's label -- this is the embed FIELD NAME holding the subscriber
+# list, parsed back out of the live embed on every interaction. Renaming it orphans
+# the subscribers on every post already in a channel.
 LFG_NOTIFY_FIELD = "🔔 Notify"
+# Recruiting-phase footer, set at build time. Deliberately not cleared anywhere: ✔
+# Start and ✖ Cancel both assign embed["footer"] outright, so each replaces this
+# notice exactly when it stops being true.
+LFG_THREAD_NOTICE = ("When the game starts a thread for discussion will be created "
+                     "automatically.")
 _LFG_MENTION_RE = re.compile(r"<@!?(\d+)>")
 _LFG_ROLE_MENTION_RE = re.compile(r"<@&(\d+)>")
 _LFG_PLAYER_LINE_RE = re.compile(r"^(.*) \(<@!?(\d+)>\)$")
@@ -9907,8 +10186,8 @@ OWNER_LOCK_HINTS = {
 def _lfg_message_data(author, owner, description, players_value,
                       content=None, title=LFG_DEFAULT_TITLE, ping_role=True):
     """Build the full join-message payload (embed + button row). Used ONLY for the
-    initial post and the picker→join transition — never to re-render on Join/Notify
-    (that would wipe the other field; those handlers mutate the echoed embed).
+    initial post — never to re-render on Join/Notify (that would wipe the other
+    field; those handlers mutate the echoed embed).
 
     The Notify field is omitted until someone subscribes (added on first 🔔).
 
@@ -9923,6 +10202,7 @@ def _lfg_message_data(author, owner, description, players_value,
         "fields": [
             {"name": LFG_PLAYERS_FIELD, "value": players_value, "inline": False},
         ],
+        "footer": {"text": LFG_THREAD_NOTICE},
     }
     # Join, 🔔, Edit and ✖ Cancel end in the non-snowflake PICK_OPEN marker so the
     # dispatcher owner-lock does NOT fire; the owner rides in a non-last arg so
@@ -9943,12 +10223,13 @@ def _lfg_message_data(author, owner, description, players_value,
     # post wants ✖, not to start a game they aren't in.
     buttons = [
         button("Join", encode_custom_id("lfg_join", owner, PICK_OPEN), style=STYLE_PRIMARY),
-        button("Notify", encode_custom_id("lfg_notify", owner, PICK_OPEN),
+        button("", encode_custom_id("lfg_notify", owner, PICK_OPEN),
                style=STYLE_SECONDARY, emoji={"name": "🔔"}),
         button("Edit", encode_custom_id("lfg_edit", owner), style=STYLE_SECONDARY),
         button("", encode_custom_id("lfg_cancel", owner, PICK_OPEN),
                style=STYLE_DANGER, emoji={"name": "✖"}),
-        button("", encode_custom_id("lfg_start", owner), style=STYLE_SUCCESS, emoji={"name": "✔"}),
+        button("Start", encode_custom_id("lfg_start", owner), style=STYLE_SUCCESS,
+               emoji={"name": "✔"}),
     ]
     row = action_row(*buttons)
     data = {"embeds": [embed], "components": [row]}
@@ -10635,6 +10916,7 @@ COMPONENT_HANDLERS = {
 # mirrors COMPONENT_HANDLERS' shape, dispatched from the MODAL_SUBMIT branch.
 MODAL_HANDLERS = {
     "lfg_edit_modal": _handle_lfg_edit_modal_submit,
+    "boxscore_paste_modal": _handle_boxscore_paste_modal_submit,
 }
 
 

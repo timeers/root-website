@@ -2442,12 +2442,20 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 
 
+# One game's worth of JSON is small; anything bigger is a wrong file or a wrong
+# paste. Shared by both doorways so they cannot drift apart.
+_BOX_SCORE_MAX_BYTES = 512 * 1024
+
+
 @player_onboard_required
 @require_POST
 def import_box_score(request):
-    """Resolve an uploaded game JSON against what this form is allowed to offer.
+    """Resolve a game JSON against what this form is allowed to offer.
 
-    Pure resolver: it reads the file, resolves slugs to primary keys against the
+    The JSON arrives either as an uploaded .json file or pasted into the import
+    modal's textarea; both land here and share every check below the parse.
+
+    Pure resolver: it reads the JSON, resolves slugs to primary keys against the
     same querysets the form's dropdowns are built from, and returns them. It
     writes NOTHING -- no Game, no formset, no session. The client shows a summary
     and, on confirm, writes the values into the live form, so a partially filled
@@ -2459,15 +2467,34 @@ def import_box_score(request):
     """
     user = request.user
 
+    # Two doorways, one importer: a .json upload or JSON pasted into the form's
+    # import modal. The file wins when both arrive, so a stale textarea can never
+    # silently override the file the user just picked.
+    #
+    # parse_box_score_json takes str OR bytes, so the pasted text needs no
+    # encoding -- everything below this point is identical for both sources.
     upload = request.FILES.get('box_score_file')
-    if upload is None:
-        return JsonResponse({'ok': False, 'error': _('No file was uploaded.')}, status=400)
-    # The format is small by nature (one game); anything larger is a wrong file.
-    if upload.size > 512 * 1024:
-        return JsonResponse({'ok': False, 'error': _('That file is too large.')}, status=400)
+    pasted = (request.POST.get('box_score_text') or '').strip()
+
+    if upload is not None:
+        # The format is small by nature (one game); anything larger is a wrong file.
+        if upload.size > _BOX_SCORE_MAX_BYTES:
+            return JsonResponse({'ok': False, 'error': _('That file is too large.')},
+                                status=400)
+        raw = upload.read()
+    elif pasted:
+        # Measured in BYTES, not characters, so both doorways share one threshold
+        # -- a multi-byte paste would otherwise slip past the file limit.
+        if len(pasted.encode('utf-8')) > _BOX_SCORE_MAX_BYTES:
+            return JsonResponse({'ok': False, 'error': _('That box score is too large.')},
+                                status=400)
+        raw = pasted
+    else:
+        return JsonResponse(
+            {'ok': False, 'error': _('Paste a box score or choose a file.')}, status=400)
 
     try:
-        payload = parse_box_score_json(upload.read())
+        payload = parse_box_score_json(raw)
     except BoxScoreImportError as exc:
         return JsonResponse({'ok': False, 'error': str(exc)}, status=400)
 
