@@ -8016,9 +8016,6 @@ def _handle_boxscore_token_command(data):
     })
 
 
-BOXSCORE_SUBCOMMAND_HANDLERS = {"token": _handle_boxscore_token_command}
-
-
 def _handle_boxscore_command(data):
     """/boxscore <sub>. Routes to the subcommand handlers.
 
@@ -8043,12 +8040,10 @@ def _handle_boxscore_upload_command(data):
     Writes three places, none of which overwrite work the thread already has a
     better source for: the roll log + map/deck, the seating (ONLY when there
     isn't one -- a reseat would cascade away /pick's factions), and turns_data.
-    """
-    from the_warroom.services.box_score_import import (
-        BoxScoreImportError, normalize_turns, parse_box_score_json,
-        participant_label, resolve_participant_players,
-    )
 
+    This half only fetches the bytes; everything from the parse onward lives in
+    _boxscore_from_raw, which /boxscore paste shares.
+    """
     channel_id = data.get("_channel_id")
     thread = _pick_thread_for_channel(
         channel_id, data.get("_channel_name"), data.get("_guild_id"))
@@ -8085,6 +8080,25 @@ def _handle_boxscore_upload_command(data):
         # tell the user "Something went wrong" for a plain network blip.
         logger.warning("boxscore download failed for thread %s", channel_id)
         return _ephemeral("Couldn't download that file — try again.")
+
+    return _boxscore_from_raw(data, thread, channel_id, raw, filename)
+
+
+def _boxscore_from_raw(data, thread, channel_id, raw, filename):
+    """Stage a box score from raw JSON text -- THE shared body of /boxscore upload
+    and /boxscore paste, i.e. everything after "where did the bytes come from".
+
+    `raw` may be str or bytes: parse_box_score_json accepts both, so upload passes
+    the downloaded response.content and paste passes the modal's text unchanged.
+
+    `filename` is a LABEL, not a path. It is rendered back to the user in the
+    summary ("Box score added from `x`"), so paste passes a human phrase the same
+    way the upload API passes "Tabletop Simulator".
+    """
+    from the_warroom.services.box_score_import import (
+        BoxScoreImportError, parse_box_score_json,
+        participant_label, resolve_participant_players,
+    )
 
     try:
         payload = parse_box_score_json(raw)
@@ -8175,6 +8189,147 @@ def _handle_boxscore_upload_command(data):
             return _ephemeral(error)
 
     return _boxscore_next_step(thread, pending, channel_id, data.get("_author_id"))
+
+
+# Discord's hard cap for a modal text input. Declared as the input's max_length so
+# Discord's own client refuses to submit anything longer -- an over-long paste is cut
+# off inside the box instead, which is what the truncation check below catches.
+_BOXSCORE_PASTE_MAX = 4000
+# How close to the cap counts as "probably truncated". A box score that ends within 50
+# characters of the limit AND fails to parse is far more likely to be a cut-off paste
+# than valid JSON with a syntax error, and saying so is what tells the user to switch
+# methods rather than retrying the same way. A near-cap paste that PARSES is accepted
+# normally -- length alone never rejects.
+_PASTE_TRUNCATION_MARGIN = 50
+
+
+def _boxscore_paste_too_long(guild_id):
+    """What to suggest when a paste was cut off by Discord's input limit.
+
+    Names only a route this guild actually has, the same way the unlinkable-players
+    prompt only advertises /link steam where it exists: `guild_id and _guild_allows`,
+    because _guild_allows(None, ...) answers True ("no whitelist to consult") and
+    would otherwise recommend a subcommand that isn't registered here.
+    """
+    lines = [
+        "That box score is too long to paste — Discord cuts the input off at "
+        f"{_BOXSCORE_PASTE_MAX} characters, so what arrived isn't complete JSON.",
+    ]
+    if guild_id and _guild_allows(guild_id, "boxscore_upload"):
+        lines.append("Use `/boxscore upload` with the .json file instead.")
+    elif guild_id and _guild_allows(guild_id, "boxscore_token"):
+        lines.append("Use `/boxscore token` to upload it straight from Tabletop "
+                     "Simulator instead.")
+    else:
+        lines.append("Ask a moderator to enable `/boxscore upload` so you can send "
+                     "it as a file.")
+    # The cheapest fix, and the only realistic overflow is a pretty-printed file:
+    # the same game compacted is less than half the size.
+    lines.append("-# Pasting the JSON without indentation may also bring it under "
+                 "the limit.")
+    return "\n".join(lines)
+
+
+def _handle_boxscore_paste_command(data):
+    """/boxscore paste: open a modal to paste a box score into.
+
+    Resolves the thread BEFORE opening the modal. Both an ephemeral (type 4) and a
+    modal (type 9) are valid INITIAL responses to a slash command, so someone in the
+    wrong channel is turned away before they paste rather than after -- the usual
+    reason to avoid a modal here does not apply.
+    """
+    channel_id = data.get("_channel_id")
+    thread = _pick_thread_for_channel(
+        channel_id, data.get("_channel_name"), data.get("_guild_id"))
+    if not thread:
+        channel_type = data.get("_channel_type")
+        if channel_type is not None and channel_type not in _THREAD_CHANNEL_TYPES:
+            return _ephemeral("Run this inside your game's thread to paste a box score.")
+        return _ephemeral(UNKNOWN_THREAD_MESSAGE)
+
+    # Only the channel id rides in the custom_id (100-char cap): the thread is
+    # re-resolved from it on submit, which a modal submission needs anyway since it
+    # carries none of the dispatcher's stashed channel context.
+    return JsonResponse({
+        "type": RESPONSE_MODAL,
+        "data": modal(
+            encode_custom_id("boxscore_paste_modal", channel_id),
+            "Paste box score",
+            label_component(
+                "Box score JSON",
+                text_input("json", style=TEXT_INPUT_PARAGRAPH, required=True,
+                           max_length=_BOXSCORE_PASTE_MAX,
+                           placeholder="Paste the game's JSON here"),
+            ),
+        ),
+    })
+
+
+def _handle_boxscore_paste_modal_submit(payload, args):
+    """boxscore_paste_modal:<channel_id> submit: hand the pasted JSON to the same
+    pipeline /boxscore upload uses.
+
+    A MODAL_SUBMIT carries none of the `_`-prefixed context the dispatcher stashes
+    for a slash command, so the handful of keys the shared body reads are rebuilt
+    here from the raw payload.
+    """
+    from the_warroom.services.box_score_import import (
+        BoxScoreImportError, parse_box_score_json,
+    )
+
+    # The custom_id is authoritative: it records the channel the COMMAND ran in,
+    # which is what the thread lookup must use. The payload's own channel_id is only
+    # a fallback.
+    channel_id = (args[0] if args else None) or payload.get("channel_id")
+    raw = _modal_text_value(payload, "json").strip()
+    if not raw:
+        return _ephemeral("Paste your box score JSON into the box to add it.")
+
+    thread = _pick_thread_for_channel(channel_id)
+    if not thread:
+        return _ephemeral(UNKNOWN_THREAD_MESSAGE)
+
+    data = {
+        "_channel_id": channel_id,
+        "_channel_name": (payload.get("channel") or {}).get("name"),
+        "_guild_id": payload.get("guild_id"),
+        "_author_id": _interaction_user_id(payload),
+        "_author_username": ((payload.get("member") or {}).get("user")
+                             or payload.get("user") or {}).get("username"),
+        "_author": _interaction_author(payload),
+    }
+
+    # The dispatcher's roster guard only runs in the APPLICATION_COMMAND branch, so
+    # the command that opened this modal was guarded but the submit is not. Cheap and
+    # idempotent, so re-check rather than trust that the modal is unreachable.
+    refusal = _thread_actor_error(data)
+    if refusal is not None:
+        return refusal
+
+    # A paste that arrives at the cap and does not parse was almost certainly cut off
+    # rather than malformed, and saying "invalid JSON" would send the user round the
+    # same loop. Checked here rather than in the shared body because only the paste
+    # path has an input limit to blame.
+    if len(raw) >= _BOXSCORE_PASTE_MAX - _PASTE_TRUNCATION_MARGIN:
+        try:
+            parse_box_score_json(raw)
+        except BoxScoreImportError:
+            return _ephemeral(_boxscore_paste_too_long(payload.get("guild_id")))
+
+    return _boxscore_from_raw(data, thread, channel_id, raw, "pasted JSON")
+
+
+# Keyed by SUBCOMMAND name. Defined here, below the handlers, rather than up beside
+# _handle_boxscore_command: a module-level dict is built at import, so naming a
+# handler defined further down would raise NameError. _handle_boxscore_command only
+# reads it when a command arrives, so its position doesn't matter.
+#
+# `upload` is deliberately absent -- it is the fall-through, which also keeps a stale
+# pre-subcommand registration working.
+BOXSCORE_SUBCOMMAND_HANDLERS = {
+    "token": _handle_boxscore_token_command,
+    "paste": _handle_boxscore_paste_command,
+}
 
 
 def _boxscore_gate_zero_needed(pending, roster):
@@ -10663,6 +10818,7 @@ COMPONENT_HANDLERS = {
 # mirrors COMPONENT_HANDLERS' shape, dispatched from the MODAL_SUBMIT branch.
 MODAL_HANDLERS = {
     "lfg_edit_modal": _handle_lfg_edit_modal_submit,
+    "boxscore_paste_modal": _handle_boxscore_paste_modal_submit,
 }
 
 

@@ -14647,6 +14647,235 @@ class UnknownThreadRefusalTests(TestCase):
                          "Run this inside your game's thread to get a token.")
 
 
+class BoxScorePasteCommandTests(BoxScoreCommandTests):
+    """/boxscore paste: the same import as /boxscore upload, from pasted text.
+
+    Subclasses the upload tests for their fixture (thread, roster, map/deck/faction)
+    the way BoxScoreGateZeroTests does -- and inherits their assertions too, so the
+    shared _boxscore_from_raw body stays exercised from both entry points.
+    """
+
+    # A real box score, trimmed of nothing: 4 seats, 7 turns, with landmarks,
+    # hirelings and vagabond/captain detail. Kept verbatim rather than minimised
+    # because the point of this class is that a REAL paste behaves like a real
+    # upload.
+    SAMPLE = json.dumps({
+        "board_map": "lake",
+        "deck": "squires-disciples",
+        "landmarks": ["the-tower", "black-market"],
+        "hirelings": ["popular-band", "forest-patrol"],
+        "undrafted_faction": "lizard-cult",
+        "participants": [
+            {"turn_order": 1, "player": "MrMirz",
+             "player_steam_id": "76561198048968839",
+             "faction": "vagabond", "vagabond": "arbiter",
+             "turns": [{"turn": t, "score": t * 4} for t in range(1, 8)]},
+            {"turn_order": 2, "player": "RDB Tester",
+             "player_steam_id": "76561198098968839",
+             "faction": "eyrie-dynasties", "starting_leader": "Despot",
+             "turns": [{"turn": t, "score": t * 3} for t in range(1, 8)]},
+        ],
+    }, indent=2)
+
+    def setUp(self):
+        super().setUp()
+        # The submit handler calls _thread_actor_error itself (the dispatcher's
+        # roster guard only covers APPLICATION_COMMAND), so unlike the upload tests
+        # -- which invoke the handler directly and never meet the guard -- the
+        # pasting author has to actually be in this game.
+        self.alice.discord_id = self.AUTHOR
+        self.alice.save(update_fields=["discord_id"])
+
+    def _paste_payload(self, value, channel_id=None, guild_id=None, author=None):
+        """The MODAL_SUBMIT payload Discord sends when the modal is submitted: the
+        value sits under the Label wrapper's own `component` key, not flattened."""
+        channel_id = channel_id or self.THREAD_ID
+        return {
+            "type": 5,  # MODAL_SUBMIT
+            "channel_id": channel_id,
+            "guild_id": guild_id,
+            "member": {"user": {"id": author or self.AUTHOR, "username": "paster"}},
+            "data": {
+                "custom_id": di.encode_custom_id("boxscore_paste_modal", channel_id),
+                "components": [
+                    {"type": COMPONENT_LABEL, "id": 1,
+                     "component": {"type": 4, "id": 2, "custom_id": "json",
+                                   "value": value}},
+                ],
+            },
+        }
+
+    def _submit(self, value, **kw):
+        payload = self._paste_payload(value, **kw)
+        channel_id = payload["channel_id"]
+        with mock.patch.object(di.record_lfg_components_task, "delay", mock.Mock()):
+            response = di._handle_boxscore_paste_modal_submit(payload, [channel_id])
+        return json.loads(response.content)["data"]
+
+    def _open(self, channel_type=11, channel_id=None):
+        """Run the slash command itself, which only opens the modal."""
+        data = {"name": "paste", "options": [],
+                "_channel_id": channel_id or self.THREAD_ID,
+                "_channel_type": channel_type,
+                "_author_id": self.AUTHOR, "_guild_id": None}
+        return json.loads(di._handle_boxscore_paste_command(data).content)
+
+    # ── the command: validate, then open the modal ──
+
+    def test_it_opens_a_modal_carrying_the_channel(self):
+        response = self._open()
+        self.assertEqual(response["type"], di.RESPONSE_MODAL)
+        action, args = di.decode_custom_id(response["data"]["custom_id"])
+        self.assertEqual(action, "boxscore_paste_modal")
+        self.assertEqual(args, [self.THREAD_ID])
+
+    def test_the_input_is_a_paragraph_capped_at_discords_limit(self):
+        response = self._open()
+        field = response["data"]["components"][0]["component"]
+        self.assertEqual(field["custom_id"], "json")
+        self.assertEqual(field["style"], di.TEXT_INPUT_PARAGRAPH)
+        self.assertEqual(field["max_length"], di._BOXSCORE_PASTE_MAX)
+
+    def test_a_plain_channel_is_refused_without_opening_the_modal(self):
+        """The whole reason the command validates first: nobody should paste 2000
+        characters into a box that was always going to be refused.
+
+        The channel must be one with no thread AND a non-thread type -- a real
+        thread id resolves whatever type is claimed, so passing THREAD_ID here
+        would never reach the check."""
+        response = self._open(channel_type=0, channel_id="a-plain-channel")
+        self.assertEqual(response["type"], di.RESPONSE_CHANNEL_MESSAGE)
+        self.assertIn("thread", response["data"]["content"])
+        self.assertNotIn("custom_id", response["data"])
+
+    def test_an_unknown_thread_is_refused_without_opening_the_modal(self):
+        response = self._open(channel_id="not-a-thread-at-all")
+        self.assertEqual(response["type"], di.RESPONSE_CHANNEL_MESSAGE)
+        self.assertEqual(response["data"]["content"], di.UNKNOWN_THREAD_MESSAGE)
+
+    # ── the submit: same pipeline as upload ──
+
+    def test_a_pasted_box_score_matches_the_same_file_uploaded(self):
+        """THE requirement: paste is a different starting point, not a different
+        import. Only the source label may differ.
+
+        Each side runs against its OWN fresh thread: both write seats and
+        turns_data, so reusing one thread would have the second run compare itself
+        against the first's results rather than against the same clean slate.
+        """
+        paste_thread = LFGThread.objects.create(thread_id="paste-vs-upload-a")
+        upload_thread = LFGThread.objects.create(thread_id="paste-vs-upload-b")
+
+        pasted = self._submit(self.SAMPLE, channel_id=paste_thread.thread_id)["content"]
+        uploaded, _getter, _delay = self._run(raw=self.SAMPLE.encode(),
+                                              channel_id=upload_thread.thread_id)
+
+        self.assertIn("Box score added", pasted)
+        self.assertEqual(pasted.replace("`pasted JSON`", "SRC"),
+                         uploaded.replace("`game.json`", "SRC"))
+
+    def test_the_summary_names_the_paste_as_its_source(self):
+        """`pasted JSON` stands in for the filename the upload path shows. Asserted
+        on a roster-free thread so the flow applies immediately instead of stopping
+        at the unlinked-players gate (which is where SAMPLE's invented players land
+        when the thread has a roster to compare them against)."""
+        self.thread.players.clear()
+        content = self._submit(self.SAMPLE)["content"]
+        self.assertIn("Box score added from `pasted JSON`", content)
+        self.assertIn("2 seats", content)
+
+    def test_an_empty_paste_is_refused(self):
+        self.assertIn("Paste your box score JSON",
+                      self._submit("   \n  ")["content"])
+
+    def test_an_unknown_thread_on_submit_is_refused(self):
+        """The channel is re-resolved on submit, so a thread that vanished between
+        opening the modal and submitting it refuses rather than crashing."""
+        data = self._submit(self.SAMPLE, channel_id="gone-by-now")
+        self.assertEqual(data["content"], di.UNKNOWN_THREAD_MESSAGE)
+
+    def test_a_non_roster_user_is_refused_on_submit(self):
+        """The dispatcher's roster guard only covers APPLICATION_COMMAND, so the
+        submit re-checks it itself."""
+        outsider = Profile.objects.create(discord="bsoutsider", discord_id="9099")
+        data = self._submit(self.SAMPLE, author=outsider.discord_id)
+        self.assertIn("players in this game", data["content"])
+
+    # ── truncation ──
+
+    def _near_cap(self, valid):
+        """A paste within the truncation margin of the cap, valid or not."""
+        if not valid:
+            return '{"participants": [' + "x" * (di._BOXSCORE_PASTE_MAX - 30)
+        seats, i = [], 1
+        while True:
+            seats.append({"turn_order": i, "player": "p" * 40 + str(i),
+                          "turns": [{"turn": t, "score": t} for t in range(1, 13)]})
+            doc = json.dumps({"participants": seats})
+            if len(doc) >= di._BOXSCORE_PASTE_MAX - di._PASTE_TRUNCATION_MARGIN:
+                return doc
+            i += 1
+
+    def test_a_truncated_paste_is_diagnosed_as_too_long(self):
+        """Not as a JSON syntax error: the user needs to know to switch methods,
+        not to go hunting for a missing brace."""
+        content = self._submit(self._near_cap(valid=False))["content"]
+        self.assertIn("too long to paste", content)
+        self.assertNotIn("isn't valid JSON", content)
+
+    def test_a_near_cap_paste_that_parses_is_accepted(self):
+        """Length alone never rejects -- only length AND a parse failure. What it
+        goes on to do (apply, or stop at a gate) is the shared pipeline's business;
+        all that matters here is that it was NOT turned away as too long."""
+        doc = self._near_cap(valid=True)
+        self.assertGreaterEqual(len(doc),
+                                di._BOXSCORE_PASTE_MAX - di._PASTE_TRUNCATION_MARGIN)
+        self.assertNotIn("too long to paste", self._submit(doc)["content"])
+
+    def test_the_fallback_names_upload_where_it_is_enabled(self):
+        DiscordGuild.objects.create(guild_id="960000000000000001", name="G",
+                                    enabled_commands=["boxscore_upload"])
+        content = self._submit(self._near_cap(valid=False),
+                               guild_id="960000000000000001")["content"]
+        self.assertIn("`/boxscore upload`", content)
+
+    def test_the_fallback_falls_back_to_token(self):
+        """A guild without /boxscore upload still has a route, and naming a command
+        that isn't registered there would be a dead end."""
+        DiscordGuild.objects.create(guild_id="960000000000000002", name="G",
+                                    enabled_commands=["boxscore_token"])
+        content = self._submit(self._near_cap(valid=False),
+                               guild_id="960000000000000002")["content"]
+        self.assertIn("`/boxscore token`", content)
+        self.assertNotIn("`/boxscore upload`", content)
+
+    def test_the_fallback_names_nothing_a_guild_lacks(self):
+        content = self._submit(self._near_cap(valid=False),
+                               guild_id="960000000000000003")["content"]
+        self.assertIn("Ask a moderator", content)
+
+
+class BoxScorePasteRegistrationTests(TestCase):
+    """/boxscore paste is a whitelist toggle of its own, like its two siblings."""
+
+    def test_it_is_whitelistable_under_a_prefixed_key(self):
+        self.assertIn("boxscore_paste", dc.WHITELISTABLE)
+        self.assertNotIn("paste", dc.WHITELISTABLE)
+
+    def test_it_registers_alone_when_it_is_the_only_one_enabled(self):
+        registered = dc.commands_for_guild(["boxscore_paste"])
+        boxscore = next(c for c in registered if c["name"] == "boxscore")
+        self.assertEqual([o["name"] for o in boxscore["options"]], ["paste"])
+        # Discord rejects unknown fields, so our own key must not be sent.
+        self.assertFalse(any("whitelist_key" in o for o in boxscore["options"]))
+
+    def test_it_takes_no_options_because_the_modal_carries_the_json(self):
+        registered = dc.commands_for_guild(["boxscore_paste"])
+        boxscore = next(c for c in registered if c["name"] == "boxscore")
+        paste = next(o for o in boxscore["options"] if o["name"] == "paste")
+        self.assertFalse(paste.get("options"))
+
+
 class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
     """/boxscore token: mint a one-time credential for the TTS uploader."""
 

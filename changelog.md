@@ -2,6 +2,9 @@
 
 ## [1.13.11] - 2026-9-22 More Stuff
 
+### New Features
+- Added "/boxscore paste" command to directly paste in a boxscore's json string
+
 ### Improvements
 - LFG message now explains that a thread will be created automatically on game start
 - LFG buttons: Removed "Notify" added "Start" because notify is not a core feature but start is critical
