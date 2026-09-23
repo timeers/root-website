@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.13.11] - 2026-9-22 More Stuff
+
+### Improvements
+- LFG message now explains that a thread will be created automatically on game start
+- LFG buttons: Removed "Notify" added "Start" because notify is not a core feature but start is critical
+
 ## [1.13.10] - 2026-9-20 Boxscore Bugs
 
 ### New Features

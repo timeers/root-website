@@ -2965,6 +2965,64 @@ class LFGEditButtonRowTests(TestCase):
         self.assertTrue(edit_button["custom_id"].endswith(f":{self.HOST}"))
 
 
+class LFGPresentationTests(TestCase):
+    """The post's cosmetic surface: button labels and the recruiting-phase footer.
+    Labels are display-only (dispatch keys off the custom_id), but they are what a
+    host actually reads, so they are pinned here."""
+
+    HOST = "830000000000000034"
+
+    def _data(self):
+        return di._lfg_message_data(
+            None, self.HOST, "a game", "Tim", title="Looking for Game")
+
+    def _button(self, action):
+        return next(b for b in self._data()["components"][0]["components"]
+                    if di.decode_custom_id(b["custom_id"])[0] == action)
+
+    def test_notify_button_is_the_bell_alone(self):
+        """No "Notify" text beside the glyph -- the bell carries the meaning."""
+        notify = self._button("lfg_notify")
+        self.assertEqual(notify["label"], "")
+        self.assertEqual(notify["emoji"], {"name": "🔔"})
+
+    def test_start_button_is_labelled(self):
+        """✔ alone did not say what the green button does."""
+        start = self._button("lfg_start")
+        self.assertEqual(start["label"], "Start")
+        # The monochrome ✔, matching ✖ Cancel beside it and the started footer.
+        self.assertEqual(start["emoji"], {"name": "✔"})
+
+    def test_notify_field_name_is_not_the_button_label(self):
+        """Regression guard: the button label was emptied, but the embed FIELD name
+        must keep its text -- it is parsed back out of live embeds to recover the
+        subscriber list, so renaming it orphans every post already in a channel."""
+        self.assertEqual(di.LFG_NOTIFY_FIELD, "🔔 Notify")
+
+    def test_new_post_carries_the_thread_notice(self):
+        embed = self._data()["embeds"][0]
+        self.assertEqual(embed["footer"]["text"], di.LFG_THREAD_NOTICE)
+        self.assertIn("thread for discussion", di.LFG_THREAD_NOTICE)
+
+    def test_started_footer_replaces_the_notice(self):
+        """The notice and the status message share the footer slot, which is what
+        makes it self-clearing -- no handler has to remember to wipe it."""
+        embed = self._data()["embeds"][0]
+        # Two players: ✔ Start refuses a table of one before it touches the footer.
+        embed["fields"][0]["value"] = (
+            f"Tim (<@{self.HOST}>)\nBob (<@830000000000000099>)")
+        payload = {
+            "message": {"embeds": [embed], "id": "1", "content": ""},
+            "data": {"custom_id": di.encode_custom_id("lfg_start", self.HOST)},
+            "channel_id": "2", "guild_id": "3", "token": "t",
+            "member": {"user": {"id": self.HOST}},
+        }
+        with mock.patch.object(di, "create_lfg_thread_task"):
+            response = di._handle_lfg_start(payload)
+        data = json.loads(response.content)["data"]
+        self.assertEqual(data["embeds"][0]["footer"]["text"], "✔ Game has started.")
+
+
 class LFGEditTests(TestCase):
     """Edit: host-only, opens a modal pre-filled with the current description,
     and submitting it PATCHes the live message directly."""

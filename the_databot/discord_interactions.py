@@ -9804,12 +9804,20 @@ def _handle_random_roll(payload):
 # ── /lfg ─────────────────────────────────────────────────────────────────────
 # A Looking-For-Game post. The message is stateless: the Players and Notify lists
 # live in embed fields and are parsed back out on each interaction. Buttons:
-#   Join / Notify  — clickable by ANYONE (custom_id ends in the non-snowflake "g",
+#   Join / 🔔      — clickable by ANYONE (custom_id ends in the non-snowflake "g",
 #                    so the dispatcher owner-lock does not fire).
-#   ❌ Cancel / ✅ Start — owner-only (owner snowflake is the last custom_id arg,
+#   ✖ Cancel / ✔ Start — owner-only (owner snowflake is the last custom_id arg,
 #                    which the dispatcher owner-lock enforces before the handler).
 LFG_PLAYERS_FIELD = "Players"
+# NOT the 🔔 button's label -- this is the embed FIELD NAME holding the subscriber
+# list, parsed back out of the live embed on every interaction. Renaming it orphans
+# the subscribers on every post already in a channel.
 LFG_NOTIFY_FIELD = "🔔 Notify"
+# Recruiting-phase footer, set at build time. Deliberately not cleared anywhere: ✔
+# Start and ✖ Cancel both assign embed["footer"] outright, so each replaces this
+# notice exactly when it stops being true.
+LFG_THREAD_NOTICE = ("When the game starts a thread for discussion will be created "
+                     "automatically.")
 _LFG_MENTION_RE = re.compile(r"<@!?(\d+)>")
 _LFG_ROLE_MENTION_RE = re.compile(r"<@&(\d+)>")
 _LFG_PLAYER_LINE_RE = re.compile(r"^(.*) \(<@!?(\d+)>\)$")
@@ -9907,8 +9915,8 @@ OWNER_LOCK_HINTS = {
 def _lfg_message_data(author, owner, description, players_value,
                       content=None, title=LFG_DEFAULT_TITLE, ping_role=True):
     """Build the full join-message payload (embed + button row). Used ONLY for the
-    initial post and the picker→join transition — never to re-render on Join/Notify
-    (that would wipe the other field; those handlers mutate the echoed embed).
+    initial post — never to re-render on Join/Notify (that would wipe the other
+    field; those handlers mutate the echoed embed).
 
     The Notify field is omitted until someone subscribes (added on first 🔔).
 
@@ -9923,6 +9931,7 @@ def _lfg_message_data(author, owner, description, players_value,
         "fields": [
             {"name": LFG_PLAYERS_FIELD, "value": players_value, "inline": False},
         ],
+        "footer": {"text": LFG_THREAD_NOTICE},
     }
     # Join, 🔔, Edit and ✖ Cancel end in the non-snowflake PICK_OPEN marker so the
     # dispatcher owner-lock does NOT fire; the owner rides in a non-last arg so
@@ -9943,12 +9952,13 @@ def _lfg_message_data(author, owner, description, players_value,
     # post wants ✖, not to start a game they aren't in.
     buttons = [
         button("Join", encode_custom_id("lfg_join", owner, PICK_OPEN), style=STYLE_PRIMARY),
-        button("Notify", encode_custom_id("lfg_notify", owner, PICK_OPEN),
+        button("", encode_custom_id("lfg_notify", owner, PICK_OPEN),
                style=STYLE_SECONDARY, emoji={"name": "🔔"}),
         button("Edit", encode_custom_id("lfg_edit", owner), style=STYLE_SECONDARY),
         button("", encode_custom_id("lfg_cancel", owner, PICK_OPEN),
                style=STYLE_DANGER, emoji={"name": "✖"}),
-        button("", encode_custom_id("lfg_start", owner), style=STYLE_SUCCESS, emoji={"name": "✔"}),
+        button("Start", encode_custom_id("lfg_start", owner), style=STYLE_SUCCESS,
+               emoji={"name": "✔"}),
     ]
     row = action_row(*buttons)
     data = {"embeds": [embed], "components": [row]}
