@@ -8426,7 +8426,7 @@ def _handle_boxscore_paste_modal_submit(payload, args):
         except BoxScoreImportError:
             return _ephemeral(_boxscore_paste_too_long(payload.get("guild_id")))
 
-    return _boxscore_from_raw(data, thread, channel_id, raw, "pasted JSON")
+    return _boxscore_from_raw(data, thread, channel_id, raw, "Pasted JSON")
 
 
 # Keyed by SUBCOMMAND name. Defined here, below the handlers, rather than up beside
@@ -10087,8 +10087,7 @@ LFG_NOTIFY_FIELD = "🔔 Notify"
 # Recruiting-phase footer, set at build time. Deliberately not cleared anywhere: ✔
 # Start and ✖ Cancel both assign embed["footer"] outright, so each replaces this
 # notice exactly when it stops being true.
-LFG_THREAD_NOTICE = ("When the game starts a thread for discussion will be created "
-                     "automatically.")
+LFG_THREAD_NOTICE = ("A thread for discussion will be created automatically when the host starts the game.")
 _LFG_MENTION_RE = re.compile(r"<@!?(\d+)>")
 _LFG_ROLE_MENTION_RE = re.compile(r"<@&(\d+)>")
 _LFG_PLAYER_LINE_RE = re.compile(r"^(.*) \(<@!?(\d+)>\)$")

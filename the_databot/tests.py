@@ -14773,7 +14773,7 @@ class BoxScorePasteCommandTests(BoxScoreCommandTests):
                                               channel_id=upload_thread.thread_id)
 
         self.assertIn("Box Score", pasted)
-        self.assertEqual(pasted.replace("pasted JSON", "SRC"),
+        self.assertEqual(pasted.replace("Pasted JSON", "SRC"),
                          uploaded.replace("game.json", "SRC"))
 
     def test_the_summary_names_the_paste_as_its_source(self):
@@ -14783,7 +14783,7 @@ class BoxScorePasteCommandTests(BoxScoreCommandTests):
         when the thread has a roster to compare them against)."""
         self.thread.players.clear()
         content = self._submit(self.SAMPLE)["content"]
-        self.assertTrue(content.startswith("### pasted JSON Box Score"), content)
+        self.assertTrue(content.startswith("### Pasted JSON Box Score"), content)
 
     def test_an_empty_paste_is_refused(self):
         self.assertIn("Paste your box score JSON",
