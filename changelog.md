@@ -10,6 +10,9 @@
 - LFG buttons: Removed "Notify" added "Start" because notify is not a core feature but start is critical
 - Added instruction method for when boxscore token fails due to unrecognized thread
 
+### Bug Fixes
+- Survey responses using "other" and a write in response now display correctly on CSV export
+
 ## [1.13.10] - 2026-9-20 Boxscore Bugs
 
 ### New Features

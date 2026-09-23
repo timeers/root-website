@@ -1411,8 +1411,28 @@ class Answer(models.Model):
     def __str__(self):
         return f"Answer to '{self.question.text[:50]}'"
 
+    def _other_display(self):
+        """The "Other" free text as it appears in an exported or admin cell, or None.
+
+        Labelled rather than bare so free text stays distinguishable from a picked
+        choice of the same name -- the CSV column is meant to be tallied, and a typed
+        "Eyrie" must not read as the real choice "Eyrie". Mirrors the "Other" badge
+        the response detail page renders for itself.
+
+        Only MC/MS answers ever carry other_text (allow_other is MC/MS only), so this
+        is used at those four return sites and nowhere else.
+        """
+        text = (self.other_text or "").strip()
+        return f"Other: {text}" if text else None
+
     def get_display_value(self):
-        """Return a human-readable version of the answer"""
+        """Return a human-readable version of the answer.
+
+        NOTE this feeds the CSV export and the Django admin, NOT the response detail
+        or results pages -- both of those render other_text themselves (see
+        view_survey_response.html's MC/MS branches and the results view's
+        other_responses list), so "Other" must not be added at both layers.
+        """
         qtype = self.question.question_type
 
         # Handle Post-based questions
@@ -1422,15 +1442,20 @@ class Answer(models.Model):
                     return self.selected_post.title
                 elif self.selected_choice:
                     return self.selected_choice.get_display_text()
-                return "No answer"
+                # "Other" is stored with NO selected_post/choice, so it has to be
+                # checked before falling through to "No answer". A post-based
+                # question can still allow_other -- the two fields are independent.
+                return self._other_display() or "No answer"
             elif qtype == Question.QuestionType.MULTIPLE_SELECTION:
-                posts = self.selected_posts.all()
-                if posts:
-                    return ", ".join([p.title for p in posts])
-                choices = self.selected_choices.all()
-                if choices:
-                    return ", ".join([c.get_display_text() for c in choices])
-                return "No answer"
+                # A respondent can tick real options AND Other, so the free text is
+                # appended to whatever was selected rather than replacing it.
+                parts = [p.title for p in self.selected_posts.all()]
+                if not parts:
+                    parts = [c.get_display_text() for c in self.selected_choices.all()]
+                other = self._other_display()
+                if other:
+                    parts.append(other)
+                return ", ".join(parts) if parts else "No answer"
             elif qtype == Question.QuestionType.RANKING:
                 ranked_posts = self.ranked_post_items.order_by('rank')
                 if ranked_posts:
@@ -1441,10 +1466,16 @@ class Answer(models.Model):
                 return "No answer"
 
         if qtype == Question.QuestionType.MULTIPLE_CHOICE:
-            return self.selected_choice.get_display_text() if self.selected_choice else "No answer"
+            if self.selected_choice:
+                return self.selected_choice.get_display_text()
+            # See the post-based branch above: "Other" leaves selected_choice null.
+            return self._other_display() or "No answer"
         elif qtype == Question.QuestionType.MULTIPLE_SELECTION:
-            choices = self.selected_choices.all()
-            return ", ".join([c.get_display_text() for c in choices]) if choices else "No answer"
+            parts = [c.get_display_text() for c in self.selected_choices.all()]
+            other = self._other_display()
+            if other:
+                parts.append(other)
+            return ", ".join(parts) if parts else "No answer"
         elif qtype == Question.QuestionType.TIME_AVAILABILITY:
             choices = self.selected_choices.all().order_by('text')
             return ", ".join([f"{c.text}:00 UTC" for c in choices]) if choices else "No answer"

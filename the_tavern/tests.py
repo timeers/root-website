@@ -15,7 +15,7 @@ from django.urls import reverse
 
 from the_gatehouse.models import Profile, PlayerSchedule
 from the_gatehouse.signals import handle_image_resize, user_logged_in_handler
-from the_tavern.models import Answer, Question, Survey, SurveyResponse
+from the_tavern.models import Answer, Choice, Question, Survey, SurveyResponse
 
 
 class _SurveyTestBase(TestCase):
@@ -672,3 +672,197 @@ class WeeklyAvailabilityGridRenderTests(_SurveyTestBase):
         ):
             self.assertEqual(len(page.context['days']), 7)
             self.assertEqual(len(page.context['hours']), 24)
+
+
+class OtherTextDisplayTests(_SurveyTestBase):
+    """An "Other" free-text answer must survive into the CSV export.
+
+    It used to be dropped entirely: get_display_value never read other_text, so a
+    multiple-choice answer exported as the literal "No answer" (actively wrong --
+    the respondent DID answer) and a multiple-selection answer lost the typed value
+    silently, leaving a row that looked complete.
+    """
+
+    OTHER = 'Lord of the Hundreds'
+
+    def setUp(self):
+        super().setUp()
+        self.survey = self._survey(created_by=self.profile)
+        self.response = self._response(self.survey)
+
+    def _mc(self, post_based=False, **kwargs):
+        return Question.objects.create(
+            survey=self.survey, text='Favourite faction?',
+            question_type=Question.QuestionType.MULTIPLE_CHOICE,
+            allow_other=True, order=1,
+            post_component='Faction' if post_based else None, **kwargs)
+
+    def _ms(self, post_based=False, **kwargs):
+        return Question.objects.create(
+            survey=self.survey, text='Which have you played?',
+            question_type=Question.QuestionType.MULTIPLE_SELECTION,
+            allow_other=True, order=2,
+            post_component='Faction' if post_based else None, **kwargs)
+
+    def _answer(self, question, other_text=None, choices=()):
+        answer = Answer.objects.create(response=self.response, question=question,
+                                       other_text=other_text)
+        for choice in choices:
+            answer.selected_choices.add(choice)
+        return answer
+
+    # ── multiple choice ──
+
+    def test_an_other_only_choice_is_not_reported_as_no_answer(self):
+        """The regression: this cell used to read "No answer"."""
+        answer = self._answer(self._mc(), other_text=self.OTHER)
+        self.assertEqual(answer.get_display_value(), f'Other: {self.OTHER}')
+
+    def test_a_picked_choice_still_wins_over_other_text(self):
+        question = self._mc()
+        choice = Choice.objects.create(question=question, text='Marquise', order=1)
+        answer = self._answer(question, other_text=self.OTHER)
+        answer.selected_choice = choice
+        answer.save(update_fields=['selected_choice'])
+        self.assertEqual(answer.get_display_value(), 'Marquise')
+
+    def test_a_plain_choice_is_unchanged(self):
+        """The common path must be untouched by this fix."""
+        question = self._mc()
+        choice = Choice.objects.create(question=question, text='Marquise', order=1)
+        answer = self._answer(question)
+        answer.selected_choice = choice
+        answer.save(update_fields=['selected_choice'])
+        self.assertEqual(answer.get_display_value(), 'Marquise')
+
+    # ── multiple selection ──
+
+    def test_other_is_appended_to_the_picked_choices(self):
+        """The quieter regression: the typed value vanished and the row still
+        looked complete."""
+        question = self._ms()
+        choice = Choice.objects.create(question=question, text='Eyrie', order=1)
+        answer = self._answer(question, other_text=self.OTHER, choices=[choice])
+        self.assertEqual(answer.get_display_value(), f'Eyrie, Other: {self.OTHER}')
+
+    def test_an_other_only_selection_is_not_reported_as_no_answer(self):
+        answer = self._answer(self._ms(), other_text=self.OTHER)
+        self.assertEqual(answer.get_display_value(), f'Other: {self.OTHER}')
+
+    # ── post-based questions get "Other" too ──
+
+    def test_a_post_based_choice_question_keeps_other(self):
+        """allow_other and post_component are independent, and the save path checks
+        "other" BEFORE the post branch -- so these are separate return sites that
+        would otherwise stay broken."""
+        answer = self._answer(self._mc(post_based=True), other_text=self.OTHER)
+        self.assertEqual(answer.get_display_value(), f'Other: {self.OTHER}')
+
+    def test_a_post_based_selection_question_keeps_other(self):
+        question = self._ms(post_based=True)
+        choice = Choice.objects.create(question=question, text='Eyrie', order=1)
+        answer = self._answer(question, other_text=self.OTHER, choices=[choice])
+        self.assertEqual(answer.get_display_value(), f'Eyrie, Other: {self.OTHER}')
+
+    # ── empty "Other" ──
+
+    def test_blank_other_text_is_still_no_answer(self):
+        """An empty Other must never render as a bare "Other: " cell."""
+        for blank in (None, '', '   '):
+            with self.subTest(blank=repr(blank)):
+                answer = self._answer(self._mc(), other_text=blank)
+                self.assertEqual(answer.get_display_value(), 'No answer')
+                answer.delete()
+
+    def test_blank_other_text_does_not_pad_a_selection(self):
+        question = self._ms()
+        choice = Choice.objects.create(question=question, text='Eyrie', order=1)
+        answer = self._answer(question, other_text='  ', choices=[choice])
+        self.assertEqual(answer.get_display_value(), 'Eyrie')
+
+
+class OtherTextExportTests(_SurveyTestBase):
+    """The same fix seen through the CSV endpoint the user actually downloads."""
+
+    OTHER_MC = 'Lord of the Hundreds'
+    OTHER_MS = 'Keepers in Iron'
+
+    def setUp(self):
+        super().setUp()
+        self.survey = self._survey(created_by=self.profile)
+        self.mc = Question.objects.create(
+            survey=self.survey, text='Favourite faction?',
+            question_type=Question.QuestionType.MULTIPLE_CHOICE,
+            allow_other=True, order=1)
+        self.ms = Question.objects.create(
+            survey=self.survey, text='Which have you played?',
+            question_type=Question.QuestionType.MULTIPLE_SELECTION,
+            allow_other=True, order=2)
+        self.eyrie = Choice.objects.create(question=self.ms, text='Eyrie', order=1)
+
+        self.response = self._response(self.survey)
+        Answer.objects.create(response=self.response, question=self.mc,
+                              other_text=self.OTHER_MC)
+        ms_answer = Answer.objects.create(response=self.response, question=self.ms,
+                                          other_text=self.OTHER_MS)
+        ms_answer.selected_choices.add(self.eyrie)
+
+        self.client.force_login(self.user)
+
+    def _csv(self):
+        response = self.client.get(reverse('survey-export-csv',
+                                           kwargs={'slug': self.survey.slug}))
+        self.assertEqual(response.status_code, 200)
+        return response.content.decode()
+
+    def test_the_csv_carries_both_other_answers(self):
+        body = self._csv()
+        self.assertIn(self.OTHER_MC, body)
+        self.assertIn(self.OTHER_MS, body)
+
+    def test_the_csv_no_longer_claims_no_answer(self):
+        """The whole bug in one assertion: a respondent who answered must not be
+        exported as having skipped the question."""
+        self.assertNotIn('No answer', self._csv())
+
+    def test_a_selection_keeps_its_picked_choice_alongside_other(self):
+        self.assertIn(f'Eyrie, Other: {self.OTHER_MS}', self._csv())
+
+
+class OtherTextPageRenderTests(_SurveyTestBase):
+    """Pages that render other_text THEMSELVES must not also pick it up through
+    get_display_value -- "Other" appearing twice would be the obvious way for this
+    fix to go wrong."""
+
+    OTHER = 'Lord of the Hundreds'
+
+    def setUp(self):
+        super().setUp()
+        self.survey = self._survey(created_by=self.profile)
+        self.mc = Question.objects.create(
+            survey=self.survey, text='Favourite faction?',
+            question_type=Question.QuestionType.MULTIPLE_CHOICE,
+            allow_other=True, order=1)
+        self.response = self._response(self.survey)
+        Answer.objects.create(response=self.response, question=self.mc,
+                              other_text=self.OTHER)
+        self.client.force_login(self.user)
+
+    def test_the_response_page_shows_other_exactly_once(self):
+        page = self.client.get(reverse(
+            'survey-user-response',
+            kwargs={'slug': self.survey.slug, 'response_id': self.response.pk}))
+        self.assertEqual(page.status_code, 200)
+        body = page.content.decode()
+        self.assertEqual(body.count(self.OTHER), 1)
+        # The labelled form belongs to the CSV/admin, not to a page that renders
+        # its own "Other" badge.
+        self.assertNotIn(f'Other: {self.OTHER}', body)
+
+    def test_the_results_page_shows_other_exactly_once(self):
+        page = self.client.get(reverse('survey-results',
+                                       kwargs={'slug': self.survey.slug}))
+        self.assertEqual(page.status_code, 200)
+        body = page.content.decode()
+        self.assertEqual(body.count(self.OTHER), 1)
+        self.assertNotIn(f'Other: {self.OTHER}', body)
