@@ -258,9 +258,14 @@
            unnamed field is never submitted with it. The trigger must be type="button"
            for the same reason -- a bare <button> in a form defaults to submit. {% endcomment %}
         <input type="file" id="box-score-file" accept=".json,application/json" class="d-none">
+        {% comment %} Icon-only under sm, where this sits beside the legend and the
+           label is what pushes the heading onto a second line. The `title` carries
+           the meaning when the text is hidden, and it matches the icon-only info
+           button next to it. {% endcomment %}
         <button class="btn btn-outline-primary btn-sm ms-2 text-nowrap" id="import-json-btn" type="button"
-                title="{% trans 'Import a game from a JSON file' %}">
-            <i class="bi bi-upload"></i> {% trans 'Import JSON' %}
+                title="{% trans 'Import a game from JSON' %}"
+                aria-label="{% trans 'Import a game from JSON' %}">
+            <i class="bi bi-upload"></i><span class="d-none d-sm-inline ms-1">{% trans 'Import JSON' %}</span>
         </button>
 
         <button class="btn btn-info btn-sm ms-2" type="button" data-bs-toggle="collapse" data-bs-target="#collapseInfo" aria-expanded="false" aria-controls="collapseInfo">
@@ -1833,6 +1838,11 @@ document.addEventListener('DOMContentLoaded', function() {
     var BoxScoreImport = (function () {
         var pending = null;   // resolved payload awaiting confirmation
         var modal = null;
+        // 'source' while picking a paste/file, 'summary' once the server has
+        // resolved one. Tracked rather than inferred from which divs are visible,
+        // so the shared footer button knows which job it is doing.
+        var stage = 'source';
+        var chosenFile = null;
 
         function el(id) { return document.getElementById(id); }
 
@@ -1856,13 +1866,52 @@ document.addEventListener('DOMContentLoaded', function() {
             wrap.classList.remove('d-none');
         }
 
+        function show(id) { var n = el(id); if (n) n.classList.remove('d-none'); }
+        function hide(id) { var n = el(id); if (n) n.classList.add('d-none'); }
+
+        // Stage 1. Every open comes through here, so it RESTORES state rather than
+        // assuming it: showError hides the body and the confirm button and nothing
+        // used to put them back (the next successful import did it by side effect),
+        // so without this an error → cancel → reopen would land on a blank modal
+        // with no primary button. The modal has no close X and a static backdrop,
+        // so there would be no way out of that.
+        function showSource() {
+            stage = 'source';
+            pending = null;
+            chosenFile = null;
+
+            var paste = el('import-paste');
+            if (paste) paste.value = '';
+            var name = el('import-filename');
+            if (name) name.textContent = '';
+
+            hide('import-error');
+            hide('import-body');
+            hide('import-source-error');
+            show('import-source');
+            show('import-confirm');
+
+            var title = el('importBoxScoreModalLabel');
+            if (title) title.innerHTML =
+                '<i class="bi bi-upload"></i> ' + "{% trans 'Import a Game' %}";
+
+            var inst = modalInstance();
+            if (inst) inst.show();
+            if (paste) paste.focus();
+        }
+
+        function showSourceError(message) {
+            var box = el('import-source-error');
+            if (box) { box.textContent = message; box.classList.remove('d-none'); }
+        }
+
         function showError(message) {
+            stage = 'error';
             var box = el('import-error');
             if (box) { box.textContent = message; box.classList.remove('d-none'); }
-            var body = el('import-body');
-            if (body) body.classList.add('d-none');
-            var confirm = el('import-confirm');
-            if (confirm) confirm.classList.add('d-none');
+            hide('import-source');
+            hide('import-body');
+            hide('import-confirm');
             var inst = modalInstance();
             if (inst) inst.show();
         }
@@ -1949,12 +1998,15 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         function renderSummary(data) {
-            var box = el('import-error');
-            if (box) box.classList.add('d-none');
-            var body = el('import-body');
-            if (body) body.classList.remove('d-none');
-            var confirmBtn = el('import-confirm');
-            if (confirmBtn) confirmBtn.classList.remove('d-none');
+            stage = 'summary';
+            hide('import-error');
+            hide('import-source');
+            show('import-body');
+            show('import-confirm');
+
+            var title = el('importBoxScoreModalLabel');
+            if (title) title.innerHTML =
+                '<i class="bi bi-upload"></i> ' + "{% trans 'Import this game?' %}";
 
             var seatCount = (data.participants || []).length;
             var maxTurn = 0;
@@ -2105,9 +2157,16 @@ document.addEventListener('DOMContentLoaded', function() {
             ScorecardDraft.save();
         }
 
-        function upload(file) {
+        // `source` is a File or a pasted string. Everything past the two append
+        // lines is identical for both -- same endpoint, same mode fields, same
+        // permission checks on the server.
+        function submitSource(source) {
             var data = new FormData();
-            data.append('box_score_file', file);
+            if (typeof source === 'string') {
+                data.append('box_score_text', source);
+            } else {
+                data.append('box_score_file', source);
+            }
             {% if match.id %}data.append('match_id', '{{ match.id }}');{% endif %}
             {% if lfgthread.id %}data.append('lfg_id', '{{ lfgthread.id }}');{% endif %}
             {% if object.id %}data.append('game_id', '{{ object.id }}');{% endif %}
@@ -2125,11 +2184,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(function (payload) {
                     if (!payload || !payload.ok) {
                         showError((payload && payload.error)
-                                  || "{% trans 'That file could not be imported.' %}");
+                                  || "{% trans 'That box score could not be imported.' %}");
                         return;
                     }
                     if (!(payload.participants || []).length) {
-                        showError("{% trans 'Nothing in that file could be applied here.' %}"
+                        showError("{% trans 'Nothing in that box score could be applied here.' %}"
                                   + ((payload.skipped || []).length
                                      ? ' ' + payload.skipped.join(' ') : ''));
                         return;
@@ -2138,8 +2197,22 @@ document.addEventListener('DOMContentLoaded', function() {
                     renderSummary(payload);
                 })
                 .catch(function () {
-                    showError("{% trans 'That file could not be uploaded.' %}");
+                    showError("{% trans 'That box score could not be sent.' %}");
                 });
+        }
+
+        // Stage 1's primary button: whichever source the user supplied.
+        function submitFromSource() {
+            var paste = el('import-paste');
+            var text = paste ? paste.value.trim() : '';
+            if (chosenFile) {
+                submitSource(chosenFile);
+            } else if (text) {
+                submitSource(text);
+            } else {
+                showSourceError(
+                    "{% trans 'Paste a box score or choose a file first.' %}");
+            }
         }
 
         function init() {
@@ -2147,16 +2220,49 @@ document.addEventListener('DOMContentLoaded', function() {
             var input = el('box-score-file');
             if (!trigger || !input) return;
 
-            trigger.addEventListener('click', function () { input.click(); });
+            // The button now opens the modal; the file dialog is one option INSIDE
+            // it rather than the only way in.
+            trigger.addEventListener('click', showSource);
+
+            var chooseBtn = el('import-choose-file');
+            if (chooseBtn) chooseBtn.addEventListener('click', function () { input.click(); });
+
             input.addEventListener('change', function () {
-                if (input.files && input.files[0]) upload(input.files[0]);
+                if (input.files && input.files[0]) {
+                    // Recorded, not submitted: the user confirms with Import, so a
+                    // mis-click in the file dialog is still recoverable.
+                    chosenFile = input.files[0];
+                    var name = el('import-filename');
+                    if (name) name.textContent = chosenFile.name;
+                    var paste = el('import-paste');
+                    if (paste) paste.value = '';
+                    hide('import-source-error');
+                }
                 // Reset so re-picking the same file fires `change` again.
                 input.value = '';
             });
 
+            // Typing clears a previously chosen file, so the two sources can never
+            // both be live -- whichever the user touched last is the one that goes.
+            var pasteBox = el('import-paste');
+            if (pasteBox) {
+                pasteBox.addEventListener('input', function () {
+                    if (pasteBox.value.trim()) {
+                        chosenFile = null;
+                        var name = el('import-filename');
+                        if (name) name.textContent = '';
+                    }
+                    hide('import-source-error');
+                });
+            }
+
             var confirmBtn = el('import-confirm');
             if (confirmBtn) {
                 confirmBtn.addEventListener('click', function () {
+                    if (stage === 'source') {
+                        submitFromSource();
+                        return;   // stays open: the summary replaces this stage
+                    }
                     if (pending) apply(pending);
                     pending = null;
                     var inst = modalInstance();

@@ -4,6 +4,7 @@
 
 ### New Features
 - Added "/boxscore paste" command to directly paste in a boxscore's json string
+- Added the ability to paste json as text directly into the Record Game page using the Import Json button. Works the same as selecting a .json file
 
 ### Improvements
 - LFG message now explains that a thread will be created automatically on game start

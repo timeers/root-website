@@ -12,7 +12,40 @@
                    can't be read. The confirm button is hidden alongside it. {% endcomment %}
                 <div id="import-error" class="alert alert-danger d-none" role="alert"></div>
 
-                <div id="import-body">
+                {% comment %} Stage 1: where is the JSON coming from? Shown when the
+                   modal opens; replaced in place by #import-body once the server has
+                   parsed it. The three stages (source / body / error) are mutually
+                   exclusive -- see showSource, renderSummary and showError. {% endcomment %}
+                <div id="import-source">
+                    <p class="mb-2">
+                        {% trans 'Import a game from its JSON data. Paste it below, or choose a <code>.json</code> file.' %}
+                    </p>
+                    <p class="text-muted small mb-2">
+                        {% trans 'Nothing will be saved yet: you will see the filled in game data in and can confirm or cancel.' %}
+                    </p>
+
+                    <label for="import-paste" class="form-label small fw-semibold mb-1">
+                        {% trans 'Paste JSON' %}
+                    </label>
+                    <textarea id="import-paste" class="form-control font-monospace mb-2" rows="8"
+                              spellcheck="false"
+                              placeholder="{% trans 'Paste the game&apos;s JSON here…' %}"></textarea>
+
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="import-choose-file">
+                            <i class="bi bi-folder2-open"></i> {% trans 'Choose file…' %}
+                        </button>
+                        <span id="import-filename" class="small text-muted"></span>
+                    </div>
+
+                    {% comment %} Client-side complaint (nothing supplied), so an empty
+                       submit costs no round trip. {% endcomment %}
+                    <div id="import-source-error" class="text-danger small mt-2 d-none"></div>
+                </div>
+
+                {% comment %} Starts hidden: the source stage is what opens. showSource
+                   and renderSummary toggle this pair. {% endcomment %}
+                <div id="import-body" class="d-none">
                     <p id="import-intro" class="mb-2"></p>
 
                     {% comment %} Box score preview. Shares the .box-score-preview styles with
