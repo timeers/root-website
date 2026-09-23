@@ -16673,3 +16673,67 @@ class MatchReminderSweepTests(ScheduleFixtureMixin, TestCase):
         self.group.tournament_players.clear()
         content = self._content(self._sweep())
         self.assertIn(f"<@{self.player.discord_id}>", content)
+
+
+class EmojiSlugMappingTests(TestCase):
+    """The emoji maps are keyed by SLUG, and a wrong slug fails silently -- the
+    lookup just returns "" and the name renders with no icon.
+
+    What canNOT be asserted here: that each key matches a real Post, or that each
+    emoji NAME exists. The test database is empty (no production rows) and the
+    names live on Discord, fetched at runtime. Both were checked by hand against
+    the live data when these were added; what remains pinned below is the internal
+    consistency a future edit could plausibly break.
+    """
+
+    def test_a_mapped_slug_resolves_through_the_lookup(self):
+        """Every key must round-trip: map -> name -> lookup. Guards against a key
+        being added to the dict but the helper reading a different map."""
+        with mock.patch.object(ds, '_APP_EMOJI',
+                               {name: f'<:{name}:1>' for name
+                                in list(ds.FACTION_EMOJI_NAMES.values())
+                                + list(ds.DECK_EMOJI_NAMES.values())}):
+            for slug, name in ds.FACTION_EMOJI_NAMES.items():
+                with self.subTest(faction=slug):
+                    self.assertEqual(ds.faction_emoji_for(slug), f'<:{name}:1>')
+            for slug, name in ds.DECK_EMOJI_NAMES.items():
+                with self.subTest(deck=slug):
+                    self.assertEqual(ds.deck_emoji_for(slug), f'<:{name}:1>')
+
+    def test_the_clockwork_factions_are_all_mapped(self):
+        """Added as a set of eight; a dropped line would silently un-emoji one."""
+        clockwork = {slug: name for slug, name in ds.FACTION_EMOJI_NAMES.items()
+                     if name.startswith('CW')}
+        self.assertEqual(sorted(clockwork), [
+            'automated-alliance', 'cogwheel-corvids', 'drillbit-duchy',
+            'electric-eyrie', 'logical-lizards', 'mechanical-marquise-20',
+            'riverfolk-robots', 'vagabot',
+        ])
+
+    def test_the_three_official_decks_are_mapped(self):
+        self.assertEqual(sorted(ds.DECK_EMOJI_NAMES),
+                         ['base', 'exiles-partisans', 'squires-disciples'])
+
+    def test_slugs_look_like_slugs(self):
+        """A title slipping in where a slug belongs ("Mechanical Marquise 2.0")
+        is the likeliest way to break these maps, and it fails silently."""
+        for label, mapping in (("faction", ds.FACTION_EMOJI_NAMES),
+                               ("deck", ds.DECK_EMOJI_NAMES)):
+            for slug in mapping:
+                with self.subTest(mapping=label, slug=slug):
+                    self.assertRegex(slug, r'^[a-z0-9]+(-[a-z0-9]+)*$')
+
+    def test_an_unmapped_slug_yields_no_emoji_rather_than_raising(self):
+        """Callers treat "" as "render the name bare", so an unknown slug must not
+        blow up mid-interaction."""
+        self.assertEqual(ds.deck_emoji_for('not-a-real-deck'), '')
+        self.assertEqual(ds.faction_emoji_for('not-a-real-faction'), '')
+        self.assertIsNone(ds.deck_emoji_object('not-a-real-deck'))
+
+    def test_the_emoji_names_are_distinct(self):
+        """Two slugs sharing one emoji name is almost always a copy-paste slip."""
+        for label, mapping in (("faction", ds.FACTION_EMOJI_NAMES),
+                               ("deck", ds.DECK_EMOJI_NAMES)):
+            with self.subTest(mapping=label):
+                names = list(mapping.values())
+                self.assertEqual(len(names), len(set(names)))
