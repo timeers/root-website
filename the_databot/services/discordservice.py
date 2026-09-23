@@ -1207,6 +1207,21 @@ def suit_emoji_for(suit, variant):
     return get_application_emoji().get(name, "")
 
 
+def dominance_emoji_for(value):
+    """Return the application-emoji string for an Effort.DominanceChoices value,
+    or "" if it hasn't been uploaded (the value's own name is then shown instead).
+
+    Emoji are named "{Value}_Tag" using the value's OWN capitalisation -- Fox_Tag,
+    Frog_Tag. Deliberately NOT lowercased the way suit_emoji_for does it: these
+    were uploaded capitalised, and "fox_tag" misses.
+
+    Only Mouse/Fox/Rabbit/Bird/Frog exist. "Dark" and "Mountain King" have no
+    emoji (the latter would need a name containing a space), so they fall back to
+    the word -- the same degradation every other emoji here uses.
+    """
+    return get_application_emoji().get(f"{value}_Tag", "")
+
+
 def suit_static_image_url(suit, variant):
     """Absolute URL to a Root suit's static inline image, or None when SITE_URL
     isn't configured. `variant` is "tilt" (suit card art) or "outline" (clearing

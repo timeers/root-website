@@ -9,6 +9,7 @@
 - LFG message now explains that a thread will be created automatically on game start
 - LFG buttons: Removed "Notify" added "Start" because notify is not a core feature but start is critical
 - Added instruction method for when boxscore token fails due to unrecognized thread
+- Better box score message layout
 
 ### Bug Fixes
 - Survey responses using "other" and a write in response now display correctly on CSV export

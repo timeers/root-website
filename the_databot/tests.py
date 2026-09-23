@@ -20,7 +20,7 @@ from the_warroom.models import (
 )
 from the_keep.models import (
     StatusChoices, Faction, Map, Deck, Vagabond, Landmark, Hireling, Language,
-    Law, LawGroup,
+    Law, LawGroup, Tweak,
 )
 from the_gatehouse.models import (
     DiscordGuild, Profile, DEFAULT_PROFILE_IMAGE,
@@ -12593,7 +12593,9 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
              "turns": [{"turn": 1, "score": 5},
                        {"turn": 2, "score": 11, "dominance": True}]},
         ])
-        self.assertIn("2 seats", content)
+        # The heading names the source; the seat count is carried by the list
+        # itself rather than restated in a sentence.
+        self.assertIn("Box Score", content)
 
     def test_deltas_are_normalized_to_cumulative_on_the_way_in(self):
         # turns_data holds ONE canonical shape however the file was written.
@@ -14770,9 +14772,9 @@ class BoxScorePasteCommandTests(BoxScoreCommandTests):
         uploaded, _getter, _delay = self._run(raw=self.SAMPLE.encode(),
                                               channel_id=upload_thread.thread_id)
 
-        self.assertIn("Box score added", pasted)
-        self.assertEqual(pasted.replace("`pasted JSON`", "SRC"),
-                         uploaded.replace("`game.json`", "SRC"))
+        self.assertIn("Box Score", pasted)
+        self.assertEqual(pasted.replace("pasted JSON", "SRC"),
+                         uploaded.replace("game.json", "SRC"))
 
     def test_the_summary_names_the_paste_as_its_source(self):
         """`pasted JSON` stands in for the filename the upload path shows. Asserted
@@ -14781,8 +14783,7 @@ class BoxScorePasteCommandTests(BoxScoreCommandTests):
         when the thread has a roster to compare them against)."""
         self.thread.players.clear()
         content = self._submit(self.SAMPLE)["content"]
-        self.assertIn("Box score added from `pasted JSON`", content)
-        self.assertIn("2 seats", content)
+        self.assertTrue(content.startswith("### pasted JSON Box Score"), content)
 
     def test_an_empty_paste_is_refused(self):
         self.assertIn("Paste your box score JSON",
@@ -16737,3 +16738,239 @@ class EmojiSlugMappingTests(TestCase):
             with self.subTest(mapping=label):
                 names = list(mapping.values())
                 self.assertEqual(len(names), len(set(names)))
+
+
+class BoxScoreSummaryLayoutTests(_NoLoginSignalMixin, TestCase):
+    """The shape of the completion message: a heading, the seat list, the
+    undrafted row, then one line per component kind.
+
+    Deliberately NOT a subclass of BoxScoreCommandTests, though it borrows its
+    fixture shape: inheriting would re-run that suite's ~78 tests against the
+    extra Vagabond/Landmark rows this one needs, and those rows change which
+    players and components resolve. Same reason it builds its own roster -- both
+    seats must resolve so the flow applies instead of stopping at a gate.
+
+    Emoji are absent in tests (the application-emoji fetch is not mocked), so
+    every assertion is on the WORD fallback -- which is also what production
+    shows for an emoji that was never uploaded.
+    """
+
+    THREAD_ID = "boxscore-layout-thread"
+    AUTHOR = "910000000000000055"
+
+    def setUp(self):
+        super().setUp()
+        self.designer = Profile.objects.create(discord="layoutdesigner",
+                                               discord_id="8000")
+        self.map = Map.objects.create(title="Autumn Board", slug="autumn-board",
+                                      clearings=12, designer=self.designer)
+        self.deck = Deck.objects.create(title="Squires & Disciples",
+                                        slug="squires-disciples", card_total=54,
+                                        designer=self.designer)
+        self.alice = Profile.objects.create(discord="layoutalice",
+                                            discord_id=self.AUTHOR,
+                                            display_name="Alice",
+                                            steam_id="76561198000008001")
+        self.bob = Profile.objects.create(discord="layoutbob", discord_id="8002",
+                                          display_name="Bob",
+                                          steam_id="76561198000008002")
+        self.thread = LFGThread.objects.create(thread_id=self.THREAD_ID)
+        self.thread.players.set([self.alice, self.bob])
+        self.lizard = Faction.objects.create(
+            title="Lizard Cult", slug="lizard-cult", animal="Lizard",
+            designer=self.designer, status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        self.ranger = Vagabond.objects.create(
+            title="Ranger", slug="ranger", animal="Fox",
+            designer=self.designer, status=StatusChoices.STABLE)
+        self.thief = Vagabond.objects.create(
+            title="Thief", slug="thief", animal="Fox",
+            designer=self.designer, status=StatusChoices.STABLE)
+        self.tower = Landmark.objects.create(
+            title="The Tower", slug="the-tower", animal="Fox",
+            designer=self.designer, status=StatusChoices.STABLE)
+        self.market = Landmark.objects.create(
+            title="Black Market", slug="black-market", animal="Fox",
+            designer=self.designer, status=StatusChoices.STABLE)
+        self.band = Hireling.objects.create(
+            title="Popular Band", slug="popular-band", animal="Fox",
+            designer=self.designer, status=StatusChoices.STABLE)
+        self.tweak = Tweak.objects.create(
+            title="Action!", slug="action", animal="Fox",
+            designer=self.designer, status=StatusChoices.STABLE)
+
+    def _doc(self, **extra):
+        # Steam ids, not slugs: /boxscore resolves players by verified/assumed
+        # Steam id only (resolve_participant_players passes include_slug=False),
+        # so slug-named seats would stall at the unlinked-players gate and never
+        # reach the summary this class is about.
+        doc = {
+            "board_map": self.map.slug,
+            "deck": self.deck.slug,
+            "participants": [
+                {"turn_order": 1, "player_steam_id": self.alice.steam_id,
+                 "turns": [{"turn": 1, "score": 9}]},
+                {"turn_order": 2, "player_steam_id": self.bob.steam_id,
+                 "turns": [{"turn": 1, "score": 11}]},
+            ],
+        }
+        doc.update(extra)
+        return doc
+
+    def _run(self, doc):
+        """Invoke /boxscore upload with the download mocked. Returns the content."""
+        body = json.dumps(doc).encode()
+        data = {
+            "name": "boxscore",
+            "options": [{"name": "file", "type": 11, "value": "att-1"}],
+            "resolved": {"attachments": {"att-1": {
+                "filename": "game.json", "size": len(body),
+                "url": "https://cdn.discordapp.com/attachments/x/y/game.json",
+            }}},
+            "_channel_id": self.THREAD_ID, "_channel_type": 11,
+            "_author_id": self.AUTHOR, "_guild_id": None,
+        }
+
+        class _Response:
+            content = body
+
+            def raise_for_status(self):
+                pass
+
+        with mock.patch.object(di.requests, "get",
+                               mock.Mock(return_value=_Response())), \
+                mock.patch.object(di.record_lfg_components_task, "delay",
+                                  mock.Mock()):
+            response = di._handle_boxscore_command(data)
+        return json.loads(response.content)["data"].get("content", "")
+
+    # ── heading ──
+
+    def test_the_message_opens_with_a_heading_naming_the_source(self):
+        content = self._run(self._doc())
+        self.assertTrue(content.startswith("### game.json Box Score"), content)
+
+    def test_the_seating_label_is_gone(self):
+        """The heading titles the list, so a second title under it is noise."""
+        content = self._run(self._doc())
+        self.assertNotIn("Seating:", content)
+
+    def test_the_seat_list_follows_the_heading_directly(self):
+        content = self._run(self._doc())
+        self.assertRegex(content, r"^### game\.json Box Score\n1\. ")
+
+    def test_a_file_with_no_entries_keeps_its_own_message(self):
+        """A parse that produced no seats must not be announced like a success:
+        the heading with nothing under it would read as one.
+
+        Needs components but no scoring seat -- a file with NEITHER is refused
+        earlier with "There was nothing in that file I can use."
+        """
+        content = self._run({"board_map": self.map.slug, "deck": self.deck.slug,
+                             "participants": [{"turn_order": 1}]})
+        self.assertNotIn("Box Score", content)
+        self.assertIn("Read `game.json`", content)
+
+    # ── dominance ──
+
+    def test_a_dominance_replaces_the_score(self):
+        doc = self._doc()
+        doc["participants"][1]["dominance"] = "Fox"
+        content = self._run(doc)
+        self.assertIn("(Fox)", content)
+        self.assertNotIn("(11)", content)
+
+    def test_brazen_demagogue_shows_the_score_and_the_dominance(self):
+        doc = self._doc()
+        doc["participants"][1]["dominance"] = "Fox"
+        doc["participants"][1]["brazen_demagogue"] = True
+        content = self._run(doc)
+        self.assertIn("(11/Fox)", content)
+
+    def test_a_seat_without_dominance_still_shows_its_score(self):
+        content = self._run(self._doc())
+        self.assertIn("(9)", content)
+        self.assertIn("(11)", content)
+
+    def test_the_comparison_prompt_shows_no_parenthetical(self):
+        """_boxscore_seat_lines without scores/dominance is the identity-and-
+        seating prompt; it must not start reporting results."""
+        seats = [{"profile_pk": None, "label": "Alice", "faction_slug": None,
+                  "vagabond_slug": None, "captain_slugs": []}]
+        line = di._boxscore_seat_lines(seats, "**From this box score**")[1]
+        self.assertNotIn("(", line)
+
+    # ── undrafted ──
+
+    def test_an_undrafted_faction_is_listed_after_the_seats(self):
+        content = self._run(self._doc(undrafted_faction="lizard-cult"))
+        self.assertIn("Lizard Cult Undrafted", content)
+        # After the last player, before the component lines.
+        lines = content.split("\n")
+        undrafted = next(i for i, l in enumerate(lines) if "Undrafted" in l)
+        last_seat = max(i for i, l in enumerate(lines) if l.startswith("2. "))
+        deck_line = next(i for i, l in enumerate(lines) if "Deck" in l)
+        self.assertLess(last_seat, undrafted)
+        self.assertLess(undrafted, deck_line)
+
+    def test_an_undrafted_vagabond_rides_along(self):
+        content = self._run(self._doc(
+            undrafted_faction="lizard-cult", undrafted_vagabond="ranger"))
+        self.assertIn("Lizard Cult (Ranger) Undrafted", content)
+
+    def test_undrafted_captains_ride_along(self):
+        content = self._run(self._doc(
+            undrafted_faction="lizard-cult", undrafted_captains=["thief"]))
+        self.assertIn("Lizard Cult (Thief) Undrafted", content)
+
+    def test_no_undrafted_faction_means_no_row(self):
+        content = self._run(self._doc())
+        self.assertNotIn("Undrafted", content)
+
+    # ── component lines ──
+
+    def test_deck_and_map_share_one_line(self):
+        content = self._run(self._doc())
+        self.assertIn(f"{self.deck.title} Deck · {self.map.title} Map", content)
+
+    def test_landmarks_hirelings_and_tweaks_each_get_a_line(self):
+        content = self._run(self._doc(
+            landmarks=["the-tower", "black-market"],
+            hirelings=["popular-band"], tweaks=["action"]))
+        self.assertIn("The Tower · Black Market", content)
+        self.assertIn("Popular Band", content)
+        self.assertIn("Action!", content)
+        # Each on its OWN line, not run together.
+        self.assertNotIn("Black Market · Popular Band", content)
+
+    def test_absent_component_kinds_produce_no_line(self):
+        content = self._run(self._doc(landmarks=["the-tower"]))
+        self.assertIn("The Tower", content)
+        self.assertNotIn("Popular Band", content)
+        self.assertNotIn("Action!", content)
+
+    def test_tweaks_are_shown_at_all(self):
+        """They were parsed into the roll log but never displayed."""
+        content = self._run(self._doc(tweaks=["action"]))
+        self.assertIn("Action!", content)
+
+
+class BoxScoreComponentLinesTests(TestCase):
+    """_boxscore_component_lines' legacy fallback. A box score parked in the cache
+    or a token payload before this deploy still carries `component_titles`."""
+
+    def test_the_new_key_is_used_when_present(self):
+        self.assertEqual(
+            di._boxscore_component_lines({"component_lines": ["a", "b"]}),
+            ["a", "b"])
+
+    def test_a_legacy_payload_still_renders(self):
+        """Without this the confirm button on an in-flight upload would raise."""
+        self.assertEqual(
+            di._boxscore_component_lines({"component_titles": ["x", "y"]}),
+            ["x · y"])
+
+    def test_an_empty_or_missing_value_is_no_lines(self):
+        for pending in ({}, {"component_lines": []}, {"component_titles": []}, None):
+            with self.subTest(pending=pending):
+                self.assertEqual(di._boxscore_component_lines(pending), [])
