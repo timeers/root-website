@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.11] - 2026-9-22 More Stuff
+## [1.13.11] - 2026-9-23 Boxscore and LFG Refinements
 
 ### New Features
 - Added "/boxscore paste" command to directly paste in a boxscore's json string
