@@ -4692,6 +4692,24 @@ PICK_MODE_PLAYERS = "p"
 PICK_OPEN = "g"
 
 
+# The "I don't recognize this thread" refusal, shared by /rename and both /boxscore
+# subcommands -- one constant because three separate literals is how they drifted
+# apart in the first place. The guidance is small text (-#) so the refusal itself
+# stays prominent.
+#
+# Both named causes are the real ones: no LFGThread row exists until ✔ Start runs, and
+# player_group_for_channel falls back to matching the thread TITLE against the group's
+# name, which is what a scheduled match relies on when the thread isn't linked by id
+# yet. The ✔ is the monochrome U+2714 the Start button actually carries, so the message
+# points at the glyph the host sees.
+UNKNOWN_THREAD_MESSAGE = (
+    "This isn't a game thread I know about.\n"
+    "-# For this command to work inside a LFG thread the game host must first press "
+    "✔Start. If this is a scheduled match make sure the title of the thread matches "
+    "the game's title on Root Database."
+)
+
+
 def _pick_thread_for_channel(channel_id, channel_name=None, guild_id=None):
     """The LFGThread for this channel, creating one for a tournament group thread
     on first use. None when the channel is neither.
@@ -6963,7 +6981,7 @@ def _handle_rename_command(data):
         channel_type = data.get("_channel_type")
         if channel_type is not None and channel_type not in _THREAD_CHANNEL_TYPES:
             return _ephemeral("Run this inside your game's thread to rename it.")
-        return _ephemeral("This isn't a game thread I know about.")
+        return _ephemeral(UNKNOWN_THREAD_MESSAGE)
 
     # A tournament group thread spans a whole series and has no host, so it isn't
     # any one player's to retitle. Same series_id guard /seating uses.
@@ -7925,7 +7943,7 @@ def _handle_boxscore_token_command(data):
         channel_type = data.get("_channel_type")
         if channel_type is not None and channel_type not in _THREAD_CHANNEL_TYPES:
             return _ephemeral("Run this inside your game's thread to get a token.")
-        return _ephemeral("This isn't a game thread I know about.")
+        return _ephemeral(UNKNOWN_THREAD_MESSAGE)
 
     if thread.game_id or thread.status == LFGThread.Status.RECORDED:
         return _ephemeral(
@@ -8038,7 +8056,7 @@ def _handle_boxscore_upload_command(data):
         channel_type = data.get("_channel_type")
         if channel_type is not None and channel_type not in _THREAD_CHANNEL_TYPES:
             return _ephemeral("Run this inside your game's thread to add a box score.")
-        return _ephemeral("This isn't a game thread I know about.")
+        return _ephemeral(UNKNOWN_THREAD_MESSAGE)
 
     attachment = _get_attachment(data, "file")
     if not attachment:

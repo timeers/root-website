@@ -14589,6 +14589,64 @@ class LinkCommandRegistrationTest(TestCase):
         self.assertNotIn("link", labels)
 
 
+class UnknownThreadRefusalTests(TestCase):
+    """The "I don't recognize this thread" refusal is ONE constant shared by three
+    commands. It used to be three copies of one sentence, which is how they were
+    able to drift apart -- these assertions are what stops that recurring."""
+
+    # A thread (type 11) that no LFGThread matches: the refusal below is reached
+    # only on the thread branch, since a non-thread channel gets the shorter
+    # "Run this inside your game's thread to ..." message instead.
+    UNKNOWN_ID = "no-such-thread-99"
+
+    def _data(self, **extra):
+        return {"_channel_id": self.UNKNOWN_ID, "_channel_type": 11,
+                "_author_id": "920000000000000077",
+                "_author_username": "nobody", "_author": {"name": "nobody"},
+                "_guild_id": None, **extra}
+
+    def _content(self, response):
+        return json.loads(response.content)["data"]["content"]
+
+    def test_rename_uses_the_shared_message(self):
+        # /rename refuses an empty title BEFORE it looks the thread up.
+        data = self._data(name="rename",
+                          options=[{"name": "title", "value": "Some Game"}])
+        self.assertEqual(self._content(di._handle_rename_command(data)),
+                         di.UNKNOWN_THREAD_MESSAGE)
+
+    def test_boxscore_token_uses_the_shared_message(self):
+        data = self._data(name="token", options=[])
+        self.assertEqual(self._content(di._handle_boxscore_token_command(data)),
+                         di.UNKNOWN_THREAD_MESSAGE)
+
+    def test_boxscore_upload_uses_the_shared_message(self):
+        # Reached before the attachment check, so no file option is needed.
+        data = self._data(name="upload", options=[])
+        self.assertEqual(self._content(di._handle_boxscore_upload_command(data)),
+                         di.UNKNOWN_THREAD_MESSAGE)
+
+    def test_the_message_keeps_the_original_sentence_and_adds_guidance(self):
+        """The refusal still leads with what went wrong; the how-to-fix follows as
+        Discord small text (-#) so it reads as secondary."""
+        first, _, guidance = di.UNKNOWN_THREAD_MESSAGE.partition("\n")
+        self.assertEqual(first, "This isn't a game thread I know about.")
+        self.assertTrue(guidance.startswith("-# "))
+        # The monochrome ✔ the Start button carries, NOT ✅ -- the message points at
+        # the glyph the host actually sees.
+        self.assertIn("✔Start", guidance)
+        self.assertNotIn("✅", guidance)
+        self.assertIn("title of the thread", guidance)
+
+    def test_a_non_thread_channel_still_gets_the_short_message(self):
+        """Scoped change: only the in-thread refusal grew guidance. A plain channel
+        gets the original one-liner, which already says what to do."""
+        data = self._data(_channel_type=0, name="token", options=[])
+        content = self._content(di._handle_boxscore_token_command(data))
+        self.assertEqual(content,
+                         "Run this inside your game's thread to get a token.")
+
+
 class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
     """/boxscore token: mint a one-time credential for the TTS uploader."""
 
