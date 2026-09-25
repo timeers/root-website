@@ -12423,15 +12423,33 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         # rows really land -- needed by the round-trip test.
         delay = (mock.Mock(side_effect=lambda *a, **k: record_lfg_components_task(*a, **k))
                  if run_capture else mock.Mock())
+        post = mock.Mock()
         with mock.patch.object(di.requests, "get", getter), \
-                mock.patch.object(di.record_lfg_components_task, "delay", delay):
+                mock.patch.object(di.record_lfg_components_task, "delay", delay), \
+                mock.patch.object(di.post_boxscore_result_task, "delay", post):
             response = di._handle_boxscore_command(data)
         self._last_data = json.loads(response.content)["data"]
+        self._last_post = post
+        # A clean apply POSTS its summary into the thread and answers the
+        # interaction with a private ack (the posted message needs an id the bot
+        # can edit later, which an interaction response has no way to give). The
+        # summary is what these tests are about, so hand that back when there is
+        # one and fall back to the response for every path that still replies
+        # directly -- a refusal, a gate, an error.
+        if post.call_args:
+            return post.call_args[0][2], getter, delay
         return self._last_data.get("content", ""), getter, delay
 
     def _run_data(self, doc=None, **kw):
-        """As _run, but hands back the whole response `data` (components included)."""
+        """As _run, but hands back the whole response `data` (components included).
+
+        On a clean apply the summary is posted rather than returned, so
+        "content" is filled in from the post to stay the message these tests
+        mean. A gate still answers directly and is handed back untouched.
+        """
         self._run(doc, **kw)
+        if self._last_post.call_args:
+            return {**self._last_data, "content": self._last_post.call_args[0][2]}
         return self._last_data
 
     def _press(self, action, key, author=None):
@@ -14710,9 +14728,18 @@ class BoxScorePasteCommandTests(BoxScoreCommandTests):
     def _submit(self, value, **kw):
         payload = self._paste_payload(value, **kw)
         channel_id = payload["channel_id"]
-        with mock.patch.object(di.record_lfg_components_task, "delay", mock.Mock()):
+        post = mock.Mock()
+        with mock.patch.object(di.record_lfg_components_task, "delay", mock.Mock()), \
+                mock.patch.object(di.post_boxscore_result_task, "delay", post):
             response = di._handle_boxscore_paste_modal_submit(payload, [channel_id])
-        return json.loads(response.content)["data"]
+        data = json.loads(response.content)["data"]
+        self._last_post = post
+        # A clean apply posts the summary into the thread and acks privately, so
+        # "content" stands for the summary the way it did when the interaction
+        # carried it. Gates, refusals and errors still answer directly.
+        if post.call_args:
+            data = {**data, "content": post.call_args[0][2]}
+        return data
 
     def _open(self, channel_type=11, channel_id=None):
         """Run the slash command itself, which only opens the modal."""
@@ -14773,8 +14800,13 @@ class BoxScorePasteCommandTests(BoxScoreCommandTests):
                                               channel_id=upload_thread.thread_id)
 
         self.assertIn("Box Score", pasted)
-        self.assertEqual(pasted.replace("Pasted JSON", "SRC"),
-                         uploaded.replace("game.json", "SRC"))
+        # The record link names each thread's own pk, so it is normalised the
+        # same way the source label is: the two differ by WHERE they point, not
+        # by whether they are there.
+        def _norm(text, source):
+            return re.sub(r"\?lfg=\d+", "?lfg=N", text.replace(source, "SRC"))
+
+        self.assertEqual(_norm(pasted, "Pasted JSON"), _norm(uploaded, "game.json"))
 
     def test_the_summary_names_the_paste_as_its_source(self):
         """`pasted JSON` stands in for the filename the upload path shows. Asserted
@@ -16837,11 +16869,16 @@ class BoxScoreSummaryLayoutTests(_NoLoginSignalMixin, TestCase):
             def raise_for_status(self):
                 pass
 
+        post = mock.Mock()
         with mock.patch.object(di.requests, "get",
                                mock.Mock(return_value=_Response())), \
                 mock.patch.object(di.record_lfg_components_task, "delay",
-                                  mock.Mock()):
+                                  mock.Mock()), \
+                mock.patch.object(di.post_boxscore_result_task, "delay", post):
             response = di._handle_boxscore_command(data)
+        # The summary is POSTED into the thread; the interaction only acks it.
+        if post.call_args:
+            return post.call_args[0][2]
         return json.loads(response.content)["data"].get("content", "")
 
     # ── heading ──
@@ -16858,6 +16895,32 @@ class BoxScoreSummaryLayoutTests(_NoLoginSignalMixin, TestCase):
     def test_the_seat_list_follows_the_heading_directly(self):
         content = self._run(self._doc())
         self.assertRegex(content, r"^### game\.json Box Score\n1\. ")
+
+    def test_a_blank_line_separates_the_players_from_the_game_details(self):
+        """The seat list and the component lines are scanned for different
+        things, so they are not one wall of text."""
+        content = self._run(self._doc())
+        self.assertIn("\n\nSquires & Disciples Deck", content)
+
+    def test_a_blank_line_separates_the_record_link_from_what_precedes_it(self):
+        content = self._run(self._doc())
+        self.assertRegex(content, r"\n\nReview and record the game \[here\]")
+
+    def test_the_message_ends_with_the_record_link(self):
+        """The link is the next step, so nothing trails it."""
+        content = self._run(self._doc())
+        self.assertTrue(content.rstrip().endswith(")."), content)
+        self.assertIn("Review and record the game", content)
+
+    def test_a_file_with_no_entries_still_offers_the_record_link(self):
+        """No scoring seats, but the components it DID carry are recordable by
+        hand -- a truly empty file was refused before ever reaching here."""
+        content = self._run({"board_map": self.map.slug, "deck": self.deck.slug,
+                             "participants": [{"turn_order": 1}]})
+        self.assertIn("Review and record the game", content)
+        # No player block, so nothing to separate it from: no leading blank.
+        self.assertFalse(content.startswith("\n"), content)
+        self.assertNotIn("\n\n\n", content)
 
     def test_a_file_with_no_entries_keeps_its_own_message(self):
         """A parse that produced no seats must not be announced like a success:

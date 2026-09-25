@@ -577,6 +577,37 @@ def _boxscore_record_line(thread):
     return f"This game is already recorded — view it [here]({url})."
 
 
+def _boxscore_summary(title_lines, lines, component_lines, notes, record_line):
+    """THE shape of every box score result message, so the four places that build
+    one can't drift apart again -- which is exactly how the record link came to
+    be on the API's message and nowhere else.
+
+    Returns (content, body_without_record_line). Both come from the same
+    assembly, because the second is what manage_game later writes back over the
+    message once the game IS recorded: built separately, the two would disagree
+    about spacing and recording a game would silently reflow the message.
+
+    Blank lines separate the things a reader scans for independently: who
+    played, what the game used, anything that got ignored, and what to do next.
+    The TITLE stays welded to the seat list -- it is that list's heading, and a
+    gap under it would orphan it -- so the first break falls after the players.
+    Notes are WARNINGS ("ignored an unknown dominance"), not game details, so
+    they get their own block rather than trailing the map/deck lines. Empty
+    strings WITHIN a block are dropped as before; only whole blocks are
+    separated, so a message with no players (components-only: "Read `x.json`.")
+    gets no stray leading blank.
+    """
+    def assemble(tail):
+        blocks = [list(title_lines) + list(lines), component_lines, notes, tail]
+        return "\n\n".join(
+            "\n".join(line for line in block if line)
+            for block in blocks
+            if any(block)
+        )
+
+    return assemble([record_line] if record_line else []), assemble([])
+
+
 def _handle_record_command(data):
     """/record: hand back a link to record this game's result, picking the form's
     mode from the channel the command was used in.
@@ -7642,6 +7673,21 @@ def _boxscore_seat_lines(seats, header, numbered=True, scores=None, dominance=No
     return lines
 
 
+def _boxscore_title_lines(pending):
+    """The title block for a box score summary: a heading naming the source.
+
+    A file that produced no scoring seat is NOT announced like a success -- the
+    heading with nothing under it would read as one -- so it says what was read
+    instead. It still gets a record link: such a file has components (map, deck,
+    hirelings) worth recording by hand, which is why the genuinely empty one is
+    refused earlier with "There was nothing in that file I can use."
+    """
+    filename = pending["filename"]
+    if pending["entries"]:
+        return [f"### {filename} Box Score"]
+    return [f"Read `{filename}`."]
+
+
 def _boxscore_component_lines(pending):
     """The component lines to append to a summary, one per rendered line.
 
@@ -8013,15 +8059,15 @@ def boxscore_upload_from_api(thread, raw, token):
         BoxScoreUploadToken.objects.filter(pk=token.pk).update(
             status=BoxScoreUploadToken.Status.APPLIED, payload=None)
     # The clean case pings too, with different wording: it confirms the paste
-    # worked, which is what someone sitting in TTS is waiting to know.
+    # worked, which is what someone sitting in TTS is waiting to know. The
+    # heading goes ABOVE that greeting rather than replacing it, so this message
+    # is titled by its source like the other two flows without losing the ping.
     mention = _boxscore_issuer_mention(token)
-    summary = [f"{mention} — your box score was saved." if mention
-               else "Box score uploaded from Tabletop Simulator."]
-    summary.extend(lines)
-    summary.extend(component_lines)
-    summary.extend(applied_notes)
+    title_lines = _boxscore_title_lines(pending)
+    if mention:
+        title_lines.append(f"{mention} — your box score was saved.")
     _boxscore_finish_posted(
-        thread, summary, mention,
+        thread, title_lines, lines, component_lines, applied_notes,
         allowed_mentions=({"users": [token.issued_by.discord_id]}
                           if mention else None))
     turn_count = max((len(e.get("turns") or []) for e in entries), default=0)
@@ -8703,16 +8749,10 @@ def _boxscore_apply_in_place(thread, pending, channel_id, ref, payload=None):
         return _boxscore_resolved(_boxscore_apply_error(notes, ref))
     _boxscore_discard(ref, status=BoxScoreUploadToken.Status.APPLIED)
 
-    entries = pending["entries"]
-    out = [
-        f"### {pending['filename']} Box Score"
-        if entries else f"Read `{pending['filename']}`."
-    ]
-    out.extend(lines)
-    out.extend(_boxscore_component_lines(pending))
-    out.extend(notes)
-
-    content = _boxscore_finish(thread, ref, payload or {}, channel_id, out)
+    content = _boxscore_finish(
+        thread, ref, payload or {}, channel_id,
+        _boxscore_title_lines(pending), lines,
+        _boxscore_component_lines(pending), notes)
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {
@@ -9422,31 +9462,30 @@ def _boxscore_owner_arg(payload):
     return args[-1] if args else PICK_OPEN
 
 
-def _boxscore_finish_posted(thread, summary, mention, allowed_mentions):
+def _boxscore_finish_posted(thread, title_lines, lines, component_lines, notes,
+                            allowed_mentions, channel_id=None):
     """The shared tail of a box score result POSTED fresh into a thread (as
-    opposed to editing an existing prompt -- see _boxscore_finish): split off
-    the pre-record-line body, append the record-game line, and hand the result
-    to post_boxscore_result_task, which posts it, retires any older tracked
+    opposed to editing an existing prompt -- see _boxscore_finish): build both
+    forms of the message through _boxscore_summary and hand them to
+    post_boxscore_result_task, which posts it, retires any older tracked
     message, and remembers this one's id for manage_game to rewrite later.
 
-    `summary` is the caller's list of content lines built so far (greeting/
-    mention line, seating lines, component titles, notes) -- mutated in place
-    with the record line, same as _boxscore_finish's `out`.
+    `channel_id` defaults to the thread's own id (the API and restore paths,
+    which have no interaction to read one from); the slash-command path passes
+    the channel it was actually invoked in.
     """
-    body_without_record_line = "\n".join(l for l in summary if l)
     # NOT gated on thread.game_id: a series thread never has one, so that test
     # would drop the link for exactly the threads that need a match-mode one.
     # _boxscore_record_line decides record-vs-view instead.
-    line = _boxscore_record_line(thread)
-    if line:
-        summary.append(line)
-    content = "\n".join(l for l in summary if l)
+    content, body_without_record_line = _boxscore_summary(
+        title_lines, lines, component_lines, notes, _boxscore_record_line(thread))
     post_boxscore_result_task.delay(
-        thread.pk, thread.thread_id, content, body_without_record_line,
-        allowed_mentions=allowed_mentions)
+        thread.pk, channel_id or thread.thread_id, content,
+        body_without_record_line, allowed_mentions=allowed_mentions)
 
 
-def _boxscore_finish(thread, ref, payload, channel_id, out):
+def _boxscore_finish(thread, ref, payload, channel_id,
+                     title_lines, lines, component_lines, notes):
     """The shared tail of every gate's terminal edit: append the record-game
     line and remember this message's id (token-backed uploads only), so
     manage_game can strip the link once the game is actually recorded.
@@ -9457,16 +9496,17 @@ def _boxscore_finish(thread, ref, payload, channel_id, out):
     upload's own EPHEMERAL confirm, whose message has no stable id the normal
     REST edit call can use later, and which only the uploader can see anyway --
     a record link there would point somewhere nobody else in the thread could
-    reach it from.
+    reach it from. Such a message still gets the same BLOCK SPACING; it is only
+    the link it goes without.
     """
+    # See _boxscore_finish_posted: gated on the link, not thread.game_id,
+    # which a series thread never has.
+    record_line = _boxscore_record_line(thread) if ref.startswith("t:") else None
+    content, body_without_record_line = _boxscore_summary(
+        title_lines, lines, component_lines, notes, record_line)
+
     if ref.startswith("t:"):
         message_id = (payload.get("message") or {}).get("id")
-        body_without_record_line = "\n".join(line for line in out if line)
-        # See _boxscore_finish_posted: gated on the link, not thread.game_id,
-        # which a series thread never has.
-        record_line = _boxscore_record_line(thread)
-        if record_line:
-            out.append(record_line)
         if message_id:
             # This upload's own message IS the one being edited in place (the
             # gate prompt becomes the result), so there is nothing to retire
@@ -9481,7 +9521,7 @@ def _boxscore_finish(thread, ref, payload, channel_id, out):
             thread.boxscore_message_body = body_without_record_line
             thread.save(update_fields=["boxscore_message_id", "boxscore_message_body"])
 
-    return "\n".join(line for line in out if line)
+    return content
 
 
 def _boxscore_commit(payload, pending, thread, ref):
@@ -9507,16 +9547,10 @@ def _boxscore_commit(payload, pending, thread, ref):
         return _boxscore_resolved(_boxscore_apply_error(notes, ref))
     _boxscore_discard(ref, status=BoxScoreUploadToken.Status.APPLIED)
 
-    entries = pending["entries"]
-    out = [
-        f"### {pending['filename']} Box Score"
-        if entries else f"Read `{pending['filename']}`."
-    ]
-    out.extend(lines)
-    out.extend(_boxscore_component_lines(pending))
-    out.extend(notes)
-
-    content = _boxscore_finish(thread, ref, payload, channel_id, out)
+    content = _boxscore_finish(
+        thread, ref, payload, channel_id,
+        _boxscore_title_lines(pending), lines,
+        _boxscore_component_lines(pending), notes)
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {
@@ -9672,13 +9706,12 @@ def _handle_boxscore_restore(payload):
         # ownership moved in the .update() above, which does not refresh the
         # in-memory instance.
         mention = f"<@{profile.discord_id}>" if profile.discord_id else ""
-        summary = [f"{mention} — your box score was saved." if mention
-                   else "Box score restored."]
-        summary.extend(lines)
-        summary.extend(_boxscore_component_lines(pending))
-        summary.extend(notes)
+        title_lines = _boxscore_title_lines(pending)
+        if mention:
+            title_lines.append(f"{mention} — your box score was saved.")
         _boxscore_finish_posted(
-            thread, summary, mention,
+            thread, title_lines, lines,
+            _boxscore_component_lines(pending), notes,
             allowed_mentions=({"users": [profile.discord_id]} if mention else None))
         return _ephemeral("Restored — the box score has been added to the thread.")
 
@@ -9694,30 +9727,29 @@ def _handle_boxscore_restore(payload):
 
 
 def _boxscore_reply(thread, pending, channel_id):
-    """Apply a pending box score and build the public summary."""
+    """Apply a pending box score and POST the public summary into the thread.
+
+    Posted through post_boxscore_result_task rather than returned as this
+    interaction's response, even though the response would be faster and needs
+    no worker: an interaction response has no message id the bot can edit
+    later, and the record link on it has to be strippable once the game is
+    actually recorded, the way the API upload's is. So the interaction gets a
+    private ack and the thread gets the real message.
+    """
     lines, notes = _boxscore_apply(thread, pending, channel_id,
                                    _boxscore_match_roster(thread, channel_id))
     if lines is None:
         return _ephemeral(_boxscore_apply_error(notes))
 
-    entries = pending["entries"]
-    filename = pending["filename"]
-    out = [
-        f"### {filename} Box Score"
-        if entries else f"Read `{filename}`."
-    ]
-    out.extend(lines)
-    out.extend(_boxscore_component_lines(pending))
-    out.extend(notes)
-
-    return JsonResponse({
-        "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": {
-            "content": "\n".join(line for line in out if line),
-            # Naming a player must not ping them, same as /seating.
-            "allowed_mentions": {"parse": []},
-        },
-    })
+    _boxscore_finish_posted(
+        thread, _boxscore_title_lines(pending), lines,
+        _boxscore_component_lines(pending), notes,
+        # Naming a player must not ping them, same as /seating. Passed
+        # EXPLICITLY: post_channel_message_full omits the key when it is None,
+        # which would let arbitrary text out of a box score ping people.
+        allowed_mentions={"parse": []},
+        channel_id=channel_id)
+    return _ephemeral("Box score saved — posted in the thread.")
 
 
 # ── /random ────────────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@
 
 ### Bug Fixes
 - Survey responses using "other" and a write in response now display correctly on CSV export
+- Boxscores added from a file or json string now include the record link
 
 ## [1.13.10] - 2026-9-20 Boxscore Bugs
 

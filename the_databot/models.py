@@ -170,13 +170,18 @@ class LFGThread(models.Model):
     # opened must be indistinguishable from one already closed.
     pick_panel_id = models.CharField(max_length=32, blank=True, null=True)
 
-    # Discord message id of the boxscore-upload success message (API/token-backed
-    # uploads only -- the ephemeral /boxscore upload confirm has no durably
-    # editable message), and that message's content with the "record the game"
-    # line already removed. Written once, when the message is posted; used to
-    # rewrite the message once manage_game actually records the game, so the
-    # stale record link doesn't outlive the thing it points at. Both nullable:
-    # most threads never get a boxscore-API message at all.
+    # Discord message id of the boxscore success message, and that message's
+    # content with the "record the game" line already removed. Written once,
+    # when the message is posted; used to rewrite the message once manage_game
+    # actually records the game, so the stale record link doesn't outlive the
+    # thing it points at. Both nullable: most threads never get one at all.
+    #
+    # Every flow that POSTS a result tracks it -- the API, /boxscore upload and
+    # /boxscore paste alike, which is why those two post their summary through
+    # post_boxscore_result_task rather than answering the interaction with it.
+    # The exception is a gate's own EPHEMERAL confirm ("c:" ref): only the
+    # uploader sees it and it has no id a later REST edit could use, so it
+    # carries no record link and nothing here to strip.
     boxscore_message_id = models.CharField(max_length=32, blank=True, null=True)
     boxscore_message_body = models.TextField(blank=True, null=True)
 

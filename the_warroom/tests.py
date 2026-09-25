@@ -2864,17 +2864,21 @@ class BoxScoreUploadApiTests(TestCase):
         self.assertEqual(body['allowed_mentions'],
                          {'users': [self.alice.discord_id]})
 
-    def test_an_issuer_with_no_discord_id_posts_exactly_as_before(self):
+    def test_an_issuer_with_no_discord_id_still_names_its_source(self):
         """issued_by is SET_NULL and discord_id is nullable AND blankable. The
         mention is an improvement, never a requirement -- and "" must not become
-        a literal <@>, which Discord rejects as a 400."""
+        a literal <@>, which Discord rejects as a 400.
+
+        The heading names the source either way, which is why the greeting is
+        simply absent here rather than replaced by a sourceless stand-in."""
         ghost = Profile.objects.create(discord='ghost', discord_id='')
         _token, raw = BoxScoreUploadToken.issue(self.thread, ghost)
         post = self._post_capturing_message(self._doc(), raw)
 
         content = post.call_args.args[2]
         self.assertNotIn('<@', content)
-        self.assertIn('Box score uploaded from Tabletop Simulator', content)
+        self.assertTrue(content.startswith('### Tabletop Simulator Box Score'),
+                        content)
         self.assertIsNone(post.call_args.kwargs['allowed_mentions'])
 
     def test_the_response_carries_a_printable_message_and_no_link(self):
