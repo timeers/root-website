@@ -1297,7 +1297,7 @@ def _retire_boxscore_message(channel_id, old_message_id, old_body):
     retry_backoff=True,
 )
 def post_boxscore_result_task(thread_pk, channel_id, content, body_without_record_line,
-                              allowed_mentions=None):
+                              allowed_mentions=None, track=True):
     """Post a box score's saved-result message and record its id and eventual
     post-record content on the thread, so manage_game can rewrite this message
     once the game is actually recorded -- without a GET round-trip at that point.
@@ -1305,6 +1305,11 @@ def post_boxscore_result_task(thread_pk, channel_id, content, body_without_recor
     A re-upload lands here too, with the thread's PREVIOUS boxscore message (if
     any) still tracked -- that message is about to stop being the current one,
     so its own record line is retired first, same as manage_game would.
+
+    `track=False` when the game was just AUTO-RECORDED: that message carries no
+    record line, so there is nothing for manage_game to strip later and tracking
+    it would only schedule a pointless rewrite. The previous message is still
+    retired -- it does have a stale link, and this message replaces it.
     """
     from the_databot.models import LFGThread
     from the_databot.services.discordservice import (
@@ -1323,8 +1328,8 @@ def post_boxscore_result_task(thread_pk, channel_id, content, body_without_recor
         raise RuntimeError(f"transient failure posting boxscore result for thread {thread_pk}")
     if result == THREAD_OK and message_id:
         LFGThread.objects.filter(pk=thread_pk).update(
-            boxscore_message_id=message_id,
-            boxscore_message_body=body_without_record_line)
+            boxscore_message_id=(message_id if track else None),
+            boxscore_message_body=(body_without_record_line if track else None))
 
 
 @shared_task(

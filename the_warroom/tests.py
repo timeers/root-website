@@ -108,7 +108,7 @@ class GameCreateFormGuildRoundTests(TestCase):
         )
 
     def _round_ids(self):
-        form = GameCreateForm(user=self.user)
+        form = GameCreateForm(profile=self.user.profile)
         return set(form.fields['round'].queryset.values_list('id', flat=True))
 
     def test_guild_member_sees_round_under_guild_access(self):
@@ -118,6 +118,42 @@ class GameCreateFormGuildRoundTests(TestCase):
         self.tournament.recording_access = Tournament.RecordingAccessTypes.REGISTERED
         self.tournament.save()
         self.assertNotIn(self.round.id, self._round_ids())
+
+
+class GameCreateFormProfileWithoutUserTests(TestCase):
+    """The form takes a Profile, so it must build for one with NO linked User.
+
+    That is not hypothetical: a box score uploaded through Discord records as the
+    uploader's Profile, and ensure_profile_from_discord creates those without a
+    User at all (Profile.user is nullable). The form used to read
+    `user.profile.weird` unguarded, which made this case an AttributeError --
+    i.e. unrecordable.
+    """
+
+    def test_a_profile_with_no_user_can_build_the_form(self):
+        profile = Profile.objects.create(discord="nouserhere", discord_id="404404")
+        self.assertIsNone(profile.user)
+
+        form = GameCreateForm(profile=profile)  # must not raise
+
+        # A bot-made profile is OUTCAST, so it gets the restricted content set.
+        self.assertFalse(form.fields['deck'].queryset.filter(official=False).exists())
+
+    def test_no_profile_at_all_falls_back_to_official_content(self):
+        """Least privilege, not a crash: an absent profile is treated as
+        non-Weird rather than being allowed everything."""
+        form = GameCreateForm(profile=None)
+
+        for field in ('deck', 'map', 'landmarks', 'tweaks', 'hirelings'):
+            self.assertFalse(
+                form.fields[field].queryset.filter(official=False).exists(),
+                f"{field} should be restricted to official content")
+
+    def test_no_profile_offers_no_rounds(self):
+        """The round queryset is built inside `if profile:`, so no profile means
+        no tournament rounds to record into."""
+        form = GameCreateForm(profile=None)
+        self.assertEqual(list(form.fields['round'].queryset), [])
 
 
 class PlayableRoundGuildTests(TestCase):
@@ -1227,11 +1263,16 @@ class ResultsChannelViewAnnounceTests(TestCase):
 
     def _record_committed(self, url, payload):
         """POST a game with every Discord path patched, running the on_commit
-        callbacks -- they otherwise never fire inside TestCase's transaction."""
-        with mock.patch('the_warroom.views.post_to_tournament_channel') as announce, \
-             mock.patch('the_warroom.views.post_channel_message_task') as thread_post, \
-             mock.patch('the_warroom.views.edit_channel_message_task') as edit_task, \
-             mock.patch('the_warroom.views.send_rich_discord_message_task'):
+        callbacks -- they otherwise never fire inside TestCase's transaction.
+
+        Patched on services.game_recording, NOT views: the save path (and every
+        announcement in it) lives there now so the Discord box-score path can
+        record a game without a request. The view only builds the forms."""
+        svc = 'the_warroom.services.game_recording.'
+        with mock.patch(svc + 'post_to_tournament_channel') as announce, \
+             mock.patch(svc + 'post_channel_message_task') as thread_post, \
+             mock.patch(svc + 'edit_channel_message_task') as edit_task, \
+             mock.patch(svc + 'send_rich_discord_message_task'):
             with self.captureOnCommitCallbacks(execute=True):
                 resp = self.client.post(url, payload)
         return resp, announce, thread_post, edit_task
