@@ -8037,8 +8037,7 @@ def boxscore_upload_from_api(thread, raw, token):
     # it. The prompt is posted into the thread, so its buttons end in PICK_OPEN
     # and are answerable by any roster player rather than one invoker.
     body = _boxscore_decide(thread, pending, roster, PICK_OPEN,
-                            lambda: f"t:{token.pk}",
-                            skip_roster_check=token.test_mode)
+                            lambda: f"t:{token.pk}")
 
     if body is not None:
         if _boxscore_is_gate_three(body):
@@ -8047,30 +8046,25 @@ def boxscore_upload_from_api(thread, raw, token):
         return post_gate(body)
 
     # match_roster re-checks the SAME roster balance _boxscore_decide already
-    # checked above -- omitted here too for a test_mode token, or this second
-    # check would silently reinstate what the first one waived.
-    match_roster = (None if token.test_mode else
-                    _boxscore_match_roster(thread, thread.thread_id))
+    # checked above, against the CURRENT database rather than the staged payload.
+    match_roster = _boxscore_match_roster(thread, thread.thread_id)
     lines, applied_notes = _boxscore_apply(
         thread, pending, thread.thread_id, match_roster)
     if lines is None:
         if applied_notes:
             # The roster changed out from under us between the gate check above
-            # and this write (or test_mode skipped the gate outright) -- an
-            # admin can still fix it, so re-post the SAME gate rather than
-            # failing the upload outright. The token stays PENDING so Try Again
-            # can find it again.
+            # and this write -- an admin can still fix it, so re-post the SAME
+            # gate rather than failing the upload outright. The token stays
+            # PENDING so Try Again can find it again.
             return post_gate(
                 _boxscore_gate_three_body(thread, pending, applied_notes[0],
                                           PICK_OPEN, ref=f"t:{token.pk}"),
                 BOXSCORE_GATE_THREE_ASK, BOXSCORE_GATE_THREE_MESSAGE)
         raise BoxScoreImportError(_boxscore_apply_error(applied_notes))
 
-    # A test_mode token stays ISSUED so it can be reused for the next
-    # test upload -- everything else still retires normally.
-    if not token.test_mode:
-        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
-            status=BoxScoreUploadToken.Status.APPLIED, payload=None)
+    # The token is spent: every token is single-use.
+    BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+        status=BoxScoreUploadToken.Status.APPLIED, payload=None)
     # The clean case pings too, with different wording: it confirms the paste
     # worked, which is what someone sitting in TTS is waiting to know. The
     # heading goes ABOVE that greeting rather than replacing it, so this message
@@ -8615,7 +8609,7 @@ def _boxscore_reresolve(thread, pending, channel_id, channel_name=None, guild_id
     return roster
 
 
-def _boxscore_decide(thread, pending, roster, owner, ref, skip_roster_check=False):
+def _boxscore_decide(thread, pending, roster, owner, ref):
     """The gate a staged upload still needs as a BODY, or None to apply it.
 
     THE decision, in one place. Both entry points ask this same question and
@@ -8633,11 +8627,10 @@ def _boxscore_decide(thread, pending, roster, owner, ref, skip_roster_check=Fals
     reference itself: a file needing no gate is applied and never clicked, so
     the payload must not be parked until a gate actually renders.
 
-    `skip_roster_check` is for admin-minted test tokens only: it skips Gate 2
-    below, whose only job is comparing the file's seats/players against the
-    thread's own seating and roster. Gates 0 and 1 -- resolving who a seat's
-    Steam ID actually is -- stay in effect regardless, since a test upload
-    still needs every seat to resolve to a real Profile.
+    Every caller now asks the same question with the same arguments. There used
+    to be a `skip_roster_check` flag that only the API path passed (from a
+    token's `test_mode`), which reintroduced into this signature exactly the
+    divergence this function exists to prevent.
     """
     # Gate 0: somebody in the file is unidentified but COULD be named from the
     # roster. Ask before Gate 1, because an answer here can empty Gate 1's list
@@ -8659,8 +8652,6 @@ def _boxscore_decide(thread, pending, roster, owner, ref, skip_roster_check=Fals
     # seating, or (on a thread with no seating yet) its roster. The roster check
     # matters on its own: an unseated thread has nothing to compare positionally,
     # but a file naming someone who isn't in this game is still worth confirming.
-    if skip_roster_check:
-        return None
     current = _boxscore_current_seats(thread)
     if _boxscore_seats_differ(current, pending["seats"]):
         return _boxscore_gate_two_body(thread, pending, current, owner, ref=ref())
@@ -9514,7 +9505,20 @@ def _boxscore_try_autorecord(thread, recorder, payload=None):
     never from whoever clicked a gate button: a moderator clarifying someone
     else's seat is helping, not claiming the game.
     """
-    if recorder is None or not _boxscore_autorecord_enabled(thread):
+    if recorder is None:
+        # Same prefix as boxscore_autorecord's declines, from a different module
+        # and so a different logger name -- the prefix is what makes the whole
+        # decision greppable as one stream.
+        logger.info("auto-record declined for thread %s: no recorder resolved",
+                    thread.pk)
+        return False
+    if not _boxscore_autorecord_enabled(thread):
+        # Report the guild AND its beta flag: "no guild on this thread" and "this
+        # guild isn't a beta tester" are different problems with different fixes,
+        # and a bare "not enabled" would not say which.
+        logger.info("auto-record declined for thread %s: not enabled here "
+                    "(guild=%s beta=%s)", thread.pk, thread.guild_id,
+                    thread.guild.is_beta_tester if thread.guild_id else None)
         return False
     from the_databot.services.boxscore_autorecord import attempt_autorecord
     return attempt_autorecord(thread, recorder, payload=payload) is not None

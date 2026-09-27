@@ -25,6 +25,25 @@ from the_warroom.services.box_score_import import (
 logger = logging.getLogger(__name__)
 
 
+def _declined(thread, reason, *args):
+    """Log why auto-record is not happening and return None.
+
+    Every refusal used to be a bare `return None`, which made the feature
+    undiagnosable in production: "not enabled for this guild", "recorder isn't
+    onboarded" and "the box score failed validation" were indistinguishable from
+    each other and from "auto-record never ran at all".
+
+    INFO, not WARNING: declining is a normal outcome for most box scores, and a
+    warning per upload would train people to ignore the log. The shared
+    "auto-record declined" prefix is deliberate -- the guild gate logs the same
+    prefix from a DIFFERENT module (and so a different logger name), and the
+    prefix is what makes the two greppable as one stream.
+    """
+    logger.info("auto-record declined for thread %s: " + reason,
+                thread.pk, *args)
+    return None
+
+
 def _seat_rows(thread):
     """[(seat_number, Profile|None, faction_slug, vagabond_slug), ...] or [].
 
@@ -187,24 +206,27 @@ def _attempt(thread, recorder, payload):
     from the_databot.services.lfg_game import lfg_option_querysets
 
     if recorder is None:
-        return None
+        return _declined(thread, "no recorder resolved")
     # The same bar the web form's decorator sets. A Profile created from a
     # Discord upload is OUTCAST and not onboarded, so it exists but may not yet
     # record -- the link walks them through that rather than the bot silently
     # granting rights the site withholds.
     if not recorder.player or not recorder.player_onboard:
-        return None
+        return _declined(thread, "recorder %s is not an onboarded player "
+                                 "(player=%s onboard=%s)",
+                         recorder.pk, recorder.player, recorder.player_onboard)
 
     if thread.game_id:
-        return None                      # already recorded
+        return _declined(thread, "already recorded as game %s", thread.game_id)
     if thread.series_id:
         # Series threads promote to MATCH mode, which needs bracket wiring and
         # a MatchSeat roster this path does not build yet. Left to a person.
-        return None
+        return _declined(thread, "series thread (match mode not supported)")
 
     seats = _seat_rows(thread)
     if not seats:
-        return None                      # no established seating order
+        return _declined(thread, "no established seating (seating_set=%s)",
+                         thread.seating_set)
 
     tournament = _lfg_tournament_for(thread)
     lfg_round = _lfg_round_for(tournament)
@@ -212,10 +234,11 @@ def _attempt(thread, recorder, payload):
         # No open round: Game.round is nullable, so the form would clean to None
         # and skip the ENTIRE tournament rule block rather than erroring. The
         # view refuses outright here; so do we.
-        return None
+        return _declined(thread, "tournament %s has no open round", tournament.pk)
 
     if not (recorder.admin or _can_record_lfg(recorder, thread, lfg_round)):
-        return None
+        return _declined(thread, "recorder %s may not record this thread",
+                         recorder.pk)
 
     opts = lfg_option_querysets(thread, tournament)
     grid_rows = {}
@@ -248,9 +271,10 @@ def _attempt(thread, recorder, payload):
     )
 
     if not (form.is_valid() and formset.is_valid()):
-        logger.debug("auto-record declined for thread %s: %s | %s",
-                     thread.pk, form.errors.as_json(), formset.errors)
-        return None
+        # INFO, not debug: this is the decline most likely to need explaining,
+        # and it was invisible at production log levels.
+        return _declined(thread, "validation failed: form=%s formset=%s",
+                         form.errors.as_json(), formset.errors)
 
     return record_game(
         form=form,
