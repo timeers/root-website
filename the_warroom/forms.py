@@ -210,7 +210,15 @@ class GameCreateForm(forms.ModelForm):
             'round': "Series",
             }
 
-    def __init__(self, *args, user=None, effort_formset=None, round=None, **kwargs):
+    def __init__(self, *args, profile=None, effort_formset=None, round=None, **kwargs):
+        """`profile` is a Profile, NOT a User.
+
+        Everything below only ever needed `user.profile`, and a game can now be
+        recorded by someone who has no User at all: a box score uploaded through
+        Discord records as the uploader's Profile, which ensure_profile_from_discord
+        may have just created (Profile.user is nullable, and a bot-made one is
+        never linked). Taking the Profile directly is what lets that work.
+        """
         # Call the parent constructor
         super(GameCreateForm, self).__init__(*args, **kwargs)
 
@@ -296,8 +304,11 @@ class GameCreateForm(forms.ModelForm):
 
         self.effort_formset = effort_formset
 
-        # Filter for only Official content if not a member of Weird Root
-        if not user.profile.weird:
+        # Filter for only Official content if not a member of Weird Root.
+        # A missing profile gets the RESTRICTED set, not an AttributeError: this
+        # read used to be unguarded, which made the form impossible to build for
+        # a recorder with no linked User.
+        if profile is None or not profile.weird:
             self.fields['deck'].queryset = Deck.objects.filter(official=True)
             self.fields['map'].queryset = Map.objects.filter(official=True)
             self.fields['undrafted_faction'].queryset = Faction.objects.filter(official=True)
@@ -307,9 +318,9 @@ class GameCreateForm(forms.ModelForm):
             self.fields['tweaks'].queryset = Tweak.objects.filter(official=True)
             self.fields['hirelings'].queryset = Hireling.objects.filter(official=True)
 
-        if user:
-            user_guilds = user.profile.guilds.all()
-            if user.profile.admin:
+        if profile:
+            user_guilds = profile.guilds.all()
+            if profile.admin:
                 # Select all active tournament rounds (Admin can record games for any tournament)
                 # Filter for available rounds (is_active=True + within date range)
                 now = timezone.now().date()
@@ -327,8 +338,8 @@ class GameCreateForm(forms.ModelForm):
                 now = timezone.now().date()
                 active_rounds = Round.objects.filter(
                     Q(
-                        Q(stage__participants__tournament_player__profile=user.profile) |  # player is a participant of the stage
-                        Q(stage__tournament__designer=user.profile) |  # or the creator of the tournament
+                        Q(stage__participants__tournament_player__profile=profile) |  # player is a participant of the stage
+                        Q(stage__tournament__designer=profile) |  # or the creator of the tournament
                         # or in the tournament's guild, but only when the tournament
                         # actually grants guild recording access
                         Q(
@@ -349,8 +360,8 @@ class GameCreateForm(forms.ModelForm):
                         Tournament.RecordingAccessTypes.REGISTERED,
                         Tournament.RecordingAccessTypes.GUILD,
                     ]),
-                    ~Q(stage__tournament__designer=user.profile),
-                    ~Q(stage__tournament__moderators=user.profile),
+                    ~Q(stage__tournament__designer=profile),
+                    ~Q(stage__tournament__moderators=profile),
                 ).distinct()
 
 

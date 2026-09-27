@@ -156,17 +156,26 @@ class DiscordGuild(models.Model):
     # a guild with it, so this gates DM reachability.
     bot_member = models.BooleanField(default=False, help_text="Whether the bot is a member of this guild.")
 
-    # Opts this guild into every currently-registered beta command variant (see
-    # BETA_COMMAND_VARIANTS in discord_commands.py) -- an extra "<name>-beta" slash
-    # command registered ALONGSIDE the real one, so a beta feature can be compared
-    # side by side before it ships to every guild. Admin-only: not exposed on the
-    # site's guild-edit page, since this is for the developer's own test server, not
-    # something a guild moderator self-serves. Toggling it in Django admin triggers
-    # re-registration via DiscordGuildAdmin.save_model.
+    # Opts this guild into features still being tested. Two things read it:
+    #
+    #  1. Beta COMMAND variants (see BETA_COMMAND_VARIANTS in
+    #     discord_commands.py) -- an extra "<name>-beta" slash command
+    #     registered ALONGSIDE the real one, so a beta feature can be compared
+    #     side by side. Toggling this in Django admin triggers re-registration
+    #     via DiscordGuildAdmin.save_model.
+    #  2. Beta BEHAVIOUR on existing commands, where there is no second command
+    #     to register -- currently box-score auto-recording
+    #     (_boxscore_autorecord_enabled), which changes what /boxscore does
+    #     rather than adding a command.
+    #
+    # Admin-only: not exposed on the site's guild-edit page, since this is for
+    # the developer's own test server, not something a guild moderator
+    # self-serves.
     is_beta_tester = models.BooleanField(
         default=False,
-        help_text="Registers an extra \"-beta\" slash command for every beta "
-                  "feature currently being tested, alongside the real commands.")
+        help_text="Opts this guild into features being beta tested: an extra "
+                  "\"-beta\" slash command for each beta command variant, plus "
+                  "beta behaviour on existing commands.")
 
     # From Discord API
     actual_name = models.CharField(max_length=100, null=True, blank=True)

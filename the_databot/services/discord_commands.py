@@ -739,7 +739,8 @@ COMMAND_GROUPS = [
                  "captain", "landmark", "hireling", "houserule", "card", "stats"]),
     ("Organization", ["availability", "schedule", "timestamp", "upcoming"]),
     ("Games", ["lfg", "adset", "seating", "pick",
-               "boxscore_upload", "boxscore_token", "record", "rename"]),
+               "boxscore_upload", "boxscore_paste", "boxscore_token",
+               "record", "rename"]),
     ("Randomize", ["draft", "random"]),
     ("Account", ["steam"]),
 ]

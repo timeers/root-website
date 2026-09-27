@@ -1,3 +1,4 @@
+import contextlib
 import copy
 import json
 import re
@@ -4657,6 +4658,28 @@ class LookupCommandShapeTests(TestCase):
         self.assertEqual(groups["Lookups"], ["lookup", "stats"])
         self.assertEqual(groups["Account"], ["link"])
         self.assertNotIn("Other", groups)      # nothing fell through
+
+    def test_every_command_is_placed_in_a_group(self):
+        """The "Other" catch-all is a safety net, not a destination.
+
+        It only existed for collapse_parents before, which is how /boxscore paste
+        came to sit alone at the bottom of the guild settings page for a while:
+        it was whitelistable and visible (the net worked), just nowhere near
+        /boxscore upload and /boxscore token.
+        """
+        groups = dict((g, [n for n, _l, _d in rs])
+                      for g, rs in dc.grouped_commands())
+        self.assertNotIn("Other", groups, f"ungrouped: {groups.get('Other')}")
+
+    def test_the_boxscore_subcommands_are_listed_together(self):
+        games = next(rs for g, rs in dc.grouped_commands() if g == "Games")
+        labels = [l for _n, l, _d in games]
+        boxscores = [l for l in labels if l.startswith("boxscore ")]
+        self.assertEqual(boxscores,
+                         ["boxscore upload", "boxscore paste", "boxscore token"])
+        # ...and contiguously, not merely all present somewhere in the group.
+        first = labels.index(boxscores[0])
+        self.assertEqual(labels[first:first + 3], boxscores)
 
     def test_collapsing_is_opt_in_so_help_is_unaffected(self):
         """/help filters each row against the guild's whitelist, and lookups are
@@ -12423,15 +12446,33 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         # rows really land -- needed by the round-trip test.
         delay = (mock.Mock(side_effect=lambda *a, **k: record_lfg_components_task(*a, **k))
                  if run_capture else mock.Mock())
+        post = mock.Mock()
         with mock.patch.object(di.requests, "get", getter), \
-                mock.patch.object(di.record_lfg_components_task, "delay", delay):
+                mock.patch.object(di.record_lfg_components_task, "delay", delay), \
+                mock.patch.object(di.post_boxscore_result_task, "delay", post):
             response = di._handle_boxscore_command(data)
         self._last_data = json.loads(response.content)["data"]
+        self._last_post = post
+        # A clean apply POSTS its summary into the thread and answers the
+        # interaction with a private ack (the posted message needs an id the bot
+        # can edit later, which an interaction response has no way to give). The
+        # summary is what these tests are about, so hand that back when there is
+        # one and fall back to the response for every path that still replies
+        # directly -- a refusal, a gate, an error.
+        if post.call_args:
+            return post.call_args[0][2], getter, delay
         return self._last_data.get("content", ""), getter, delay
 
     def _run_data(self, doc=None, **kw):
-        """As _run, but hands back the whole response `data` (components included)."""
+        """As _run, but hands back the whole response `data` (components included).
+
+        On a clean apply the summary is posted rather than returned, so
+        "content" is filled in from the post to stay the message these tests
+        mean. A gate still answers directly and is handed back untouched.
+        """
         self._run(doc, **kw)
+        if self._last_post.call_args:
+            return {**self._last_data, "content": self._last_post.call_args[0][2]}
         return self._last_data
 
     def _press(self, action, key, author=None):
@@ -14710,9 +14751,18 @@ class BoxScorePasteCommandTests(BoxScoreCommandTests):
     def _submit(self, value, **kw):
         payload = self._paste_payload(value, **kw)
         channel_id = payload["channel_id"]
-        with mock.patch.object(di.record_lfg_components_task, "delay", mock.Mock()):
+        post = mock.Mock()
+        with mock.patch.object(di.record_lfg_components_task, "delay", mock.Mock()), \
+                mock.patch.object(di.post_boxscore_result_task, "delay", post):
             response = di._handle_boxscore_paste_modal_submit(payload, [channel_id])
-        return json.loads(response.content)["data"]
+        data = json.loads(response.content)["data"]
+        self._last_post = post
+        # A clean apply posts the summary into the thread and acks privately, so
+        # "content" stands for the summary the way it did when the interaction
+        # carried it. Gates, refusals and errors still answer directly.
+        if post.call_args:
+            data = {**data, "content": post.call_args[0][2]}
+        return data
 
     def _open(self, channel_type=11, channel_id=None):
         """Run the slash command itself, which only opens the modal."""
@@ -14773,8 +14823,13 @@ class BoxScorePasteCommandTests(BoxScoreCommandTests):
                                               channel_id=upload_thread.thread_id)
 
         self.assertIn("Box Score", pasted)
-        self.assertEqual(pasted.replace("Pasted JSON", "SRC"),
-                         uploaded.replace("game.json", "SRC"))
+        # The record link names each thread's own pk, so it is normalised the
+        # same way the source label is: the two differ by WHERE they point, not
+        # by whether they are there.
+        def _norm(text, source):
+            return re.sub(r"\?lfg=\d+", "?lfg=N", text.replace(source, "SRC"))
+
+        self.assertEqual(_norm(pasted, "Pasted JSON"), _norm(uploaded, "game.json"))
 
     def test_the_summary_names_the_paste_as_its_source(self):
         """`pasted JSON` stands in for the filename the upload path shows. Asserted
@@ -16837,11 +16892,16 @@ class BoxScoreSummaryLayoutTests(_NoLoginSignalMixin, TestCase):
             def raise_for_status(self):
                 pass
 
+        post = mock.Mock()
         with mock.patch.object(di.requests, "get",
                                mock.Mock(return_value=_Response())), \
                 mock.patch.object(di.record_lfg_components_task, "delay",
-                                  mock.Mock()):
+                                  mock.Mock()), \
+                mock.patch.object(di.post_boxscore_result_task, "delay", post):
             response = di._handle_boxscore_command(data)
+        # The summary is POSTED into the thread; the interaction only acks it.
+        if post.call_args:
+            return post.call_args[0][2]
         return json.loads(response.content)["data"].get("content", "")
 
     # ── heading ──
@@ -16858,6 +16918,32 @@ class BoxScoreSummaryLayoutTests(_NoLoginSignalMixin, TestCase):
     def test_the_seat_list_follows_the_heading_directly(self):
         content = self._run(self._doc())
         self.assertRegex(content, r"^### game\.json Box Score\n1\. ")
+
+    def test_a_blank_line_separates_the_players_from_the_game_details(self):
+        """The seat list and the component lines are scanned for different
+        things, so they are not one wall of text."""
+        content = self._run(self._doc())
+        self.assertIn("\n\nSquires & Disciples Deck", content)
+
+    def test_a_blank_line_separates_the_record_link_from_what_precedes_it(self):
+        content = self._run(self._doc())
+        self.assertRegex(content, r"\n\nReview and record the game \[here\]")
+
+    def test_the_message_ends_with_the_record_link(self):
+        """The link is the next step, so nothing trails it."""
+        content = self._run(self._doc())
+        self.assertTrue(content.rstrip().endswith(")."), content)
+        self.assertIn("Review and record the game", content)
+
+    def test_a_file_with_no_entries_still_offers_the_record_link(self):
+        """No scoring seats, but the components it DID carry are recordable by
+        hand -- a truly empty file was refused before ever reaching here."""
+        content = self._run({"board_map": self.map.slug, "deck": self.deck.slug,
+                             "participants": [{"turn_order": 1}]})
+        self.assertIn("Review and record the game", content)
+        # No player block, so nothing to separate it from: no leading blank.
+        self.assertFalse(content.startswith("\n"), content)
+        self.assertNotIn("\n\n\n", content)
 
     def test_a_file_with_no_entries_keeps_its_own_message(self):
         """A parse that produced no seats must not be announced like a success:
@@ -16974,3 +17060,320 @@ class BoxScoreComponentLinesTests(TestCase):
         for pending in ({}, {"component_lines": []}, {"component_titles": []}, None):
             with self.subTest(pending=pending):
                 self.assertEqual(di._boxscore_component_lines(pending), [])
+
+
+class BoxScoreAutoRecordTests(_NoLoginSignalMixin, TestCase):
+    """Recording a game straight from a clean box score, with no human at the form.
+
+    The point of these is the FALLBACK behaviour as much as the happy path: every
+    refusal must leave the thread unrecorded and let the box score message offer
+    its record link, never raise.
+    """
+
+    THREAD_ID = "autorecord-thread"
+
+    def setUp(self):
+        super().setUp()
+        self.designer = Profile.objects.create(discord="ardesigner", discord_id="9500")
+        self.map = Map.objects.create(title="AR Map", slug="ar-map", clearings=12,
+                                      designer=self.designer, official=True,
+                                      status=StatusChoices.STABLE)
+        self.deck = Deck.objects.create(title="AR Deck", slug="ar-deck", card_total=54,
+                                        designer=self.designer, official=True,
+                                        status=StatusChoices.STABLE)
+        self.fox = Faction.objects.create(
+            title="AR Fox", slug="ar-fox", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        self.bird = Faction.objects.create(
+            title="AR Bird", slug="ar-bird", animal="Bird", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+
+        # Players eligible to record: PLAYER group + onboarded.
+        self.alice = Profile.objects.create(
+            discord="aralice", discord_id="9501", display_name="Alice",
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+        self.bob = Profile.objects.create(
+            discord="arbob", discord_id="9502", display_name="Bob",
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+
+        self.thread = LFGThread.objects.create(
+            thread_id=self.THREAD_ID, map=self.map, deck=self.deck,
+            seating_set=True)
+        self.thread.players.set([self.alice, self.bob])
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice,
+                               seat_number=1, faction=self.fox)
+        LFGSeat.objects.create(thread=self.thread, profile=self.bob,
+                               seat_number=2, faction=self.bird)
+        self.thread.turns_data = [
+            {"turn_order": 1, "tournament_score": 1,
+             "turns": [{"turn": t, "score": t * 10} for t in range(1, 4)]},
+            {"turn_order": 2, "tournament_score": 0,
+             "turns": [{"turn": t, "score": t * 7} for t in range(1, 4)]},
+        ]
+        self.thread.save()
+
+    def _run(self, recorder=None):
+        from the_databot.services import boxscore_autorecord as ar
+        with self.captureOnCommitCallbacks(execute=True):
+            return ar.attempt_autorecord(self.thread, recorder or self.alice)
+
+    # ── happy path ──
+
+    def test_a_clean_box_score_records_the_game(self):
+        game = self._run()
+        self.assertIsNotNone(game)
+        self.assertTrue(game.final)
+        self.assertEqual(game.recorder, self.alice)
+        self.assertEqual(game.map, self.map)
+        self.assertEqual(game.deck, self.deck)
+
+    def test_the_scores_come_from_the_last_grid_cell(self):
+        game = self._run()
+        self.assertEqual(
+            sorted(game.efforts.values_list('score', flat=True)), [21, 30])
+
+    def test_the_winner_comes_from_the_tournament_score(self):
+        game = self._run()
+        winners = [e.player for e in game.efforts.filter(win=True)]
+        self.assertEqual(winners, [self.alice])
+
+    def test_the_thread_is_linked_and_marked_recorded(self):
+        game = self._run()
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.game_id, game.id)
+        self.assertEqual(self.thread.status, LFGThread.Status.RECORDED)
+
+    def test_the_platform_defaults_to_tabletop_simulator(self):
+        self.assertEqual(self._run().platform, "Tabletop Simulator")
+
+    # ── fallbacks: each must return None and record nothing ──
+
+    def _assert_declined(self):
+        self.assertIsNone(self._run())
+        self.thread.refresh_from_db()
+        self.assertIsNone(self.thread.game_id)
+
+    def test_no_recorder_declines(self):
+        from the_databot.services import boxscore_autorecord as ar
+        self.assertIsNone(ar.attempt_autorecord(self.thread, None))
+
+    def test_a_recorder_who_is_not_onboarded_declines(self):
+        """A Profile made from a Discord upload exists but is OUTCAST and not
+        onboarded -- the site would not let them record, so neither does this."""
+        ghost = Profile.objects.create(discord="arghost", discord_id="9503")
+        self.thread.players.add(ghost)
+        self.assertFalse(ghost.player)
+        from the_databot.services import boxscore_autorecord as ar
+        self.assertIsNone(ar.attempt_autorecord(self.thread, ghost))
+
+    def test_a_non_member_of_the_thread_declines(self):
+        outsider = Profile.objects.create(
+            discord="aroutsider", discord_id="9504",
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+        from the_databot.services import boxscore_autorecord as ar
+        self.assertIsNone(ar.attempt_autorecord(self.thread, outsider))
+
+    def test_no_established_seating_declines(self):
+        """Without seating_set the thread knows WHO played but not in what order;
+        placing players on rows positionally would invent a seating."""
+        self.thread.seating_set = False
+        self.thread.save(update_fields=['seating_set'])
+        self._assert_declined()
+
+    def test_a_game_with_no_winner_declines(self):
+        """The rule the draft branch would have skipped."""
+        for entry in self.thread.turns_data:
+            entry['tournament_score'] = 0
+        self.thread.save(update_fields=['turns_data'])
+        self._assert_declined()
+
+    def test_an_already_recorded_thread_declines(self):
+        first = self._run()
+        self.assertIsNotNone(first)
+        self.thread.refresh_from_db()
+        self.assertIsNone(self._run())
+        self.assertEqual(Game.objects.count(), 1)
+
+    def test_it_never_raises_on_malformed_turns_data(self):
+        self.thread.turns_data = ["not a dict", {"turn_order": 99}]
+        self.thread.save(update_fields=['turns_data'])
+        self.assertIsNone(self._run())   # must not raise
+
+
+class BoxScoreAutoRecordWiringTests(_NoLoginSignalMixin, TestCase):
+    """The flag and the call sites: does /boxscore actually reach auto-record,
+    and what does the posted message say afterwards?
+
+    BoxScoreAutoRecordTests covers attempt_autorecord itself. Standalone rather
+    than a subclass of BoxScoreCommandTests: this needs a seated, recordable
+    thread, and inheriting would re-run that suite against the mutated fixture.
+    """
+
+    THREAD_ID = "autorecord-wiring"
+    AUTHOR = "910000000000000077"
+    STEAM_A = "76561198000007701"
+    STEAM_B = "76561198000007702"
+
+    def setUp(self):
+        super().setUp()
+        self.designer = Profile.objects.create(discord="awdesigner", discord_id="9600")
+        self.map = Map.objects.create(title="AW Map", slug="aw-map", clearings=12,
+                                      designer=self.designer, official=True,
+                                      status=StatusChoices.STABLE)
+        self.deck = Deck.objects.create(title="AW Deck", slug="aw-deck", card_total=54,
+                                        designer=self.designer, official=True,
+                                        status=StatusChoices.STABLE)
+        self.faction = Faction.objects.create(
+            title="AW Fox", slug="aw-fox", animal="Fox", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        self.faction2 = Faction.objects.create(
+            title="AW Bird", slug="aw-bird", animal="Bird", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+
+        self.alice = Profile.objects.create(
+            discord="awalice", discord_id=self.AUTHOR, display_name="Alice",
+            steam_id=self.STEAM_A,
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+        self.bob = Profile.objects.create(
+            discord="awbob", discord_id="9602", display_name="Bob",
+            steam_id=self.STEAM_B,
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+
+        self.guild = DiscordGuild.objects.create(guild_id="9700", name="AW Guild")
+        self.thread = LFGThread.objects.create(
+            thread_id=self.THREAD_ID, guild=self.guild,
+            map=self.map, deck=self.deck, seating_set=True)
+        self.thread.players.set([self.alice, self.bob])
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice,
+                               seat_number=1, faction=self.faction)
+        LFGSeat.objects.create(thread=self.thread, profile=self.bob,
+                               seat_number=2, faction=self.faction2)
+
+    @contextlib.contextmanager
+    def _beta_guild(self):
+        """Turn this thread's guild into a beta tester for the duration.
+
+        The real mechanism, not a patched constant: this is exactly how the
+        feature gets switched on for one server.
+        """
+        self.guild.is_beta_tester = True
+        self.guild.save(update_fields=["is_beta_tester"])
+        try:
+            yield
+        finally:
+            self.guild.is_beta_tester = False
+            self.guild.save(update_fields=["is_beta_tester"])
+
+    def _doc(self):
+        """A box score naming the seated players, so nothing gates."""
+        return {
+            "board_map": self.map.slug, "deck": self.deck.slug,
+            "participants": [
+                {"turn_order": 1, "player_steam_id": self.STEAM_A,
+                 "faction": self.faction.slug, "tournament_score": 1,
+                 "turns": [{"turn": t, "score": t * 10} for t in range(1, 4)]},
+                {"turn_order": 2, "player_steam_id": self.STEAM_B,
+                 "faction": self.faction2.slug, "tournament_score": 0,
+                 "turns": [{"turn": t, "score": t * 7} for t in range(1, 4)]},
+            ],
+        }
+
+    def _run(self):
+        """Invoke /boxscore upload; return the content POSTED into the thread."""
+        body = json.dumps(self._doc()).encode()
+        data = {
+            "name": "boxscore",
+            "options": [{"name": "file", "type": 11, "value": "att-1"}],
+            "resolved": {"attachments": {"att-1": {
+                "filename": "game.json", "size": len(body),
+                "url": "https://cdn.discordapp.com/attachments/x/y/game.json",
+                "content_type": "application/json",
+            }}},
+            "_channel_id": self.THREAD_ID, "_channel_type": 11,
+            "_author_id": self.AUTHOR, "_guild_id": None,
+        }
+
+        class _Response:
+            content = body
+
+            def raise_for_status(self):
+                pass
+
+        post = mock.Mock()
+        with mock.patch.object(di.requests, "get", mock.Mock(return_value=_Response())), \
+                mock.patch.object(di.record_lfg_components_task, "delay", mock.Mock()), \
+                mock.patch.object(di.post_boxscore_result_task, "delay", post), \
+                self.captureOnCommitCallbacks(execute=True):
+            response = di._handle_boxscore_command(data)
+        self._post = post
+        if post.call_args:
+            return post.call_args[0][2]
+        return json.loads(response.content)["data"].get("content", "")
+
+    def test_it_is_off_for_a_normal_guild(self):
+        """Scoped to beta guilds: a normal server is untouched."""
+        self.assertFalse(di.BOXSCORE_AUTO_RECORD_ALL_GUILDS)
+        content = self._run()
+        self.assertEqual(Game.objects.count(), 0)
+        self.assertIn("Review and record the game", content)
+
+    def test_a_thread_with_no_guild_is_not_eligible(self):
+        """`guild` is nullable, and "unknown server" must not read as "beta" --
+        recording a game is not something to do on a guess."""
+        self.thread.guild = None
+        self.thread.save(update_fields=["guild"])
+        content = self._run()
+        self.assertEqual(Game.objects.count(), 0)
+        self.assertIn("Review and record the game", content)
+
+    def test_the_global_switch_enables_every_guild(self):
+        """The eventual ship-it path, with no beta flag set anywhere."""
+        self.assertFalse(self.guild.is_beta_tester)
+        with mock.patch.object(di, "BOXSCORE_AUTO_RECORD_ALL_GUILDS", True):
+            self._run()
+        self.assertEqual(Game.objects.count(), 1)
+
+    def test_with_the_flag_on_the_game_is_recorded_to_the_invoker(self):
+        with self._beta_guild():
+            self._run()
+        self.assertEqual(Game.objects.count(), 1)
+        game = Game.objects.get()
+        self.assertTrue(game.final)
+        self.assertEqual(game.recorder, self.alice)
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.game_id, game.id)
+
+    def test_a_recorded_message_drops_the_record_link(self):
+        with self._beta_guild():
+            content = self._run()
+        self.assertNotIn("Review and record the game", content)
+        self.assertNotIn("already recorded", content)
+        self.assertFalse(content.endswith("\n"), repr(content[-40:]))
+        self.assertIn("Box Score", content)
+
+    def test_a_recorded_message_is_not_tracked_for_rewriting(self):
+        """No record line means nothing for manage_game to strip later."""
+        with self._beta_guild():
+            self._run()
+        self.assertFalse(self._post.call_args.kwargs.get("track", True))
+
+    def test_a_box_score_that_cannot_record_still_posts_with_its_link(self):
+        """The fallback that matters most: declining must never cost the thread
+        its box score message.
+
+        Refused because the invoker is not onboarded -- the site would not let
+        them record, so neither does the bot. (Clearing seating_set would NOT
+        work: _boxscore_reseat sets it from the file, so a box score naming its
+        seats establishes the very seating this needs.)
+        """
+        self.alice.player_onboard = False
+        self.alice.save(update_fields=["player_onboard"])
+        with self._beta_guild():
+            content = self._run()
+        self.assertEqual(Game.objects.count(), 0)
+        self.assertIn("Box Score", content)
+        self.assertIn("Review and record the game", content)

@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.12] - 2026-9-27 Auto Submit Boxscore 
+
+### New Features
+- Auto submit games from TTS boxscore (beta)
+
 ## [1.13.11] - 2026-9-23 Boxscore and LFG Refinements
 
 ### New Features
@@ -14,6 +19,7 @@
 
 ### Bug Fixes
 - Survey responses using "other" and a write in response now display correctly on CSV export
+- Boxscores added from a file or json string now include the record link
 
 ## [1.13.10] - 2026-9-20 Boxscore Bugs
 
