@@ -17201,6 +17201,34 @@ class BoxScoreAutoRecordTests(_NoLoginSignalMixin, TestCase):
         self.thread.save(update_fields=['turns_data'])
         self.assertIsNone(self._run())   # must not raise
 
+    # ── why it declined ──
+    #
+    # Every refusal used to be a bare `return None`, which made this feature
+    # undiagnosable in production: a real report ("it didn't auto-record") could
+    # not be answered from the logs at all. These pin that the reason is stated.
+
+    LOGGER = "the_databot.services.boxscore_autorecord"
+
+    def test_a_decline_says_the_recorder_is_not_onboarded(self):
+        ghost = Profile.objects.create(discord="arlog1", discord_id="9510")
+        self.thread.players.add(ghost)
+        from the_databot.services import boxscore_autorecord as ar
+        with self.assertLogs(self.LOGGER, level="INFO") as caught:
+            ar.attempt_autorecord(self.thread, ghost)
+        self.assertIn("not an onboarded player", "\n".join(caught.output))
+
+    def test_a_decline_says_validation_failed_and_shows_the_errors(self):
+        """The reason a real box score would most often stop here, and the one
+        that was previously logged at DEBUG -- invisible in production."""
+        for entry in self.thread.turns_data:
+            entry["tournament_score"] = 0        # no winner
+        self.thread.save(update_fields=["turns_data"])
+        with self.assertLogs(self.LOGGER, level="INFO") as caught:
+            self._run()
+        output = "\n".join(caught.output)
+        self.assertIn("validation failed", output)
+        self.assertIn("Select a winner", output)
+
 
 class BoxScoreAutoRecordWiringTests(_NoLoginSignalMixin, TestCase):
     """The flag and the call sites: does /boxscore actually reach auto-record,
@@ -17360,6 +17388,21 @@ class BoxScoreAutoRecordWiringTests(_NoLoginSignalMixin, TestCase):
         with self._beta_guild():
             self._run()
         self.assertFalse(self._post.call_args.kwargs.get("track", True))
+
+    def test_the_guild_gate_says_why_it_declined(self):
+        """The guild gate lives in discord_interactions, NOT in _attempt, so it
+        logs under a different logger -- and it is the likeliest decline on a
+        fresh beta rollout. Without this line "not a beta guild" is
+        indistinguishable from "auto-record never ran"."""
+        with self.assertLogs("the_databot.discord_interactions",
+                             level="INFO") as caught:
+            self._run()
+        output = "\n".join(caught.output)
+        self.assertIn("auto-record declined", output)
+        self.assertIn("not enabled here", output)
+        # Names the guild and its flag: "no guild" and "guild isn't beta" are
+        # different problems with different fixes.
+        self.assertIn("beta=False", output)
 
     def test_a_box_score_that_cannot_record_still_posts_with_its_link(self):
         """The fallback that matters most: declining must never cost the thread

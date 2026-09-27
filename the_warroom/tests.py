@@ -2958,6 +2958,22 @@ class BoxScoreUploadApiTests(TestCase):
         response = self._post(self._doc(), raw)[0]
         self.assertEqual(response.json()['error'], 'token_expired')
 
+    def test_a_malformed_upload_still_burns_the_token(self):
+        """No token survives a bad paste any more.
+
+        There used to be a reusable `test_mode` token that was deliberately NOT
+        burned here, so one malformed upload wouldn't retire a 30-day admin
+        credential. That exemption is gone, so the rule is now unconditional --
+        which is the invariant worth pinning, since nothing else asserts the
+        CANCELLED transition on this path.
+        """
+        token, raw = self._token()
+        response = self._post({'participants': 'not a list'}, raw)[0]
+        self.assertEqual(response.status_code, 400)
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.CANCELLED)
+        self.assertIsNone(token.payload)
+
     def test_an_unknown_token_and_a_wrong_thread_are_indistinguishable(self):
         """Otherwise the endpoint is an oracle for which threads and tokens
         exist. Used/expired ARE distinguished -- those are states of a token the
@@ -3328,161 +3344,6 @@ class BoxScoreUploadApiTests(TestCase):
 
         self.assertEqual(self.thread.boxscore_message_id, '222')
         edit.assert_called_once_with(self.thread.thread_id, '111', first_body)
-
-
-class BoxScoreUploadTestModeTokenTests(TestCase):
-    """Admin-minted `test_mode` tokens: reusable, and exempt from the
-    roster/seat-count comparison that would otherwise stage a Confirm/Cancel
-    prompt no scripted client can answer."""
-
-    ALICE_STEAM = '76561198000000101'
-    BOB_STEAM = '76561198000000102'
-
-    def setUp(self):
-        self.alice = Profile.objects.create(discord='testalice', discord_id='901',
-                                            display_name='Alice',
-                                            steam_id=self.ALICE_STEAM)
-        self.bob = Profile.objects.create(discord='testbob', discord_id='902',
-                                          display_name='Bob',
-                                          steam_id=self.BOB_STEAM)
-        self.thread = LFGThread.objects.create(thread_id='tts-test-thread')
-        self.thread.players.set([self.alice, self.bob])
-
-    def _seat(self, turn_order, profile, steam_id):
-        return {'turn_order': turn_order, 'player': profile.slug,
-                'player_steam_id': steam_id, 'turns': [{'turn': 1, 'score': 3}]}
-
-    def _post(self, doc, token_raw, raw_body=None):
-        body = raw_body if raw_body is not None else json.dumps(doc)
-        with mock.patch('the_databot.discord_interactions.post_boxscore_result_task.delay'), \
-                mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay') as prompt, \
-                mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
-            response = self.client.post(
-                reverse('api-boxscore-upload'), data=body,
-                content_type='application/json',
-                HTTP_AUTHORIZATION=f'Game-Token {token_raw}')
-        return response, prompt
-
-    def _token(self):
-        from datetime import timedelta
-        return BoxScoreUploadToken.issue(
-            self.thread, profile=None, test_mode=True, ttl=timedelta(days=30))
-
-    def test_a_malformed_upload_does_not_burn_a_test_token(self):
-        """A test token survives an unreadable file, exactly as it survives a
-        successful one.
-
-        The BoxScoreImportError handler used to retire the token with no
-        test_mode guard, so ONE bad paste killed a 30-day admin token for good --
-        and every attempt after that answered `token_used`, which describes a
-        token somebody spent rather than one thrown away on their behalf.
-        """
-        token, raw = self._token()
-        bad = self._post(None, raw, raw_body='not json at all')[0]
-        self.assertEqual(bad.status_code, 400)
-        self.assertEqual(bad.json()['error'], 'invalid_box_score')
-
-        token.refresh_from_db()
-        self.assertEqual(token.status, BoxScoreUploadToken.Status.ISSUED)
-
-        # The point of surviving: the SAME token still works afterwards.
-        doc = {'participants': [self._seat(1, self.alice, self.ALICE_STEAM),
-                                self._seat(2, self.bob, self.BOB_STEAM)]}
-        good = self._post(doc, raw)[0]
-        self.assertEqual(good.status_code, 200)
-        self.assertEqual(good.json()['status'], 'applied')
-
-    def test_a_malformed_upload_still_cancels_a_normal_token(self):
-        """The other side of the guard. A single-use token is spent either way,
-        and its payload is cleared -- which is what keeps _boxscore_restorable's
-        payload__isnull=False filter honest."""
-        token, raw = BoxScoreUploadToken.issue(self.thread, self.alice)
-        response = self._post(None, raw, raw_body='not json at all')[0]
-        self.assertEqual(response.status_code, 400)
-
-        token.refresh_from_db()
-        self.assertEqual(token.status, BoxScoreUploadToken.Status.CANCELLED)
-        self.assertIsNone(token.payload)
-
-    def test_a_test_token_can_be_used_more_than_once(self):
-        _t, raw = self._token()
-        doc = {'participants': [self._seat(1, self.alice, self.ALICE_STEAM),
-                                self._seat(2, self.bob, self.BOB_STEAM)]}
-        first = self._post(doc, raw)[0]
-        second = self._post(doc, raw)[0]
-        self.assertEqual(first.status_code, 200)
-        self.assertEqual(second.status_code, 200)
-        self.assertEqual(BoxScoreUploadToken.objects.get(pk=_t.pk).status,
-                         BoxScoreUploadToken.Status.ISSUED)
-
-    def test_a_test_token_ignores_a_player_count_mismatch(self):
-        """The uploaded seat count/roster doesn't match the thread at all --
-        an off-roster player, fewer seats than the roster -- and it still
-        auto-applies instead of staging a Discord prompt nobody would answer."""
-        stranger = Profile.objects.create(discord='teststranger', discord_id='903',
-                                          steam_id='76561198000000199')
-        _t, raw = self._token()
-        doc = {'participants': [
-            self._seat(1, stranger, stranger.steam_id),
-        ]}
-        response, prompt = self._post(doc, raw)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['status'], 'applied')
-        self.assertFalse(prompt.called)
-
-    def test_a_test_token_still_requires_a_resolvable_steam_id(self):
-        """Gate 1 -- an unlinkable seat -- is untouched by test_mode: identity
-        resolution isn't part of what the flag is meant to skip."""
-        _t, raw = self._token()
-        doc = {'participants': [
-            {'turn_order': 1, 'player': 'nobody-on-file',
-             'player_steam_id': '76561198000000198',
-             'turns': [{'turn': 1, 'score': 3}]},
-        ]}
-        response, prompt = self._post(doc, raw)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['status'], 'pending_confirmation')
-        self.assertTrue(prompt.called)
-
-    def test_a_test_token_allows_one_profile_in_every_seat(self):
-        """A test client may not have distinct accounts for every seat --
-        nothing requires seats to resolve to different profiles."""
-        _t, raw = self._token()
-        doc = {'participants': [
-            self._seat(1, self.alice, self.ALICE_STEAM),
-            self._seat(2, self.alice, self.ALICE_STEAM),
-            self._seat(3, self.alice, self.ALICE_STEAM),
-        ]}
-        response = self._post(doc, raw)[0]
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['status'], 'applied')
-        self.assertEqual(self.thread.seats.count(), 3)
-        self.assertTrue(all(s.profile_id == self.alice.pk
-                            for s in self.thread.seats.all()))
-
-    def test_a_test_token_ignores_the_match_roster_check_too(self):
-        """A match thread re-checks the roster balance a SECOND time inside
-        _boxscore_apply (match_roster), independently of the upload-time
-        check and of Gate 2 -- test_mode has to skip both or an off-roster
-        test upload still fails with 'not in this match'.
-
-        Driven in-process rather than through the HTTP view: series_id is set
-        on the instance only, never saved, the same way
-        test_a_match_threads_roster_is_never_touched avoids standing up a real
-        Round/Stage/MatchSeries just to make the FK truthy."""
-        from the_databot import discord_interactions as di
-        stranger = Profile.objects.create(discord='teststranger2', discord_id='904',
-                                          steam_id='76561198000000197')
-        self.thread.series_id = 1     # truthy: the branch only checks series_id
-        token, _raw = self._token()
-        raw_body = json.dumps({'participants': [
-            self._seat(1, stranger, stranger.steam_id),
-        ]}).encode()
-        with mock.patch('the_databot.discord_interactions.post_boxscore_result_task.delay'), \
-                mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'), \
-                mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'):
-            result = di.boxscore_upload_from_api(self.thread, raw_body, token)
-        self.assertEqual(result['status'], 'applied')
 
 
 class BoxScoreMatchRosterGateTests(TestCase):

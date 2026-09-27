@@ -533,12 +533,6 @@ class BoxScoreUploadToken(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(db_index=True)
     used_at = models.DateTimeField(null=True, blank=True)
-    # Admin-minted only (never set by /boxscore token): exempts this token
-    # from the single-use claim and from the roster/seating comparison that
-    # would otherwise route a mismatched upload into a Discord prompt. Lets
-    # one token be pasted into a test client repeatedly against a throwaway
-    # thread without a human answering a Confirm/Cancel each time.
-    test_mode = models.BooleanField(default=False)
 
     # The staged upload awaiting a Confirm/Cancel in the thread, in the shape
     # _boxscore_stash parks in the cache. JSON-serializable ids and slugs only,
@@ -580,22 +574,23 @@ class BoxScoreUploadToken(models.Model):
         return Profile.hash_api_key(BoxScoreUploadToken.normalize(raw))
 
     @classmethod
-    def issue(cls, thread, profile, test_mode=False, ttl=None):
+    def issue(cls, thread, profile):
         """Mint a token for `thread`. Returns (instance, raw_token).
 
         The raw token is returned exactly once and cannot be recovered -- only
         its hash is stored -- so the caller must surface it immediately.
 
-        `test_mode` and `ttl` exist for admin-minted tokens only -- the
-        Discord /boxscore token flow never passes them."""
+        Every token is single-use and expires after TOKEN_TTL. There used to be
+        a `test_mode` variant that was reusable and skipped the roster/seating
+        comparison, for pasting into a scripted client; it is gone, so /boxscore
+        token is the only way a token exists and they all behave alike."""
         import secrets
         raw = "".join(secrets.choice(cls.ALPHABET) for _ in range(cls.TOKEN_LENGTH))
         token = cls.objects.create(
             token_hash=cls.hash_token(raw),
             thread=thread,
             issued_by=profile,
-            expires_at=timezone.now() + (ttl or cls.TOKEN_TTL),
-            test_mode=test_mode,
+            expires_at=timezone.now() + cls.TOKEN_TTL,
         )
         return token, raw
 

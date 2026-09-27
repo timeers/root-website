@@ -437,8 +437,7 @@ class BoxScoreUploadView(APIView):
                 'invalid_token',
                 'That upload token isn\'t valid. Run /boxscore token in your '
                 'game thread for a new one.', status.HTTP_401_UNAUTHORIZED)
-        if (not token.test_mode
-                and token.status != BoxScoreUploadToken.Status.ISSUED):
+        if token.status != BoxScoreUploadToken.Status.ISSUED:
             return _upload_error(
                 'token_used',
                 'That upload token has already been used. Run /boxscore token '
@@ -464,33 +463,25 @@ class BoxScoreUploadView(APIView):
         # Claim the token BEFORE doing the work: a conditional update on `status`
         # means two simultaneous uploads can't both win. status is the single
         # source of truth; used_at is a timestamp for humans reading the admin.
-        # A test_mode token skips the claim entirely -- it stays ISSUED so the
-        # same token can be pasted in again for the next test upload.
-        if not token.test_mode:
-            claimed = BoxScoreUploadToken.objects.filter(
-                pk=token.pk, status=BoxScoreUploadToken.Status.ISSUED,
-            ).update(status=BoxScoreUploadToken.Status.PENDING,
-                     used_at=timezone.now())
-            if not claimed:
-                return _upload_error(
-                    'token_used',
-                    'That upload token has already been used. Run /boxscore '
-                    'token for a new one.', status.HTTP_401_UNAUTHORIZED)
+        claimed = BoxScoreUploadToken.objects.filter(
+            pk=token.pk, status=BoxScoreUploadToken.Status.ISSUED,
+        ).update(status=BoxScoreUploadToken.Status.PENDING,
+                 used_at=timezone.now())
+        if not claimed:
+            return _upload_error(
+                'token_used',
+                'That upload token has already been used. Run /boxscore '
+                'token for a new one.', status.HTTP_401_UNAUTHORIZED)
 
         try:
             result = di.boxscore_upload_from_api(thread, body, token)
         except BoxScoreImportError as exc:
             # Structural problems fail SYNCHRONOUSLY so the object can report them
-            # at the table rather than posting a confusing thread prompt.
-            #
-            # A test_mode token is NOT burned, matching the claim above: it stays
-            # ISSUED so it can be pasted in again. Without this guard one
-            # malformed upload retired a reusable admin token forever, and every
-            # later attempt answered `token_used` -- which describes a token
-            # somebody spent, not one that was thrown away on their behalf.
-            if not token.test_mode:
-                BoxScoreUploadToken.objects.filter(pk=token.pk).update(
-                    status=BoxScoreUploadToken.Status.CANCELLED, payload=None)
+            # at the table rather than posting a confusing thread prompt. The
+            # token is burned either way -- it was claimed above, and a malformed
+            # upload has still spent it.
+            BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+                status=BoxScoreUploadToken.Status.CANCELLED, payload=None)
             return _upload_error('invalid_box_score', str(exc),
                                  status.HTTP_400_BAD_REQUEST)
 
