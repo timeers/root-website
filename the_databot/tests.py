@@ -4659,6 +4659,28 @@ class LookupCommandShapeTests(TestCase):
         self.assertEqual(groups["Account"], ["link"])
         self.assertNotIn("Other", groups)      # nothing fell through
 
+    def test_every_command_is_placed_in_a_group(self):
+        """The "Other" catch-all is a safety net, not a destination.
+
+        It only existed for collapse_parents before, which is how /boxscore paste
+        came to sit alone at the bottom of the guild settings page for a while:
+        it was whitelistable and visible (the net worked), just nowhere near
+        /boxscore upload and /boxscore token.
+        """
+        groups = dict((g, [n for n, _l, _d in rs])
+                      for g, rs in dc.grouped_commands())
+        self.assertNotIn("Other", groups, f"ungrouped: {groups.get('Other')}")
+
+    def test_the_boxscore_subcommands_are_listed_together(self):
+        games = next(rs for g, rs in dc.grouped_commands() if g == "Games")
+        labels = [l for _n, l, _d in games]
+        boxscores = [l for l in labels if l.startswith("boxscore ")]
+        self.assertEqual(boxscores,
+                         ["boxscore upload", "boxscore paste", "boxscore token"])
+        # ...and contiguously, not merely all present somewhere in the group.
+        first = labels.index(boxscores[0])
+        self.assertEqual(labels[first:first + 3], boxscores)
+
     def test_collapsing_is_opt_in_so_help_is_unaffected(self):
         """/help filters each row against the guild's whitelist, and lookups are
         enabled individually -- a bare /lookup row could not say which ones a

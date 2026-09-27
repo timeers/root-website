@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.12] - 2026-9-27 Auto Submit Boxscore 
+
+### New Features
+- Auto submit games from TTS boxscore (beta)
+
 ## [1.13.11] - 2026-9-23 Boxscore and LFG Refinements
 
 ### New Features
