@@ -9508,17 +9508,18 @@ def _boxscore_try_autorecord(thread, recorder, payload=None):
     if recorder is None:
         # Same prefix as boxscore_autorecord's declines, from a different module
         # and so a different logger name -- the prefix is what makes the whole
-        # decision greppable as one stream.
-        logger.info("auto-record declined for thread %s: no recorder resolved",
-                    thread.pk)
+        # decision greppable as one stream. WARNING for the same reason as there:
+        # no LOGGING dict is configured, so INFO is never emitted.
+        logger.warning("auto-record declined for thread %s: no recorder resolved",
+                       thread.pk)
         return False
     if not _boxscore_autorecord_enabled(thread):
         # Report the guild AND its beta flag: "no guild on this thread" and "this
         # guild isn't a beta tester" are different problems with different fixes,
         # and a bare "not enabled" would not say which.
-        logger.info("auto-record declined for thread %s: not enabled here "
-                    "(guild=%s beta=%s)", thread.pk, thread.guild_id,
-                    thread.guild.is_beta_tester if thread.guild_id else None)
+        logger.warning("auto-record declined for thread %s: not enabled here "
+                       "(guild=%s beta=%s)", thread.pk, thread.guild_id,
+                       thread.guild.is_beta_tester if thread.guild_id else None)
         return False
     from the_databot.services.boxscore_autorecord import attempt_autorecord
     return attempt_autorecord(thread, recorder, payload=payload) is not None

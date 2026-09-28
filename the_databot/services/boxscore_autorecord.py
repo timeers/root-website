@@ -33,14 +33,22 @@ def _declined(thread, reason, *args):
     onboarded" and "the box score failed validation" were indistinguishable from
     each other and from "auto-record never ran at all".
 
-    INFO, not WARNING: declining is a normal outcome for most box scores, and a
-    warning per upload would train people to ignore the log. The shared
-    "auto-record declined" prefix is deliberate -- the guild gate logs the same
-    prefix from a DIFFERENT module (and so a different logger name), and the
-    prefix is what makes the two greppable as one stream.
+    WARNING, not INFO, and deliberately so: this project configures no LOGGING
+    dict, so Django's default applies and a non-Django logger is only emitted at
+    WARNING and above -- `logger.isEnabledFor(logging.INFO)` is False in
+    production. An INFO line here would be invisible in exactly the place it
+    exists to be read, which is the whole point of the message. Same reason the
+    timing diagnostics in the_warroom/views.py use .warning().
+
+    Revisit if a LOGGING dict is ever added: declining is a normal outcome, so
+    INFO is the level this *deserves* once INFO is actually emitted.
+
+    The shared "auto-record declined" prefix is deliberate -- the guild gate logs
+    the same prefix from a DIFFERENT module (and so a different logger name), and
+    the prefix is what makes the two greppable as one stream.
     """
-    logger.info("auto-record declined for thread %s: " + reason,
-                thread.pk, *args)
+    logger.warning("auto-record declined for thread %s: " + reason,
+                   thread.pk, *args)
     return None
 
 
@@ -271,8 +279,8 @@ def _attempt(thread, recorder, payload):
     )
 
     if not (form.is_valid() and formset.is_valid()):
-        # INFO, not debug: this is the decline most likely to need explaining,
-        # and it was invisible at production log levels.
+        # The decline most likely to need explaining -- and the one that was
+        # previously logged at DEBUG, i.e. never seen.
         return _declined(thread, "validation failed: form=%s formset=%s",
                          form.errors.as_json(), formset.errors)
 

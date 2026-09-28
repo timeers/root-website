@@ -17209,11 +17209,29 @@ class BoxScoreAutoRecordTests(_NoLoginSignalMixin, TestCase):
 
     LOGGER = "the_databot.services.boxscore_autorecord"
 
+    def test_declines_log_at_a_level_production_actually_emits(self):
+        """The regression that made this logging pointless once already.
+
+        This project configures no LOGGING dict, so Django's default applies and
+        a non-Django logger is only emitted at WARNING and above. An INFO decline
+        is invisible in exactly the place it exists to be read -- and every
+        assertLogs test still passes, because assertLogs forces the level itself.
+        So assert the level explicitly, against the real logger.
+        """
+        import logging
+        self.assertTrue(
+            logging.getLogger(self.LOGGER).isEnabledFor(logging.WARNING))
+        with self.assertLogs(self.LOGGER, level="WARNING") as caught:
+            self._run(recorder=Profile.objects.create(
+                discord="arlevel", discord_id="9599"))
+        self.assertTrue(any(r.levelno >= logging.WARNING
+                            for r in caught.records), caught.output)
+
     def test_a_decline_says_the_recorder_is_not_onboarded(self):
         ghost = Profile.objects.create(discord="arlog1", discord_id="9510")
         self.thread.players.add(ghost)
         from the_databot.services import boxscore_autorecord as ar
-        with self.assertLogs(self.LOGGER, level="INFO") as caught:
+        with self.assertLogs(self.LOGGER, level="WARNING") as caught:
             ar.attempt_autorecord(self.thread, ghost)
         self.assertIn("not an onboarded player", "\n".join(caught.output))
 
@@ -17223,7 +17241,7 @@ class BoxScoreAutoRecordTests(_NoLoginSignalMixin, TestCase):
         for entry in self.thread.turns_data:
             entry["tournament_score"] = 0        # no winner
         self.thread.save(update_fields=["turns_data"])
-        with self.assertLogs(self.LOGGER, level="INFO") as caught:
+        with self.assertLogs(self.LOGGER, level="WARNING") as caught:
             self._run()
         output = "\n".join(caught.output)
         self.assertIn("validation failed", output)
@@ -17395,7 +17413,7 @@ class BoxScoreAutoRecordWiringTests(_NoLoginSignalMixin, TestCase):
         fresh beta rollout. Without this line "not a beta guild" is
         indistinguishable from "auto-record never ran"."""
         with self.assertLogs("the_databot.discord_interactions",
-                             level="INFO") as caught:
+                             level="WARNING") as caught:
             self._run()
         output = "\n".join(caught.output)
         self.assertIn("auto-record declined", output)
