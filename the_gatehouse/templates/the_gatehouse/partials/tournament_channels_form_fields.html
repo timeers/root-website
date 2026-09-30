@@ -1,16 +1,18 @@
 {% load i18n %}
-{% comment %} Field body for the series-channels form. All three <select>s are rendered
+{% comment %} Field body for the series-channels form. Every <select> is rendered
 SERVER-SIDE from `field_ctx`.
 
-TWO SEPARATE SOURCES — do not merge them:
-  * results_channel / schedule_channel -> field_ctx.text_channels  (TEXT channels)
-  * game_threads_channel               -> field_ctx.forum_channels (FORUM channels)
+THREE SEPARATE SOURCES — do not merge them:
+  * results_channel / schedule_channel
+    / moderators_channel     -> field_ctx.text_channels  (TEXT channels)
+  * game_threads_channel     -> field_ctx.forum_channels (FORUM channels)
+  * match_moderator_role     -> field_ctx.roles          (ROLES, not channels at all)
 Each field's "(not listed)" branch compares against ITS OWN id list. Pointing them all at
 one list would make a validly-saved channel silently vanish from its dropdown on edit,
 and the form's clean() would then reject it.
 
-A None list means Discord couldn't be reached for that kind of channel; only that control
-degrades to a manual id input, never the others.
+A None list means Discord couldn't be reached for that kind of thing; only the controls
+built from THAT list degrade to a manual id input, never the others.
 {% endcomment %}
 
 {% comment %} forum→tags map for the tag <select> below (see static/js/lfg_forum_tags.js).
@@ -144,6 +146,7 @@ stale the moment a different series' form was opened. {% endcomment %}
         </div>
     </div>
 
+
     {# ----- Thread message ----- #}
     <div class="mb-3">
         <label class="form-label">{% trans 'Match thread message' %}</label>
@@ -158,6 +161,70 @@ stale the moment a different series' form was opened. {% endcomment %}
             {% trans 'placeholders. Uses a plain link, so wrap it in markdown for link text, e.g.' %}
             <code>[record it here]({record_link})</code>.
         </div>
+    </div>
+
+
+
+    {# ----- Match moderator role (ROLES — a third source list) ----- #}
+    <div class="mb-3">
+        <label class="form-label">{% trans 'Match moderator role' %}</label>
+        {% if form.match_moderator_role.errors %}
+            <div class="alert alert-danger py-2">{{ form.match_moderator_role.errors|striptags }}</div>
+        {% endif %}
+        {% if field_ctx.roles is None %}
+            <input type="text" name="match_moderator_role" class="form-control"
+                   value="{{ field_ctx.moderator_role_selected }}" autocomplete="off"
+                   placeholder="{% trans 'Role ID' %}">
+            <div class="form-text text-warning">
+                {% trans "Couldn't load roles from Discord — enter a role ID manually." %}
+            </div>
+        {% else %}
+            <select name="match_moderator_role" class="form-select">
+                <option value="" {% if not field_ctx.moderator_role_selected %}selected{% endif %}>{% trans '— No role —' %}</option>
+                {% for role in field_ctx.roles %}
+                    <option value="{{ role.id }}" {% if role.id == field_ctx.moderator_role_selected %}selected{% endif %}>
+                        {{ role.name }}
+                    </option>
+                {% endfor %}
+                {% if field_ctx.moderator_role_selected and field_ctx.moderator_role_selected not in field_ctx.role_ids %}
+                    <option value="{{ field_ctx.moderator_role_selected }}" selected>{% trans '(not listed)' %} {{ field_ctx.moderator_role_selected }}</option>
+                {% endif %}
+            </select>
+            <div class="form-text text-muted">
+                {% trans "Users with this role will be able to add themselves as a match's moderator using '/join as moderator' in the game's thread" %}
+            </div>
+        {% endif %}
+    </div>
+
+    {# ----- Moderator signups channel ----- #}
+    <div class="mb-3">
+        <label class="form-label">{% trans 'Moderator signups channel' %}</label>
+        {% if form.moderators_channel.errors %}
+            <div class="alert alert-danger py-2">{{ form.moderators_channel.errors|striptags }}</div>
+        {% endif %}
+        {% if field_ctx.text_channels is None %}
+            <input type="text" name="moderators_channel" class="form-control"
+                   value="{{ field_ctx.moderators_selected }}" autocomplete="off"
+                   placeholder="{% trans 'Channel ID' %}">
+            <div class="form-text text-warning">
+                {% trans "Couldn't load channels from Discord — enter a channel ID manually." %}
+            </div>
+        {% else %}
+            <select name="moderators_channel" class="form-select">
+                <option value="" {% if not field_ctx.moderators_selected %}selected{% endif %}>{% trans '— No channel —' %}</option>
+                {% for channel in field_ctx.text_channels %}
+                    <option value="{{ channel.id }}" {% if channel.id == field_ctx.moderators_selected %}selected{% endif %}>
+                        #{{ channel.name }}
+                    </option>
+                {% endfor %}
+                {% if field_ctx.moderators_selected and field_ctx.moderators_selected not in field_ctx.text_channel_ids %}
+                    <option value="{{ field_ctx.moderators_selected }}" selected>{% trans '(not listed)' %} {{ field_ctx.moderators_selected }}</option>
+                {% endif %}
+            </select>
+            <div class="form-text text-muted">
+                {% trans 'Moderator signups and cancellations will be announced in this channel.' %}
+            </div>
+        {% endif %}
     </div>
 
     {% comment %} ----- Match reminders -----

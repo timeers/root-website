@@ -650,9 +650,10 @@ class TournamentGuildAutomationForm(forms.ModelForm):
     formset (make_reminder_formset) that the view saves in the same transaction.
 
     All fields are rendered as live dropdowns by tournament_channels_form_fields.html and
-    bind normally by name. results/schedule are TEXT channels; game_threads is a FORUM
-    channel — validated against separate lists so a text channel can't be saved where a
-    forum is required. game_threads_tag is one of that forum's tags."""
+    bind normally by name. results/schedule/moderators are TEXT channels; game_threads is
+    a FORUM channel — validated against separate lists so a text channel can't be saved
+    where a forum is required. game_threads_tag is one of that forum's tags, and
+    match_moderator_role is validated against the guild's ROLES, a third list again."""
 
     class Meta:
         # apps.get_model rather than a module import: the_warroom.models imports from
@@ -660,7 +661,8 @@ class TournamentGuildAutomationForm(forms.ModelForm):
         # (GuildLFGRoleForm dodges the same problem with a function-local import).
         model = apps.get_model('the_warroom', 'Tournament')
         fields = ['results_channel', 'schedule_channel', 'game_threads_channel',
-                  'game_threads_tag', 'thread_message']
+                  'game_threads_tag', 'match_moderator_role', 'moderators_channel',
+                  'thread_message']
         widgets = {
             'thread_message': forms.Textarea(attrs={'rows': 3, 'class': 'form-control'}),
         }
@@ -684,10 +686,19 @@ class TournamentGuildAutomationForm(forms.ModelForm):
         text_channels = get_guild_text_channels(self.guild.guild_id) if fetch else None
         forum_channels = get_guild_forum_channels(self.guild.guild_id) if fetch else None
 
+        # The role list is a THIRD source, fetched only when something needs it: a
+        # tournament with no moderator role set costs no extra Discord call.
+        roles = None
+        if fetch and (cleaned.get('match_moderator_role') or '').strip():
+            from the_databot.services.discordservice import get_guild_roles
+            roles = get_guild_roles(self.guild.guild_id)
+
         checks = [
             ('results_channel', text_channels, 'a text channel in this server'),
             ('schedule_channel', text_channels, 'a text channel in this server'),
             ('game_threads_channel', forum_channels, 'a forum channel in this server'),
+            ('moderators_channel', text_channels, 'a text channel in this server'),
+            ('match_moderator_role', roles, 'a role in this server'),
         ]
         for field, channels, expected in checks:
             value = (cleaned.get(field) or '').strip()
@@ -697,7 +708,9 @@ class TournamentGuildAutomationForm(forms.ModelForm):
                 cleaned[field] = None
                 continue
             if channels is not None and value not in {c['id'] for c in channels}:
-                self.add_error(field, f'That channel is not {expected}.')
+                self.add_error(field, f'That is not {expected}.'
+                               if field == 'match_moderator_role'
+                               else f'That channel is not {expected}.')
 
         forum_id = cleaned.get('game_threads_channel')
         tag_id = (cleaned.get('game_threads_tag') or '').strip() or None

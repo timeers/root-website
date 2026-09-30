@@ -490,6 +490,43 @@ def game_pre_delete_reevaluate_match(sender, instance, **kwargs):
     series.save(update_fields=['status'])
 
 
+@receiver(pre_delete, sender=Game)
+def game_pre_delete_reopen_lfg_thread(sender, instance, **kwargs):
+    """A deleted game's LFG thread becomes an OPEN game again.
+
+    LFGThread.game is SET_NULL, so deleting the game already clears the link --
+    but `status` was only ever SET to RECORDED, never cleared. That left the
+    thread holding no game and a "recorded" status: a state nothing produces
+    deliberately and nothing could escape. /boxscore token and the box-score
+    Restore both refuse on `status == RECORDED` even once the game is gone, and
+    cleanup_stale_lfg_threads prunes RECORDED threads on the short (30-day)
+    window instead of the 180-day one.
+
+    Sibling of game_pre_delete_reevaluate_match above, which does the same
+    unwinding for a Match; the LFG thread was simply left out of it.
+
+    PRE_delete, not post: Django nulls the SET_NULL FK while collecting, so by
+    post_delete the thread is no longer reachable from the game and this would
+    silently do nothing.
+
+    Scoped to RECORDED on purpose. A save-progress draft (final=False) links the
+    thread but leaves it OPEN, so deleting a draft needs no repair -- and the
+    filter gives CANCELLED (a human's decision, not the game's) the same pass.
+    """
+    from the_databot.models import LFGThread
+
+    thread = LFGThread.objects.filter(
+        game=instance, status=LFGThread.Status.RECORDED).first()
+    if thread is None:
+        return
+    thread.status = LFGThread.Status.OPEN
+    # save(), NOT queryset.update(): LFGThread.save() widens update_fields to
+    # bump last_activity, which is half the fix -- the cleanup sweep keys its
+    # window off that field, so leaving it stale would keep the thread eligible
+    # for pruning under the "abandoned" clause instead.
+    thread.save(update_fields=['status'])
+
+
 @receiver(post_save, sender=Game)
 def game_post_save_check_match(sender, instance, **kwargs):
     """When a finalized game is linked to a match, trigger match completion logic."""

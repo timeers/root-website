@@ -15012,6 +15012,28 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
         self.assertIn("already recorded", data["content"])
         self.assertEqual(BoxScoreUploadToken.objects.count(), 0)
 
+    def test_a_token_can_be_minted_again_once_the_game_is_deleted(self):
+        """The reported bug, end to end.
+
+        The refusal is `game_id or status == RECORDED`, and only the game_id half
+        used to clear itself -- so deleting a recorded game left the thread stuck
+        refusing forever. Note the test above sets `game` WITHOUT the status, so
+        it never covered this.
+        """
+        game = Game.objects.create()
+        self.thread.game = game
+        self.thread.status = LFGThread.Status.RECORDED
+        self.thread.save(update_fields=["game", "status"])
+        self.assertIn("already recorded", self._run()["content"])
+
+        game.delete()
+
+        data = self._run()
+        self.assertNotIn("already recorded", data["content"])
+        self.assertIn("Paste this into the Tabletop Simulator uploader",
+                      data["content"])
+        self.assertEqual(BoxScoreUploadToken.objects.count(), 1)
+
     def test_the_token_subcommand_has_its_own_toggle(self):
         """A guild can offer the TTS token flow without the file upload."""
         self.assertIn("boxscore_token", dc.WHITELISTABLE)
@@ -17209,11 +17231,29 @@ class BoxScoreAutoRecordTests(_NoLoginSignalMixin, TestCase):
 
     LOGGER = "the_databot.services.boxscore_autorecord"
 
+    def test_declines_log_at_a_level_production_actually_emits(self):
+        """The regression that made this logging pointless once already.
+
+        This project configures no LOGGING dict, so Django's default applies and
+        a non-Django logger is only emitted at WARNING and above. An INFO decline
+        is invisible in exactly the place it exists to be read -- and every
+        assertLogs test still passes, because assertLogs forces the level itself.
+        So assert the level explicitly, against the real logger.
+        """
+        import logging
+        self.assertTrue(
+            logging.getLogger(self.LOGGER).isEnabledFor(logging.WARNING))
+        with self.assertLogs(self.LOGGER, level="WARNING") as caught:
+            self._run(recorder=Profile.objects.create(
+                discord="arlevel", discord_id="9599"))
+        self.assertTrue(any(r.levelno >= logging.WARNING
+                            for r in caught.records), caught.output)
+
     def test_a_decline_says_the_recorder_is_not_onboarded(self):
         ghost = Profile.objects.create(discord="arlog1", discord_id="9510")
         self.thread.players.add(ghost)
         from the_databot.services import boxscore_autorecord as ar
-        with self.assertLogs(self.LOGGER, level="INFO") as caught:
+        with self.assertLogs(self.LOGGER, level="WARNING") as caught:
             ar.attempt_autorecord(self.thread, ghost)
         self.assertIn("not an onboarded player", "\n".join(caught.output))
 
@@ -17223,7 +17263,7 @@ class BoxScoreAutoRecordTests(_NoLoginSignalMixin, TestCase):
         for entry in self.thread.turns_data:
             entry["tournament_score"] = 0        # no winner
         self.thread.save(update_fields=["turns_data"])
-        with self.assertLogs(self.LOGGER, level="INFO") as caught:
+        with self.assertLogs(self.LOGGER, level="WARNING") as caught:
             self._run()
         output = "\n".join(caught.output)
         self.assertIn("validation failed", output)
@@ -17395,7 +17435,7 @@ class BoxScoreAutoRecordWiringTests(_NoLoginSignalMixin, TestCase):
         fresh beta rollout. Without this line "not a beta guild" is
         indistinguishable from "auto-record never ran"."""
         with self.assertLogs("the_databot.discord_interactions",
-                             level="INFO") as caught:
+                             level="WARNING") as caught:
             self._run()
         output = "\n".join(caught.output)
         self.assertIn("auto-record declined", output)
@@ -17420,3 +17460,848 @@ class BoxScoreAutoRecordWiringTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual(Game.objects.count(), 0)
         self.assertIn("Box Score", content)
         self.assertIn("Review and record the game", content)
+
+
+class JoinLeaveCommandShapeTests(TestCase):
+    """The registration/whitelist plumbing for /join's SUB_COMMAND_GROUP.
+
+    /join as is the first type-2 group in the codebase, and four helpers in
+    discord_commands walked a parent's subcommands as a FLAT list. The group itself is
+    never a toggle -- "/join as" is not a runnable command -- so a checkbox for it would
+    be dead while hiding the two real ones.
+    """
+
+    def test_subcommand_resolves_a_group_to_its_full_path(self):
+        self.assertEqual(
+            di._subcommand({"name": "join", "options": [
+                {"name": "as", "type": 2, "options": [
+                    {"name": "substitute", "type": 1,
+                     "options": [{"name": "player", "value": "7"}]}]}]}),
+            ("as substitute", [{"name": "player", "value": "7"}]))
+
+    def test_subcommand_is_unchanged_for_flat_subcommands(self):
+        """The type-1 branch is hit first, so /lookup, /link and /boxscore are
+        untouched by the group support."""
+        self.assertEqual(
+            di._subcommand({"name": "boxscore", "options": [
+                {"name": "upload", "type": 1,
+                 "options": [{"name": "file", "value": "x"}]}]}),
+            ("upload", [{"name": "file", "value": "x"}]))
+        # A command with only PLAIN options still has no subcommand.
+        self.assertEqual(
+            di._subcommand({"name": "draft", "options": [
+                {"name": "players", "type": 4, "value": 4}]}),
+            (None, []))
+
+    def test_every_join_leaf_is_a_whitelist_key_and_the_group_is_not(self):
+        for key in ("join_game", "join_substitute", "join_moderator", "leave_game"):
+            self.assertIn(key, dc.PARENT_SUBCOMMAND_NAMES)
+        self.assertNotIn("as", dc.PARENT_SUBCOMMAND_NAMES)
+
+    def test_whitelistable_agrees_with_WHITELISTABLE(self):
+        """The existing invariant, re-asserted here because grouped_commands builds
+        its rows independently of PARENT_SUBCOMMAND_NAMES -- the two silently
+        disagreeing is exactly how a nested subcommand becomes unreachable."""
+        names = [n for n, _l, _d in dc.whitelistable_commands()]
+        self.assertEqual(sorted(names), sorted(dc.WHITELISTABLE))
+        self.assertEqual(len(names), len(set(names)))
+
+    def test_nested_subcommands_are_labelled_by_what_the_user_types(self):
+        labels = {n: l for n, l, _d in dc.whitelistable_commands()}
+        self.assertEqual(labels["join_game"], "join game")
+        self.assertEqual(labels["join_substitute"], "join as substitute")
+        self.assertEqual(labels["join_moderator"], "join as moderator")
+        self.assertEqual(labels["leave_game"], "leave game")
+
+    def test_nothing_falls_into_the_other_catch_all(self):
+        groups = dict(dc.grouped_commands())
+        self.assertNotIn("Other", groups)
+
+    def test_registration_drops_the_group_when_no_child_is_enabled(self):
+        cmd = self._join_def(dc.commands_for_guild(["join_game"]))
+        self.assertEqual([o["name"] for o in cmd["options"]], ["game"])
+
+    def test_registration_keeps_only_the_enabled_children(self):
+        cmd = self._join_def(dc.commands_for_guild(["join_moderator"]))
+        self.assertEqual([o["name"] for o in cmd["options"]], ["as"])
+        group = cmd["options"][0]
+        self.assertEqual(group["type"], 2)
+        self.assertEqual([o["name"] for o in group["options"]], ["moderator"])
+
+    def test_registration_drops_the_parent_entirely_when_nothing_is_enabled(self):
+        self.assertIsNone(self._join_def(dc.commands_for_guild([])))
+
+    def test_whitelist_key_never_reaches_discord(self):
+        """Discord rejects unknown fields, and a NESTED leaf is just as visible to it
+        as a top-level one."""
+        body = json.dumps(dc.commands_for_guild(dc.WHITELISTABLE))
+        self.assertNotIn("whitelist_key", body)
+
+    def test_existing_parents_are_unaffected_by_the_recursion(self):
+        lookup = self._named(dc.commands_for_guild(["faction", "map"]), "lookup")
+        self.assertEqual([o["name"] for o in lookup["options"]], ["faction", "map"])
+        self.assertTrue(all(o["type"] == 1 for o in lookup["options"]))
+        boxscore = self._named(dc.commands_for_guild(["boxscore_token"]), "boxscore")
+        self.assertEqual([o["name"] for o in boxscore["options"]], ["token"])
+
+    def test_neither_command_is_roster_guarded(self):
+        """/join is run BY DEFINITION by a non-player; /leave answers a
+        non-participant with its own tailored message."""
+        for name in ("join", "leave", "join_game", "join_substitute",
+                     "join_moderator", "leave_game"):
+            self.assertNotIn(name, di.ROSTER_GUARDED_COMMANDS)
+        for key in ("join game", "join as substitute", "join as moderator",
+                    "leave game"):
+            self.assertNotIn(key, di.ROSTER_GUARDED_COMMANDS)
+
+    def _join_def(self, cmds):
+        return self._named(cmds, "join")
+
+    def _named(self, cmds, name):
+        return next((c for c in cmds if c["name"] == name), None)
+
+
+class JoinTournamentRosterTests(ScheduleFixtureMixin, TestCase):
+    """/join game and /join as substitute against a tournament match thread."""
+
+    THREAD_ID = "555000111"
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.newcomer = Profile.objects.create(discord="newcomer", discord_id="90")
+
+    def _ctx(self):
+        return di._join_context(self.guild.guild_id, self.THREAD_ID, None)
+
+    def _slash(self, handler, discord_id, **extra):
+        payload = {"_guild_id": self.guild.guild_id, "_channel_id": self.THREAD_ID,
+                   "_channel_name": None, "_author_id": discord_id,
+                   "_author_username": "someone", "_author": {"name": "Someone"}}
+        payload.update(extra)
+        return json.loads(handler(payload).content)
+
+    def _click(self, action, requester_id, clicker_id, target_pk=0):
+        payload = {
+            "guild_id": self.guild.guild_id, "channel_id": self.THREAD_ID,
+            "channel": {"name": None},
+            "member": {"user": {"id": clicker_id, "username": "clicker"}},
+            "data": {"custom_id": di.encode_custom_id(
+                action, requester_id, target_pk, di.PICK_OPEN)},
+        }
+        return json.loads(di.COMPONENT_HANDLERS[action](payload).content)
+
+    def test_context_resolves_the_group_and_roster(self):
+        ctx = self._ctx()
+        self.assertFalse(ctx.is_lfg)
+        self.assertEqual(ctx.group, self.group)
+        self.assertEqual(ctx.series_id, self.series.pk)
+        self.assertEqual(ctx.tournament, self.tournament)
+        self.assertIn(self.player, ctx.roster)
+
+    def test_join_game_posts_a_public_request_with_the_roster(self):
+        body = self._slash(di._handle_join_game_command, "90")["data"]
+        self.assertNotEqual(body.get("flags"), di.EPHEMERAL)
+        self.assertIn("would like to join the game", body["content"])
+        self.assertIn("Players:", body["content"])
+        # Listing a roster must never ping it.
+        self.assertEqual(body["allowed_mentions"], {"parse": []})
+        actions = [c["custom_id"] for c in body["components"][0]["components"]]
+        self.assertEqual([a.split(":")[0] for a in actions], ["join_ok", "join_no"])
+        # Ends in PICK_OPEN so the dispatcher's owner-lock stays off.
+        self.assertTrue(all(a.endswith(f":{di.PICK_OPEN}") for a in actions))
+
+    def test_join_game_refuses_someone_already_playing(self):
+        body = self._slash(di._handle_join_game_command, "2")["data"]
+        self.assertEqual(body["flags"], di.EPHEMERAL)
+        self.assertIn("already in this game", body["content"])
+
+    def test_confirm_writes_every_roster_table_the_site_reads(self):
+        body = self._click("join_ok", "90", self.group_mod.discord_id)["data"]
+        self.assertIn("has added", body["content"])
+        self.assertEqual(body["components"], [])          # buttons stripped
+
+        tp = TournamentPlayer.objects.get(
+            tournament=self.tournament, profile=self.newcomer)
+        self.assertIn(tp, self.group.tournament_players.all())
+        self.assertTrue(StageParticipant.objects.filter(
+            stage=self.stage, tournament_player=tp).exists())
+        self.assertTrue(MatchSeat.objects.filter(
+            series=self.series,
+            stage_participant__tournament_player=tp).exists())
+        # And the bot's own roster resolver now sees them.
+        self.assertIn(self.newcomer, self._ctx().roster)
+
+    def test_confirm_seats_after_the_last_existing_seat(self):
+        self._click("join_ok", "90", self.group_mod.discord_id)
+        seat = MatchSeat.objects.get(
+            series=self.series,
+            stage_participant__tournament_player__profile=self.newcomer)
+        self.assertEqual(seat.seat_number, 2)
+
+    def test_cancel_writes_nothing(self):
+        body = self._click("join_no", "90", self.group_mod.discord_id)["data"]
+        self.assertIn("chose not to add", body["content"])
+        self.assertEqual(body["components"], [])
+        self.assertFalse(TournamentPlayer.objects.filter(
+            tournament=self.tournament, profile=self.newcomer).exists())
+
+    def test_group_moderator_tournament_staff_and_guild_staff_may_approve(self):
+        ctx = self._ctx()
+        self.guild.guild_moderators.add(self.outsider)
+        for profile in (self.group_mod, self.designer, self.outsider):
+            self.assertTrue(di._roster_approver(profile, ctx), profile.discord)
+
+    def test_a_merely_seated_player_may_not_approve(self):
+        """The reason _roster_approver exists rather than _thread_staff_override: the
+        latter admits a seated participant through Match.can_schedule, which must not
+        decide who joins a game."""
+        self.assertTrue(self.tournament.players_can_record_matches())
+        self.assertTrue(self.match.can_schedule(self.player))      # would pass there
+        self.assertFalse(di._roster_approver(self.player, self._ctx()))
+        body = self._click("join_ok", "90", self.player.discord_id)["data"]
+        self.assertEqual(body["flags"], di.EPHEMERAL)
+        self.assertFalse(TournamentPlayer.objects.filter(
+            tournament=self.tournament, profile=self.newcomer).exists())
+
+    def test_a_random_user_may_not_approve(self):
+        body = self._click("join_ok", "90", "99999")["data"]
+        self.assertEqual(body["flags"], di.EPHEMERAL)
+        self.assertIn("Only a moderator", body["content"])
+
+    def test_substitute_swaps_the_player_and_inherits_their_seat(self):
+        seat = MatchSeat.objects.get(series=self.series,
+                                     stage_participant=self.participant)
+        seat.seat_number = 3
+        seat.save(update_fields=["seat_number"])
+
+        body = self._click("join_sub_ok", "90", self.group_mod.discord_id,
+                           target_pk=self.player.pk)["data"]
+        self.assertIn("substituted", body["content"])
+        self.assertEqual(body["components"], [])
+
+        roster = self._ctx().roster
+        self.assertIn(self.newcomer, roster)
+        self.assertNotIn(self.player, roster)
+        new_seat = MatchSeat.objects.get(
+            series=self.series,
+            stage_participant__tournament_player__profile=self.newcomer)
+        self.assertEqual(new_seat.seat_number, 3)
+        # "This game only": the substituted player stays in the tournament.
+        self.assertTrue(TournamentPlayer.objects.filter(
+            tournament=self.tournament, profile=self.player).exists())
+        self.assertTrue(StageParticipant.objects.filter(
+            stage=self.stage, tournament_player=self.tournament_player).exists())
+
+    def test_substitute_rejects_a_player_not_on_this_roster(self):
+        """The autocompleted value is user-supplied -- a user can type past the
+        suggestions, so the pk is re-validated against THIS roster."""
+        body = self._slash(di._handle_join_substitute_command, "90",
+                           options=[{"name": "player",
+                                     "value": str(self.outsider.pk)}])["data"]
+        self.assertEqual(body["flags"], di.EPHEMERAL)
+        self.assertIn("couldn't find that player", body["content"])
+
+    def test_autocomplete_offers_the_current_roster_by_pk(self):
+        choices = di._ac_join_substitute_player("", {
+            "_guild_id": self.guild.guild_id, "_channel_id": self.THREAD_ID,
+            "_channel_name": None})
+        self.assertIn(str(self.player.pk), [c["value"] for c in choices])
+        self.assertNotIn(str(self.outsider.pk), [c["value"] for c in choices])
+
+
+class JoinModeratorTests(ScheduleFixtureMixin, TestCase):
+    """/join as moderator: the role-gated fast path and the approval fallback."""
+
+    THREAD_ID = "555000111"
+    ROLE_ID = "123456789012345678"
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.volunteer = Profile.objects.create(discord="volunteer", discord_id="91")
+        # The announcement short-circuits on an unset channel, so the tests that assert
+        # it fires need one configured.
+        self.tournament.moderators_channel = "323456789012345678"
+        self.tournament.save(update_fields=["moderators_channel"])
+
+    def _slash(self, discord_id, roles=()):
+        return json.loads(di._handle_join_moderator_command({
+            "_guild_id": self.guild.guild_id, "_channel_id": self.THREAD_ID,
+            "_channel_name": None, "_author_id": discord_id,
+            "_author_username": "someone", "_author": {"name": "Someone"},
+            "_member_roles": list(roles),
+        }).content)
+
+    def _click(self, action, requester_id, clicker_id):
+        return json.loads(di.COMPONENT_HANDLERS[action]({
+            "guild_id": self.guild.guild_id, "channel_id": self.THREAD_ID,
+            "channel": {"name": None},
+            "member": {"user": {"id": clicker_id, "username": "clicker"}},
+            "data": {"custom_id": di.encode_custom_id(
+                action, requester_id, 0, di.PICK_OPEN)},
+        }).content)
+
+    def _set_role(self):
+        self.tournament.match_moderator_role = self.ROLE_ID
+        self.tournament.save(update_fields=["match_moderator_role"])
+
+    def test_role_holder_is_signed_up_immediately_and_publicly(self):
+        self._set_role()
+        body = self._slash("91", roles=[self.ROLE_ID])["data"]
+        self.assertNotEqual(body.get("flags"), di.EPHEMERAL)
+        self.assertIn("has signed up to moderate this game", body["content"])
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.group_moderator, self.volunteer)
+
+    def test_signing_up_replaces_an_existing_moderator(self):
+        self._set_role()
+        self.assertEqual(self.group.group_moderator, self.group_mod)
+        self._slash("91", roles=[self.ROLE_ID])
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.group_moderator, self.volunteer)
+
+    def test_without_the_role_the_refusal_names_role_and_series(self):
+        self._set_role()
+        body = self._slash("91", roles=["999999999999999999"])["data"]
+        self.assertEqual(body["flags"], di.EPHEMERAL)
+        self.assertIn(f"<@&{self.ROLE_ID}>", body["content"])
+        self.assertIn(self.tournament.name, body["content"])
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.group_moderator, self.group_mod)  # unchanged
+
+    def test_with_no_role_configured_it_asks_for_approval(self):
+        body = self._slash("91")["data"]
+        self.assertIn("would like to sign up to moderate", body["content"])
+        # A moderator is not a roster entry, so no player list.
+        self.assertNotIn("Players:", body["content"])
+        actions = [c["custom_id"].split(":")[0]
+                   for c in body["components"][0]["components"]]
+        self.assertEqual(actions, ["join_mod_ok", "join_mod_no"])
+
+    def test_tournament_staff_may_confirm(self):
+        body = self._click("join_mod_ok", "91", self.designer.discord_id)["data"]
+        self.assertIn("as this game's moderator", body["content"])
+        self.assertEqual(body["components"], [])
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.group_moderator, self.volunteer)
+
+    def test_the_group_moderator_may_NOT_confirm(self):
+        """This button decides who the group moderator IS, so the incumbent is not an
+        approver for it -- unlike the roster buttons."""
+        body = self._click("join_mod_ok", "91", self.group_mod.discord_id)["data"]
+        self.assertEqual(body["flags"], di.EPHEMERAL)
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.group_moderator, self.group_mod)
+
+    def test_cancel_rejects_without_writing(self):
+        body = self._click("join_mod_no", "91", self.designer.discord_id)["data"]
+        self.assertIn("rejected", body["content"])
+        self.assertEqual(body["components"], [])
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.group_moderator, self.group_mod)
+
+    def test_an_lfg_thread_is_refused(self):
+        """group_moderator lives on PlayerGroup; an LFG game has no field for it."""
+        LFGThread.objects.create(thread_id="770000111222333", guild=self.guild)
+        body = json.loads(di._handle_join_moderator_command({
+            "_guild_id": self.guild.guild_id, "_channel_id": "770000111222333",
+            "_channel_name": None, "_author_id": "91",
+            "_author_username": "v", "_author": {"name": "V"}, "_member_roles": [],
+        }).content)["data"]
+        self.assertEqual(body["flags"], di.EPHEMERAL)
+        self.assertIn("tournament match's thread", body["content"])
+
+    def test_announcement_posts_to_the_moderators_channel(self):
+        self._set_role()
+        with mock.patch.object(di, "post_to_tournament_channel_task") as task:
+            di._announce_moderator_change(
+                di._join_context(self.guild.guild_id, self.THREAD_ID, None),
+                self.volunteer)
+        self.assertTrue(task.delay.called)
+        tournament_pk, field, content = task.delay.call_args[0]
+        self.assertEqual(tournament_pk, self.tournament.pk)
+        self.assertEqual(field, "moderators_channel")
+        self.assertIn("has signed up to moderate", content)
+        self.assertEqual(task.delay.call_args[1]["allowed_mentions"],
+                         {"parse": ["users"]})
+
+    def test_departure_announcement_uses_the_leaving_wording(self):
+        with mock.patch.object(di, "post_to_tournament_channel_task") as task:
+            di._announce_moderator_change(
+                di._join_context(self.guild.guild_id, self.THREAD_ID, None),
+                self.group_mod, leaving=True)
+        content = task.delay.call_args[0][2]
+        self.assertIn("is no longer moderating", content)
+
+    def test_announcement_survives_a_fully_recorded_series(self):
+        """_match_for_thread filters to SCHEDULABLE matches and would answer None here,
+        dropping the link; the announcement resolves its match directly instead."""
+        game = Game.objects.create(round=self.round)
+        self.match.game = game
+        self.match.save(update_fields=["game"])
+        with mock.patch.object(di, "post_to_tournament_channel_task") as task:
+            di._announce_moderator_change(
+                di._join_context(self.guild.guild_id, self.THREAD_ID, None),
+                self.volunteer)
+        self.assertTrue(task.delay.called)
+        self.assertIn(self.group.name, task.delay.call_args[0][2])
+
+
+class LeaveGameTests(ScheduleFixtureMixin, TestCase):
+    """/leave game: the moderator branch, the roster branch, and the refusal."""
+
+    THREAD_ID = "555000111"
+
+    def setUp(self):
+        self.build(populate_group=True)
+
+    def _slash(self, discord_id):
+        return json.loads(di._handle_leave_game_command({
+            "_guild_id": self.guild.guild_id, "_channel_id": self.THREAD_ID,
+            "_channel_name": None, "_author_id": discord_id,
+            "_author_username": "someone", "_author": {"name": "Someone"},
+        }).content)
+
+    def _click(self, action, requester_id, clicker_id):
+        return json.loads(di.COMPONENT_HANDLERS[action]({
+            "guild_id": self.guild.guild_id, "channel_id": self.THREAD_ID,
+            "channel": {"name": None},
+            "member": {"user": {"id": clicker_id, "username": "clicker"}},
+            "data": {"custom_id": di.encode_custom_id(
+                action, requester_id, 0, di.PICK_OPEN)},
+        }).content)
+
+    def test_the_group_moderator_steps_down_immediately(self):
+        body = self._slash(self.group_mod.discord_id)["data"]
+        self.assertNotEqual(body.get("flags"), di.EPHEMERAL)
+        self.assertIn("has been removed as this game's moderator", body["content"])
+        # The roster did not change, so no player list.
+        self.assertNotIn("Players:", body["content"])
+        self.group.refresh_from_db()
+        self.assertIsNone(self.group.group_moderator)
+
+    def test_a_moderator_who_is_also_a_player_only_steps_down_first(self):
+        """Moderator check runs FIRST and returns: two explicit steps rather than
+        bundling two decisions into one click."""
+        self.group.group_moderator = self.player
+        self.group.save(update_fields=["group_moderator"])
+
+        first = self._slash(self.player.discord_id)["data"]
+        self.assertIn("removed as this game's moderator", first["content"])
+        self.assertIn(self.player, di._join_context(
+            self.guild.guild_id, self.THREAD_ID, None).roster)
+
+        # Now no longer the moderator, so the same command takes the roster branch.
+        second = self._slash(self.player.discord_id)["data"]
+        self.assertIn("would like to leave this game", second["content"])
+
+    def test_a_player_asks_for_approval_with_the_roster_shown(self):
+        body = self._slash(self.player.discord_id)["data"]
+        self.assertIn("would like to leave this game", body["content"])
+        self.assertIn("Players:", body["content"])
+        actions = [c["custom_id"].split(":")[0]
+                   for c in body["components"][0]["components"]]
+        self.assertEqual(actions, ["leave_ok", "leave_no"])
+
+    def test_confirm_removes_them_and_shows_the_new_roster(self):
+        body = self._click("leave_ok", self.player.discord_id,
+                           self.group_mod.discord_id)["data"]
+        self.assertIn("has removed", body["content"])
+        self.assertEqual(body["components"], [])
+        self.assertIn("Players:", body["content"])
+
+        roster = di._join_context(self.guild.guild_id, self.THREAD_ID, None).roster
+        self.assertNotIn(self.player, roster)
+        self.assertFalse(MatchSeat.objects.filter(
+            series=self.series, stage_participant=self.participant).exists())
+        # This game only: the tournament registration survives.
+        self.assertTrue(TournamentPlayer.objects.filter(
+            tournament=self.tournament, profile=self.player).exists())
+
+    def test_cancel_leaves_the_roster_alone(self):
+        body = self._click("leave_no", self.player.discord_id,
+                           self.group_mod.discord_id)["data"]
+        self.assertIn("chose not to remove", body["content"])
+        self.assertEqual(body["components"], [])
+        self.assertIn(self.player, di._join_context(
+            self.guild.guild_id, self.THREAD_ID, None).roster)
+
+    def test_emptying_the_roster_says_so(self):
+        """"No roster, no restriction" -- _thread_actor_error stops guarding the thread,
+        so the last departure has to announce that rather than let it surprise someone."""
+        ctx = di._join_context(self.guild.guild_id, self.THREAD_ID, None)
+        for profile in list(ctx.roster):
+            di._join_remove_player(
+                di._join_context(self.guild.guild_id, self.THREAD_ID, None), profile)
+        self.group.tournament_players.add(self.tournament_player)
+
+        body = self._click("leave_ok", self.player.discord_id,
+                           self.group_mod.discord_id)["data"]
+        self.assertIn(di.LEAVE_EMPTIED_NOTICE, body["content"])
+        self.assertIsNone(di._thread_actor_error({
+            "_guild_id": self.guild.guild_id, "_channel_id": self.THREAD_ID,
+            "_channel_name": None, "_author_id": "99999",
+            "_author_username": "nobody", "_author": {"name": "Nobody"}}))
+
+    def test_a_non_participant_is_refused_and_pointed_at_join(self):
+        self.guild.enabled_commands = ["join_game", "leave_game"]
+        self.guild.save(update_fields=["enabled_commands"])
+        body = self._slash(self.outsider.discord_id)["data"]
+        self.assertEqual(body["flags"], di.EPHEMERAL)
+        self.assertIn("not listed as a participant", body["content"])
+        self.assertIn("/join game", body["content"])
+
+    def test_the_join_hint_is_omitted_when_join_game_is_disabled(self):
+        self.guild.enabled_commands = ["leave_game"]
+        self.guild.save(update_fields=["enabled_commands"])
+        body = self._slash(self.outsider.discord_id)["data"]
+        self.assertIn("not listed as a participant", body["content"])
+        self.assertNotIn("/join game", body["content"])
+
+    def test_a_user_with_no_profile_creates_none(self):
+        """/leave must never use ensure_profile_from_discord: someone with no profile
+        cannot be on a roster, so creating one to remove them from nothing is pure
+        side effect."""
+        self.guild.enabled_commands = ["leave_game"]
+        self.guild.save(update_fields=["enabled_commands"])
+        before = Profile.objects.count()
+        body = self._slash("404404404404404404")["data"]
+        self.assertIn("not listed as a participant", body["content"])
+        self.assertEqual(Profile.objects.count(), before)
+
+
+class JoinLeaveLFGTests(TestCase):
+    """The LFG branch: thread.players plus the seating the record form is sized from."""
+
+    GUILD_ID = "900700"
+    THREAD_ID = "770000111222333"
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(
+            guild_id=self.GUILD_ID, name="LFG Guild")
+        self.host = Profile.objects.create(discord="host", discord_id="10")
+        self.player = Profile.objects.create(discord="lfgplayer", discord_id="11")
+        self.newcomer = Profile.objects.create(discord="lfgnew", discord_id="12")
+        self.thread = LFGThread.objects.create(
+            thread_id=self.THREAD_ID, guild=self.guild, host=self.host)
+        self.thread.players.add(self.host, self.player)
+
+    def _ctx(self):
+        return di._join_context(self.GUILD_ID, self.THREAD_ID, None)
+
+    def _seat(self):
+        self.thread.seating_set = True
+        self.thread.save(update_fields=["seating_set"])
+        for number, profile in enumerate([self.host, self.player], start=1):
+            LFGSeat.objects.create(
+                thread=self.thread, profile=profile, seat_number=number)
+
+    def test_context_identifies_an_lfg_game(self):
+        ctx = self._ctx()
+        self.assertTrue(ctx.is_lfg)
+        self.assertIsNone(ctx.group)
+        self.assertIsNone(ctx.tournament)
+
+    def test_the_host_may_approve(self):
+        self.assertTrue(di._roster_approver(self.host, self._ctx()))
+        self.assertFalse(di._roster_approver(self.player, self._ctx()))
+
+    def test_join_adds_to_thread_players(self):
+        self.assertIsNone(di._join_add_player(self._ctx(), self.newcomer))
+        self.assertIn(self.newcomer, self.thread.players.all())
+
+    def test_join_appends_a_seat_so_the_record_form_keeps_a_row(self):
+        """In LFG mode the record form's row count comes from seated_profiles, so a
+        joined player with no seat would be MISSING from the form entirely."""
+        self._seat()
+        di._join_add_player(self._ctx(), self.newcomer)
+        seats = seated_profiles(self.thread)
+        self.assertEqual(len(seats), 3)
+        self.assertEqual(seats[-1][0], 3)
+        self.assertEqual(seats[-1][1], self.newcomer)
+
+    def test_join_creates_no_seat_when_there_is_no_seating(self):
+        di._join_add_player(self._ctx(), self.newcomer)
+        self.assertEqual(self.thread.seats.count(), 0)
+        self.assertEqual(seated_profiles(self.thread), [])
+
+    def test_leaving_deletes_the_seat_rather_than_blanking_it(self):
+        """A profile-less seat renders as "Player N" and would leave a phantom row."""
+        self._seat()
+        freed = di._join_remove_player(self._ctx(), self.player)
+        self.assertEqual(freed, 2)
+        self.assertNotIn(self.player, self.thread.players.all())
+        self.assertEqual([s[1] for s in seated_profiles(self.thread)], [self.host])
+
+    def test_a_substitute_inherits_the_seat_and_survivors_are_not_renumbered(self):
+        self._seat()
+        ctx = self._ctx()
+        freed = di._join_remove_player(ctx, self.host)       # seat 1
+        di._join_add_player(self._ctx(), self.newcomer, seat_number=freed)
+        seats = {number: profile for number, profile, _f, _v
+                 in seated_profiles(self.thread)}
+        self.assertEqual(seats[1], self.newcomer)
+        self.assertEqual(seats[2], self.player)              # untouched
+
+
+class JoinEdgeCaseTests(TestCase):
+    """The shapes that crash if the nullable relations aren't guarded.
+
+    Round.stage AND Round.tournament are both nullable, and PlayerGroup.
+    recalculate_overlap() dereferences round.stage.grouping_type unguarded -- every
+    pre-existing caller happens to be on a stage-based bracket path, so none of this
+    was reachable before.
+    """
+
+    GUILD_ID = "900800"
+    THREAD_ID = "660000111222333"
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(
+            guild_id=self.GUILD_ID, name="Edge Guild")
+        self.designer = Profile.objects.create(discord="edgedesigner", discord_id="20")
+        self.newcomer = Profile.objects.create(discord="edgenew", discord_id="21")
+
+    def _stageless_group(self):
+        """A tournament whose round hangs off the LEGACY Round.tournament FK, so
+        round.stage is None and there is no StageParticipant/MatchSeat concept."""
+        tournament = Tournament.objects.create(
+            name="Stageless", guild=self.guild, designer=self.designer)
+        round_ = Round.objects.create(tournament=tournament, round_number=1)
+        group = PlayerGroup.objects.create(
+            round=round_, group_number=1, name="Solo Group",
+            discord_thread=f"https://discord.com/channels/{self.GUILD_ID}/{self.THREAD_ID}")
+        MatchSeries.objects.create(round=round_, player_group=group, number_of_games=1)
+        return tournament, group
+
+    def test_join_succeeds_on_a_stage_less_tournament(self):
+        tournament, group = self._stageless_group()
+        ctx = di._join_context(self.GUILD_ID, self.THREAD_ID, None)
+        self.assertIsNone(ctx.group.round.stage)
+        self.assertEqual(ctx.tournament, tournament)
+
+        # recalculate_overlap() would raise AttributeError here if called.
+        self.assertIsNone(di._join_add_player(ctx, self.newcomer))
+        tp = TournamentPlayer.objects.get(
+            tournament=tournament, profile=self.newcomer)
+        self.assertIn(tp, group.tournament_players.all())
+        # No stage -> no seats at all.
+        self.assertEqual(MatchSeat.objects.count(), 0)
+
+    def test_joining_does_not_reset_an_existing_players_status(self):
+        """Tournament.add_player calls set_status(REGISTERED) on an existing row, so
+        calling it unconditionally would silently un-waitlist somebody an organizer had
+        removed."""
+        tournament, _group = self._stageless_group()
+        tp = TournamentPlayer.objects.create(
+            tournament=tournament, profile=self.newcomer,
+            status=TournamentPlayer.StatusChoices.WAITLIST)
+        ctx = di._join_context(self.GUILD_ID, self.THREAD_ID, None)
+        di._join_add_player(ctx, self.newcomer)
+        tp.refresh_from_db()
+        self.assertEqual(tp.status, TournamentPlayer.StatusChoices.WAITLIST)
+
+    def test_leave_succeeds_on_a_stage_less_tournament(self):
+        tournament, group = self._stageless_group()
+        ctx = di._join_context(self.GUILD_ID, self.THREAD_ID, None)
+        di._join_add_player(ctx, self.newcomer)
+        fresh = di._join_context(self.GUILD_ID, self.THREAD_ID, None)
+        di._join_remove_player(fresh, self.newcomer)
+        self.assertNotIn(self.newcomer, di._join_context(
+            self.GUILD_ID, self.THREAD_ID, None).roster)
+
+    def test_a_round_with_no_tournament_is_refused_not_crashed(self):
+        """get_tournament() returns None when neither FK is set."""
+        round_ = Round.objects.create(round_number=1)
+        PlayerGroup.objects.create(
+            round=round_, group_number=1, name="Orphan",
+            discord_thread=f"https://discord.com/channels/{self.GUILD_ID}/{self.THREAD_ID}")
+        ctx = di._join_context(self.GUILD_ID, self.THREAD_ID, None)
+        self.assertIsNone(ctx.tournament)
+        self.assertEqual(di._join_add_player(ctx, self.newcomer), di.JOIN_NOT_A_GAME)
+        self.assertFalse(di._roster_approver(self.designer, ctx))
+
+    def test_a_bare_channel_resolves_to_no_game(self):
+        ctx = di._join_context(self.GUILD_ID, "111000999888777", None)
+        self.assertFalse(ctx.ok)
+        body = json.loads(di._handle_join_game_command({
+            "_guild_id": self.GUILD_ID, "_channel_id": "111000999888777",
+            "_channel_name": None, "_author_id": "21",
+            "_author_username": "n", "_author": {"name": "N"}}).content)["data"]
+        self.assertEqual(body["flags"], di.EPHEMERAL)
+        self.assertIn(di.JOIN_NOT_A_GAME, body["content"])
+
+
+class TournamentModeratorFieldTests(TestCase):
+    """The two new Tournament fields and the guild-repoint wipe."""
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(guild_id="901000", name="A")
+        self.other = DiscordGuild.objects.create(guild_id="901001", name="B")
+        self.designer = Profile.objects.create(discord="fielddesigner", discord_id="30")
+
+    def test_repointing_the_guild_clears_both_new_ids(self):
+        """They are snowflakes belonging to the OLD guild: left set, the channel would
+        announce into a server the series is no longer tied to, and the role would let
+        a role in that server claim these matches."""
+        tournament = Tournament.objects.create(
+            name="Repoint", guild=self.guild, designer=self.designer,
+            match_moderator_role="123456789012345678",
+            moderators_channel="223456789012345678")
+        tournament.guild = self.other
+        tournament.save()
+        tournament.refresh_from_db()
+        self.assertIsNone(tournament.match_moderator_role)
+        self.assertIsNone(tournament.moderators_channel)
+
+    def test_the_clear_survives_a_partial_save(self):
+        """update_fields would otherwise drop these columns from the UPDATE and
+        silently discard the clear."""
+        tournament = Tournament.objects.create(
+            name="Partial", guild=self.guild, designer=self.designer,
+            match_moderator_role="123456789012345678",
+            moderators_channel="223456789012345678")
+        tournament.guild = self.other
+        tournament.save(update_fields=["guild"])
+        tournament.refresh_from_db()
+        self.assertIsNone(tournament.match_moderator_role)
+        self.assertIsNone(tournament.moderators_channel)
+
+    def test_moderators_channel_is_a_known_text_channel_field(self):
+        from the_warroom.services.channel_posts import _CHANNEL_FIELDS
+        self.assertIn("moderators_channel", _CHANNEL_FIELDS)
+        self.assertFalse(_CHANNEL_FIELDS["moderators_channel"])   # not a forum
+
+
+class JoinRosterSourceTests(ScheduleFixtureMixin, TestCase):
+    """A SEATS-ONLY group: PlayerGroup.tournament_players empty, roster from MatchSeat.
+
+    group_roster PREFERS the M2M and falls back to seats only WHILE the M2M is empty, so
+    a naive `.add(one_player)` flips the source and erases everybody else -- locking the
+    real players out of their own thread. The default fixture builds exactly this shape
+    (populate_group=False), which is why it needs its own class.
+    """
+
+    THREAD_ID = "555000111"
+
+    def setUp(self):
+        self.build()                       # seats only, M2M deliberately empty
+        self.second = Profile.objects.create(discord="second", discord_id="70")
+        second_tp = TournamentPlayer.objects.create(
+            tournament=self.tournament, profile=self.second)
+        second_sp = StageParticipant.objects.create(
+            stage=self.stage, tournament_player=second_tp)
+        MatchSeat.objects.create(
+            series=self.series, stage_participant=second_sp, seat_number=2)
+        self.newcomer = Profile.objects.create(discord="newbie", discord_id="71")
+
+    def _roster(self):
+        return di._join_context(self.guild.guild_id, self.THREAD_ID, None).roster
+
+    def test_the_fixture_really_is_seats_only(self):
+        self.assertEqual(self.group.tournament_players.count(), 0)
+        self.assertEqual(sorted(p.discord for p in self._roster()),
+                         ["player", "second"])
+
+    def test_joining_keeps_the_existing_players(self):
+        di._join_add_player(
+            di._join_context(self.guild.guild_id, self.THREAD_ID, None), self.newcomer)
+        self.assertEqual(sorted(p.discord for p in self._roster()),
+                         ["newbie", "player", "second"])
+
+    def test_leaving_keeps_the_other_players(self):
+        di._join_remove_player(
+            di._join_context(self.guild.guild_id, self.THREAD_ID, None), self.player)
+        self.assertEqual(sorted(p.discord for p in self._roster()), ["second"])
+
+    def test_substituting_keeps_the_other_players(self):
+        ctx = di._join_context(self.guild.guild_id, self.THREAD_ID, None)
+        freed = di._join_remove_player(ctx, self.player)
+        di._join_add_player(
+            di._join_context(self.guild.guild_id, self.THREAD_ID, None),
+            self.newcomer, seat_number=freed)
+        self.assertEqual(sorted(p.discord for p in self._roster()),
+                         ["newbie", "second"])
+
+
+class JoinDeadlineAndRaceTests(ScheduleFixtureMixin, TestCase):
+    """The 3-second interaction budget, and re-checks at click time."""
+
+    THREAD_ID = "555000111"
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.newcomer = Profile.objects.create(discord="racer", discord_id="80")
+        self.tournament.moderators_channel = "323456789012345678"
+        self.tournament.save(update_fields=["moderators_channel"])
+
+    def test_the_announcement_never_calls_discord_on_the_request_path(self):
+        """post_to_tournament_channel verifies channel ownership with a SYNCHRONOUS
+        Discord GET (10s timeout). Queue the whole call instead -- the verification is a
+        security boundary and still runs, just on the worker."""
+        ctx = di._join_context(self.guild.guild_id, self.THREAD_ID, None)
+        with mock.patch("the_databot.services.discordservice.requests.get") as get, \
+                mock.patch.object(di, "post_to_tournament_channel_task") as task:
+            di._announce_moderator_change(ctx, self.newcomer)
+        self.assertFalse(get.called)
+        self.assertTrue(task.delay.called)
+
+    def test_an_unset_channel_queues_nothing(self):
+        self.tournament.moderators_channel = None
+        self.tournament.save(update_fields=["moderators_channel"])
+        ctx = di._join_context(self.guild.guild_id, self.THREAD_ID, None)
+        with mock.patch.object(di, "post_to_tournament_channel_task") as task:
+            self.assertFalse(di._announce_moderator_change(ctx, self.newcomer))
+        self.assertFalse(task.delay.called)
+
+    def test_substitute_confirm_aborts_if_the_requester_joined_meanwhile(self):
+        """Otherwise the target is removed, the idempotent add is a no-op, and the game
+        silently loses a player while the message claims a substitution."""
+        di._join_add_player(
+            di._join_context(self.guild.guild_id, self.THREAD_ID, None), self.newcomer)
+        body = json.loads(di.COMPONENT_HANDLERS["join_sub_ok"]({
+            "guild_id": self.guild.guild_id, "channel_id": self.THREAD_ID,
+            "channel": {"name": None},
+            "member": {"user": {"id": self.group_mod.discord_id, "username": "m"}},
+            "data": {"custom_id": di.encode_custom_id(
+                "join_sub_ok", "80", self.player.pk, di.PICK_OPEN)},
+        }).content)["data"]
+        self.assertIn("already in this game", body["content"])
+        self.assertEqual(body["components"], [])
+        roster = di._join_context(self.guild.guild_id, self.THREAD_ID, None).roster
+        self.assertIn(self.player, roster)        # target NOT removed
+        self.assertIn(self.newcomer, roster)
+
+
+class JoinAutocompleteDispatchTests(ScheduleFixtureMixin, TestCase):
+    """The autocomplete branch has to stash the channel context too.
+
+    It used to build its handler data from the raw payload only, so a THREAD-AWARE
+    handler silently returned zero choices -- invisible to a test that calls the handler
+    directly with the keys pre-filled.
+    """
+
+    THREAD_ID = "555000111"
+
+    def setUp(self):
+        self.build(populate_group=True)
+
+    def test_roster_choices_arrive_through_the_real_dispatcher(self):
+        payload = {
+            "type": di.APPLICATION_COMMAND_AUTOCOMPLETE,
+            "guild_id": self.guild.guild_id, "channel_id": self.THREAD_ID,
+            "channel": {"name": self.group.name},
+            "member": {"user": {"id": "90", "username": "u"}},
+            "data": {"name": "join", "options": [
+                {"name": "as", "type": 2, "options": [
+                    {"name": "substitute", "type": 1, "options": [
+                        {"name": "player", "type": 3, "value": "",
+                         "focused": True}]}]}]},
+        }
+        request = RequestFactory().post(
+            "/discord/interactions/", data=json.dumps(payload),
+            content_type="application/json")
+        with mock.patch.object(di, "_verify_signature", return_value=True):
+            body = json.loads(di.discord_interactions(request).content)
+        self.assertEqual(body["type"], di.RESPONSE_AUTOCOMPLETE_RESULT)
+        self.assertIn(str(self.player.pk),
+                      [c["value"] for c in body["data"]["choices"]])

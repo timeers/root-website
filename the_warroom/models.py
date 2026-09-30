@@ -619,6 +619,20 @@ class Tournament(models.Model):
     # TournamentGuildAutomationForm.clean().
     game_threads_tag = models.CharField(max_length=32, blank=True, null=True,
                                         help_text='Optional forum tag applied to each created game thread. Required if the forum requires a tag.')
+    # Who may claim a match as its moderator with /join as moderator, and where that is
+    # announced. Both live here rather than on DiscordGuild because moderation is
+    # per-SERIES: one guild can run several, with different people trusted to moderate
+    # each. Edited from the Edit Guild page like the channels above, for the same reason
+    # -- they only mean anything with a guild linked and the bot in it.
+    match_moderator_role = models.CharField(
+        max_length=32, blank=True, null=True,
+        validators=[validate_discord_snowflake],
+        help_text='Discord role whose members can claim a match as its moderator with '
+                  '/join as moderator. Leave blank to require approval instead.')
+    moderators_channel = models.CharField(
+        max_length=32, blank=True, null=True,
+        validators=[validate_discord_snowflake],
+        help_text='Discord text channel where match moderator signups are announced.')
     thread_message = models.TextField(
         blank=True, null=True,
         help_text=(
@@ -1119,24 +1133,28 @@ class Tournament(models.Model):
             if old_image != new_image:
                 delete_old_image(old_image)
 
-            # SECURITY: the three channel ids are snowflakes belonging to the OLD guild.
-            # Leaving them set after a re-point (or an unlink) would announce this
-            # series' matches into a server it's no longer tied to. Nothing else clears
-            # them -- they're only writable from the Edit Guild page, which a moderator
-            # of the new guild can't use to clean up the old one's ids.
+            # SECURITY: these ids are snowflakes belonging to the OLD guild. Leaving
+            # them set after a re-point (or an unlink) would announce this series'
+            # matches into a server it's no longer tied to -- and, for the moderator
+            # role, would let a role in that other server claim these matches. Nothing
+            # else clears them -- they're only writable from the Edit Guild page, which
+            # a moderator of the new guild can't use to clean up the old one's ids.
             if old_instance.guild_id != self.guild_id:
                 self.results_channel = None
                 self.schedule_channel = None
                 self.game_threads_channel = None
                 # The tag belongs to the OLD guild's forum, so it goes with the channel.
                 self.game_threads_tag = None
+                self.match_moderator_role = None
+                self.moderators_channel = None
                 # update_fields would otherwise drop these columns from the UPDATE and
                 # silently discard the clear. Only needed when the caller named `guild`
                 # -- any other partial save can't have changed it.
                 if update_fields and 'guild' in update_fields:
                     kwargs['update_fields'] = list(update_fields) + [
                         'results_channel', 'schedule_channel', 'game_threads_channel',
-                        'game_threads_tag']
+                        'game_threads_tag', 'match_moderator_role',
+                        'moderators_channel']
 
         super().save(*args, **kwargs)
 
