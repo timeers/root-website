@@ -17531,6 +17531,41 @@ class JoinLeaveCommandShapeTests(TestCase):
     def test_registration_drops_the_parent_entirely_when_nothing_is_enabled(self):
         self.assertIsNone(self._join_def(dc.commands_for_guild([])))
 
+    def test_leave_resolves_its_group_to_the_full_path(self):
+        self.assertEqual(
+            di._subcommand({"name": "leave", "options": [
+                {"name": "as", "type": 2, "options": [
+                    {"name": "moderator", "type": 1}]}]}),
+            ("as moderator", []))
+
+    def test_leave_registration_filters_its_group_too(self):
+        """/leave gained an `as` group of its own; the same generic recursion has to
+        serve both parents."""
+        only_game = self._named(dc.commands_for_guild(["leave_game"]), "leave")
+        self.assertEqual([o["name"] for o in only_game["options"]], ["game"])
+
+        only_mod = self._named(dc.commands_for_guild(["leave_moderator"]), "leave")
+        self.assertEqual([o["name"] for o in only_mod["options"]], ["as"])
+        self.assertEqual([o["name"] for o in only_mod["options"][0]["options"]],
+                         ["moderator"])
+
+        self.assertIsNone(self._named(dc.commands_for_guild([]), "leave"))
+
+    def test_leave_subcommands_are_labelled_by_what_the_user_types(self):
+        labels = {n: l for n, l, _d in dc.whitelistable_commands()}
+        self.assertEqual(labels["leave_game"], "leave game")
+        self.assertEqual(labels["leave_moderator"], "leave as moderator")
+
+    def test_every_leave_handler_has_a_matching_whitelist_key(self):
+        """A subcommand registered with Discord but absent from the dispatch table is a
+        dead command; the reverse is a key nobody can switch on."""
+        registered = {
+            label.split(" ", 1)[1]
+            for label, _sub in dc._labelled_subcommands(
+                "leave", dc.LEAVE_SUBCOMMANDS)
+        }
+        self.assertEqual(registered, set(di.LEAVE_SUBCOMMAND_HANDLERS))
+
     def test_whitelist_key_never_reaches_discord(self):
         """Discord rejects unknown fields, and a NESTED leaf is just as visible to it
         as a top-level one."""
@@ -17785,9 +17820,26 @@ class JoinModeratorTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(self.group.group_moderator, self.volunteer)
 
     def test_the_group_moderator_may_NOT_confirm(self):
-        """This button decides who the group moderator IS, so the incumbent is not an
-        approver for it -- unlike the roster buttons."""
-        body = self._click("join_mod_ok", "91", self.group_mod.discord_id)["data"]
+        """DELIBERATE, and reported once as a bug: handing the role to someone else is an
+        organizer's call, so the incumbent is not an approver here -- even though they ARE
+        one for the roster buttons (_roster_approver) and may drop the role themselves
+        with /leave game. Both button halves enforce it.
+
+        The refusal has to say who CAN act, or it reads like a broken button to the
+        group moderator who just pressed it.
+        """
+        for action in ("join_mod_ok", "join_mod_no"):
+            body = self._click(action, "91", self.group_mod.discord_id)["data"]
+            self.assertEqual(body["flags"], di.EPHEMERAL, action)
+            self.assertIn("series organizer", body["content"], action)
+            self.group.refresh_from_db()
+            self.assertEqual(self.group.group_moderator, self.group_mod, action)
+
+    def test_a_seated_player_may_not_confirm_either(self):
+        """This check never consults Match.can_schedule, so the participant tier that
+        can_schedule grants when players may record their own matches does not leak in."""
+        self.assertTrue(self.tournament.players_can_record_matches())
+        body = self._click("join_mod_ok", "91", self.player.discord_id)["data"]
         self.assertEqual(body["flags"], di.EPHEMERAL)
         self.group.refresh_from_db()
         self.assertEqual(self.group.group_moderator, self.group_mod)
@@ -17859,7 +17911,11 @@ class JoinModeratorTests(ScheduleFixtureMixin, TestCase):
 
 
 class LeaveGameTests(ScheduleFixtureMixin, TestCase):
-    """/leave game: the moderator branch, the roster branch, and the refusal."""
+    """/leave game: the roster branch and the refusal. PLAYERS ONLY.
+
+    Stepping down as moderator moved to /leave as moderator (LeaveModeratorTests), so
+    nothing here may touch group_moderator except to prove it is left alone.
+    """
 
     THREAD_ID = "555000111"
 
@@ -17882,29 +17938,61 @@ class LeaveGameTests(ScheduleFixtureMixin, TestCase):
                 action, requester_id, 0, di.PICK_OPEN)},
         }).content)
 
-    def test_the_group_moderator_steps_down_immediately(self):
-        body = self._slash(self.group_mod.discord_id)["data"]
-        self.assertNotEqual(body.get("flags"), di.EPHEMERAL)
-        self.assertIn("has been removed as this game's moderator", body["content"])
-        # The roster did not change, so no player list.
-        self.assertNotIn("Players:", body["content"])
-        self.group.refresh_from_db()
-        self.assertIsNone(self.group.group_moderator)
+    def test_a_moderator_who_is_also_a_player_leaves_the_roster(self):
+        """The case the old dual command got wrong. It checked the moderator role FIRST
+        and returned, so this person could only ever step down -- and had to run the
+        command twice to reach the roster path they actually asked for.
 
-    def test_a_moderator_who_is_also_a_player_only_steps_down_first(self):
-        """Moderator check runs FIRST and returns: two explicit steps rather than
-        bundling two decisions into one click."""
+        Now /leave game means one thing: they get the leave REQUEST and keep moderating.
+        """
         self.group.group_moderator = self.player
         self.group.save(update_fields=["group_moderator"])
 
-        first = self._slash(self.player.discord_id)["data"]
-        self.assertIn("removed as this game's moderator", first["content"])
-        self.assertIn(self.player, di._join_context(
-            self.guild.guild_id, self.THREAD_ID, None).roster)
+        body = self._slash(self.player.discord_id)["data"]
+        self.assertIn("would like to leave this game", body["content"])
+        self.assertNotIn("removed as this game's moderator", body["content"])
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.group_moderator, self.player)
 
-        # Now no longer the moderator, so the same command takes the roster branch.
-        second = self._slash(self.player.discord_id)["data"]
-        self.assertIn("would like to leave this game", second["content"])
+    def test_confirming_that_request_still_leaves_them_moderating(self):
+        """The two concerns are fully independent: leaving the roster does not vacate
+        the moderator seat, and vice versa."""
+        self.group.group_moderator = self.player
+        self.group.save(update_fields=["group_moderator"])
+        self._slash(self.player.discord_id)
+
+        # Approved by the tournament DESIGNER: group_moderator now belongs to the person
+        # leaving, so self.group_mod no longer has any authority here.
+        self._click("leave_ok", self.player.discord_id, self.designer.discord_id)
+
+        roster = di._join_context(self.guild.guild_id, self.THREAD_ID, None).roster
+        self.assertNotIn(self.player, roster)
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.group_moderator, self.player)
+
+    def test_the_moderator_hint_appears_for_the_incumbent_off_the_roster(self):
+        """A moderator who is not playing would otherwise be told they are "not listed
+        as a participant" with no clue the other command exists."""
+        self.guild.enabled_commands = ["leave_game", "leave_moderator"]
+        self.guild.save(update_fields=["enabled_commands"])
+        body = self._slash(self.group_mod.discord_id)["data"]
+        self.assertEqual(body["flags"], di.EPHEMERAL)
+        self.assertIn("/leave as moderator", body["content"])
+
+    def test_the_moderator_hint_is_gated_on_the_whitelist(self):
+        self.guild.enabled_commands = ["leave_game"]
+        self.guild.save(update_fields=["enabled_commands"])
+        body = self._slash(self.group_mod.discord_id)["data"]
+        self.assertNotIn("/leave as moderator", body["content"])
+
+    def test_the_moderator_hint_is_not_shown_to_a_passer_by(self):
+        """Gated on BEING the incumbent -- a random user off the roster is not told how
+        to stop moderating a game they do not moderate."""
+        self.guild.enabled_commands = ["leave_game", "leave_moderator"]
+        self.guild.save(update_fields=["enabled_commands"])
+        body = self._slash(self.outsider.discord_id)["data"]
+        self.assertIn("not listed as a participant", body["content"])
+        self.assertNotIn("/leave as moderator", body["content"])
 
     def test_a_player_asks_for_approval_with_the_roster_shown(self):
         body = self._slash(self.player.discord_id)["data"]
@@ -18451,3 +18539,99 @@ class JoinSubstituteRosterSourceTests(TestCase):
                 series=self.series,
                 stage_participant__tournament_player__profile=self.newcomer
             ).seat_number, 7)
+
+
+class LeaveModeratorTests(ScheduleFixtureMixin, TestCase):
+    """/leave as moderator: the incumbent steps down, immediately and publicly.
+
+    Split out of /leave game so each command answers one question. Incumbent-only and
+    unapproved: dropping the role is your own business, which is the same reasoning that
+    stops the incumbent approving somebody ELSE taking it (JOIN_MOD_NOT_AUTHORIZED).
+    """
+
+    THREAD_ID = "555000111"
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.tournament.moderators_channel = "323456789012345678"
+        self.tournament.save(update_fields=["moderators_channel"])
+
+    def _slash(self, discord_id, channel_id=None):
+        return json.loads(di._handle_leave_moderator_command({
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": channel_id or self.THREAD_ID,
+            "_channel_name": None, "_author_id": discord_id,
+            "_author_username": "someone", "_author": {"name": "Someone"},
+        }).content)
+
+    def test_the_incumbent_steps_down_immediately(self):
+        with mock.patch.object(di, "post_to_tournament_channel_task"):
+            body = self._slash(self.group_mod.discord_id)["data"]
+        self.assertNotEqual(body.get("flags"), di.EPHEMERAL)   # public
+        self.assertIn("has been removed as this game's moderator", body["content"])
+        # The roster did not change, so no player list.
+        self.assertNotIn("Players:", body["content"])
+        self.group.refresh_from_db()
+        self.assertIsNone(self.group.group_moderator)
+
+    def test_it_announces_the_departure_without_pinging(self):
+        # on_commit, so the worker can never announce a row the transaction rolls back --
+        # which means the callback only runs when the commit is actually captured.
+        with mock.patch.object(di, "post_to_tournament_channel_task") as task, \
+                self.captureOnCommitCallbacks(execute=True):
+            self._slash(self.group_mod.discord_id)
+        self.assertTrue(task.delay.called)
+        _pk, field, content = task.delay.call_args[0]
+        self.assertEqual(field, "moderators_channel")
+        self.assertIn("is no longer moderating", content)
+        self.assertEqual(task.delay.call_args[1]["allowed_mentions"], {"parse": []})
+
+    def test_a_roster_player_who_is_not_the_moderator_is_refused(self):
+        body = self._slash(self.player.discord_id)["data"]
+        self.assertEqual(body["flags"], di.EPHEMERAL)
+        self.assertIn("not this game's moderator", body["content"])
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.group_moderator, self.group_mod)
+
+    def test_an_organizer_cannot_strip_someone_elses_role(self):
+        """Incumbent-only. An organizer reassigns from the website, or a volunteer
+        claims the role with /join as moderator."""
+        body = self._slash(self.designer.discord_id)["data"]
+        self.assertEqual(body["flags"], di.EPHEMERAL)
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.group_moderator, self.group_mod)
+
+    def test_a_user_with_no_profile_is_refused_and_creates_none(self):
+        before = Profile.objects.count()
+        body = self._slash("404404404404404404")["data"]
+        self.assertEqual(body["flags"], di.EPHEMERAL)
+        self.assertEqual(Profile.objects.count(), before)
+
+    def test_an_lfg_thread_is_refused(self):
+        """group_moderator lives on PlayerGroup; an LFG game has no equivalent field."""
+        LFGThread.objects.create(thread_id="771111222333", guild=self.guild)
+        body = self._slash(self.group_mod.discord_id,
+                           channel_id="771111222333")["data"]
+        self.assertEqual(body["flags"], di.EPHEMERAL)
+        self.assertIn("tournament match's thread", body["content"])
+
+    def test_a_group_with_no_series_can_still_be_left(self):
+        """Gated on the GROUP alone, unlike /join as moderator which also requires a
+        series. A PlayerGroup can hold a group_moderator with no MatchSeries at all, and
+        that moderator must still be able to step down -- claiming a role on a group with
+        no games is meaningless, releasing one somebody holds never is."""
+        round_ = Round.objects.create(stage=self.stage, round_number=2)
+        group = PlayerGroup.objects.create(
+            round=round_, group_number=1, name="Seriesless",
+            discord_thread=(f"https://discord.com/channels/{self.guild.guild_id}"
+                            f"/778888999000"),
+            group_moderator=self.group_mod)
+        ctx = di._join_context(self.guild.guild_id, "778888999000", None)
+        self.assertIsNone(ctx.series_id)
+
+        with mock.patch.object(di, "post_to_tournament_channel_task"):
+            body = self._slash(self.group_mod.discord_id,
+                               channel_id="778888999000")["data"]
+        self.assertIn("has been removed as this game's moderator", body["content"])
+        group.refresh_from_db()
+        self.assertIsNone(group.group_moderator)

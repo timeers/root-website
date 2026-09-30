@@ -446,15 +446,30 @@ JOIN_COMMAND = {
 
 LEAVE_COMMAND_NAME = "leave"
 
-# The complement of /join. A parent with one subcommand today rather than a flat
-# command, so a future "/leave as moderator" costs a subcommand instead of another
-# top-level slot -- the same reasoning /link's docstring gives.
+# The complement of /join, and it mirrors /join's shape: one concern per subcommand.
+# "/leave game" is for a PLAYER leaving the roster; "/leave as moderator" is for the
+# incumbent stepping down. They used to be one command that branched on who you happened
+# to be, which meant somebody who was both could only ever step down -- and had to run it
+# twice to actually leave the game.
 LEAVE_SUBCOMMANDS = [
     {
         "name": "game",
         "whitelist_key": "leave_game",
-        "description": "Request to leave this game or step down as this game's moderator",
+        "description": "Request to leave this game",
         "type": SUB_COMMAND,
+    },
+    {
+        "name": "as",
+        "description": "Stop filling a specific role in this game",
+        "type": SUB_COMMAND_GROUP,
+        "options": [
+            {
+                "name": "moderator",
+                "whitelist_key": "leave_moderator",
+                "description": "Step down as this game's moderator",
+                "type": SUB_COMMAND,
+            },
+        ],
     },
 ]
 
@@ -908,7 +923,8 @@ COMMAND_GROUPS = [
     ("Organization", ["availability", "schedule", "timestamp", "upcoming"]),
     ("Games", ["lfg", "adset", "seating", "pick",
                "boxscore_upload", "boxscore_paste", "boxscore_token",
-               "join_game", "join_substitute", "join_moderator", "leave_game",
+               "join_game", "join_substitute", "join_moderator",
+               "leave_game", "leave_moderator",
                "record", "rename"]),
     ("Randomize", ["draft", "random"]),
     ("Account", ["steam"]),

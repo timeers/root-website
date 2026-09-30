@@ -5063,6 +5063,20 @@ def _join_clicker(payload):
 JOIN_NOT_A_GAME = "I can't tell what game this thread is for."
 JOIN_NOT_AUTHORIZED = "Only a moderator or this game's host can decide that."
 
+# The moderator-request buttons admit a NARROWER set than the roster ones: a series
+# organizer or a server moderator, and deliberately NOT this group's current
+# group_moderator -- handing the role to someone else is an organizer's call, even though
+# the incumbent may drop it themselves with /leave game.
+#
+# The second line names who CAN act, because without it a correct refusal reads like a
+# broken button to the group moderator who just clicked it (which is exactly how it was
+# reported). Small text (-#) so the refusal itself stays prominent, matching
+# UNKNOWN_THREAD_MESSAGE.
+JOIN_MOD_NOT_AUTHORIZED = (
+    "Only a moderator of this series or server can decide that.\n"
+    "-# Ask a series organizer or a server moderator to confirm this request."
+)
+
 
 def _join_roster_lines(ctx, roster=None):
     """The "Players:" block every roster-change message carries.
@@ -5651,7 +5665,7 @@ def _handle_join_mod_confirm(payload):
         (guild is not None and can_moderate_guild(approver, guild))
         or tournament.has_permission(approver))
     if not allowed:
-        return _ephemeral("Only a moderator of this series or server can decide that.")
+        return _ephemeral(JOIN_MOD_NOT_AUTHORIZED)
 
     _action, args = decode_custom_id(payload["data"].get("custom_id", ""))
     requester_id = args[0] if args else None
@@ -5687,7 +5701,7 @@ def _handle_join_mod_cancel(payload):
         (guild is not None and can_moderate_guild(approver, guild))
         or tournament.has_permission(approver))
     if not allowed:
-        return _ephemeral("Only a moderator of this series or server can decide that.")
+        return _ephemeral(JOIN_MOD_NOT_AUTHORIZED)
 
     _action, args = decode_custom_id(payload["data"].get("custom_id", ""))
     who = f"<@{args[0]}>" if args else "that player"
@@ -5703,11 +5717,16 @@ LEAVE_EMPTIED_NOTICE = ("-# This game now has no players listed. Anyone in the t
 
 
 def _handle_leave_game_command(data):
-    """/leave game: request to leave this game or step down as this game's moderator.
+    """/leave game: ask the game's approvers to take you off its roster.
 
-    Moderator FIRST, and it returns: someone who is both the group moderator and a
-    player gets only the moderator clear, and can run the command again to then request
-    to leave as a player. Two explicit steps rather than bundling two decisions.
+    PLAYERS ONLY. Stepping down as the game's moderator is /leave as moderator -- this
+    command does not touch group_moderator at all, so somebody who is both a player and
+    the moderator leaves the ROSTER here and keeps moderating. Running both commands, in
+    either order, ends with them off the roster and not moderating.
+
+    That split is deliberate. This used to branch on the moderator role FIRST and return,
+    so a player who happened to moderate could never reach the roster path on their first
+    try -- one command silently answering a question the caller never asked.
     """
     ctx = _join_context(data.get("_guild_id"), data.get("_channel_id"),
                         data.get("_channel_name"))
@@ -5723,22 +5742,6 @@ def _handle_leave_game_command(data):
     # None simply falls through to the "not a participant" branch below.
     profile = Profile.objects.filter(discord_id=str(requester_id)).first()
 
-    # Branch 1 is tournament-only: group_moderator lives on PlayerGroup and LFGThread
-    # has no equivalent field. In an LFG thread ctx.group is None, so this cannot match
-    # and the roster branch handles it -- an LFG game's nearest role is its host, which
-    # is not what this command manages.
-    if (profile and ctx.group is not None
-            and ctx.group.group_moderator_id == profile.pk):
-        group = ctx.group
-        with transaction.atomic():
-            group.group_moderator = None
-            group.save(update_fields=["group_moderator"])
-            transaction.on_commit(
-                lambda: _announce_moderator_change(ctx, profile, leaving=True))
-        # No player list: the roster did not change.
-        return _join_public(
-            f"<@{requester_id}> has been removed as this game's moderator")
-
     if profile and any(p.pk == profile.pk for p in ctx.roster):
         return _join_request(
             f"<@{requester_id}> would like to leave this game\n\n"
@@ -5747,12 +5750,76 @@ def _handle_leave_game_command(data):
 
     message = ("You are not listed as a participant in this game and therefore cannot "
                "request to leave.")
+    # Point at the command they probably DID mean. Both hints are gated on the guild's
+    # whitelist so neither advertises a command that is switched off here.
+    hints = []
     if _guild_allows(data.get("_guild_id"), "join_game"):
-        message += "\n\nIf you are trying to join this game use the `/join game` command."
+        hints.append("If you are trying to join this game use the `/join game` command.")
+    # Only for the INCUMBENT. This branch is reached by anyone off the roster, and
+    # telling a passer-by how to stop moderating a game they do not moderate is noise.
+    # The one place this command still reads group_moderator -- for guidance only, never
+    # to change what it does.
+    if (profile and ctx.group is not None
+            and ctx.group.group_moderator_id == profile.pk
+            and _guild_allows(data.get("_guild_id"), "leave_moderator")):
+        hints.append("If you are trying to stop moderating this game use the "
+                     "`/leave as moderator` command.")
+    if hints:
+        message += "\n\n" + "\n".join(hints)
     return _ephemeral(message)
 
 
-LEAVE_SUBCOMMAND_HANDLERS = {"game": _handle_leave_game_command}
+def _handle_leave_moderator_command(data):
+    """/leave as moderator: step down as this game's moderator.
+
+    Tournament matches only -- group_moderator lives on PlayerGroup and an LFG thread has
+    no equivalent field (its nearest role is `host`, which this does not manage).
+
+    The INCUMBENT only, and immediate, with no approval step: stepping down is your own
+    business. That is the same reasoning that keeps the incumbent from approving somebody
+    ELSE taking the role (see JOIN_MOD_NOT_AUTHORIZED) -- an organizer reassigns from the
+    website, or a volunteer claims it with /join as moderator.
+    """
+    ctx = _join_context(data.get("_guild_id"), data.get("_channel_id"),
+                        data.get("_channel_name"))
+    if not ctx.ok:
+        return _ephemeral(JOIN_NOT_A_GAME)
+
+    # Gate on the GROUP alone. /join as moderator additionally requires ctx.series_id,
+    # and the asymmetry is deliberate: a PlayerGroup can hold a group_moderator with no
+    # MatchSeries at all, and that moderator must still be able to step down. CLAIMING a
+    # role on a group with no games is meaningless; RELEASING one somebody already holds
+    # never is. (_announce_moderator_change handles series_id=None -- it finds no match,
+    # so it names the group and omits the thread link.)
+    if ctx.group is None:
+        return _ephemeral("This only works in a tournament match's thread.")
+
+    requester_id = data.get("_author_id")
+    if not requester_id:
+        return _ephemeral("I couldn't identify you, so I can't act for you. Try again.")
+
+    # A READ, for the same reason /leave game reads: no profile means no role to drop.
+    profile = Profile.objects.filter(discord_id=str(requester_id)).first()
+    if not profile or ctx.group.group_moderator_id != profile.pk:
+        return _ephemeral("You are not this game's moderator.")
+
+    group = ctx.group
+    with transaction.atomic():
+        group.group_moderator = None
+        group.save(update_fields=["group_moderator"])
+        transaction.on_commit(
+            lambda: _announce_moderator_change(ctx, profile, leaving=True))
+    # No player list: the roster did not change.
+    return _join_public(
+        f"<@{requester_id}> has been removed as this game's moderator")
+
+
+LEAVE_SUBCOMMAND_HANDLERS = {
+    "game": _handle_leave_game_command,
+    # Space-joined path, the key _subcommand returns for a SUB_COMMAND_GROUP -- same
+    # convention JOIN_SUBCOMMAND_HANDLERS uses for "as substitute" / "as moderator".
+    "as moderator": _handle_leave_moderator_command,
+}
 
 
 def _handle_leave_command(data):
