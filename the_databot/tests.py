@@ -38,7 +38,7 @@ from the_gatehouse.signals import user_logged_in_handler
 from the_databot.services import discord_commands as dc
 from the_databot.services.lfg_game import (
     rolled_components, boxscore_components, seated_profiles,
-    player_group_for_channel,
+    player_group_for_channel, group_roster,
     picked_factions_by_profile, unclaimed_picked_seats,
     captains_by_seat, undrafted_pick,
     lfg_option_querysets, FULL_CAPTAIN_COMPLEMENT,
@@ -17821,8 +17821,20 @@ class JoinModeratorTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(tournament_pk, self.tournament.pk)
         self.assertEqual(field, "moderators_channel")
         self.assertIn("has signed up to moderate", content)
-        self.assertEqual(task.delay.call_args[1]["allowed_mentions"],
-                         {"parse": ["users"]})
+
+    def test_the_announcement_pings_nobody(self):
+        """This channel is an organizers' log, and the moderator already saw the public
+        confirmation in the game's own thread. {"parse": []} still renders their NAME --
+        the key must stay present, since omitting it makes Discord notify everyone
+        mentioned."""
+        self._set_role()
+        for leaving in (False, True):
+            with mock.patch.object(di, "post_to_tournament_channel_task") as task:
+                di._announce_moderator_change(
+                    di._join_context(self.guild.guild_id, self.THREAD_ID, None),
+                    self.volunteer, leaving=leaving)
+            self.assertEqual(task.delay.call_args[1]["allowed_mentions"],
+                             {"parse": []}, f"leaving={leaving}")
 
     def test_departure_announcement_uses_the_leaving_wording(self):
         with mock.patch.object(di, "post_to_tournament_channel_task") as task:
@@ -18214,11 +18226,15 @@ class JoinRosterSourceTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(sorted(p.discord for p in self._roster()), ["second"])
 
     def test_substituting_keeps_the_other_players(self):
+        """ONE shared ctx across both writes, as _handle_join_sub_confirm does.
+
+        This used to re-resolve the context between the two calls, which the real handler
+        does not -- so it could not catch a backfill reading a STALE ctx.roster, and the
+        substituted player came back on a single-player match. Keep it shared.
+        """
         ctx = di._join_context(self.guild.guild_id, self.THREAD_ID, None)
         freed = di._join_remove_player(ctx, self.player)
-        di._join_add_player(
-            di._join_context(self.guild.guild_id, self.THREAD_ID, None),
-            self.newcomer, seat_number=freed)
+        di._join_add_player(ctx, self.newcomer, seat_number=freed)
         self.assertEqual(sorted(p.discord for p in self._roster()),
                          ["newbie", "second"])
 
@@ -18305,3 +18321,133 @@ class JoinAutocompleteDispatchTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(body["type"], di.RESPONSE_AUTOCOMPLETE_RESULT)
         self.assertIn(str(self.player.pk),
                       [c["value"] for c in body["data"]["choices"]])
+
+
+class JoinSubstituteRosterSourceTests(TestCase):
+    """The reported bug: substituting on a SINGLE-player tournament match left BOTH
+    players on the roster.
+
+    Driven through COMPONENT_HANDLERS["join_sub_ok"] rather than the writers directly,
+    because the defect lived in how the HANDLER shares one _JoinContext across the remove
+    and the add -- calling the writers with a freshly resolved context in between is
+    exactly the blind spot that hid it.
+
+    The website looked correct throughout: it reads MatchSeat, which was always updated
+    properly. group_roster prefers PlayerGroup.tournament_players and falls back to
+    MatchSeat only WHILE that M2M is empty, so a corrupted M2M shadows the correct seats
+    for every later read -- which is why substituting a second time also showed both.
+    """
+
+    GUILD_ID = "912000"
+    THREAD_ID = "667888"
+
+    def _build(self, player_count, populate_m2m=False):
+        guild = DiscordGuild.objects.create(guild_id=self.GUILD_ID, name="Sub Guild")
+        designer = Profile.objects.create(discord="subdesigner", discord_id="50")
+        tournament = Tournament.objects.create(
+            name="Sub Tournament", guild=guild, designer=designer)
+        stage = Stage.objects.create(tournament=tournament, name="S", order=1)
+        round_ = Round.objects.create(stage=stage, round_number=1)
+        self.group = PlayerGroup.objects.create(
+            round=round_, group_number=1, name="Sub Group",
+            discord_thread=(f"https://discord.com/channels/{self.GUILD_ID}/"
+                            f"{self.THREAD_ID}"),
+            group_moderator=designer)
+        self.series = MatchSeries.objects.create(
+            round=round_, player_group=self.group, number_of_games=1)
+        Match.objects.create(round=round_, series=self.series)
+
+        self.players = []
+        for index in range(player_count):
+            profile = Profile.objects.create(
+                discord=f"sub{index}", discord_id=str(60 + index))
+            tp = TournamentPlayer.objects.create(
+                tournament=tournament, profile=profile)
+            sp = StageParticipant.objects.create(stage=stage, tournament_player=tp)
+            MatchSeat.objects.create(
+                series=self.series, stage_participant=sp, seat_number=index + 1)
+            if populate_m2m:
+                self.group.tournament_players.add(tp)
+            self.players.append(profile)
+
+        self.designer = designer
+        self.newcomer = Profile.objects.create(discord="subnew", discord_id="79")
+
+    def _substitute_out(self, target):
+        """Click Confirm on a substitute request swapping `self.newcomer` in for
+        `target`, and return the reply body."""
+        return json.loads(di.COMPONENT_HANDLERS["join_sub_ok"]({
+            "guild_id": self.GUILD_ID, "channel_id": self.THREAD_ID,
+            "channel": {"name": self.group.name},
+            "member": {"user": {"id": self.designer.discord_id, "username": "mod"}},
+            "data": {"custom_id": di.encode_custom_id(
+                "join_sub_ok", self.newcomer.discord_id, target.pk, di.PICK_OPEN)},
+        }).content)["data"]
+
+    def _state(self):
+        self.group.refresh_from_db()
+        return {
+            "roster": sorted(p.discord for p in group_roster(
+                self.group, self.series.pk)),
+            "m2m": sorted(self.group.tournament_players.values_list(
+                "profile__discord", flat=True)),
+            "seats": sorted(MatchSeat.objects.filter(
+                series=self.series).values_list(
+                    "stage_participant__tournament_player__profile__discord",
+                    flat=True)),
+        }
+
+    def test_single_player_match_leaves_only_the_substitute(self):
+        """The exact reported case. All THREE sources must agree afterwards -- the bug
+        was the M2M disagreeing with the seats."""
+        self._build(1)
+        body = self._substitute_out(self.players[0])
+        self.assertEqual(self._state(),
+                         {"roster": ["subnew"], "m2m": ["subnew"],
+                          "seats": ["subnew"]})
+        # And the reply the players actually read.
+        players_block = body["content"].split("Players:")[1]
+        self.assertIn(f"<@{self.newcomer.discord_id}>", players_block)
+        self.assertNotIn(f"<@{self.players[0].discord_id}>", players_block)
+
+    def test_two_player_match_keeps_the_untouched_player(self):
+        """Passed before the fix too (the remove-backfill left the M2M non-empty, so the
+        add-backfill never re-armed) -- so this is the guard that the fix didn't break
+        the shape that already worked."""
+        self._build(2)
+        self._substitute_out(self.players[0])
+        self.assertEqual(self._state(),
+                         {"roster": ["sub1", "subnew"], "m2m": ["sub1", "subnew"],
+                          "seats": ["sub1", "subnew"]})
+
+    def test_an_already_populated_m2m_is_unaffected(self):
+        """The backfill must be a no-op when the M2M is already the roster source."""
+        self._build(2, populate_m2m=True)
+        self._substitute_out(self.players[0])
+        self.assertEqual(self._state(),
+                         {"roster": ["sub1", "subnew"], "m2m": ["sub1", "subnew"],
+                          "seats": ["sub1", "subnew"]})
+
+    def test_substituting_again_offers_only_the_current_roster(self):
+        """The user's second symptom: with a corrupted M2M shadowing the seats, the next
+        /join as substitute listed the player who had already been swapped out."""
+        self._build(1)
+        self._substitute_out(self.players[0])
+        choices = di._ac_join_substitute_player("", {
+            "_guild_id": self.GUILD_ID, "_channel_id": self.THREAD_ID,
+            "_channel_name": self.group.name})
+        self.assertEqual([c["value"] for c in choices], [str(self.newcomer.pk)])
+
+    def test_the_substitute_inherits_the_seat_number(self):
+        self._build(2)
+        seat = MatchSeat.objects.get(
+            series=self.series,
+            stage_participant__tournament_player__profile=self.players[0])
+        seat.seat_number = 7
+        seat.save(update_fields=["seat_number"])
+        self._substitute_out(self.players[0])
+        self.assertEqual(
+            MatchSeat.objects.get(
+                series=self.series,
+                stage_participant__tournament_player__profile=self.newcomer
+            ).seat_number, 7)

@@ -5085,6 +5085,35 @@ def _next_seat_number(existing):
     return (max(numbers) + 1) if numbers else 1
 
 
+def _join_backfill_m2m(group, tournament, series_id):
+    """Copy the seat-derived roster into tournament_players before it is mutated.
+
+    group_roster PREFERS the M2M and falls back to MatchSeat only WHILE the M2M is
+    empty, so the first .add() on an empty M2M flips the group off the seat fallback and
+    would drop everyone the seats knew about -- locking the real players out of their own
+    thread. Backfilling first makes that switch of source lossless.
+
+    Reads the roster LIVE rather than taking it from a _JoinContext. The substitute flow
+    removes and adds under ONE context, so a snapshot taken before the removal still
+    names the player just removed -- and backfilling from it RESURRECTED them, leaving
+    both players on a single-player match. The live read is the whole fix.
+
+    TournamentPlayer is imported here rather than at module scope because only part of
+    the_warroom.models is imported up top; both callers do the same.
+    """
+    from the_warroom.models import TournamentPlayer
+
+    if group.tournament_players.exists():
+        return
+    roster = group_roster(group, series_id)
+    if not roster:
+        return
+    existing = TournamentPlayer.objects.filter(
+        tournament=tournament, profile__in=[p.pk for p in roster])
+    if existing:
+        group.tournament_players.add(*existing)
+
+
 def _join_add_player(ctx, profile, seat_number=None):
     """Add `profile` to this game's roster. Returns an error string, or None on success.
 
@@ -5144,16 +5173,9 @@ def _join_add_player(ctx, profile, seat_number=None):
     if tp is None:
         return "I couldn't register you for this series. Try again."
 
-    # BACKFILL BEFORE ADDING. group_roster PREFERS tournament_players and falls back to
-    # MatchSeat only while that M2M is EMPTY, so adding one person to an empty M2M would
-    # flip the group off the seat fallback and erase everybody else from the roster --
-    # locking the real players out of their own thread. Carry the seat-derived roster
-    # into the M2M first, so the switch of source is lossless.
-    if not group.tournament_players.exists() and ctx.roster:
-        existing = TournamentPlayer.objects.filter(
-            tournament=tournament, profile__in=[p.pk for p in ctx.roster])
-        if existing:
-            group.tournament_players.add(*existing)
+    # Carry the seat-derived roster over BEFORE the first .add() flips group_roster off
+    # the seat fallback -- see _join_backfill_m2m.
+    _join_backfill_m2m(group, tournament, ctx.series_id)
     group.tournament_players.add(tp)
 
     # Seats hang off StageParticipant, which hangs off Stage -- a stage-less
@@ -5223,15 +5245,11 @@ def _join_remove_player(ctx, profile, seat_number=None):
     tp = TournamentPlayer.objects.filter(
         tournament=tournament, profile=profile).first()
     if tp is not None:
-        # Same backfill as _join_add_player, for the same reason: on a seats-only group
-        # the M2M is empty, and removing this one player would leave it empty too --
-        # so the seat fallback would keep reporting them until the seat delete below.
-        # Ordering it here keeps the roster correct at every intermediate step.
-        if not group.tournament_players.exists() and ctx.roster:
-            existing = TournamentPlayer.objects.filter(
-                tournament=tournament, profile__in=[p.pk for p in ctx.roster])
-            if existing:
-                group.tournament_players.add(*existing)
+        # Same backfill as _join_add_player. NOT load-bearing here -- the seat delete
+        # below shrinks the roster on its own -- but it keeps the M2M a faithful copy at
+        # every intermediate step instead of flipping source mid-operation. Removing it
+        # needs the two-player seats-only case re-checked.
+        _join_backfill_m2m(group, tournament, ctx.series_id)
         group.tournament_players.remove(tp)
         if ctx.series_id:
             seat = MatchSeat.objects.filter(
@@ -5406,9 +5424,12 @@ def _announce_moderator_change(ctx, profile, leaving=False):
     target = f"[{label}]({url})" if url else label
     post_to_tournament_channel_task.delay(
         tournament.pk, "moderators_channel", f"{mention} {verb} {target}",
-        # Required: without it Discord notifies every mention in the content. The
-        # moderator SHOULD learn their signup landed, so users are parsed.
-        allowed_mentions={"parse": ["users"]})
+        # {"parse": []} renders the mention as the person's NAME without notifying them.
+        # This channel is a log for organizers, and the moderator already saw the public
+        # confirmation in the game's own thread -- pinging them again here is noise.
+        # The key must still be PRESENT: omitting it makes Discord parse and notify every
+        # mention in the content (see post_to_tournament_channel's docstring).
+        allowed_mentions={"parse": []})
     return True
 
 
