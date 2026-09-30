@@ -15012,6 +15012,28 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
         self.assertIn("already recorded", data["content"])
         self.assertEqual(BoxScoreUploadToken.objects.count(), 0)
 
+    def test_a_token_can_be_minted_again_once_the_game_is_deleted(self):
+        """The reported bug, end to end.
+
+        The refusal is `game_id or status == RECORDED`, and only the game_id half
+        used to clear itself -- so deleting a recorded game left the thread stuck
+        refusing forever. Note the test above sets `game` WITHOUT the status, so
+        it never covered this.
+        """
+        game = Game.objects.create()
+        self.thread.game = game
+        self.thread.status = LFGThread.Status.RECORDED
+        self.thread.save(update_fields=["game", "status"])
+        self.assertIn("already recorded", self._run()["content"])
+
+        game.delete()
+
+        data = self._run()
+        self.assertNotIn("already recorded", data["content"])
+        self.assertIn("Paste this into the Tabletop Simulator uploader",
+                      data["content"])
+        self.assertEqual(BoxScoreUploadToken.objects.count(), 1)
+
     def test_the_token_subcommand_has_its_own_toggle(self):
         """A guild can offer the TTS token flow without the file upload."""
         self.assertIn("boxscore_token", dc.WHITELISTABLE)

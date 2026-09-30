@@ -5,6 +5,9 @@
 ### New Features
 - Auto submit games from TTS boxscore (beta)
 
+### Bug Fixes
+- Deleting a game lets its thread get a new boxscore token
+
 ## [1.13.11] - 2026-9-23 Boxscore and LFG Refinements
 
 ### New Features

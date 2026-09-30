@@ -5200,3 +5200,112 @@ class ImportBoxScoreSourceTests(TestCase):
         self.client.logout()
         response = self._post(box_score_text=json.dumps(self.DOC))
         self.assertNotEqual(response.status_code, 200)
+
+
+class GameDeleteUnwindsLFGThreadTests(TestCase):
+    """Deleting a game must leave its LFG thread usable again.
+
+    LFGThread.game is SET_NULL so the link clears itself, but `status` was only
+    ever SET to RECORDED -- never cleared -- which stranded the thread with no
+    game and a "recorded" status. /boxscore token then refused forever, and the
+    cleanup sweep counted the thread as finished.
+
+    Note the sibling receiver this mirrors (game_pre_delete_reevaluate_match,
+    which resets a Match) has no tests of its own; these cover the LFG half only.
+    """
+
+    def setUp(self):
+        self.designer = Profile.objects.create(discord="gddesigner",
+                                               discord_id="7900")
+        self.map = Map.objects.create(title="GD Map", slug="gd-map", clearings=12,
+                                      designer=self.designer, official=True,
+                                      status=StatusChoices.STABLE)
+        self.deck = Deck.objects.create(title="GD Deck", slug="gd-deck",
+                                        card_total=54, designer=self.designer,
+                                        official=True,
+                                        status=StatusChoices.STABLE)
+
+    def _game(self, final=True):
+        return Game.objects.create(map=self.map, deck=self.deck, final=final)
+
+    def _thread(self, game, status, thread_id="gd-thread"):
+        return LFGThread.objects.create(thread_id=thread_id, game=game,
+                                        status=status)
+
+    # ── the reported bug ──
+
+    def test_deleting_a_recorded_game_reopens_its_thread(self):
+        game = self._game()
+        thread = self._thread(game, LFGThread.Status.RECORDED)
+
+        game.delete()
+
+        thread.refresh_from_db()
+        self.assertIsNone(thread.game_id)
+        self.assertEqual(thread.status, LFGThread.Status.OPEN)
+
+    def test_the_reset_bumps_last_activity(self):
+        """Half the fix: the cleanup sweep keys its window off last_activity, so
+        a stale value would keep the thread eligible for pruning."""
+        game = self._game()
+        thread = self._thread(game, LFGThread.Status.RECORDED)
+        LFGThread.objects.filter(pk=thread.pk).update(
+            last_activity=timezone.now() - timedelta(days=200))
+        before = LFGThread.objects.get(pk=thread.pk).last_activity
+
+        game.delete()
+
+        thread.refresh_from_db()
+        self.assertGreater(thread.last_activity, before)
+
+    # ── what it must NOT touch ──
+
+    def test_a_cancelled_thread_is_not_reopened(self):
+        """CANCELLED records a human's decision, not a consequence of the game.
+
+        Defensive: nothing in the codebase writes this status today (the cleanup
+        sweep only reads it), so the test sets it by hand.
+        """
+        game = self._game()
+        thread = self._thread(game, LFGThread.Status.CANCELLED)
+
+        game.delete()
+
+        thread.refresh_from_db()
+        self.assertIsNone(thread.game_id)      # SET_NULL still applies
+        self.assertEqual(thread.status, LFGThread.Status.CANCELLED)
+
+    def test_deleting_a_draft_game_leaves_the_thread_open(self):
+        """A save-progress draft links the thread but leaves it OPEN, so there is
+        nothing to repair -- which is why the receiver filters on RECORDED."""
+        game = self._game(final=False)
+        thread = self._thread(game, LFGThread.Status.OPEN)
+
+        game.delete()
+
+        thread.refresh_from_db()
+        self.assertIsNone(thread.game_id)
+        self.assertEqual(thread.status, LFGThread.Status.OPEN)
+
+    def test_deleting_a_game_with_no_thread_does_not_raise(self):
+        self._game().delete()          # must not raise
+        self.assertEqual(Game.objects.count(), 0)
+
+    # ── the second consequence ──
+
+    def test_the_cleanup_sweep_no_longer_treats_it_as_finished(self):
+        """A RECORDED thread is pruned after recorded_after_days (30); an OPEN one
+        only after stale_after_days (180). A thread whose game was deleted is an
+        active game again and must get the long window."""
+        from the_databot.tasks import cleanup_stale_lfg_threads
+
+        game = self._game()
+        thread = self._thread(game, LFGThread.Status.RECORDED)
+        # Old enough for the "done" window, nowhere near the "abandoned" one.
+        LFGThread.objects.filter(pk=thread.pk).update(
+            last_activity=timezone.now() - timedelta(days=60))
+        self.assertEqual(cleanup_stale_lfg_threads(dry_run=True), 1)
+
+        game.delete()
+
+        self.assertEqual(cleanup_stale_lfg_threads(dry_run=True), 0)
