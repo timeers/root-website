@@ -62,6 +62,37 @@ _REMINDER_CATCHUP_WINDOW = timedelta(minutes=30)
     retry_kwargs={'max_retries': 3, 'countdown': 30},
     retry_backoff=True,
 )
+def post_to_tournament_channel_task(tournament_id, field, content,
+                                    allowed_mentions=None):
+    """post_to_tournament_channel off the request path entirely.
+
+    That function defers the SEND to post_channel_message_task, but its
+    guild-ownership check (resolve_tournament_channel -> channel_belongs_to_guild)
+    is a SYNCHRONOUS Discord GET with a 10s timeout. Called from an interaction
+    handler -- even from transaction.on_commit -- that GET runs inside the request and
+    can blow Discord's 3-second deadline while holding a WSGI worker, which is the
+    failure mode behind a previous site outage. Moving the whole call here keeps the
+    verification (it is a security boundary, so it must still happen) without ever
+    spending request time on it.
+
+    Takes an ID rather than the instance: a task argument has to serialize, and the row
+    may be re-read by the time the worker picks it up.
+    """
+    from the_warroom.models import Tournament
+    from the_warroom.services.channel_posts import post_to_tournament_channel
+
+    tournament = Tournament.objects.filter(pk=tournament_id).first()
+    if tournament is None:
+        return
+    post_to_tournament_channel(tournament, field, content,
+                               allowed_mentions=allowed_mentions)
+
+
+@shared_task(
+    autoretry_for=(Exception,),
+    retry_kwargs={'max_retries': 3, 'countdown': 30},
+    retry_backoff=True,
+)
 def post_channel_message_task(channel_id, content, allowed_mentions=None):
     """Post a message into a channel/thread off the request path (the underlying
     call blocks for up to 5s, which an interaction response can't afford).

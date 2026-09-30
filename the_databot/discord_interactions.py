@@ -55,6 +55,7 @@ from the_databot.tasks import (
     notify_schedule_poll_task,
     create_lfg_thread_task, record_lfg_components_task, post_interaction_followup_task,
     post_channel_message_task, post_schedule_proposal_task,
+    post_to_tournament_channel_task,
     strip_schedule_proposal_messages_task, post_boxscore_prompt_task,
     post_boxscore_result_task,
 )
@@ -239,12 +240,26 @@ def _subcommand(data):
     Matching on type == 1 rather than "the first option" keeps this correct if a
     subcommand-style command ever gains a plain option, and it naturally ignores the
     dispatcher's "_"-prefixed keys, which live at the top level of `data`, not in
-    options. A SUB_COMMAND_GROUP (type 2) is not used anywhere here and would return
-    (None, []), degrading to an "unknown" reply rather than a crash.
+    options.
+
+    A SUB_COMMAND_GROUP (type 2) nests one level deeper, and its name is returned
+    SPACE-JOINED with the leaf's -- "as substitute" for /join as substitute. That makes
+    the dispatcher's composite key read "join as substitute", which is both what the
+    user types and what AUTOCOMPLETE_HANDLERS / ROSTER_GUARDED_COMMANDS are keyed by.
+    Returning the bare leaf would collide across groups (two groups may each have a
+    "moderator") and would name a command nobody can run.
+
+    The type-1 branch is checked FIRST and is unchanged, so every existing
+    subcommand-style command (/lookup, /link, /boxscore) behaves exactly as before.
     """
     for opt in data.get("options") or ():
         if opt.get("type") == 1:
             return opt.get("name"), (opt.get("options") or [])
+        if opt.get("type") == 2:
+            for sub in opt.get("options") or ():
+                if sub.get("type") == 1:
+                    return (f"{opt.get('name')} {sub.get('name')}",
+                            (sub.get("options") or []))
     return None, []
 
 
@@ -4787,6 +4802,14 @@ def _pick_roster(thread, channel_id, channel_name=None, guild_id=None):
 # gating it would block a moderator fixing a mis-recorded game without actually
 # protecting anything. /rename keeps its own host-only rule.
 #
+# /join and /leave are deliberately absent, and must stay absent. /join is run BY
+# DEFINITION by someone not on the roster, so the guard would refuse every legitimate
+# use; /leave does its own roster check and answers a non-participant with a tailored
+# message (plus a /join game pointer), which this guard's blanket refusal would
+# pre-empt. Neither writes anything until an authorized person presses Confirm.
+# NOTE the dispatcher checks both the bare name and "<parent> <sub>", so neither
+# "join"/"leave" nor any of their subcommand keys may appear here.
+#
 # Two forms are accepted, and they mean different things:
 #   "command"             -- guards the command AND every subcommand it has
 #   "command subcommand"  -- guards just that one, so siblings can differ
@@ -4903,6 +4926,860 @@ def _thread_staff_override(profile, group, guild_id):
         if match and match.can_schedule(profile):
             return True
     return False
+
+
+# ── /join and /leave ────────────────────────────────────────────────────────────
+# Roster changes asked for from inside a game's thread. Both commands resolve their
+# game the way /record does -- from the channel -- and share one context object so a
+# BUTTON CLICK re-derives everything from the database rather than parsing it back out
+# of the message it is attached to.
+
+class _JoinContext:
+    """What a /join or /leave handler needs to know about the thread it was used in.
+
+    Built by _join_context from either a slash `data` dict or a component payload, so
+    the two paths cannot disagree about which game a thread belongs to.
+
+    `is_lfg` is the discriminator /record uses (LFGThread with no series). A tournament
+    group thread has `group` set instead; a bare channel has neither and `ok` is False.
+    """
+
+    __slots__ = ("thread", "group", "series_id", "roster", "guild_id", "channel_id",
+                 "channel_name")
+
+    def __init__(self, thread, group, series_id, roster, guild_id, channel_id,
+                 channel_name):
+        self.thread = thread
+        self.group = group
+        self.series_id = series_id
+        self.roster = roster
+        self.guild_id = guild_id
+        self.channel_id = channel_id
+        self.channel_name = channel_name
+
+    @property
+    def is_lfg(self):
+        return self.thread is not None and not self.thread.series_id
+
+    @property
+    def ok(self):
+        """Whether this channel resolves to a game at all."""
+        return self.is_lfg or self.group is not None
+
+    @property
+    def tournament(self):
+        """The tournament behind a group thread, or None.
+
+        Resolved from the GROUP's round, never from a Match: _match_for_thread only
+        returns SCHEDULABLE matches, so it answers None once a series is fully
+        recorded -- and a roster edit must still work then. Round.tournament and
+        Round.stage are BOTH nullable, so get_tournament() can legitimately return
+        None; every caller must handle that.
+        """
+        if self.group is None:
+            return None
+        return self.group.round.get_tournament()
+
+
+def _join_context(guild_id, channel_id, channel_name=None):
+    """Resolve this channel's game once, for both /join and /leave.
+
+    Mirrors /record's resolution order: an LFGThread whose series_id is unset is an LFG
+    game; otherwise look for a tournament player group. The roster comes from
+    _thread_roster, so "who is in this game" has exactly one definition across the bot.
+
+    `channel_name` enables player_group_for_channel's title fallback (and the thread
+    LINK it writes on a hit). Component handlers should pass it too -- the interaction
+    payload carries `channel.name` on a click just as it does on a command.
+    """
+    thread = _lfg_thread_for_channel(channel_id)
+    roster, group = _thread_roster(thread, channel_id, channel_name, guild_id)
+    # _thread_roster only hands back a group for the tournament branch; resolve it
+    # directly when the thread is a series thread with an empty roster.
+    if group is None and (thread is None or thread.series_id):
+        group = player_group_for_channel(channel_id, channel_name, guild_id)
+    return _JoinContext(
+        thread=thread, group=group,
+        series_id=group_series_id(group) if group else None,
+        roster=roster, guild_id=guild_id, channel_id=channel_id,
+        channel_name=channel_name)
+
+
+def _join_context_from_payload(payload):
+    """_join_context for a component click. The dispatcher only stashes _channel_* for
+    SLASH commands, so a button payload assembles the same three values itself -- the
+    same thing _adset_component_data does."""
+    channel = payload.get("channel") or {}
+    return _join_context(
+        payload.get("guild_id"), payload.get("channel_id"), channel.get("name"))
+
+
+def _roster_approver(profile, ctx):
+    """Whether `profile` may approve a roster change in `ctx`'s game.
+
+    NOT _thread_staff_override. That one answers a different question ("may a non-player
+    ACT here?") and reaches its tournament tiers through Match.can_schedule, which also
+    admits a merely SEATED PARTICIPANT when the tournament lets players record their own
+    matches. Right for scheduling -- a player may set their own match's time -- and wrong
+    here: it would let any player in the game approve someone else onto the roster, or
+    approve their own substitute out. Excluding that tier means not calling can_schedule
+    at all, so this is a separate function rather than a flag on that one.
+
+    The tiers, widest first:
+      * guild moderator or site admin
+      * the LFG thread's host (folded in here, unlike _thread_staff_override, which
+        takes a group and never sees a thread -- so its callers each check the host
+        themselves)
+      * the player group's group_moderator
+      * the tournament's designer or moderators (has_permission also covers admins)
+    """
+    # Lazy + cross-app, for the reason _thread_staff_override documents.
+    from the_gatehouse.views import can_moderate_guild
+
+    if not profile or not profile.pk:
+        return False
+    if ctx.guild_id:
+        guild = DiscordGuild.objects.filter(guild_id=str(ctx.guild_id)).first()
+        if guild and can_moderate_guild(profile, guild):
+            return True
+    if ctx.thread is not None and ctx.thread.host_id == profile.pk:
+        return True
+    if ctx.group is not None and ctx.group.group_moderator_id == profile.pk:
+        return True
+    tournament = ctx.tournament
+    return bool(tournament and tournament.has_permission(profile))
+
+
+def _join_clicker(payload):
+    """The clicking user's Profile, or None. A READ -- never
+    ensure_profile_from_discord, which creates. Someone with no profile cannot be a
+    host, group moderator or organizer, so there would be nothing to create it for."""
+    discord_id = _interaction_user_id(payload)
+    if not discord_id:
+        return None
+    return Profile.objects.filter(discord_id=str(discord_id)).first()
+
+
+JOIN_NOT_A_GAME = "I can't tell what game this thread is for."
+JOIN_NOT_AUTHORIZED = "Only a moderator or this game's host can decide that."
+
+
+def _join_roster_lines(ctx, roster=None):
+    """The "Players:" block every roster-change message carries.
+
+    `roster` overrides ctx.roster for a caller that has just written and wants the NEW
+    list. Names render as mentions where we know the snowflake (roster_name), but every
+    caller sends allowed_mentions {"parse": []} so listing a roster never pings it.
+    """
+    people = ctx.roster if roster is None else roster
+    lines = ["Players:"]
+    lines += [roster_name(p, nudge=False) for p in people] or ["—"]
+    return "\n".join(lines)
+
+
+def _next_seat_number(existing):
+    """1-based next seat, following the site's rule (the_warroom/views.py ~8515):
+    max existing + 1, else 1. `existing` is an iterable of seat_numbers, which may
+    contain None (MatchSeat.seat_number is nullable)."""
+    numbers = [n for n in existing if n is not None]
+    return (max(numbers) + 1) if numbers else 1
+
+
+def _join_add_player(ctx, profile, seat_number=None):
+    """Add `profile` to this game's roster. Returns an error string, or None on success.
+
+    Writes the same tables the site writes, so the bot and the bracket page agree:
+      * LFG game  -> LFGThread.players (+ a seat, when the thread has a real seating)
+      * tournament -> TournamentPlayer, StageParticipant, PlayerGroup.tournament_players
+                      and MatchSeat, mirroring the registration sequence in
+                      the_warroom/views.py:8877-8906
+
+    `seat_number` seats them in a SPECIFIC position -- the substitute flow passes the
+    number it just freed, so the replacement inherits the leaver's place in the draft
+    order. None appends after the last seat.
+    """
+    from the_warroom.models import (
+        MatchSeat, StageParticipant, TournamentPlayer,
+    )
+    from the_databot.models import LFGSeat
+
+    if ctx.is_lfg:
+        thread = ctx.thread
+        thread.players.add(profile)
+        # An established seating must grow with the roster: in LFG mode the record
+        # form's row count comes from seated_profiles (the_warroom/views.py ~1367), so
+        # a joined player with no seat would be MISSING from the form entirely.
+        # APPEND rather than re-seat: seat order decides faction draft priority, and a
+        # reshuffle would revoke picks players already made.
+        if thread.seating_set:
+            seats = list(thread.seats.all())
+            if seats and not any(s.profile_id == profile.pk for s in seats):
+                taken = {s.seat_number for s in seats}
+                number = (seat_number if seat_number is not None
+                          and seat_number not in taken
+                          else _next_seat_number(s.seat_number for s in seats))
+                LFGSeat.objects.create(
+                    thread=thread, profile=profile, seat_number=number)
+        return None
+
+    group = ctx.group
+    tournament = ctx.tournament
+    if group is None or tournament is None:
+        return JOIN_NOT_A_GAME
+
+    stage = group.round.stage
+    if stage:
+        # Creates the TournamentPlayer AND StageParticipant if absent; idempotent
+        # when present, and (unlike Tournament.add_player) never touches status.
+        stage.add_player(profile)
+    elif not TournamentPlayer.objects.filter(
+            tournament=tournament, profile=profile).exists():
+        # Tournament.add_player calls tp.set_status(REGISTERED) on an EXISTING row, so
+        # calling it unconditionally would silently un-drop or un-waitlist somebody an
+        # organizer had removed. Only create when there is nothing there.
+        tournament.add_player(profile)
+
+    tp = TournamentPlayer.objects.filter(
+        tournament=tournament, profile=profile).first()
+    if tp is None:
+        return "I couldn't register you for this series. Try again."
+
+    # BACKFILL BEFORE ADDING. group_roster PREFERS tournament_players and falls back to
+    # MatchSeat only while that M2M is EMPTY, so adding one person to an empty M2M would
+    # flip the group off the seat fallback and erase everybody else from the roster --
+    # locking the real players out of their own thread. Carry the seat-derived roster
+    # into the M2M first, so the switch of source is lossless.
+    if not group.tournament_players.exists() and ctx.roster:
+        existing = TournamentPlayer.objects.filter(
+            tournament=tournament, profile__in=[p.pk for p in ctx.roster])
+        if existing:
+            group.tournament_players.add(*existing)
+    group.tournament_players.add(tp)
+
+    # Seats hang off StageParticipant, which hangs off Stage -- a stage-less
+    # tournament has no seat concept at all.
+    if stage and ctx.series_id:
+        # .first(), not .get(): (stage, tournament_player) has no unique constraint and
+        # duplicates exist -- see the dedupe_stage_participants management command.
+        sp = (StageParticipant.objects
+              .filter(stage=stage, tournament_player=tp).order_by("id").first())
+        if sp:
+            # select_for_update while reading the numbers: MatchSeat has NO unique
+            # constraint, so two concurrent confirms would otherwise both compute the
+            # same next seat and create a duplicate.
+            seats = list(MatchSeat.objects.select_for_update()
+                         .filter(series_id=ctx.series_id))
+            if not any(s.stage_participant_id == sp.pk for s in seats):
+                taken = {s.seat_number for s in seats}
+                number = (seat_number if seat_number is not None
+                          and seat_number not in taken
+                          else _next_seat_number(s.seat_number for s in seats))
+                MatchSeat.objects.create(
+                    series_id=ctx.series_id, stage_participant=sp,
+                    seat_number=number)
+
+    # Availability metrics are only meaningful for a stage-based bracket, and
+    # recalculate_overlap() dereferences round.stage unguarded (models.py ~3059), so it
+    # would raise AttributeError on a stage-less tournament.
+    if group.round.stage:
+        group.recalculate_overlap()
+    return None
+
+
+def _join_remove_player(ctx, profile, seat_number=None):
+    """Remove `profile` from this game's roster. Returns the freed seat number, if any.
+
+    The inverse of _join_add_player, and deliberately "this game only": a tournament
+    player keeps their TournamentPlayer and StageParticipant rows, so they stay in the
+    series and can play other matches.
+
+    `seat_number` is unused on the way in -- it is what the caller gets BACK, so a
+    substitute can seat the replacement in the leaver's position.
+    """
+    from the_warroom.models import MatchSeat, TournamentPlayer
+
+    if ctx.is_lfg:
+        thread = ctx.thread
+        thread.players.remove(profile)
+        seat = thread.seats.filter(profile=profile).first()
+        if seat:
+            seat_number = seat.seat_number
+            # DELETE rather than blank the profile: a profile-less seat renders as
+            # "Player N" (seat_label) and would leave a phantom row on the record form.
+            # Survivors are NOT renumbered -- LFGSeat has UniqueConstraint(thread,
+            # seat_number), so an in-place renumber would collide mid-loop, and nothing
+            # requires the numbers to be contiguous.
+            seat.delete()
+        return seat_number
+
+    group = ctx.group
+    tournament = ctx.tournament
+    if group is None or tournament is None:
+        return seat_number
+
+    # BOTH writes are needed and either may be a no-op: group_roster prefers
+    # tournament_players and falls back to MatchSeat only when that M2M is empty, so
+    # doing just one can leave the player still on the roster.
+    tp = TournamentPlayer.objects.filter(
+        tournament=tournament, profile=profile).first()
+    if tp is not None:
+        # Same backfill as _join_add_player, for the same reason: on a seats-only group
+        # the M2M is empty, and removing this one player would leave it empty too --
+        # so the seat fallback would keep reporting them until the seat delete below.
+        # Ordering it here keeps the roster correct at every intermediate step.
+        if not group.tournament_players.exists() and ctx.roster:
+            existing = TournamentPlayer.objects.filter(
+                tournament=tournament, profile__in=[p.pk for p in ctx.roster])
+            if existing:
+                group.tournament_players.add(*existing)
+        group.tournament_players.remove(tp)
+        if ctx.series_id:
+            seat = MatchSeat.objects.filter(
+                series_id=ctx.series_id,
+                stage_participant__tournament_player=tp).first()
+            if seat:
+                seat_number = seat.seat_number
+                seat.delete()
+    if group.round.stage:
+        group.recalculate_overlap()
+    return seat_number
+
+
+def _join_public(content):
+    """A public (non-ephemeral) reply that never pings anyone it names. Roster lists
+    render as mentions so people can be recognized, not notified."""
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {"content": content, "allowed_mentions": {"parse": []}},
+    })
+
+
+def _join_request(content, action_ok, action_no, requester_id, target_pk=0):
+    """A public approval request: `content` plus Confirm / Cancel.
+
+    Both custom_ids end in PICK_OPEN so the dispatcher's owner-lock stays OFF -- the
+    approver is by definition NOT the requester, and the lock admits exactly one
+    snowflake. Authorization happens in the handlers via _roster_approver, the same
+    escape hatch /lfg's ✖ Cancel and the schedule poll's Close button use.
+    """
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": {
+            "content": content,
+            "components": [action_row(
+                button("Confirm",
+                       encode_custom_id(action_ok, requester_id, target_pk, PICK_OPEN),
+                       style=STYLE_SUCCESS),
+                button("Cancel",
+                       encode_custom_id(action_no, requester_id, target_pk, PICK_OPEN),
+                       style=STYLE_DANGER),
+            )],
+            "allowed_mentions": {"parse": []},
+        },
+    })
+
+
+def _join_resolved(content):
+    """Edit an approval message to its outcome and STRIP the buttons, so a resolved
+    request can't be re-confirmed or flipped to cancelled afterwards."""
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": content, "components": [],
+                 "allowed_mentions": {"parse": []}},
+    })
+
+
+def _join_actor_name(payload_or_data, profile=None):
+    """How to name whoever acted, preferring their guild nickname then their Discord
+    display name -- what the thread's other readers recognize them by."""
+    if profile is not None and profile.discord_id:
+        return f"<@{profile.discord_id}>"
+    discord_id = (payload_or_data.get("_author_id")
+                  if isinstance(payload_or_data, dict) and "_author_id" in payload_or_data
+                  else _interaction_user_id(payload_or_data))
+    return f"<@{discord_id}>" if discord_id else "Someone"
+
+
+def _handle_join_game_command(data):
+    """/join game: request to be added to this game's roster."""
+    ctx = _join_context(data.get("_guild_id"), data.get("_channel_id"),
+                        data.get("_channel_name"))
+    if not ctx.ok:
+        return _ephemeral(JOIN_NOT_A_GAME)
+
+    requester_id = data.get("_author_id")
+    if not requester_id:
+        return _ephemeral("I couldn't identify you, so I can't ask for you. Try again.")
+
+    # ensure_profile_from_discord (a WRITE) is right here and wrong in /leave: joining
+    # is exactly how a first-time Discord user gets a profile.
+    profile = ensure_profile_from_discord(
+        requester_id, data.get("_author_username"),
+        (data.get("_author") or {}).get("name"))
+    if not profile:
+        return _ephemeral("I couldn't find or create your profile. Please try again.")
+    if any(p.pk == profile.pk for p in ctx.roster):
+        return _ephemeral("You're already in this game.")
+
+    who = f"<@{requester_id}>"
+    return _join_request(
+        f"{who} would like to join the game\n\n{_join_roster_lines(ctx)}",
+        "join_ok", "join_no", requester_id)
+
+
+def _handle_join_substitute_command(data):
+    """/join as substitute <player>: request to take a current player's place."""
+    ctx = _join_context(data.get("_guild_id"), data.get("_channel_id"),
+                        data.get("_channel_name"))
+    if not ctx.ok:
+        return _ephemeral(JOIN_NOT_A_GAME)
+    if not ctx.roster:
+        return _ephemeral("This game has no players listed yet, so there's nobody to "
+                          "substitute for. Try `/join game` instead.")
+
+    requester_id = data.get("_author_id")
+    if not requester_id:
+        return _ephemeral("I couldn't identify you, so I can't ask for you. Try again.")
+
+    # Never trust a value echoed back by the client: the option is autocompleted, but a
+    # user can type past the suggestions, so re-validate the pk against THIS roster.
+    raw = str(_get_option(data, "player") or "").strip()
+    target = next((p for p in ctx.roster if str(p.pk) == raw), None)
+    if target is None:
+        return _ephemeral("I couldn't find that player in this game. Pick one from the "
+                          "list the command offers.")
+
+    profile = ensure_profile_from_discord(
+        requester_id, data.get("_author_username"),
+        (data.get("_author") or {}).get("name"))
+    if not profile:
+        return _ephemeral("I couldn't find or create your profile. Please try again.")
+    if profile.pk == target.pk:
+        return _ephemeral("You're already in this game.")
+    if any(p.pk == profile.pk for p in ctx.roster):
+        return _ephemeral("You're already in this game, so you can't substitute in.")
+
+    who = f"<@{requester_id}>"
+    return _join_request(
+        f"{who} would like to substitute for {roster_name(target, nudge=False)} in "
+        f"this game\n\n{_join_roster_lines(ctx)}",
+        "join_sub_ok", "join_sub_no", requester_id, target.pk)
+
+
+def _announce_moderator_change(ctx, profile, leaving=False):
+    """Announce a moderator signup or departure in the tournament's moderators_channel.
+
+    Silent no-op when the channel is unset, the tournament has no guild, or the channel
+    can't be CONFIRMED to belong to it (resolve_tournament_channel fails closed) -- so
+    callers need no branch and the signup itself always succeeds.
+
+    Queued through post_to_tournament_channel_task rather than calling
+    post_to_tournament_channel here: that function's guild-ownership check is a
+    synchronous Discord GET (10s timeout), and this runs from an interaction handler
+    with a 3-second budget. The check still happens -- it is a security boundary -- just
+    on the worker.
+
+    Must be called from transaction.on_commit by a caller inside a transaction: the
+    worker could otherwise announce a row that then rolls back.
+    """
+    from the_warroom.services.channel_posts import game_thread_url
+
+    tournament = ctx.tournament
+    if tournament is None:
+        return False
+    # Cheap local check so an unconfigured channel costs no task at all.
+    if not (tournament.moderators_channel or "").strip():
+        return False
+
+    # ANY match of the series is enough -- game_thread_url only reads the player
+    # group's thread and the round, both shared across the series. Deliberately not
+    # _match_for_thread, which filters to schedulable matches and so answers None once
+    # every game is recorded, silently dropping the link.
+    match = (Match.objects.filter(series_id=ctx.series_id)
+             .order_by("match_number").first() if ctx.series_id else None)
+    url = game_thread_url(match=match, tournament=tournament) if match else None
+    label = ((ctx.group.name if ctx.group else None)
+             or (match.name if match else None) or "a game")
+    mention = (f"<@{profile.discord_id}>" if profile.discord_id
+               else (profile.display_name or "Someone"))
+    verb = "is no longer moderating" if leaving else "has signed up to moderate"
+    target = f"[{label}]({url})" if url else label
+    post_to_tournament_channel_task.delay(
+        tournament.pk, "moderators_channel", f"{mention} {verb} {target}",
+        # Required: without it Discord notifies every mention in the content. The
+        # moderator SHOULD learn their signup landed, so users are parsed.
+        allowed_mentions={"parse": ["users"]})
+    return True
+
+
+def _handle_join_moderator_command(data):
+    """/join as moderator: sign up to moderate this game.
+
+    Tournament matches only -- group_moderator lives on PlayerGroup and an LFG game has
+    no field to write a moderator into. With the tournament's match_moderator_role set,
+    a member holding that role is signed up outright; without the role they're refused;
+    with no role configured the request goes to a moderator for approval.
+    """
+    ctx = _join_context(data.get("_guild_id"), data.get("_channel_id"),
+                        data.get("_channel_name"))
+    if ctx.group is None or not ctx.series_id:
+        return _ephemeral("This only works in a tournament match's thread.")
+    tournament = ctx.tournament
+    if tournament is None:
+        return _ephemeral("I can't tell which series this game belongs to.")
+
+    requester_id = data.get("_author_id")
+    if not requester_id:
+        return _ephemeral("I couldn't identify you, so I can't sign you up. Try again.")
+
+    role_id = (tournament.match_moderator_role or "").strip()
+    if role_id:
+        # member.roles is resolved by Discord and arrives verified on the interaction,
+        # so no API call. str() both sides rather than trusting them to match.
+        held = {str(r) for r in (data.get("_member_roles") or [])}
+        if str(role_id) not in held:
+            # A role MENTION renders as the role's name client-side, so the refusal
+            # names the role without a get_guild_roles call -- which is a live Discord
+            # GET and would spend the 3-second interaction budget.
+            return _ephemeral(
+                f"You must have the <@&{role_id}> role to moderate a "
+                f"{tournament.name} game")
+
+        profile = ensure_profile_from_discord(
+            requester_id, data.get("_author_username"),
+            (data.get("_author") or {}).get("name"))
+        if not profile:
+            return _ephemeral("I couldn't find or create your profile. Try again.")
+
+        group = ctx.group
+        with transaction.atomic():
+            group.group_moderator = profile
+            group.save(update_fields=["group_moderator"])
+            transaction.on_commit(
+                lambda: _announce_moderator_change(ctx, profile))
+        return _join_public(f"<@{requester_id}> has signed up to moderate this game")
+
+    # No role configured -> approval required. No player list: a group moderator is not
+    # a roster entry, so showing one would imply the players changed.
+    return _join_request(
+        f"<@{requester_id}> would like to sign up to moderate this game",
+        "join_mod_ok", "join_mod_no", requester_id)
+
+
+JOIN_SUBCOMMAND_HANDLERS = {
+    "game": _handle_join_game_command,
+    "as substitute": _handle_join_substitute_command,
+    "as moderator": _handle_join_moderator_command,
+}
+
+
+def _handle_join_command(data):
+    """/join <sub>. Unwraps the subcommand payload the same way _handle_lookup_command
+    does -- see its docstring for why this rewrites `data` rather than passing it
+    through. The key is the SPACE-JOINED path for a subcommand group ("as moderator"),
+    which is what _subcommand returns."""
+    sub, options = _subcommand(data)
+    handler = JOIN_SUBCOMMAND_HANDLERS.get(sub)
+    if not handler:
+        # A stale registration -- removed in code but still live in a guild until its
+        # next sync -- lands here rather than raising.
+        return _ephemeral(f"Unknown join option: {sub}")
+    return handler({**data, "name": sub, "options": options})
+
+
+def _join_decision(payload):
+    """(ctx, approver, requester, target, error) shared by every Confirm/Cancel handler.
+
+    Re-derives EVERYTHING from the database rather than parsing the message it is
+    attached to: the roster may have changed since the request was posted. `error` is a
+    ready-to-return response when the click can't proceed.
+    """
+    ctx = _join_context_from_payload(payload)
+    if not ctx.ok:
+        return None, None, None, None, _ephemeral(JOIN_NOT_A_GAME)
+
+    approver = _join_clicker(payload)
+    if not _roster_approver(approver, ctx):
+        return ctx, None, None, None, _ephemeral(JOIN_NOT_AUTHORIZED)
+
+    _action, args = decode_custom_id(payload["data"].get("custom_id", ""))
+    requester_id = args[0] if args else None
+    target_pk = args[1] if len(args) > 1 else "0"
+    requester = (Profile.objects.filter(discord_id=str(requester_id)).first()
+                 if requester_id else None)
+    target = (Profile.objects.filter(pk=target_pk).first()
+              if target_pk and target_pk != "0" else None)
+    return ctx, approver, requester, target, None
+
+
+def _handle_join_confirm(payload):
+    """Confirm on /join game: add the requester to the roster. Self-authorizing."""
+    ctx, approver, requester, _target, error = _join_decision(payload)
+    if error:
+        return error
+
+    _action, args = decode_custom_id(payload["data"].get("custom_id", ""))
+    requester_id = args[0] if args else None
+    who = f"<@{requester_id}>" if requester_id else "That player"
+    if requester is None:
+        return _join_resolved(
+            f"{who} no longer has a profile, so they can't be added.")
+    if any(p.pk == requester.pk for p in ctx.roster):
+        return _join_resolved(f"{who} is already in this game.\n\n"
+                              f"{_join_roster_lines(ctx)}")
+
+    with transaction.atomic():
+        failure = _join_add_player(ctx, requester)
+    if failure:
+        return _join_resolved(failure)
+
+    fresh = _join_context(ctx.guild_id, ctx.channel_id, ctx.channel_name)
+    return _join_resolved(
+        f"{_join_actor_name(payload, approver)} has added {who} to this game\n\n"
+        f"{_join_roster_lines(fresh)}")
+
+
+def _handle_join_cancel(payload):
+    """Cancel on /join game. Self-authorizing; writes nothing."""
+    ctx, approver, _requester, _target, error = _join_decision(payload)
+    if error:
+        return error
+    _action, args = decode_custom_id(payload["data"].get("custom_id", ""))
+    who = f"<@{args[0]}>" if args else "that player"
+    return _join_resolved(
+        f"{_join_actor_name(payload, approver)} chose not to add {who} to this game\n\n"
+        f"{_join_roster_lines(ctx)}")
+
+
+def _handle_join_sub_confirm(payload):
+    """Confirm on /join as substitute: swap the requester in for the target.
+
+    The requester inherits the target's seat position -- that is what substituting
+    means -- so the removal is done first and its freed seat number reused.
+    """
+    ctx, approver, requester, target, error = _join_decision(payload)
+    if error:
+        return error
+
+    _action, args = decode_custom_id(payload["data"].get("custom_id", ""))
+    requester_id = args[0] if args else None
+    who = f"<@{requester_id}>" if requester_id else "That player"
+    if requester is None:
+        return _join_resolved(
+            f"{who} no longer has a profile, so they can't be added.")
+    if target is None:
+        return _join_resolved("That player is no longer in this game.\n\n"
+                              f"{_join_roster_lines(ctx)}")
+    if not any(p.pk == target.pk for p in ctx.roster):
+        return _join_resolved(
+            f"{roster_name(target, nudge=False)} is no longer in this game.\n\n"
+            f"{_join_roster_lines(ctx)}")
+    if any(p.pk == requester.pk for p in ctx.roster):
+        # They joined between the request and this click. The add below is idempotent,
+        # so proceeding would remove the target and add nobody -- the game would
+        # silently lose a player while this message claimed a substitution.
+        return _join_resolved(
+            f"{who} is already in this game, so there's nothing to substitute.\n\n"
+            f"{_join_roster_lines(ctx)}")
+
+    with transaction.atomic():
+        # Remove first, so the freed seat number can be handed to the replacement --
+        # the substitute takes the leaver's position in the draft order.
+        seat_number = _join_remove_player(ctx, target)
+        failure = _join_add_player(ctx, requester, seat_number=seat_number)
+    if failure:
+        return _join_resolved(failure)
+
+    fresh = _join_context(ctx.guild_id, ctx.channel_id, ctx.channel_name)
+    return _join_resolved(
+        f"{_join_actor_name(payload, approver)} substituted {who} for "
+        f"{roster_name(target, nudge=False)} in this game\n\n"
+        f"{_join_roster_lines(fresh)}")
+
+
+def _handle_join_sub_cancel(payload):
+    """Cancel on /join as substitute. Self-authorizing; writes nothing."""
+    ctx, approver, _requester, target, error = _join_decision(payload)
+    if error:
+        return error
+    _action, args = decode_custom_id(payload["data"].get("custom_id", ""))
+    who = f"<@{args[0]}>" if args else "that player"
+    whom = roster_name(target, nudge=False) if target else "that player"
+    return _join_resolved(
+        f"{_join_actor_name(payload, approver)} chose not to substitute {who} for "
+        f"{whom} in this game\n\n{_join_roster_lines(ctx)}")
+
+
+def _handle_join_mod_confirm(payload):
+    """Confirm on /join as moderator (the no-role-configured path).
+
+    NARROWER auth than the roster buttons: tournament and guild moderators only, never
+    the group_moderator -- this decides who THAT is.
+    """
+    from the_gatehouse.views import can_moderate_guild
+
+    ctx = _join_context_from_payload(payload)
+    tournament = ctx.tournament
+    if ctx.group is None or tournament is None:
+        return _ephemeral(JOIN_NOT_A_GAME)
+
+    approver = _join_clicker(payload)
+    guild = (DiscordGuild.objects.filter(guild_id=str(ctx.guild_id)).first()
+             if ctx.guild_id else None)
+    allowed = bool(approver) and (
+        (guild is not None and can_moderate_guild(approver, guild))
+        or tournament.has_permission(approver))
+    if not allowed:
+        return _ephemeral("Only a moderator of this series or server can decide that.")
+
+    _action, args = decode_custom_id(payload["data"].get("custom_id", ""))
+    requester_id = args[0] if args else None
+    requester = (Profile.objects.filter(discord_id=str(requester_id)).first()
+                 if requester_id else None)
+    who = f"<@{requester_id}>" if requester_id else "That player"
+    if requester is None:
+        return _join_resolved(
+            f"{who} no longer has a profile, so they can't moderate this game.")
+
+    group = ctx.group
+    with transaction.atomic():
+        group.group_moderator = requester
+        group.save(update_fields=["group_moderator"])
+        transaction.on_commit(lambda: _announce_moderator_change(ctx, requester))
+    return _join_resolved(
+        f"{_join_actor_name(payload, approver)} has added {who} as this game's moderator")
+
+
+def _handle_join_mod_cancel(payload):
+    """Cancel on /join as moderator. Same narrow auth as the confirm."""
+    from the_gatehouse.views import can_moderate_guild
+
+    ctx = _join_context_from_payload(payload)
+    tournament = ctx.tournament
+    if ctx.group is None or tournament is None:
+        return _ephemeral(JOIN_NOT_A_GAME)
+
+    approver = _join_clicker(payload)
+    guild = (DiscordGuild.objects.filter(guild_id=str(ctx.guild_id)).first()
+             if ctx.guild_id else None)
+    allowed = bool(approver) and (
+        (guild is not None and can_moderate_guild(approver, guild))
+        or tournament.has_permission(approver))
+    if not allowed:
+        return _ephemeral("Only a moderator of this series or server can decide that.")
+
+    _action, args = decode_custom_id(payload["data"].get("custom_id", ""))
+    who = f"<@{args[0]}>" if args else "that player"
+    return _join_resolved(
+        f"{_join_actor_name(payload, approver)} rejected {who}'s request to moderate "
+        "this game")
+
+
+# Small text (-#) so the main outcome stays prominent, the same way
+# UNKNOWN_THREAD_MESSAGE marks its guidance.
+LEAVE_EMPTIED_NOTICE = ("-# This game now has no players listed. Anyone in the thread "
+                        "can set it up again.")
+
+
+def _handle_leave_game_command(data):
+    """/leave game: request to leave this game or step down as this game's moderator.
+
+    Moderator FIRST, and it returns: someone who is both the group moderator and a
+    player gets only the moderator clear, and can run the command again to then request
+    to leave as a player. Two explicit steps rather than bundling two decisions.
+    """
+    ctx = _join_context(data.get("_guild_id"), data.get("_channel_id"),
+                        data.get("_channel_name"))
+    if not ctx.ok:
+        return _ephemeral(JOIN_NOT_A_GAME)
+
+    requester_id = data.get("_author_id")
+    if not requester_id:
+        return _ephemeral("I couldn't identify you, so I can't act for you. Try again.")
+
+    # A READ, never ensure_profile_from_discord: someone with no profile cannot be on a
+    # roster, so creating one just to remove them from nothing is pure side effect.
+    # None simply falls through to the "not a participant" branch below.
+    profile = Profile.objects.filter(discord_id=str(requester_id)).first()
+
+    # Branch 1 is tournament-only: group_moderator lives on PlayerGroup and LFGThread
+    # has no equivalent field. In an LFG thread ctx.group is None, so this cannot match
+    # and the roster branch handles it -- an LFG game's nearest role is its host, which
+    # is not what this command manages.
+    if (profile and ctx.group is not None
+            and ctx.group.group_moderator_id == profile.pk):
+        group = ctx.group
+        with transaction.atomic():
+            group.group_moderator = None
+            group.save(update_fields=["group_moderator"])
+            transaction.on_commit(
+                lambda: _announce_moderator_change(ctx, profile, leaving=True))
+        # No player list: the roster did not change.
+        return _join_public(
+            f"<@{requester_id}> has been removed as this game's moderator")
+
+    if profile and any(p.pk == profile.pk for p in ctx.roster):
+        return _join_request(
+            f"<@{requester_id}> would like to leave this game\n\n"
+            f"{_join_roster_lines(ctx)}",
+            "leave_ok", "leave_no", requester_id)
+
+    message = ("You are not listed as a participant in this game and therefore cannot "
+               "request to leave.")
+    if _guild_allows(data.get("_guild_id"), "join_game"):
+        message += "\n\nIf you are trying to join this game use the `/join game` command."
+    return _ephemeral(message)
+
+
+LEAVE_SUBCOMMAND_HANDLERS = {"game": _handle_leave_game_command}
+
+
+def _handle_leave_command(data):
+    """/leave <sub>. Same unwrapping as _handle_join_command."""
+    sub, options = _subcommand(data)
+    handler = LEAVE_SUBCOMMAND_HANDLERS.get(sub)
+    if not handler:
+        return _ephemeral(f"Unknown leave option: {sub}")
+    return handler({**data, "name": sub, "options": options})
+
+
+def _handle_leave_confirm(payload):
+    """Confirm on /leave game: remove the requester from the roster."""
+    ctx, approver, requester, _target, error = _join_decision(payload)
+    if error:
+        return error
+
+    _action, args = decode_custom_id(payload["data"].get("custom_id", ""))
+    requester_id = args[0] if args else None
+    who = f"<@{requester_id}>" if requester_id else "That player"
+    if requester is None or not any(p.pk == requester.pk for p in ctx.roster):
+        return _join_resolved(f"{who} is no longer in this game.\n\n"
+                              f"{_join_roster_lines(ctx)}")
+
+    with transaction.atomic():
+        _join_remove_player(ctx, requester)
+
+    fresh = _join_context(ctx.guild_id, ctx.channel_id, ctx.channel_name)
+    content = (f"{_join_actor_name(payload, approver)} has removed {who} from this "
+               f"game\n\n{_join_roster_lines(fresh)}")
+    # Emptying a roster UNGUARDS the thread: _thread_actor_error's rule is "no roster,
+    # no restriction", so every roster-guarded command becomes open to anyone here. Say
+    # so rather than letting it become a surprise later.
+    if not fresh.roster:
+        content += f"\n\n{LEAVE_EMPTIED_NOTICE}"
+    return _join_resolved(content)
+
+
+def _handle_leave_cancel(payload):
+    """Cancel on /leave game. Self-authorizing; writes nothing."""
+    ctx, approver, _requester, _target, error = _join_decision(payload)
+    if error:
+        return error
+    _action, args = decode_custom_id(payload["data"].get("custom_id", ""))
+    who = f"<@{args[0]}>" if args else "that player"
+    return _join_resolved(
+        f"{_join_actor_name(payload, approver)} chose not to remove {who} from this "
+        f"game\n\n{_join_roster_lines(ctx)}")
 
 
 def _pick_seat_roster(thread, channel_id, ordered=True, announce=True):
@@ -10956,6 +11833,8 @@ COMMAND_HANDLERS["rename"] = _handle_rename_command
 COMMAND_HANDLERS["boxscore"] = _handle_boxscore_command
 COMMAND_HANDLERS["random"] = _handle_random_command
 COMMAND_HANDLERS["lfg"] = _handle_lfg_command
+COMMAND_HANDLERS["join"] = _handle_join_command
+COMMAND_HANDLERS["leave"] = _handle_leave_command
 
 
 # Component (button/select) handlers, keyed by the custom_id's action prefix.
@@ -11052,6 +11931,20 @@ COMPONENT_HANDLERS = {
     "lfg_edit": _handle_lfg_edit,
     "lfg_cancel": _handle_lfg_cancel,
     "lfg_start": _handle_lfg_start,
+    # /join and /leave approval buttons. ALL SELF-AUTHORIZING: every custom_id ends in
+    # PICK_OPEN so the dispatcher's owner-lock stays off (the approver is by definition
+    # not the requester, and the lock admits exactly one snowflake). The roster pair
+    # gates on _roster_approver; the moderator pair uses a NARROWER check of its own --
+    # tournament/guild moderators only, never the group_moderator, since it decides who
+    # that is.
+    "join_ok": _handle_join_confirm,
+    "join_no": _handle_join_cancel,
+    "join_sub_ok": _handle_join_sub_confirm,
+    "join_sub_no": _handle_join_sub_cancel,
+    "join_mod_ok": _handle_join_mod_confirm,
+    "join_mod_no": _handle_join_mod_cancel,
+    "leave_ok": _handle_leave_confirm,
+    "leave_no": _handle_leave_cancel,
 }
 
 
@@ -11152,6 +12045,27 @@ def _ac_upcoming_player(query, data):
     return [{"name": (dn or disc or slug), "value": slug} for dn, disc, slug in rows]
 
 
+def _ac_join_substitute_player(query, data):
+    """Autocomplete for /join as substitute `player`: this thread's current roster.
+
+    The VALUE is the Profile pk as a string -- a display name is not unique and a slug
+    would need a second lookup, while the pk is what the handler re-validates against
+    the roster on submit (the value is user-supplied; a user can type past these).
+
+    Runs inside Discord's 3-second interaction budget, so it is the indexed thread/group
+    lookup and the roster read, nothing more -- no writes, no Discord API calls.
+    """
+    ctx = _join_context(data.get("_guild_id"), data.get("_channel_id"),
+                        data.get("_channel_name"))
+    people = ctx.roster
+    if query:
+        lowered = query.lower()
+        people = [p for p in people if lowered in (p.name or "").lower()]
+    # Discord caps a response at 25 choices.
+    return [{"name": (p.name or str(p.pk))[:100], "value": str(p.pk)}
+            for p in people[:25]]
+
+
 def _ac_factions(query, _data):
     qs = Faction.objects.filter(status__lte=4).exclude(slug__isnull=True)
     if query:
@@ -11241,6 +12155,9 @@ AUTOCOMPLETE_HANDLERS = {
     ("timestamp", "timezone"): _ac_schedule_timezone,
     ("lookup law", "law"): _ac_law,
     ("lookup law", "post"): _ac_law_post,
+    # "join as substitute": a SUBCOMMAND GROUP, so the composite key carries the full
+    # path the user types. _subcommand returns it space-joined for exactly this.
+    ("join as substitute", "player"): _ac_join_substitute_player,
 }
 for _name, _qs in LOOKUP_QUERYSETS.items():
     AUTOCOMPLETE_HANDLERS[(f"lookup {_name}", "name")] = _title_ac(_qs)
@@ -11332,6 +12249,12 @@ def discord_interactions(request):
                 # roles/owner/admin for us). Lets /help decide, without an API call,
                 # whether to offer the "enable more commands" link.
                 data["_member_permissions"] = (payload.get("member") or {}).get("permissions")
+                # The invoker's role ids in this guild, as Discord resolved them --
+                # verified, so no API call and nothing the user can spoof. Used by
+                # /join as moderator to check a tournament's match_moderator_role.
+                # A list of snowflake STRINGS; empty in a DM or for a member with no
+                # roles beyond @everyone (which Discord never lists here).
+                data["_member_roles"] = (payload.get("member") or {}).get("roles") or []
                 # The invoker's per-guild nickname, when they've set one. Lets the
                 # player lists show the name THIS server knows them by -- matching
                 # what button clicks already do via _lfg_member_display_name --
@@ -11376,6 +12299,16 @@ def discord_interactions(request):
         options = sub_options if sub_name else (data.get("options") or [])
         key_name = f"{command_name} {sub_name}" if sub_name else command_name
         ac_data = {**data, "name": sub_name, "options": sub_options} if sub_name else data
+        # The channel/guild context, which the APPLICATION_COMMAND branch stashes but
+        # this one used to omit entirely -- so a THREAD-AWARE handler (/join as
+        # substitute suggests this game's roster) silently returned no choices at all.
+        # A shallow copy first: `data` is the raw payload dict the error log below
+        # reports, and sub_name=None leaves ac_data aliased to it.
+        channel = payload.get("channel") or {}
+        ac_data = {**ac_data,
+                   "_guild_id": guild_id,
+                   "_channel_id": payload.get("channel_id"),
+                   "_channel_name": channel.get("name")}
         focused = next((o for o in options if o.get("focused")), None)
         choices = []
         if focused:

@@ -128,6 +128,79 @@ def subcommand_key(sub):
     return sub.get("whitelist_key") or sub["name"]
 
 
+# Discord option types for the two nesting levels a parent command can use.
+SUB_COMMAND = 1
+SUB_COMMAND_GROUP = 2
+
+
+def _iter_subcommands(subs):
+    """Every SUB_COMMAND leaf in `subs`, descending into SUB_COMMAND_GROUPs.
+
+    /join is the first command to use a group ("/join as substitute"), and a GROUP IS
+    NOT A TOGGLE: it is a container, and "/join as" is not something a user can run.
+    So only type-1 leaves are yielded -- yielding the group would give it a
+    whitelist key of its own, putting a dead "/join as" checkbox on the guild settings
+    page (subcommand_key falls back to sub["name"] for an entry with no whitelist_key)
+    and hiding the two real toggles.
+
+    Every function that walks a parent's subcommands goes through this, so the four of
+    them cannot disagree about what a parent contains: PARENT_SUBCOMMAND_NAMES,
+    _PARENT_OF, parent_command_for_guild and grouped_commands.
+    """
+    for sub in subs:
+        if sub.get("type") == SUB_COMMAND_GROUP:
+            yield from _iter_subcommands(sub.get("options") or ())
+        else:
+            yield sub
+
+
+def _labelled_subcommands(parent_name, subs, prefix=None):
+    """(label, sub) for every SUB_COMMAND leaf, label being what a user TYPES.
+
+    "lookup faction", "boxscore upload" -- and for a nested leaf the full path,
+    "join as substitute", rather than "join substitute", which is not a command anyone
+    can run. That distinction is the whole reason this is separate from
+    _iter_subcommands: the key identifies a toggle, the label has to be typeable.
+    """
+    prefix = prefix or parent_name
+    for sub in subs:
+        if sub.get("type") == SUB_COMMAND_GROUP:
+            yield from _labelled_subcommands(
+                parent_name, sub.get("options") or (), f"{prefix} {sub['name']}")
+        else:
+            yield f"{prefix} {sub['name']}", sub
+
+
+def _filter_subcommands(subs, enabled):
+    """`subs` keeping only the leaves whose whitelist key is in `enabled`.
+
+    A SUB_COMMAND_GROUP is rebuilt with just its enabled children and dropped entirely
+    when none survive -- so a guild that enables only "/join game" is registered no
+    "as" group at all, rather than an empty one Discord would reject.
+    """
+    out = []
+    for sub in subs:
+        if sub.get("type") == SUB_COMMAND_GROUP:
+            kept = _filter_subcommands(sub.get("options") or (), enabled)
+            if kept:
+                group = copy.deepcopy(sub)
+                group["options"] = kept
+                out.append(group)
+        elif subcommand_key(sub) in enabled:
+            out.append(copy.deepcopy(sub))
+    return out
+
+
+def _strip_whitelist_keys(subs):
+    """Drop our own `whitelist_key` from every leaf, in place. Discord rejects unknown
+    fields, and a nested leaf is just as visible to it as a top-level one."""
+    for sub in subs:
+        if sub.get("type") == SUB_COMMAND_GROUP:
+            _strip_whitelist_keys(sub.get("options") or ())
+        else:
+            sub.pop("whitelist_key", None)
+
+
 def parent_command_for_guild(parent_name, enabled_names):
     """The definition of a parent command to register for a guild: one SUB_COMMAND per
     enabled subcommand. Returns None when the guild has none enabled, so the parent
@@ -136,18 +209,19 @@ def parent_command_for_guild(parent_name, enabled_names):
     Discord registers COMMANDS, not subcommands, so a guild's per-subcommand whitelist
     can only be honoured by varying the parent's options -- the same trick
     lfg_command_for_roles uses to bake per-guild tag choices. Deep-copies the shared
-    module dicts so the caller never mutates a singleton. Both parents are well under
-    Discord's 25-option cap, so no truncation is needed."""
+    module dicts so the caller never mutates a singleton. Every parent is well under
+    Discord's 25-option cap, so no truncation is needed.
+
+    Handles a SUB_COMMAND_GROUP ("/join as ...") by filtering its children and dropping
+    the group when none are enabled -- see _filter_subcommands."""
     parent, subcommands = PARENT_COMMANDS[parent_name]
     enabled = set(enabled_names or ())
-    subs = [copy.deepcopy(s) for s in subcommands
-            if subcommand_key(s) in enabled]
+    subs = _filter_subcommands(subcommands, enabled)
     if not subs:
         return None
     cmd = copy.deepcopy(parent)
     # Strip the key: it is ours, and Discord rejects unknown fields.
-    for sub in subs:
-        sub.pop("whitelist_key", None)
+    _strip_whitelist_keys(subs)
     cmd["options"] = subs
     return cmd
 
@@ -302,6 +376,92 @@ RECORD_COMMAND = {
     # (LFG thread -> lfg_mode, scheduled match thread -> match_mode, else
     # standalone), the same way /schedule finds its match.
     "options": [],
+}
+
+
+JOIN_COMMAND_NAME = "join"
+
+# Roster changes asked for from inside a game's thread. Like /record, the game is
+# resolved from the CHANNEL (LFG thread or tournament group thread), so none of these
+# takes a game argument.
+#
+# The first command to use a SUB_COMMAND_GROUP. "/join as" groups the two "join in a
+# specific role" cases so they read as sentences; "/join game" stays a bare subcommand
+# beside it, which Discord permits (a command's options may mix type 1 and type 2 --
+# only a group INSIDE a group is forbidden).
+#
+# Every leaf carries an explicit whitelist_key, for the reason subcommand_key()
+# documents: bare "game", "substitute" and "moderator" say nothing about which command
+# they belong to in a stored enabled_commands list, and "game" in particular would not
+# survive another command gaining one. The GROUP carries none -- it is a container, not
+# a toggle (see _iter_subcommands).
+JOIN_SUBCOMMANDS = [
+    {
+        "name": "game",
+        "whitelist_key": "join_game",
+        "description": "Request to be added to this game's roster",
+        "type": SUB_COMMAND,
+    },
+    {
+        "name": "as",
+        "description": "Join this game in a specific role",
+        "type": SUB_COMMAND_GROUP,
+        "options": [
+            {
+                "name": "substitute",
+                "whitelist_key": "join_substitute",
+                "description": "Request to take a current player's place",
+                "type": SUB_COMMAND,
+                "options": [
+                    # Autocomplete rather than `choices`: the roster is per-thread and
+                    # resolved at request time, which a static choice list cannot
+                    # express. The value is the target Profile's pk as a string, and is
+                    # re-validated against the roster on submit -- a user can type past
+                    # the suggestions.
+                    {
+                        "name": "player",
+                        "description": "The player you would replace",
+                        "type": 3,
+                        "required": True,
+                        "autocomplete": True,
+                    },
+                ],
+            },
+            {
+                "name": "moderator",
+                "whitelist_key": "join_moderator",
+                "description": "Sign up to moderate this game",
+                "type": SUB_COMMAND,
+            },
+        ],
+    },
+]
+
+JOIN_COMMAND = {
+    "name": JOIN_COMMAND_NAME,
+    "description": "Ask to join this game, sub in for a player, or moderate it",
+    "options": JOIN_SUBCOMMANDS,
+}
+
+
+LEAVE_COMMAND_NAME = "leave"
+
+# The complement of /join. A parent with one subcommand today rather than a flat
+# command, so a future "/leave as moderator" costs a subcommand instead of another
+# top-level slot -- the same reasoning /link's docstring gives.
+LEAVE_SUBCOMMANDS = [
+    {
+        "name": "game",
+        "whitelist_key": "leave_game",
+        "description": "Request to leave this game or step down as this game's moderator",
+        "type": SUB_COMMAND,
+    },
+]
+
+LEAVE_COMMAND = {
+    "name": LEAVE_COMMAND_NAME,
+    "description": "Leave this game, or stop moderating it",
+    "options": LEAVE_SUBCOMMANDS,
 }
 
 
@@ -472,20 +632,26 @@ PARENT_COMMANDS = {
     LOOKUP_COMMAND_NAME: (LOOKUP_COMMAND, LOOKUP_SUBCOMMANDS),
     LINK_COMMAND_NAME: (LINK_COMMAND, LINK_SUBCOMMANDS),
     BOXSCORE_COMMAND_NAME: (BOXSCORE_COMMAND, BOXSCORE_SUBCOMMANDS),
+    JOIN_COMMAND_NAME: (JOIN_COMMAND, JOIN_SUBCOMMANDS),
+    LEAVE_COMMAND_NAME: (LEAVE_COMMAND, LEAVE_SUBCOMMANDS),
 }
 
 # Flat list of every subcommand's WHITELIST KEY across all parents. Keyed by
 # subcommand_key, not by name: /boxscore's subs carry explicit keys because bare
 # "upload"/"token" would be meaningless in a stored enabled_commands list.
+#
+# _iter_subcommands, not a bare loop over `subs`: /join nests two of its leaves inside
+# a SUB_COMMAND_GROUP, which a flat walk would skip (while handing the group itself a
+# key it must never have).
 PARENT_SUBCOMMAND_NAMES = [subcommand_key(s)
                            for _parent, subs in PARENT_COMMANDS.values()
-                           for s in subs]
+                           for s in _iter_subcommands(subs)]
 
 # whitelist key -> its parent, so a display that collapses parents can map a
 # COMMAND_GROUPS entry ("faction") onto the row it should render ("lookup").
 _PARENT_OF = {subcommand_key(s): parent_name
               for parent_name, (_parent, subs) in PARENT_COMMANDS.items()
-              for s in subs}
+              for s in _iter_subcommands(subs)}
 
 
 
@@ -727,6 +893,8 @@ COMMANDS = [
     RANDOM_COMMAND,
     LFG_COMMAND,
     LINK_COMMAND,
+    JOIN_COMMAND,
+    LEAVE_COMMAND,
 ]
 
 
@@ -740,6 +908,7 @@ COMMAND_GROUPS = [
     ("Organization", ["availability", "schedule", "timestamp", "upcoming"]),
     ("Games", ["lfg", "adset", "seating", "pick",
                "boxscore_upload", "boxscore_paste", "boxscore_token",
+               "join_game", "join_substitute", "join_moderator", "leave_game",
                "record", "rename"]),
     ("Randomize", ["draft", "random"]),
     ("Account", ["steam"]),
@@ -884,11 +1053,15 @@ def grouped_commands(collapse_parents=False):
     rows_by_name = {c["name"]: (c["name"], c["name"], c.get("description", ""))
                     for c in all_command_definitions()
                     if c["name"] not in PARENT_COMMANDS}
+    # _labelled_subcommands, not a flat walk over `subs`: /join nests two of its leaves
+    # in a SUB_COMMAND_GROUP. A flat walk would emit a row for the GROUP (keyed "as",
+    # since it has no whitelist_key) and none for the two real toggles -- putting a dead
+    # "/join as" checkbox on the guild settings page while making the actual
+    # subcommands unreachable, and breaking WHITELISTABLE's agreement with this.
     rows_by_name.update({
-        subcommand_key(s): (subcommand_key(s), f"{parent_name} {s['name']}",
-                            s.get("description", ""))
+        subcommand_key(s): (subcommand_key(s), label, s.get("description", ""))
         for parent_name, (_parent, subs) in PARENT_COMMANDS.items()
-        for s in subs
+        for label, s in _labelled_subcommands(parent_name, subs)
     })
 
     grouped_names = set()

@@ -1,10 +1,10 @@
 """
 Posting into a Tournament's configured Discord channels.
 
-A tournament can name three channels in its linked guild (results_channel,
-schedule_channel, game_threads_channel), set by a guild moderator from the Edit Guild
-page. Every send goes through post_to_tournament_channel so the guild-ownership check
-lives in exactly one audited place.
+A tournament can name several channels in its linked guild (results_channel,
+schedule_channel, game_threads_channel, moderators_channel), set by a guild moderator
+from the Edit Guild page. Every send goes through post_to_tournament_channel so the
+guild-ownership check lives in exactly one audited place.
 
 Also home to match_thread_id, which gives the same guarantee for a player group's
 Discord THREAD: it lives here rather than in views.py because both the record-game
@@ -118,6 +118,7 @@ _CHANNEL_FIELDS = {
     'results_channel': False,
     'schedule_channel': False,
     'game_threads_channel': True,
+    'moderators_channel': False,
 }
 
 

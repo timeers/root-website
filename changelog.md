@@ -1,8 +1,10 @@
 # Changelog
 
-## [1.13.12] - 2026-9-27 Auto Submit Boxscore 
+## [1.13.12] - 2026-9-30 Roster Commands
 
 ### New Features
+- New /join command for joining a game as a player or moderator
+- New /leave command for removing yourself from a game
 - Auto submit games from TTS boxscore (beta)
 
 ### Bug Fixes

@@ -3363,20 +3363,23 @@ def _lfg_field_context(guild, form):
 
 def _tournament_channel_context(guild, form):
     """Data for a series' channel dropdowns, fetched from Discord (cached ~5 min) at
-    render time. Two independent lists: results/schedule are TEXT channels, game threads
-    is a FORUM channel. Either fetch returning None makes only ITS control fall back to a
-    manual text input (see tournament_channels_form_fields.html) — one list failing must
-    not degrade the other. Reading selections off the bound form keeps them on a
-    POST-invalid re-render.
+    render time. Three independent lists: results/schedule/moderators are TEXT channels,
+    game threads is a FORUM channel, and the match moderator role comes from the guild's
+    ROLES. Any fetch returning None makes only ITS control fall back to a manual text
+    input (see tournament_channels_form_fields.html) — one list failing must not degrade
+    the others. Reading selections off the bound form keeps them on a POST-invalid
+    re-render.
 
     Callers must run after edit_guild's bot_member refresh (views.py ~1795): a stale flag
     would drop every control to manual entry for a guild the bot is really in."""
     if guild.bot_member:
         text_channels = get_guild_text_channels(guild.guild_id)
         forum_channels = get_guild_forum_channels(guild.guild_id)
+        roles = get_guild_roles(guild.guild_id)
     else:
         text_channels = None
         forum_channels = None
+        roles = None
 
     game_threads_sel = str(form['game_threads_channel'].value() or '')
     tag_sel = str(form['game_threads_tag'].value() or '')
@@ -3407,11 +3410,18 @@ def _tournament_channel_context(guild, form):
         'forum_channels': forum_channels,
         'forum_channel_ids': [c['id'] for c in forum_channels] if forum_channels else [],
         'forum_tag_map': forum_tag_map,
+        # Deliberately NOT filtered by _lfg_field_context's used_role_ids rule: that
+        # exists so one LFG tag can't be added twice, which has no bearing here — a
+        # moderator role may legitimately also be an LFG role.
+        'roles': roles,
+        'role_ids': [r['id'] for r in roles] if roles else [],
         'results_selected': str(form['results_channel'].value() or ''),
         'schedule_selected': str(form['schedule_channel'].value() or ''),
         'game_threads_selected': game_threads_sel,
         'tag_selected': tag_sel,
         'tag_selected_name': tag_selected_name,
+        'moderator_role_selected': str(form['match_moderator_role'].value() or ''),
+        'moderators_selected': str(form['moderators_channel'].value() or ''),
     }
 
 
@@ -3440,6 +3450,24 @@ def _forum_tag_name(tournament):
     name = next((t['name'] for t in info.get('tags') or []
                  if str(t['id']) == str(tag_id)), None)
     return name or None
+
+
+def _moderator_role_name(tournament, guild):
+    """"@Name" for a series' match moderator role, or None.
+
+    Same honesty rule as _forum_tag_name: a role id is a bare snowflake, so showing it
+    raw would put 19 digits of noise on the row. None whenever the answer can't be
+    trusted -- no role set, no guild, the bot isn't in it, Discord unreachable, or a
+    role that no longer exists. The edit modal still shows the stored value.
+
+    get_guild_roles is cached ~5 min, so listing N series costs one lookup.
+    """
+    role_id = tournament.match_moderator_role
+    if not role_id or not guild or not guild.bot_member:
+        return None
+    roles = get_guild_roles(guild.guild_id)
+    name = next((r['name'] for r in (roles or []) if str(r['id']) == str(role_id)), None)
+    return f'@{name}' if name else None
 
 
 def _tournament_row_ctx(tournament, guild, channel_names):
@@ -3476,6 +3504,10 @@ def _tournament_row_ctx(tournament, guild, channel_names):
         # destination, so giving it its own row would overstate it.
         (_('Game threads'), label(tournament.game_threads_channel, prefix=''),
          _forum_tag_name(tournament)),
+        # Prefixed @ the way Discord writes a role. Same honesty rule as
+        # _forum_tag_name: an unresolvable id shows nothing rather than 19 raw digits.
+        (_('Match moderator role'), _moderator_role_name(tournament, guild), None),
+        (_('Moderator signups'), label(tournament.moderators_channel), None),
         # Not a channel, but it lives on the same form for the same reason (it only
         # works with a guild the bot is in), so it belongs in the same summary.
         # Carries its unit: a bare "30" beside three channel names reads as an id.
