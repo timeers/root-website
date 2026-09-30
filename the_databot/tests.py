@@ -17785,9 +17785,26 @@ class JoinModeratorTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(self.group.group_moderator, self.volunteer)
 
     def test_the_group_moderator_may_NOT_confirm(self):
-        """This button decides who the group moderator IS, so the incumbent is not an
-        approver for it -- unlike the roster buttons."""
-        body = self._click("join_mod_ok", "91", self.group_mod.discord_id)["data"]
+        """DELIBERATE, and reported once as a bug: handing the role to someone else is an
+        organizer's call, so the incumbent is not an approver here -- even though they ARE
+        one for the roster buttons (_roster_approver) and may drop the role themselves
+        with /leave game. Both button halves enforce it.
+
+        The refusal has to say who CAN act, or it reads like a broken button to the
+        group moderator who just pressed it.
+        """
+        for action in ("join_mod_ok", "join_mod_no"):
+            body = self._click(action, "91", self.group_mod.discord_id)["data"]
+            self.assertEqual(body["flags"], di.EPHEMERAL, action)
+            self.assertIn("series organizer", body["content"], action)
+            self.group.refresh_from_db()
+            self.assertEqual(self.group.group_moderator, self.group_mod, action)
+
+    def test_a_seated_player_may_not_confirm_either(self):
+        """This check never consults Match.can_schedule, so the participant tier that
+        can_schedule grants when players may record their own matches does not leak in."""
+        self.assertTrue(self.tournament.players_can_record_matches())
+        body = self._click("join_mod_ok", "91", self.player.discord_id)["data"]
         self.assertEqual(body["flags"], di.EPHEMERAL)
         self.group.refresh_from_db()
         self.assertEqual(self.group.group_moderator, self.group_mod)

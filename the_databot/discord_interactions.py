@@ -5063,6 +5063,20 @@ def _join_clicker(payload):
 JOIN_NOT_A_GAME = "I can't tell what game this thread is for."
 JOIN_NOT_AUTHORIZED = "Only a moderator or this game's host can decide that."
 
+# The moderator-request buttons admit a NARROWER set than the roster ones: a series
+# organizer or a server moderator, and deliberately NOT this group's current
+# group_moderator -- handing the role to someone else is an organizer's call, even though
+# the incumbent may drop it themselves with /leave game.
+#
+# The second line names who CAN act, because without it a correct refusal reads like a
+# broken button to the group moderator who just clicked it (which is exactly how it was
+# reported). Small text (-#) so the refusal itself stays prominent, matching
+# UNKNOWN_THREAD_MESSAGE.
+JOIN_MOD_NOT_AUTHORIZED = (
+    "Only a moderator of this series or server can decide that.\n"
+    "-# Ask a series organizer or a server moderator to confirm this request."
+)
+
 
 def _join_roster_lines(ctx, roster=None):
     """The "Players:" block every roster-change message carries.
@@ -5651,7 +5665,7 @@ def _handle_join_mod_confirm(payload):
         (guild is not None and can_moderate_guild(approver, guild))
         or tournament.has_permission(approver))
     if not allowed:
-        return _ephemeral("Only a moderator of this series or server can decide that.")
+        return _ephemeral(JOIN_MOD_NOT_AUTHORIZED)
 
     _action, args = decode_custom_id(payload["data"].get("custom_id", ""))
     requester_id = args[0] if args else None
@@ -5687,7 +5701,7 @@ def _handle_join_mod_cancel(payload):
         (guild is not None and can_moderate_guild(approver, guild))
         or tournament.has_permission(approver))
     if not allowed:
-        return _ephemeral("Only a moderator of this series or server can decide that.")
+        return _ephemeral(JOIN_MOD_NOT_AUTHORIZED)
 
     _action, args = decode_custom_id(payload["data"].get("custom_id", ""))
     who = f"<@{args[0]}>" if args else "that player"
