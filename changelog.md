@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.13] - 2026-10-1 Hoot Bugs
+
+### Bug Fixes
+- The scheduling command now uses can_schedule instead of piggybacking on the can_record method. Users can now use /schedule as long as they are on the roster or a moderator
+
 ## [1.13.12] - 2026-9-30 Roster Commands
 
 ### New Features

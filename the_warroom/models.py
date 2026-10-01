@@ -659,15 +659,15 @@ class Tournament(models.Model):
     # match roster must confirm before it's written. When False, /schedule keeps the
     # original behavior: whoever runs it confirms once and the time is set.
     #
-    # Only meaningful when players may schedule at all — under MODERATORS-only
-    # recording_access there is nobody to poll (see players_can_record_matches).
+    # Applies under EVERY recording_access tier: scheduling no longer consults that
+    # setting (see Match.can_schedule), so there is always a roster to poll.
     require_participant_schedule_confirmation = models.BooleanField(
         default=True,
         verbose_name="Require Player Confirmation for Scheduling",
         help_text=(
             "Require every player in a game to confirm a proposed time before "
             "/schedule sets it. When off, whoever runs /schedule sets the time "
-            "directly. Only applies when players are allowed to record matches."
+            "directly."
         ),
     )
     # Player management handled via TournamentPlayer
@@ -823,10 +823,10 @@ class Tournament(models.Model):
         """True when /schedule must collect every player's confirmation before a
         time is written.
 
-        Deliberately does NOT consider recording_access. Being unable to SET a
-        time is no reason to be unable to say when you can play: under
-        MODERATORS-only access the roster still confirms, and the proposal then
-        waits on a moderator to press Set Time rather than writing itself."""
+        Deliberately does NOT consider recording_access -- nor does can_schedule
+        any more, so this is now the ONLY thing deciding whether a time is polled
+        or written outright. Once the roster has fully agreed the time is set;
+        there is no moderator approval step after that."""
         return self.require_participant_schedule_confirmation
 
     def sends_match_reminders(self):
@@ -2245,12 +2245,57 @@ class Match(models.Model):
 
     def can_schedule(self, profile):
         """Who may set this match's scheduled_time (used by the /schedule Discord
-        command). Mirrors the tiers in Game.can_edit: group moderators and
-        organizers always; seated players only when the tournament's
-        recording_access lets players record their own matches.
+        command): the group moderator, an organizer, or anyone seated on this
+        series' roster.
+
+        DELIBERATELY INDEPENDENT OF recording_access. This used to mirror
+        Game.can_edit and admit a seated player only when
+        players_can_record_matches() -- which answered a scheduling question with
+        a RECORDING permission, so under the default MODERATORS tier a player in
+        their own group's thread was told to contact the series admin. Being
+        unable to record a result is no reason to be unable to say when you can
+        play. Whether players must AGREE on a time is a separate setting
+        (require_participant_schedule_confirmation).
+
+        can_record is the tier-aware sibling that still honors recording_access;
+        use that one for anything that writes a result.
 
         Seating comes from MatchSeat rather than player_group.tournament_players —
         seats are the authoritative roster for a specific series."""
+        if not profile or not profile.pk:
+            return EditPermission(False)
+
+        group = self.player_group
+        if group and group.group_moderator_id == profile.pk:
+            return EditPermission(True, 'group_moderator')
+        if profile.admin:
+            return EditPermission(True, 'admin')
+
+        tournament = self.round.get_tournament()
+        if tournament and tournament.has_permission(profile):
+            return EditPermission(True, 'organizer')
+
+        if MatchSeat.objects.filter(
+            series_id=self.series_id,
+            stage_participant__tournament_player__profile=profile,
+        ).exists():
+            return EditPermission(True, 'participant')
+
+        return EditPermission(False)
+
+    def can_record(self, profile):
+        """Who may record a RESULT for this match — the question recording_access
+        is actually named for.
+
+        The same tiers as can_schedule, except that a merely seated player gets in
+        only when the tournament's recording_access lets players record their own
+        matches. Group moderators and organizers bypass the tier, as in
+        Game.can_edit.
+
+        Split out of can_schedule when scheduling stopped consulting
+        recording_access: the box score flows need the strict rule, and sharing
+        one helper would have quietly widened them. Do NOT use this to authorize
+        scheduling."""
         if not profile or not profile.pk:
             return EditPermission(False)
 
