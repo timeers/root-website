@@ -1570,10 +1570,10 @@ def _consensus_required(match):
     confirmation, plus the roster so callers don't re-query it.
 
     Two conditions, both required:
-      * tournament.requires_schedule_confirmation() — the per-tournament opt-in flag
-        AND players actually being permitted to schedule. Under MODERATORS-only
-        recording_access no player may set a time, so there is nobody to poll and
-        the moderator schedules directly, exactly as before this feature.
+      * tournament.requires_schedule_confirmation() — the per-tournament opt-in
+        flag, and the only gate on this. It applies under every recording_access
+        tier: scheduling no longer consults that setting, so there is always a
+        roster entitled to be polled.
       * a non-empty roster. A player group with no tournament_players has nobody to
         ask; consensus would be vacuous at best and a deadlock at worst.
 
@@ -1800,13 +1800,11 @@ def _schedule_finalized_data(proposal, match):
 
 
 def _schedule_agreed_data(proposal, match=None):
-    """Everyone confirmed, but nobody who did could write the time. Shows the
-    agreed time and hands a moderator a Set Time button.
+    """LEGACY. The "Everyone agreed, a moderator must press Set Time" message.
 
-    The time is deliberately NOT written yet: under MODERATORS-only
-    recording_access the tournament has said players don't set times, and a
-    unanimous roster shouldn't quietly override that. What it DOES establish is
-    that everyone is free then, which is the part players are entitled to decide.
+    Nothing produces this any more -- a unanimous roster writes the time itself
+    (see _resolve_match_poll). Kept so AGREED rows created before that change,
+    and the buttons already posted in Discord for them, still render and resolve.
 
     Like the other proposal buttons, the custom_id ends in "g" so the dispatcher's
     owner-lock stays off -- the moderator who presses this is usually not whoever
@@ -2635,7 +2633,7 @@ def _resolve_match_poll(payload, proposal, match, me=None, is_new_yes=False):
     two can't drift. Three outcomes:
 
       * still waiting      -> re-render with the updated columns
-      * everyone said yes  -> write the time (or park at AGREED, see below)
+      * everyone said yes  -> write the time
       * somebody said no   -> close REJECTED, writing nothing
 
     all_responded is the CLOSE condition and all_confirmed the WRITE condition;
@@ -2691,28 +2689,13 @@ def _resolve_match_poll(payload, proposal, match, me=None, is_new_yes=False):
                 proposal, match, author=_poll_author_from_payload(payload)),
         })
 
-    # Everyone agreed -- but agreement is CONSENT, not authority. When the
-    # proposer may not write the time (the normal case under MODERATORS-only
-    # recording_access, where players can still say when they're free), park the
-    # proposal as AGREED and hand a moderator the Set Time button instead of
-    # cancelling it for a permission the roster was never expected to have.
-    if not match.can_schedule(proposal.proposed_by):
-        claimed = ScheduleProposal.objects.filter(
-            pk=proposal.pk, status=ScheduleProposal.Status.OPEN,
-        ).update(status=ScheduleProposal.Status.AGREED)
-        proposal.refresh_from_db()
-        if not claimed and proposal.status != ScheduleProposal.Status.AGREED:
-            # Something else resolved it between the confirm and here.
-            return JsonResponse({
-                "type": RESPONSE_UPDATE_MESSAGE,
-                "data": _schedule_closed_data(
-                    "Proposal closed", "That proposed time is no longer active."),
-            })
-        return JsonResponse({
-            "type": RESPONSE_UPDATE_MESSAGE,
-            "data": _schedule_agreed_data(proposal, match),
-        })
-
+    # Everyone agreed, so the time is written -- no moderator approval step. The
+    # proposal used to park at AGREED whenever its proposer failed can_schedule,
+    # which under MODERATORS-only recording_access meant every player-proposed
+    # time waited on staff. can_schedule no longer consults that setting, so a
+    # roster player passes it and the branch could never fire again; agreement IS
+    # the authority now. (AGREED rows predating this still resolve -- see
+    # _handle_schedule_proposal_set.)
     ok, failure = _finalize_proposal(proposal)
     if not ok:
         return JsonResponse({
@@ -2775,8 +2758,9 @@ def _handle_schedule_proposal_reject(payload):
     But an AGREED proposal NARROWS to can_schedule only. Rejecting a time still
     being negotiated is ordinary; destroying a completed agreement on one late
     click is not, and it would undo work every other player already did. A player
-    who can no longer make it says so in the thread and a moderator clears it --
-    the same person the Set Time button is waiting on either way.
+    who can no longer make it says so in the thread and a moderator clears it.
+    (AGREED is a legacy state -- see _handle_schedule_proposal_set -- so this
+    branch only ever sees rows predating direct finalization.)
 
     allow_passed: rejecting writes no time, so the passed-time guard has nothing to
     protect here -- and it was the reason a proposal whose time had gone by could
@@ -2828,14 +2812,15 @@ def _handle_schedule_proposal_reject(payload):
 def _handle_schedule_proposal_set(payload):
     """Set Time on an AGREED proposal: write the time the roster settled on.
 
-    Only for someone who may actually schedule this match — the same can_schedule
-    check /schedule itself makes, so group moderators, organizers and admins
-    qualify and a player does not. This is the authority half of the split: the
-    roster supplied consent, this supplies the right to write it.
+    LEGACY PATH. New polls finalize on the last confirmation and never park at
+    AGREED, but rows from before that change -- and the buttons already posted
+    for them in Discord -- still land here, so this stays.
+
+    Authorizes with the same can_schedule check /schedule itself makes.
 
     The clicker, not the proposer, is passed to _finalize_proposal as the actor:
-    the proposer is typically a player who deliberately cannot schedule, so
-    checking them would refuse every time."""
+    these rows exist precisely because their proposer failed can_schedule at the
+    time, so checking them could refuse a time everyone already agreed to."""
     proposal, match, error = _proposal_for_click(payload, allow_agreed=True)
     if error:
         return error
@@ -4899,15 +4884,15 @@ def _thread_actor_error(data):
         "moderator, to run it for you.")
 
 
-def _thread_staff_override(profile, group, guild_id):
-    """Whether a non-player may act anyway: a guild moderator or site admin, or —
-    in a tournament group thread — anyone who could schedule that match (group
-    moderator, organizer, admin). Lets staff unstick a table they aren't in.
+def _thread_override(profile, group, guild_id, check):
+    """Shared body of the two overrides below. `check` is the Match method name
+    that decides the tournament tier -- the ONLY thing that differs between them,
+    so the guild branch and the match lookup live here once.
 
     Takes the GROUP, not the LFGThread. A group thread has no LFGThread until the
-    first command creates one, so keying the can_schedule branch off the thread
-    would refuse a group moderator's very first command -- the same trap the
-    roster lookup avoids by resolving the group directly."""
+    first command creates one, so keying the match branch off the thread would
+    refuse a group moderator's very first command -- the same trap the roster
+    lookup avoids by resolving the group directly."""
     # Lazy + cross-app: the_gatehouse.views imports the_databot.tasks and
     # discordservice at module scope, so a top-level import here would close
     # the cycle.
@@ -4918,14 +4903,35 @@ def _thread_staff_override(profile, group, guild_id):
         if guild and can_moderate_guild(profile, guild):
             return True
 
-    # can_schedule lives on Match, so this only applies to a tournament group.
+    # Both checks live on Match, so this only applies to a tournament group.
     series_id = group_series_id(group) if group else None
     if series_id:
         match = Match.objects.filter(series_id=series_id).order_by(
             "match_number").first()
-        if match and match.can_schedule(profile):
+        if match and getattr(match, check)(profile):
             return True
     return False
+
+
+def _thread_staff_override(profile, group, guild_id):
+    """Whether a non-player may act anyway: a guild moderator or site admin, or —
+    in a tournament group thread — anyone who could schedule that match (group
+    moderator, organizer, admin, or a seated player). Lets staff unstick a table
+    they aren't in.
+
+    SCHEDULING-shaped, so it ignores recording_access. Anything that writes a
+    RESULT wants _thread_record_override instead."""
+    return _thread_override(profile, group, guild_id, "can_schedule")
+
+
+def _thread_record_override(profile, group, guild_id):
+    """_thread_staff_override for the box score flows: same guild-staff tier, but
+    the tournament tier is can_record, which still honors recording_access.
+
+    Separate because can_schedule stopped consulting that setting. Sharing one
+    helper would have let a seated player in a MODERATORS-only tournament answer
+    someone else's box score prompt."""
+    return _thread_override(profile, group, guild_id, "can_record")
 
 
 # ── /join and /leave ────────────────────────────────────────────────────────────
@@ -5018,12 +5024,12 @@ def _roster_approver(profile, ctx):
     """Whether `profile` may approve a roster change in `ctx`'s game.
 
     NOT _thread_staff_override. That one answers a different question ("may a non-player
-    ACT here?") and reaches its tournament tiers through Match.can_schedule, which also
-    admits a merely SEATED PARTICIPANT when the tournament lets players record their own
-    matches. Right for scheduling -- a player may set their own match's time -- and wrong
-    here: it would let any player in the game approve someone else onto the roster, or
-    approve their own substitute out. Excluding that tier means not calling can_schedule
-    at all, so this is a separate function rather than a flag on that one.
+    ACT here?") and reaches its tournament tiers through Match.can_schedule, which admits
+    a merely SEATED PARTICIPANT -- always, now that scheduling ignores recording_access.
+    Right for scheduling, since a player may set their own match's time, and wrong here:
+    it would let any player in the game approve someone else onto the roster, or approve
+    their own substitute out. That tier getting WIDER is why this stays a separate
+    function rather than a flag on that one.
 
     The tiers, widest first:
       * guild moderator or site admin
@@ -10122,7 +10128,7 @@ def _boxscore_restorable(thread, profile, group=None):
         return None
     if token.issued_by_id == profile.pk or thread.host_id == profile.pk:
         return token
-    if _thread_staff_override(profile, group, _thread_guild_id(thread)):
+    if _thread_record_override(profile, group, _thread_guild_id(thread)):
         return token
     return None
 
@@ -10216,7 +10222,7 @@ def _boxscore_click_owner(payload, thread, ref=None):
     if profile:
         if thread.host_id == profile.pk:
             return profile, None
-        if _thread_staff_override(profile, group, _thread_guild_id(thread)):
+        if _thread_record_override(profile, group, _thread_guild_id(thread)):
             return profile, None
     if issuer_pk is not None:
         return None, _ephemeral(

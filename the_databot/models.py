@@ -626,9 +626,13 @@ class ScheduleProposal(models.Model):
 
     class Status(models.TextChoices):
         OPEN = "open", "Open"
-        # Every roster player confirmed, but nobody who did could actually write
-        # the time (MODERATORS-only recording_access). The proposal waits here
-        # for a moderator to press Set Time. Still LIVE -- see LIVE_STATUSES.
+        # LEGACY, no longer produced. Every roster player confirmed, but nobody
+        # who did could actually write the time (MODERATORS-only
+        # recording_access), so the proposal waited here for a moderator to press
+        # Set Time. Scheduling no longer consults recording_access, so a
+        # unanimous roster now writes the time itself. Kept -- still LIVE, see
+        # LIVE_STATUSES -- because rows and posted Discord buttons predating that
+        # change must still resolve.
         AGREED = "agreed", "Agreed (awaiting a moderator)"
         CONFIRMED = "confirmed", "Confirmed"
         REJECTED = "rejected", "Rejected"

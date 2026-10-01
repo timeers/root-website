@@ -497,12 +497,17 @@ class MatchCanScheduleTests(ScheduleFixtureMixin, TestCase):
     def test_outsider_denied(self):
         self.assertFalse(self.match.can_schedule(self.outsider))
 
-    def test_seated_player_denied_by_recording_access(self):
-        """The MODERATORS tier means players can't schedule their own match."""
+    def test_seated_player_allowed_despite_restrictive_tier(self):
+        """Scheduling ignores recording_access: being unable to RECORD a result is
+        no reason to be unable to say when you can play. This used to deny the
+        player, which is the bug -- /schedule in their own group's thread told
+        them to contact the series admin."""
         self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
         self.tournament.save(update_fields=["recording_access"])
         self.match.refresh_from_db()
-        self.assertFalse(self.match.can_schedule(self.player))
+        permission = self.match.can_schedule(self.player)
+        self.assertTrue(permission)
+        self.assertEqual(permission.reason, 'participant')
 
     def test_group_moderator_allowed_despite_restrictive_tier(self):
         """Group moderators bypass the recording_access tier, as in Game.can_edit."""
@@ -513,6 +518,90 @@ class MatchCanScheduleTests(ScheduleFixtureMixin, TestCase):
 
     def test_unsaved_profile_denied(self):
         self.assertFalse(self.match.can_schedule(Profile()))
+
+
+class MatchCanRecordTests(ScheduleFixtureMixin, TestCase):
+    """can_record keeps the recording_access tier that can_schedule dropped --
+    the box score flows authorize with it."""
+
+    def setUp(self):
+        self.build()
+
+    def _restrict(self):
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        self.match.refresh_from_db()
+
+    def test_seated_player_allowed_by_permissive_tier(self):
+        permission = self.match.can_record(self.player)
+        self.assertTrue(permission)
+        self.assertEqual(permission.reason, 'participant')
+
+    def test_seated_player_denied_by_recording_access(self):
+        """The whole point of the split: this is still denied where can_schedule
+        now allows."""
+        self._restrict()
+        self.assertFalse(self.match.can_record(self.player))
+        self.assertTrue(self.match.can_schedule(self.player))
+
+    def test_group_moderator_allowed_despite_restrictive_tier(self):
+        self._restrict()
+        permission = self.match.can_record(self.group_mod)
+        self.assertTrue(permission)
+        self.assertEqual(permission.reason, 'group_moderator')
+
+    def test_designer_allowed_despite_restrictive_tier(self):
+        self._restrict()
+        permission = self.match.can_record(self.designer)
+        self.assertTrue(permission)
+        self.assertEqual(permission.reason, 'organizer')
+
+    def test_outsider_denied(self):
+        self.assertFalse(self.match.can_record(self.outsider))
+
+    def test_unsaved_profile_denied(self):
+        self.assertFalse(self.match.can_record(Profile()))
+
+
+class ThreadOverrideTests(ScheduleFixtureMixin, TestCase):
+    """_thread_staff_override vs _thread_record_override. Same guild-staff tier,
+    different tournament tier -- the box score flows must keep honoring
+    recording_access now that scheduling ignores it."""
+
+    def setUp(self):
+        self.build()
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+
+    def test_seated_player_may_act_but_may_not_record(self):
+        """The regression this split exists to prevent: before it, the box score
+        prompt reached can_schedule and would now admit this player."""
+        guild_id = self.guild.guild_id
+        self.assertTrue(
+            di._thread_staff_override(self.player, self.group, guild_id))
+        self.assertFalse(
+            di._thread_record_override(self.player, self.group, guild_id))
+
+    def test_group_moderator_passes_both(self):
+        guild_id = self.guild.guild_id
+        self.assertTrue(
+            di._thread_staff_override(self.group_mod, self.group, guild_id))
+        self.assertTrue(
+            di._thread_record_override(self.group_mod, self.group, guild_id))
+
+    def test_outsider_passes_neither(self):
+        guild_id = self.guild.guild_id
+        self.assertFalse(
+            di._thread_staff_override(self.outsider, self.group, guild_id))
+        self.assertFalse(
+            di._thread_record_override(self.outsider, self.group, guild_id))
+
+    def test_guild_moderator_passes_both_without_a_group(self):
+        """The guild tier is shared and does not depend on a match at all."""
+        self.guild.guild_moderators.add(self.outsider)
+        guild_id = self.guild.guild_id
+        self.assertTrue(di._thread_staff_override(self.outsider, None, guild_id))
+        self.assertTrue(di._thread_record_override(self.outsider, None, guild_id))
 
 
 class MatchForThreadTests(ScheduleFixtureMixin, TestCase):
@@ -894,6 +983,18 @@ class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
             di._handle_schedule_command(self._data(author=self.outsider.discord_id)))
         self.assertIn("not able to schedule", body["data"]["content"])
         self.assertIn("series admin", body["data"]["content"])
+
+    def test_seated_player_may_schedule_under_moderators_only_access(self):
+        """The reported bug, end to end: a player running /schedule set in their
+        own group's thread used to be told to contact the series admin because
+        the tournament's recording_access was the default MODERATORS."""
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        self.player.timezone = TZ
+        self.player.save(update_fields=["timezone"])
+        body = self.assertEphemeral(di._handle_schedule_command(self._data()))
+        self.assertNotIn("not able to schedule", body["data"]["content"])
+        self.assertIn("Group A", body["data"]["content"])
 
     def test_unknown_discord_user_gets_a_profile_and_a_permission_error(self):
         """/schedule get-or-creates so the timezone can always be saved. A brand-new
@@ -9957,7 +10058,7 @@ class ScheduleConsensusGateTests(ScheduleFixtureMixin, TestCase):
     """_consensus_required decides which flow runs, and is the ONLY place that
     decision is made. Two conditions: the tournament opts in AND there's a roster
     to poll. recording_access is deliberately NOT one of them -- it governs who
-    may WRITE the time, not who may say when they're free."""
+    may record a RESULT, and has nothing to say about scheduling."""
 
     def test_flag_defaults_true(self):
         self.build()
@@ -9971,9 +10072,9 @@ class ScheduleConsensusGateTests(ScheduleFixtureMixin, TestCase):
         self.assertFalse(self.tournament.requires_schedule_confirmation())
 
     def test_moderators_only_access_still_polls_the_players(self):
-        """Being unable to SET a time is no reason to be unable to say when you
-        can play. Under MODERATORS access the roster still confirms; the write
-        then waits on a moderator pressing Set Time."""
+        """Being unable to RECORD a result is no reason to be unable to say when
+        you can play. Under MODERATORS access the roster still confirms -- and
+        now the last confirmation writes the time, with no moderator step."""
         self.build(recording_access=Tournament.RecordingAccessTypes.MODERATORS,
                    populate_group=True)
         self.assertTrue(self.tournament.require_participant_schedule_confirmation)
@@ -10220,6 +10321,18 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         self.proposal.roster.set([self.player, self.teammate])
         self.proposal.confirmed_by.add(self.player)
 
+    def _park_agreed(self):
+        """Put the proposal in the LEGACY AGREED state.
+
+        Set directly, because nothing produces it any more: a unanimous roster
+        now writes the time itself. These rows still exist in the database, and
+        their Set Time buttons are still live in Discord, so the handlers that
+        serve them stay covered."""
+        self.proposal.confirmed_by.add(self.teammate)
+        ScheduleProposal.objects.filter(pk=self.proposal.pk).update(
+            status=ScheduleProposal.Status.AGREED)
+        self.proposal.refresh_from_db()
+
     def _payload(self, action="sched_poll_ok", user_id="5", username="teammate",
                  proposal_id=None):
         return {
@@ -10233,33 +10346,33 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
     def _body(self, response):
         return json.loads(response.content)
 
-    def test_agreed_when_the_proposer_may_not_schedule(self):
-        """Consent and authority are separate. Under MODERATORS access the roster
-        can agree, but the time waits for someone allowed to write it."""
+    def test_unanimous_roster_writes_the_time_under_every_tier(self):
+        """The headline change. The last confirmation SETS the time, even under
+        MODERATORS-only recording_access -- that tier used to park the proposal
+        at AGREED and wait for staff. Agreement is now the authority."""
         self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
         self.tournament.save(update_fields=["recording_access"])
         body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
         self.match.refresh_from_db()
-        self.assertIsNone(self.match.scheduled_time)
+        self.assertEqual(self.match.scheduled_time, self.when)
         self.proposal.refresh_from_db()
-        self.assertEqual(self.proposal.status, ScheduleProposal.Status.AGREED)
-        labels = [c["label"] for c in body["data"]["components"][0]["components"]]
-        self.assertEqual(labels, ["Set Time", "Reject"])
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CONFIRMED)
+        # No Set Time button: there is nothing left for a moderator to do.
+        self.assertEqual(body["data"]["components"], [])
 
     def test_set_time_refuses_a_player(self):
-        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
-        self.tournament.save(update_fields=["recording_access"])
-        di._handle_schedule_proposal_confirm(self._payload())
+        """Legacy AGREED row: the Set Time button still authorizes."""
+        self._park_agreed()
         body = self._body(di._handle_schedule_proposal_set(
-            self._payload(action="sched_prop_set")))
+            self._payload(action="sched_prop_set", user_id=self.outsider.discord_id,
+                          username="outsider")))
         self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
         self.match.refresh_from_db()
         self.assertIsNone(self.match.scheduled_time)
 
     def test_set_time_writes_for_a_moderator(self):
-        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
-        self.tournament.save(update_fields=["recording_access"])
-        di._handle_schedule_proposal_confirm(self._payload())
+        """Legacy AGREED row: a moderator can still finish it after deploy."""
+        self._park_agreed()
         self._body(di._handle_schedule_proposal_set(self._payload(
             action="sched_prop_set", user_id=self.group_mod.discord_id,
             username="groupmod")))
@@ -10270,17 +10383,13 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
 
     def test_confirm_is_refused_once_agreed(self):
         """Consent is already complete there -- only Set Time and Reject apply."""
-        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
-        self.tournament.save(update_fields=["recording_access"])
-        di._handle_schedule_proposal_confirm(self._payload())
+        self._park_agreed()
         body = self._body(di._handle_schedule_proposal_confirm(self._payload()))
         self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
         self.assertIn("already agreed", body["data"]["content"])
 
     def test_a_moderator_can_reject_an_agreed_time(self):
-        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
-        self.tournament.save(update_fields=["recording_access"])
-        di._handle_schedule_proposal_confirm(self._payload())
+        self._park_agreed()
         with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
             self._body(di._handle_schedule_proposal_reject(self._payload(
                 action="sched_poll_no", user_id=self.group_mod.discord_id,
@@ -10292,10 +10401,11 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
 
     def test_a_player_cannot_reject_an_agreed_time(self):
         """Rejecting a time still being negotiated is ordinary; destroying a
-        completed agreement on one late click undoes everyone else's work."""
-        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
-        self.tournament.save(update_fields=["recording_access"])
-        di._handle_schedule_proposal_confirm(self._payload())
+        completed agreement on one late click undoes everyone else's work.
+
+        The clicker here is a roster player who is NOT seated, so can_schedule
+        refuses them -- a seated player now passes it."""
+        self._park_agreed()
         body = self._body(di._handle_schedule_proposal_reject(
             self._payload(action="sched_poll_no")))
         self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
@@ -10411,9 +10521,7 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
 
     def test_an_agreed_proposal_is_still_swept(self):
         """AGREED is live, so it must not survive a time set another way."""
-        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
-        self.tournament.save(update_fields=["recording_access"])
-        di._handle_schedule_proposal_confirm(self._payload())
+        self._park_agreed()
         with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
             with self.captureOnCommitCallbacks(execute=True):
                 di._cancel_open_proposals(self.match, "cancelled")
@@ -10422,9 +10530,7 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
 
     def test_an_agreed_proposal_is_still_expired(self):
         from the_databot.tasks import cleanup_stale_schedule_proposals
-        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
-        self.tournament.save(update_fields=["recording_access"])
-        di._handle_schedule_proposal_confirm(self._payload())
+        self._park_agreed()
         ScheduleProposal.objects.filter(pk=self.proposal.pk).update(
             proposed_time=timezone.now() - timedelta(days=1))
         with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
@@ -10818,9 +10924,14 @@ class SchedulePermissionTests(ScheduleFixtureMixin, TestCase):
 
     def test_revoked_permission_cancels_instead_of_confirming(self):
         """The ordering guard: a refused proposal must land CANCELLED, never
-        CONFIRMED-with-no-time."""
-        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
-        self.tournament.save(update_fields=["recording_access"])
+        CONFIRMED-with-no-time.
+
+        Permission is revoked by UNSEATING the proposer. It used to be revoked by
+        tightening recording_access, which no longer affects scheduling at all --
+        losing your seat is now the way a proposer stops being able to schedule."""
+        MatchSeat.objects.filter(
+            series=self.series,
+            stage_participant__tournament_player__profile=self.player).delete()
         ok, error = di._finalize_proposal(self.proposal)
         self.assertFalse(ok)
         self.assertIn("permission", error)
@@ -17689,8 +17800,13 @@ class JoinTournamentRosterTests(ScheduleFixtureMixin, TestCase):
     def test_a_merely_seated_player_may_not_approve(self):
         """The reason _roster_approver exists rather than _thread_staff_override: the
         latter admits a seated participant through Match.can_schedule, which must not
-        decide who joins a game."""
-        self.assertTrue(self.tournament.players_can_record_matches())
+        decide who joins a game.
+
+        can_schedule now admits a seated player under EVERY recording_access tier,
+        so this separation matters more than it did, not less."""
+        self.tournament.recording_access = Tournament.RecordingAccessTypes.MODERATORS
+        self.tournament.save(update_fields=["recording_access"])
+        self.match.refresh_from_db()
         self.assertTrue(self.match.can_schedule(self.player))      # would pass there
         self.assertFalse(di._roster_approver(self.player, self._ctx()))
         body = self._click("join_ok", "90", self.player.discord_id)["data"]
