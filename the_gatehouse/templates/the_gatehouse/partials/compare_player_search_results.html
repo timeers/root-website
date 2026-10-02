@@ -1,0 +1,11 @@
+{% load i18n %}
+{% comment %} Search results for the tournament availability compare page. Each row is
+the shared player card, in its 'compare' variant: a green + that adds the player to
+the roster (handled by the page's own script, not movePlayer). {% endcomment %}
+{% for player in players %}
+  {% include 'the_warroom/partials/player_card.html' with player=player group='compare' %}
+{% empty %}
+  <div class="text-muted small py-1">
+    {% if query %}{% trans 'No matching players' %}{% else %}{% trans 'No more players to add' %}{% endif %}
+  </div>
+{% endfor %}

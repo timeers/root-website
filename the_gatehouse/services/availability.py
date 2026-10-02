@@ -24,13 +24,25 @@ Converting each hour through ZoneInfo against a reference week fixes all three: 
 zone knows its own transition rules, so each hour is resolved with the offset that
 actually applies to it.
 
-SUB-HOUR ZONES ARE LOSSY BY DESIGN
-----------------------------------
-A player in a :30 or :45 zone has local hours that do not line up with UTC hours. The
-0-167 model has no way to express half an hour, so such an hour is attributed to the
-UTC hour that CONTAINS its start (i.e. rounded down). This is a deliberate, documented
-limitation of the encoding rather than an arithmetic slip -- surface it in the UI for
-affected zones rather than letting it skew quietly.
+SUB-HOUR ZONES: LOCAL ROW H STARTS AT H:MM
+------------------------------------------
+A player in a :30 or :45 zone (St. John's, Kolkata, Kathmandu, Adelaide, ...) has no
+local hour that lines up with a UTC hour -- but every UTC hour starts at a fixed
+minute past some local hour. So in those zones local row H means the hour starting at
+H:MM, where MM is the zone's minute offset (zone_minute_offset), and is labelled that
+way ("9:30am"). Each row is then EXACTLY one UTC hour, in both directions:
+
+  * UTC -> local floors: the UTC hour starting at local 9:30 lands in row 9
+    (_hour_of_week reads .hour).
+  * local -> UTC rounds UP: row 9 is the UTC hour that starts inside local
+    [9:00, 10:00), i.e. at 9:30 (_hour_of_week_ceil).
+
+For whole-hour zones the two roundings coincide and nothing changes. This replaced an
+older rule that rounded DOWN on save, which slid a half-hour player's selection an
+hour earlier every time they re-saved.
+
+The only zone whose MINUTE offset changes with DST is Lord Howe Island (+10:30 /
++11:00). Its data stays exact; its labels follow the offset at the week shown.
 """
 
 from datetime import datetime, timedelta, timezone as dt_timezone
@@ -92,6 +104,10 @@ def local_to_utc_hours(local_hours, tz_name):
     re-derived as an hour-of-week -- so DST rules and sub-hour offsets are applied by
     the zone rather than by arithmetic here.
 
+    Local row H means the hour starting at H:MM (see the module docstring), so the
+    row's H:00 start is rounded UP to the UTC hour that begins inside it. Exact
+    inverse of utc_to_local_hours for every zone; a no-op for whole-hour zones.
+
     Returns a sorted list. Out-of-range and non-integer values are dropped.
     """
     tzinfo = _zone_or_utc(tz_name)
@@ -103,7 +119,7 @@ def local_to_utc_hours(local_hours, tz_name):
         naive = _REFERENCE_MONDAY + timedelta(hours=hour)
         local_dt = naive.replace(tzinfo=tzinfo, fold=0)
         utc_dt = local_dt.astimezone(dt_timezone.utc)
-        utc_hours.add(_hour_of_week(utc_dt))
+        utc_hours.add(_hour_of_week_ceil(utc_dt))
     return sorted(utc_hours)
 
 
@@ -292,6 +308,42 @@ def _hour_of_week(moment):
     return (moment.weekday() * HOURS_PER_DAY + moment.hour) % HOURS_PER_WEEK
 
 
+def _hour_of_week_ceil(moment):
+    """hour-of-week of the whole hour starting AT or AFTER `moment`.
+
+    The save-side half of the H:MM rule: a sub-hour zone's local H:00 falls part
+    way through a UTC hour, and the row it heads is the NEXT UTC hour (the one
+    starting at H:MM). A moment already on the hour is unchanged, so whole-hour
+    zones convert exactly as before.
+    """
+    if moment.minute or moment.second or moment.microsecond:
+        moment = moment.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    return _hour_of_week(moment)
+
+
+def zone_minute_offset(tz_name, at=None):
+    """The minute past the hour at which `tz_name`'s local rows start: 0 for a
+    whole-hour zone, 30 for St. John's or Kolkata, 45 for Kathmandu or Eucla.
+
+    `at` is the naive-UTC or aware instant to measure at -- the week shown, for a
+    week grid -- and defaults to the reference week the General grid converts
+    against, so labels and conversion always agree. Unknown zones are UTC (0).
+    """
+    tzinfo = _zone_or_utc(tz_name)
+    when = at or _REFERENCE_MONDAY
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=dt_timezone.utc)
+    offset = when.astimezone(tzinfo).utcoffset() or timedelta(0)
+    return int(offset.total_seconds() // 60) % 60
+
+
+def week_minute_offset(week_start, tz_name):
+    """zone_minute_offset measured at the UTC midnight starting `week_start` (a
+    date) -- the instant a week-specific grid is labelled by."""
+    return zone_minute_offset(
+        tz_name, datetime.combine(week_start, datetime.min.time()))
+
+
 def hours_to_bitmask(hours):
     """Pack hour-of-week ints into a 168-bit int for fast overlap math."""
     mask = 0
@@ -311,28 +363,37 @@ def describe_day_hour(hour_of_week):
     return day_name[hour_of_week // HOURS_PER_DAY], hour_of_week % HOURS_PER_DAY
 
 
-def format_hour_12(hour, compact=False):
+def format_hour_12(hour, compact=False, minute=0):
     """A 0-23 hour as 12-hour text: '9:00 AM', or '9am' when compact.
 
     The compact form drops the ':00' because the grid repeats this label in all
     168 cells, where the full '12:00 PM' is too wide for a column that also has to
     stay tappable.
+
+    `minute` is the zone's row start (zone_minute_offset): a :30 zone's rows read
+    '9:30am' / '9:30 AM', since that is when each row's UTC hour actually starts.
     """
     period = 'PM' if hour >= 12 else 'AM'
     display = 12 if hour % 12 == 0 else hour % 12
     if compact:
+        if minute:
+            return f"{display}:{minute:02d}{period.lower()}"
         return f"{display}{period.lower()}"
-    return f"{display}:00 {period}"
+    return f"{display}:{minute:02d} {period}"
 
 
-def hour_labels():
+def hour_labels(minute=0):
     """[(hour, compact_label, full_label)] for the 24 rows of the weekly grid.
 
     Built here rather than in the template because Django templates can't do the
     12-hour arithmetic, and rather than in a filter because the view already
     assembles the grid's axes.
+
+    `minute` labels a sub-hour zone's rows at their real start (see
+    zone_minute_offset); 0 gives the whole-hour labels.
     """
-    return [(hour, format_hour_12(hour, compact=True), format_hour_12(hour))
+    return [(hour, format_hour_12(hour, compact=True, minute=minute),
+             format_hour_12(hour, minute=minute))
             for hour in range(HOURS_PER_DAY)]
 
 

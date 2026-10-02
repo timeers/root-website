@@ -116,15 +116,36 @@ def _adopt_response_timezone(survey, survey_response, request):
         profile.save(update_fields=['timezone'])
 
 
-def _availability_grid_labels():
-    """Row/column labels the shared availability grid partial loops over.
+def _survey_grid_timezone(request):
+    """The zone a WEEKLY_AVAILABILITY grid is drawn in: the respondent's saved
+    profile timezone, or None when they have none (the page's script then uses
+    the browser's zone instead). ONE answer for the labels, the rendered
+    timezone input and the re-edit conversion, so the three can't disagree."""
+    from the_databot.services.time_parsing import valid_timezone
+
+    profile = getattr(request.user, 'profile', None) if request.user.is_authenticated else None
+    tz_name = getattr(profile, 'timezone', None)
+    return tz_name if valid_timezone(tz_name) else None
+
+
+def _availability_grid_labels(request):
+    """Row/column labels the shared availability grid partial loops over, plus
+    the zone they are drawn in (`wa_timezone`, rendered into each grid's
+    timezone input).
 
     Supplied on every path that renders take_survey.html -- without `days` and
     `hours` the grid's loops produce no cells at all, and a WEEKLY_AVAILABILITY
     question renders as an empty box with no error anywhere.
+
+    In a :30/:45 zone the rows start at that minute ("9:30am"), so each row is
+    exactly one UTC hour -- see services.availability.zone_minute_offset.
     """
-    from the_gatehouse.services.availability import DAY_LABELS, hour_labels
-    return {'days': DAY_LABELS, 'hours': hour_labels()}
+    from the_gatehouse.services.availability import (DAY_LABELS, hour_labels,
+                                                     zone_minute_offset)
+    tz_name = _survey_grid_timezone(request)
+    return {'days': DAY_LABELS,
+            'hours': hour_labels(zone_minute_offset(tz_name)),
+            'wa_timezone': tz_name or ''}
 
 
 def _weekly_availability_utc(request, question, answer_data, profile):
@@ -875,7 +896,7 @@ def survey_take_view(request, slug):
                     'visible_questions': visible_questions,
                     'sections_data': sections_data,
                     'question_numbers': question_numbers,
-                    **_availability_grid_labels(),
+                    **_availability_grid_labels(request),
                 })
 
             # Validate rules agreement for registration surveys
@@ -895,7 +916,7 @@ def survey_take_view(request, slug):
                         'visible_questions': visible_questions,
                         'sections_data': sections_data,
                         'question_numbers': question_numbers,
-                        **_availability_grid_labels(),
+                        **_availability_grid_labels(request),
                     })
 
             # Get timezone offset from form
@@ -1143,7 +1164,7 @@ def survey_take_view(request, slug):
         'return_to': return_to,
         'meta_title': survey.title,
         'meta_description': f"Take the survey: {survey.title}",
-        **_availability_grid_labels(),
+        **_availability_grid_labels(request),
     }
     return render(request, 'the_tavern/take_survey.html', context)
 
@@ -1249,7 +1270,7 @@ def survey_user_response_edit_view(request, slug, response_id):
                     'is_editing': is_editing,
                     'sections_data': edit_sections,
                     'question_numbers': edit_qnums,
-                    **_availability_grid_labels(),
+                    **_availability_grid_labels(request),
                 })
 
             # Validate rules agreement for registration surveys
@@ -1270,7 +1291,7 @@ def survey_user_response_edit_view(request, slug, response_id):
                         'visible_questions': survey.questions.filter(is_hidden=False),
                         'sections_data': edit_sections,
                         'question_numbers': edit_qnums,
-                        **_availability_grid_labels(),
+                        **_availability_grid_labels(request),
                     })
 
             # Update timezone offset if provided
@@ -1482,7 +1503,7 @@ def survey_user_response_edit_view(request, slug, response_id):
         'visible_questions': visible_questions,
         'sections_data': sections_data,
         'question_numbers': question_numbers,
-        **_availability_grid_labels(),
+        **_availability_grid_labels(request),
     }
     return render(request, 'the_tavern/take_survey.html', context)
 
@@ -2207,7 +2228,7 @@ def survey_preview_view(request, slug, from_settings=False):
         'visible_questions': visible_questions,
         'sections_data': sections_data,
         'question_numbers': question_numbers,
-        **_availability_grid_labels(),
+        **_availability_grid_labels(request),
     }
     return render(request, 'the_tavern/survey_preview.html', context)
 

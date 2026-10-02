@@ -97,7 +97,7 @@ from the_databot.services.lfg_game import (
     player_group_for_channel, link_group_thread, normalize_title,
     group_roster, group_series_id, undrafted_pick,
     roster_name, name_list_value, FIELD_VALUE_MAX, match_label, seat_label,
-    schedule_closed_embed, name_join,
+    schedule_closed_embed, name_join, schedule_request_closed_content,
     POLL_YES_FIELD, POLL_NO_FIELD, POLL_PENDING_FIELD, POLL_NOTIFY_FIELD,
     poll_count_label, poll_response_fields,
 )
@@ -1943,44 +1943,46 @@ def _schedule_rejected_data(proposal, match=None, author=None):
 
 
 def _schedule_finalized_data(proposal, match):
-    """The 'game has been scheduled' view: the standard announcement embed plus the
-    roster who agreed to it. build_upcoming_embed is treated as fallible here for
-    the same reason the legacy confirm path does.
+    """The 'game has been scheduled' view: the tournament, "<Game> scheduled"
+    linked to the matches page, the time, and who confirmed it -- nothing else.
 
-    summary=None drops that builder's "The next scheduled game" line: it's
-    /upcoming's wording, and the match just scheduled here isn't necessarily the
-    next one in the tournament. The title and the Confirmed-by field already say
-    what happened."""
+    Takes only the title, url and author from build_upcoming_embed. Its Players
+    field repeats Confirmed by, Platform is noise here, and a closing note would
+    only repeat the title. summary=None drops the builder's "The next scheduled
+    game" line: /upcoming's wording, and the match just scheduled here isn't
+    necessarily the next one. build_upcoming_embed is treated as fallible here for
+    the same reason the legacy confirm path does."""
     try:
         embed = build_upcoming_embed(match, summary=None)
     except Exception:
         logger.exception("Failed to build /schedule announcement embed")
         embed = None
-    # `is None` rather than a falsy check: the builder strips None values, and with
-    # summary=None an embed can legitimately come back without a description. A
-    # bare `not embed` would treat such a sparse embed as a failure and fall
-    # through to the fallback, whose title would then get double-prefixed below.
+    # `is None` rather than a falsy check: the builder strips None values, so a
+    # sparse embed is still a success. A bare `not embed` would fall through to
+    # the fallback, whose title would then get double-prefixed below.
     if embed is None:
-        embed = {
-            "title": _match_label(match),
-            "description": format_discord_timestamp(proposal.proposed_time),
-        }
+        embed = {"title": _match_label(match)}
     embed = dict(embed)
     embed["title"] = f"🗓️ {embed.get('title') or _match_label(match)} scheduled"
-    # The same closing note an embed-mode poll gets, so both modes say how the
-    # poll ended rather than leaving the match one to be inferred from the title.
-    # Appended to whatever description build_upcoming_embed produced (which may
-    # be absent entirely -- summary=None strips it).
-    note = "-# Scheduled — everyone confirmed."
-    existing = embed.get("description")
-    embed["description"] = f"{existing}\n\n{note}" if existing else note
-    fields = list(embed.get("fields") or [])
-    fields.append({
+    embed.pop("description", None)
+
+    # Exactly two fields: when, and who confirmed it. The builder's Scheduled
+    # field when it made one (in each viewer's own time); otherwise -- a failed
+    # builder, or a match whose time isn't saved yet -- built the same way.
+    scheduled = next((f for f in embed.get("fields") or []
+                      if f.get("name") == "Scheduled"), None)
+    if scheduled is None:
+        scheduled = {
+            "name": "Scheduled",
+            "value": format_discord_timestamp(
+                match.scheduled_time or proposal.proposed_time),
+            "inline": False,
+        }
+    embed["fields"] = [scheduled, {
         "name": "✅ Confirmed by",
         "value": _name_list_value(list(proposal.confirmed_by.all())),
         "inline": False,
-    })
-    embed["fields"] = fields
+    }]
     return {"embeds": [embed], "components": [],
             "allowed_mentions": {"parse": []}}
 
@@ -2047,6 +2049,25 @@ def _schedule_closed_data(title, description=None, proposal=None, reason=None,
     }
 
 
+def _mod_request_closed_data(proposal, reason, actor=None, reason_text=None):
+    """A closed moderator request: REPLACE its content, never add an embed.
+
+    The request is a content-only message, so _schedule_closed_data's embed
+    would land underneath the stale "A moderator must confirm this time first."
+    -- the message would lose its buttons yet still read as live. embeds=[] is
+    meaningful for the same reason components=[] is.
+
+    The same renderer the strip task uses, so a request closed by a click and one
+    swept out of band read alike."""
+    return {
+        "content": schedule_request_closed_content(
+            proposal, reason, actor=actor, reason_text=reason_text),
+        "embeds": [],
+        "components": [],
+        "allowed_mentions": {"parse": []},
+    }
+
+
 def _schedule_retire_response(proposal, reason, actor=None):
     """Retire a proposal a button can no longer act on, and clear its buttons.
 
@@ -2072,11 +2093,12 @@ def _schedule_retire_response(proposal, reason, actor=None):
         pk=proposal.pk, status__in=ScheduleProposal.LIVE_STATUSES,
     ).update(status=ScheduleProposal.Status.CANCELLED,
              resolved_at=timezone.now())
-    return JsonResponse({
-        "type": RESPONSE_UPDATE_MESSAGE,
-        "data": _schedule_closed_data(
-            "Proposal closed", proposal=proposal, reason=reason, actor=actor),
-    })
+    if proposal.is_mod_request:
+        data = _mod_request_closed_data(proposal, reason, actor=actor)
+    else:
+        data = _schedule_closed_data(
+            "Proposal closed", proposal=proposal, reason=reason, actor=actor)
+    return JsonResponse({"type": RESPONSE_UPDATE_MESSAGE, "data": data})
 
 
 def _cancel_open_proposals(match, reason, exclude_pk=None):
@@ -2104,23 +2126,28 @@ def _cancel_open_proposals(match, reason, exclude_pk=None):
 
 
 def _announce_schedule_to_channel(match, old_time, new_time):
-    """Announce a newly written match time in the tournament's schedule_channel.
+    """Announce a match time being set, moved or cleared in the tournament's
+    schedule_channel.
 
     Call with the time read BEFORE the write: the verb depends on it, and an unchanged
-    time is not announced at all (re-confirming the same slot isn't news).
+    time is not announced at all (re-confirming the same slot isn't news). A clear
+    (new_time=None) IS announced -- moderators watching the channel saw the time
+    go up, so they need to see it come down.
 
-    Safe to call from inside an atomic block -- it defers the post itself, and
-    post_to_tournament_channel refuses any channel it can't confirm belongs to the
-    tournament's current guild.
+    Safe to call from inside an atomic block -- the post is queued on commit, and
+    post_to_tournament_channel_task refuses any channel it can't confirm belongs to
+    the tournament's current guild. Queued rather than posted inline because that
+    guild check is a synchronous Discord GET, which must never run on the request
+    path (see the task's docstring).
     """
-    if new_time is None or old_time == new_time:
+    if old_time == new_time:
         return
     tournament = match.round.get_tournament() if match.round_id else None
     if tournament is None:
         return
-    verb = "rescheduled" if old_time is not None else "scheduled"
-    # Three lines, not one: the rendered time gets its own line to read against,
-    # and the raw markup below it can be copied straight into another message.
+    # Cheap local check so an unconfigured channel costs no task at all.
+    if not (tournament.schedule_channel or "").strip():
+        return
     group = match.player_group
     match_thread = group.discord_thread if group else ""
 
@@ -2130,16 +2157,27 @@ def _announce_schedule_to_channel(match, old_time, new_time):
         formatted_match_label = _match_label(match)
 
 
-    content = "\n".join([
-        f"{formatted_match_label} is {verb} for",
-        format_discord_timestamp(new_time),
-        format_discord_timestamp_code(new_time),
-    ])
-    from the_warroom.services.channel_posts import post_to_tournament_channel
+    if new_time is None:
+        # One line: a removed time is a record, not something to quote, so it
+        # gets no copyable markup.
+        content = (f"{formatted_match_label} is no longer scheduled "
+                   f"(was {format_discord_timestamp(old_time)})")
+    else:
+        verb = "rescheduled" if old_time is not None else "scheduled"
+        # Three lines, not one: the rendered time gets its own line to read
+        # against, and the raw markup below it can be copied straight into another
+        # message.
+        content = "\n".join([
+            f"{formatted_match_label} is {verb} for",
+            format_discord_timestamp(new_time),
+            format_discord_timestamp_code(new_time),
+        ])
+    tournament_id = tournament.pk
     # on_commit: callers run inside transaction.atomic(), and the worker must never
     # announce a time this transaction goes on to roll back.
     transaction.on_commit(
-        lambda: post_to_tournament_channel(tournament, 'schedule_channel', content))
+        lambda: post_to_tournament_channel_task.delay(
+            tournament_id, 'schedule_channel', content))
 
 
 def _announce_schedule_to_thread(match, old_time, new_time):
@@ -2152,7 +2190,7 @@ def _announce_schedule_to_thread(match, old_time, new_time):
     label -- the thread already is the match -- and no copyable `<t:...>` line,
     which belongs in the channel announcement people quote from.
 
-    Unlike _announce_schedule_to_channel, DOES fire on a clear (new_time=None) --
+    Fires on a clear (new_time=None), as _announce_schedule_to_channel does --
     a postponement is exactly the case a roster most needs pinged about, since a
     game night they were expecting just came off the calendar. Still a no-op when
     old_time == new_time (nothing changed, so nothing to say).
@@ -2800,12 +2838,21 @@ def _open_schedule_proposal(payload, match, when, profile, roster, author=None):
     })
 
 
+def _group_moderator(match):
+    """The match's group moderator, or None -- the person most likely to act on a
+    moderator request. Same lookup _announce_schedule_to_thread makes."""
+    group = match.player_group
+    return group.group_moderator if group else None
+
+
 def _mod_request_content(proposal, match, actor=None, rejected=False):
     """The public moderator-request message's text.
 
-    Mentions render but never NOTIFY: every caller pairs this with
-    allowed_mentions={"parse": []}. The requester is tagged so the thread can see
-    whose time this is at a glance, not to ping them -- they are the one who asked.
+    Mentions render but notify only the GROUP MODERATOR, and only on the initial
+    post (see _schedule_mod_request_data's allowed_mentions); every other caller
+    pairs this with allowed_mentions={"parse": []}, and an edit never notifies. The
+    requester is tagged so the thread can see whose time this is at a glance, not
+    to ping them -- they are the one who asked.
 
     `rejected` renders the closed form naming the moderator who turned it down, so
     the thread keeps a record of what happened rather than a message that merely
@@ -2820,8 +2867,16 @@ def _mod_request_content(proposal, match, actor=None, rejected=False):
         by = (f"<@{actor.discord_id}>" if actor and actor.discord_id
               else _roster_name(actor, nudge=False) if actor else "a moderator")
         return f"{who} suggested {when} for **{label}** but {by} rejected it."
-    return (f"{who} would like to schedule **{label}** for {when}.\n"
-            "A moderator must confirm this time first.")
+    moderator = _group_moderator(match)
+    if moderator is None:
+        ask = "A moderator must confirm this time first."
+    else:
+        # Named even when unlinked, as the thread announcement does, rather than
+        # dropped -- the thread should still see whose call this is.
+        mod = (f"<@{moderator.discord_id}>" if moderator.discord_id
+               else _roster_name(moderator, nudge=False))
+        ask = f"{mod} or another moderator must confirm this time first."
+    return f"{who} would like to schedule **{label}** for {when}.\n{ask}"
 
 
 def _schedule_mod_request_data(proposal, match):
@@ -2831,10 +2886,21 @@ def _schedule_mod_request_data(proposal, match):
     owner-lock does NOT fire -- the moderator who answers this is by definition not
     the person who asked, and the lock admits exactly one snowflake. Each handler
     authorizes for itself."""
+    # Notify the group moderator ONLY. An explicit users list, never
+    # {"parse": ["users"]}: the content also tags the requester, and parse would
+    # ping them too. Nor the moderator when they are the requester -- a
+    # moderator's own /schedule set becomes a request as well, and pinging them
+    # about it is noise. Edits never notify, so the strip/reject re-renders can't
+    # ping again; only a fresh POST of this payload would.
+    moderator = _group_moderator(match)
+    if (moderator is not None and moderator.discord_id
+            and moderator.pk != proposal.proposed_by_id):
+        allowed_mentions = {"users": [str(moderator.discord_id)]}
+    else:
+        allowed_mentions = {"parse": []}
     return {
         "content": _mod_request_content(proposal, match),
-        # Renders the tags without notifying anyone.
-        "allowed_mentions": {"parse": []},
+        "allowed_mentions": allowed_mentions,
         "components": [action_row(
             button("Confirm", encode_custom_id("sched_mod_ok", proposal.pk, "g"),
                    style=STYLE_SUCCESS),
@@ -2933,18 +2999,20 @@ def _handle_mod_schedule_confirm(payload):
 
     ok, failure = _finalize_proposal(proposal, actor=clicker)
     if not ok:
+        # Prose, not a reason key: _finalize_proposal reports its failures as
+        # sentences, and an unknown key would render as "changed or cleared".
         return JsonResponse({
             "type": RESPONSE_UPDATE_MESSAGE,
-            "data": _schedule_closed_data(
-                "Request closed",
-                f"The time can no longer be set for this match — {failure}."),
+            "data": _mod_request_closed_data(
+                proposal, "cancelled",
+                reason_text=f"The time can no longer be set for this match — {failure}."),
         })
 
     match.refresh_from_db()
-    # _finalize_proposal tells the tournament's schedule channel; the match's own
-    # thread is told here rather than inside it, because the roster-poll flow
-    # announces there through its own closing message and must not get two.
-    _announce_schedule_to_thread(match, None, proposal.proposed_time)
+    # No announcement here: _finalize_proposal is the single announcer for both
+    # the schedule channel and the match thread, and it alone holds the real
+    # previous time -- so it is the one that says "rescheduled" correctly. A second
+    # thread call here used to double-ping, always reading "scheduled".
     when = format_discord_timestamp(proposal.proposed_time)
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
@@ -3422,7 +3490,9 @@ def _handle_schedule_clear_confirm(payload):
 
     # Supersede the announcement the set flow posted — otherwise the thread is left
     # showing a time that no longer exists. Guild-verified and pinged, same as
-    # every other schedule-change notice.
+    # every other schedule-change notice. The schedule channel is told too: it
+    # announced the time going up, so it must see it come down.
+    _announce_schedule_to_channel(match, old_scheduled_time, None)
     _announce_schedule_to_thread(match, old_scheduled_time, None)
 
     return JsonResponse({

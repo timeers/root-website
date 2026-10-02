@@ -12,7 +12,7 @@ from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 
 from the_gatehouse.models import (
     DiscordGuild, Profile, PlayerSchedule, schedules_for,
@@ -4406,6 +4406,225 @@ class AvailabilityComparePageTests(_AvailabilityFixtureMixin, TestCase):
         self.assertNotIn(stranger.id, names)
 
 
+class CompareLastUpdatedAndGamesTests(_AvailabilityFixtureMixin, TestCase):
+    """The compare page's player-name "Last updated" tooltip, and its overlay of
+    scheduled games (the roster's other matches, plus the match being compared)."""
+
+    def setUp(self):
+        super().setUp()
+        from the_gatehouse.services.availability import week_start_for
+        self.url = reverse('availability-compare')
+        self.week_data_url = reverse('availability-compare-week-data')
+        self.week = week_start_for(timezone.now().date())
+        # Tuesday of the shown week, 00:00 UTC.
+        self.tuesday = timezone.make_aware(
+            datetime.combine(self.week + timedelta(days=1), datetime.min.time()),
+            dt_timezone.utc)
+
+    def _series_with(self, *tournament_players):
+        series = MatchSeries.objects.create(round=self.round)
+        for i, tp in enumerate(tournament_players, start=1):
+            participant = StageParticipant.objects.get(
+                stage=self.stage, tournament_player=tp)
+            MatchSeat.objects.create(
+                series=series, stage_participant=participant, seat_number=i)
+        return series
+
+    def _match(self, series, when):
+        return Match.objects.create(round=self.round, series=series, scheduled_time=when)
+
+    def _login(self, tp, tz=None):
+        if tz:
+            Profile.objects.filter(pk=tp.profile_id).update(timezone=tz)
+        self.client.force_login(tp.profile.user)
+
+    def _token(self, hour_of_week):
+        from the_gatehouse.services.availability import utc_instant_token
+        return utc_instant_token(self.week, hour_of_week)
+
+    # ── Last updated ─────────────────────────────────────────────────────────
+    def test_last_updated_is_the_latest_row_on_the_viewers_clock(self):
+        from zoneinfo import ZoneInfo
+        from django.utils.formats import date_format
+        a = self._player("lu_a", hours=self.A_HOURS, tournament_hours=self.C_HOURS)
+        series = self._series_with(a)
+        older = self.tuesday - timedelta(days=30)
+        newer = self.tuesday - timedelta(days=2, hours=3, minutes=10)
+        PlayerSchedule.objects.filter(profile=a.profile, tournament=None).update(updated_at=older)
+        PlayerSchedule.objects.filter(profile=a.profile, tournament=self.tournament).update(
+            updated_at=newer)
+
+        self._login(a, tz='Asia/Tokyo')
+        response = self.client.get(self.url, {'series': series.id})
+        expected = 'Last updated: ' + date_format(
+            timezone.localtime(newer, ZoneInfo('Asia/Tokyo')), 'M j, Y, g:i A')
+        self.assertEqual(response.context['players'][0]['last_updated_label'], expected)
+        self.assertContains(response, f'data-bs-title="{expected}"')
+
+    def test_a_player_without_availability_was_never_updated(self):
+        a = self._player("lu_has", hours=self.A_HOURS)
+        d = self._player("lu_none")
+        series = self._series_with(a, d)
+        self._login(a)
+        response = self.client.get(self.url, {'series': series.id})
+        none_row = next(p for p in response.context['players']
+                        if p['profile'].id == d.profile_id)
+        self.assertEqual(none_row['last_updated_label'], 'Last updated: never')
+        self.assertFalse(none_row['has_schedule'])
+
+    def test_a_player_without_availability_is_ticked_like_anyone_else(self):
+        """No availability no longer disables the checkbox: the row says "none",
+        and the player selects, counts and draws games like everyone else."""
+        import re
+        a = self._player("tk_a", hours=self.A_HOURS)
+        d = self._player("tk_none")
+        series = self._series_with(a, d)
+        self._login(a)
+
+        def toggle(html):
+            return re.search(r'<input[^>]*id="player-%d"[^>]*>' % d.profile_id,
+                             html, re.S).group(0)
+
+        page = self.client.get(self.url, {'series': series.id}).content.decode()
+        data = self.client.get(self.week_data_url, {'series': series.id}).json()
+        for html in (page, data['player_list_html']):
+            tag = toggle(html)
+            self.assertIn('checked', tag)
+            self.assertNotIn('disabled', tag)
+        self.assertIn('data-no-schedule="1"', page)
+
+    def test_a_player_without_availability_still_has_games_drawn(self):
+        a = self._player("tkg_a", hours=self.A_HOURS)
+        d = self._player("tkg_none")
+        compared = self._series_with(a, d)
+        self._match(self._series_with(d), self.tuesday + timedelta(hours=12))
+        self._login(a)
+        games = self.client.get(self.url, {'series': compared.id}).context['player_games_json']
+        self.assertIn(str(d.profile_id), games)
+
+    def test_week_data_carries_the_tooltip(self):
+        a = self._player("lu_wd", hours=self.A_HOURS)
+        series = self._series_with(a)
+        self._login(a)
+        data = self.client.get(self.week_data_url, {'series': series.id}).json()
+        self.assertIn('data-bs-title="Last updated:', data['player_list_html'])
+
+    # ── Scheduled games ──────────────────────────────────────────────────────
+    def test_another_match_is_overlaid_for_four_hours_from_the_rounded_start(self):
+        a = self._player("g_a", hours=self.A_HOURS)
+        b = self._player("g_b", hours=self.B_HOURS)
+        compared = self._series_with(a, b)
+        other = self._series_with(b)
+        match = self._match(other, self.tuesday + timedelta(hours=14, minutes=40))
+
+        self._login(a)
+        response = self.client.get(self.url, {'series': compared.id})
+        games = response.context['player_games_json']
+        self.assertEqual(list(games), [str(b.profile_id)])
+        # The client groups a match's seated players into one tooltip line by this.
+        self.assertEqual(games[str(b.profile_id)][0]['match_id'], match.id)
+        # 14:40 rounds UP to 15:00; Tuesday 15:00 UTC is hour-of-week 39.
+        self.assertEqual(games[str(b.profile_id)][0]['tokens'],
+                         [self._token(39 + k) for k in range(4)])
+
+    def test_a_start_before_half_past_rounds_down(self):
+        a = self._player("rd_a", hours=self.A_HOURS)
+        compared = self._series_with(a)
+        other = self._series_with(a)
+        self._match(other, self.tuesday + timedelta(hours=14, minutes=20))
+        self._login(a)
+        games = self.client.get(self.url, {'series': compared.id}).context['player_games_json']
+        self.assertEqual(games[str(a.profile_id)][0]['tokens'][0], self._token(38))
+
+    def test_the_compared_match_is_this_game_not_a_scheduled_one(self):
+        a = self._player("tg_a", hours=self.A_HOURS)
+        compared = self._series_with(a)
+        self._match(compared, self.tuesday + timedelta(hours=14, minutes=40))
+        self._login(a)
+        response = self.client.get(self.url, {'series': compared.id})
+        self.assertEqual(response.context['player_games_json'], {})
+        this_game = response.context['this_game_json']
+        self.assertEqual(len(this_game), 1)
+        self.assertEqual(this_game[0]['tokens'][0], self._token(39))
+        self.assertTrue(this_game[0]['label'])
+
+    def test_an_unscheduled_compared_match_draws_nothing(self):
+        a = self._player("tg_none", hours=self.A_HOURS)
+        compared = self._series_with(a)
+        Match.objects.create(round=self.round, series=compared)
+        self._login(a)
+        response = self.client.get(self.url, {'series': compared.id})
+        self.assertEqual(response.context['this_game_json'], [])
+
+    def test_the_start_label_is_unrounded_on_the_viewers_clock(self):
+        from zoneinfo import ZoneInfo
+        from django.utils.formats import date_format
+        a = self._player("sl_a", hours=self.A_HOURS)
+        compared = self._series_with(a)
+        other = self._series_with(a)
+        when = self.tuesday + timedelta(hours=14, minutes=40)
+        self._match(other, when)
+        self._login(a, tz='Asia/Tokyo')
+        games = self.client.get(self.url, {'series': compared.id}).context['player_games_json']
+        self.assertEqual(
+            games[str(a.profile_id)][0]['start_label'],
+            date_format(timezone.localtime(when, ZoneInfo('Asia/Tokyo')), 'D g:i A'))
+
+    def test_games_outside_the_week_or_tournament_are_left_out(self):
+        a = self._player("out_a", hours=self.A_HOURS)
+        compared = self._series_with(a)
+        later = self._series_with(a)
+        self._match(later, self.tuesday + timedelta(days=21))
+
+        # The same player, seated in another tournament's match this week.
+        other_t = Tournament.objects.create(name="Elsewhere", is_active=True)
+        other_stage = Stage.objects.create(tournament=other_t, name="S", order=1)
+        other_round = Round.objects.create(stage=other_stage, round_number=1)
+        other_tp = TournamentPlayer.objects.create(tournament=other_t, profile=a.profile)
+        participant = StageParticipant.objects.create(
+            stage=other_stage, tournament_player=other_tp,
+            status=StageParticipant.ParticipantStatus.ACTIVE)
+        other_series = MatchSeries.objects.create(round=other_round)
+        MatchSeat.objects.create(series=other_series, stage_participant=participant,
+                                 seat_number=1)
+        Match.objects.create(round=other_round, series=other_series,
+                             scheduled_time=self.tuesday + timedelta(hours=12))
+
+        self._login(a)
+        response = self.client.get(self.url, {'series': compared.id})
+        self.assertEqual(response.context['player_games_json'], {})
+
+    def test_a_refused_viewer_gets_no_games(self):
+        a = self._player("rf_a", hours=self.A_HOURS)
+        compared = self._series_with(a)
+        self._match(self._series_with(a), self.tuesday + timedelta(hours=12))
+        outsider = self._player("rf_out", hours=self.B_HOURS)
+        self._login(outsider)
+        response = self.client.get(self.url, {'series': compared.id})
+        self.assertFalse(response.context['can_view'])
+        self.assertEqual(response.context['player_games_json'], {})
+        self.assertEqual(response.context['this_game_json'], [])
+
+    def test_week_data_carries_the_games(self):
+        a = self._player("wdg_a", hours=self.A_HOURS)
+        compared = self._series_with(a)
+        self._match(compared, self.tuesday + timedelta(hours=10))
+        self._match(self._series_with(a), self.tuesday + timedelta(hours=20))
+        self._login(a)
+        data = self.client.get(self.week_data_url, {'series': compared.id}).json()
+        self.assertEqual(len(data['this_game_json']), 1)
+        self.assertIn(str(a.profile_id), data['player_games_json'])
+
+    def test_detail_panel_escapes_player_names(self):
+        """showDetail builds HTML from display names; they must be escaped."""
+        a = self._player("xss_a", hours=self.A_HOURS)
+        series = self._series_with(a)
+        self._login(a)
+        body = self.client.get(self.url, {'series': series.id}).content.decode()
+        self.assertIn('escapeHtml(NAMES[id])', body)
+        self.assertIn('escapeHtml(cellLabel(cell))', body)
+
+
 class AvailabilityCompareDSTTests(_AvailabilityFixtureMixin, TestCase):
     """Week-specific compare mode's two DST fixes: general/tournament-standing
     rows reinterpreted for the REAL week being viewed (not naively reused as
@@ -5309,3 +5528,204 @@ class GameDeleteUnwindsLFGThreadTests(TestCase):
         game.delete()
 
         self.assertEqual(cleanup_stale_lfg_threads(dry_run=True), 0)
+
+
+class TournamentAvailabilityPageTests(_AvailabilityFixtureMixin, TestCase):
+    """series/<slug>/availability/compare/ -- the compare page with a roster the
+    tournament's host or moderators pick, via search / add / remove."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('tournament-availability', kwargs={'slug': self.tournament.slug})
+        self.week_url = reverse('tournament-availability-week-data',
+                                kwargs={'slug': self.tournament.slug})
+        self.search_url = reverse('tournament-availability-search',
+                                  kwargs={'slug': self.tournament.slug})
+        self.host = self._onboarded("host")
+        self.tournament.designer = self.host
+        self.tournament.save(update_fields=["designer"])
+
+    def _onboarded(self, username):
+        user = User.objects.create_user(username=username, password="x")
+        profile = user.profile
+        profile.group = Profile.GroupChoices.PLAYER
+        profile.player_onboard = True
+        profile.save()
+        return profile
+
+    def _login(self, profile):
+        self.client.force_login(profile.user)
+
+    def _outsider(self, name="outsider"):
+        """A profile with hours but no TournamentPlayer in this tournament."""
+        profile = self._onboarded(name)
+        # A display name distinct from the slug: the slug legitimately appears in
+        # the requested URL (og:url), the name must not appear anywhere.
+        profile.display_name = f"{name} Secret Name"
+        profile.save(update_fields=["display_name"])
+        PlayerSchedule.objects.create(
+            profile=profile, tournament=None, available_hours=self.A_HOURS)
+        return profile
+
+    # ── access ───────────────────────────────────────────────────────────────
+    def test_host_moderator_and_admin_can_open_it(self):
+        mod = self._onboarded("mod")
+        self.tournament.moderators.add(mod)
+        admin = self._onboarded("site_admin")
+        admin.group = Profile.GroupChoices.ADMIN
+        admin.save(update_fields=["group"])
+        for profile in (self.host, mod, admin):
+            with self.subTest(profile=profile.user.username):
+                self._login(profile)
+                self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_a_plain_tournament_player_is_refused_everywhere(self):
+        tp = self._player("plain", hours=self.A_HOURS)
+        tp.profile.group = Profile.GroupChoices.PLAYER
+        tp.profile.player_onboard = True
+        tp.profile.save()
+        self._login(tp.profile)
+        for url in (self.url, self.week_url, self.search_url):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 403)
+
+    # ── roster ───────────────────────────────────────────────────────────────
+    def test_an_empty_roster_still_renders_the_search(self):
+        self._login(self.host)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['player_count'], 0)
+        self.assertContains(response, 'id="player-search"')
+        self.assertContains(response, 'id="player-empty"')
+        self.assertNotContains(response, "There are no players to compare yet")
+
+    def test_players_outside_the_tournament_are_dropped(self):
+        a = self._player("in_a", hours=self.A_HOURS)
+        outsider = self._outsider()
+        self._login(self.host)
+        players = f"{a.profile.slug},{outsider.slug},no-such-slug"
+
+        response = self.client.get(self.url, {'players': players})
+        self.assertEqual([p['profile'].id for p in response.context['players']],
+                         [a.profile_id])
+        self.assertNotIn(str(outsider.id), response.context['player_hours_json'])
+        self.assertNotContains(response, outsider.display_name)
+        self.assertNotIn(str(outsider.id), response.context['player_names_json'])
+        self.assertEqual(response.context['roster_slugs'], [a.profile.slug])
+        self.assertEqual(response.context['dropped_count'], 2)
+        self.assertIn("left out", response.context['dropped_label'])
+
+        data = self.client.get(self.week_url, {'players': players}).json()
+        self.assertEqual(data['roster_slugs'], [a.profile.slug])
+        self.assertEqual(data['dropped_count'], 2)
+        self.assertNotIn(str(outsider.id), data['player_hours_json'])
+
+    def test_week_data_redraws_the_list_with_remove_buttons(self):
+        a = self._player("wd_a", hours=self.A_HOURS)
+        b = self._player("wd_b", hours=self.B_HOURS)
+        self._login(self.host)
+        data = self.client.get(
+            self.week_url, {'players': f"{a.profile.slug},{b.profile.slug}"}).json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['player_count'], 2)
+        self.assertEqual(data['player_count_label'], "2 Players")
+        for tp in (a, b):
+            self.assertIn(f'data-remove-player="{tp.profile.slug}"',
+                          data['player_list_html'])
+
+    def test_tournament_schedules_take_precedence(self):
+        a = self._player("prec_a", hours=self.A_HOURS, tournament_hours=self.C_HOURS)
+        self._login(self.host)
+        response = self.client.get(self.url, {'players': a.profile.slug})
+        self.assertEqual(response.context['players'][0]['hour_count'],
+                         len(self.C_HOURS))
+
+    # ── search ───────────────────────────────────────────────────────────────
+    def test_search_covers_every_status_and_skips_the_roster(self):
+        reg = self._player("srch_reg")
+        wait = self._player("srch_wait")
+        elim = self._player("srch_elim")
+        TournamentPlayer.objects.filter(pk=wait.pk).update(
+            status=TournamentPlayer.StatusChoices.WAITLIST)
+        TournamentPlayer.objects.filter(pk=elim.pk).update(
+            status=TournamentPlayer.StatusChoices.ELIMINATED)
+        outsider = self._outsider("srch_out")
+        self._login(self.host)
+
+        response = self.client.get(
+            self.search_url, {'q': 'srch', 'exclude': reg.profile.slug})
+        html = response.content.decode()
+        self.assertNotIn(f'data-add-player="{reg.profile.slug}"', html)
+        self.assertIn(f'data-add-player="{wait.profile.slug}"', html)
+        self.assertIn(f'data-add-player="{elim.profile.slug}"', html)
+        self.assertNotIn(f'data-add-player="{outsider.slug}"', html)
+        # The compare variant of the shared card: a +, never the trash button.
+        self.assertNotIn("bi-trash", html)
+
+    def test_an_empty_search_lists_players_and_skips_null_slugs(self):
+        a = self._player("empty_a")
+        nameless = self._player("empty_b")
+        Profile.objects.filter(pk=nameless.profile_id).update(slug=None)
+        self._login(self.host)
+        html = self.client.get(self.search_url).content.decode()
+        self.assertIn(f'data-add-player="{a.profile.slug}"', html)
+        self.assertNotIn('data-add-player="None"', html)
+
+    def test_players_sort_by_timezone_then_name(self):
+        """West to east by UTC offset, then alphabetically; no timezone last.
+        Hours play no part, so the list doesn't reshuffle between weeks."""
+        rows = [
+            ("tz_tokyo", "Asia/Tokyo", self.A_HOURS),
+            ("tz_ny_b", "America/New_York", self.C_HOURS),
+            ("tz_none", None, self.B_HOURS),
+            ("tz_la", "America/Los_Angeles", []),
+            ("tz_ny_a", "America/New_York", self.A_HOURS),
+        ]
+        slugs = []
+        for name, tz, hours in rows:
+            tp = self._player(name, hours=hours)
+            Profile.objects.filter(pk=tp.profile_id).update(
+                timezone=tz, display_name=name)
+            slugs.append(tp.profile.slug)
+        self._login(self.host)
+        response = self.client.get(self.url, {'players': ','.join(slugs)})
+        self.assertEqual(
+            [p['profile'].display_name for p in response.context['players']],
+            ["tz_la", "tz_ny_a", "tz_ny_b", "tz_tokyo", "tz_none"])
+
+    def test_scheduled_games_show_but_there_is_no_this_game(self):
+        """No match is being compared here, so every scheduled match in the
+        tournament is a "Scheduled Game" and this_game is empty."""
+        a = self._player("tg_tour", hours=self.A_HOURS)
+        series = MatchSeries.objects.create(round=self.round)
+        MatchSeat.objects.create(
+            series=series, seat_number=1,
+            stage_participant=StageParticipant.objects.get(stage=self.stage, tournament_player=a))
+        from the_gatehouse.services.availability import week_start_for
+        week = week_start_for(timezone.now().date())
+        Match.objects.create(
+            round=self.round, series=series,
+            scheduled_time=timezone.make_aware(
+                datetime.combine(week + timedelta(days=2), datetime.min.time()),
+                dt_timezone.utc) + timedelta(hours=18))
+        self._login(self.host)
+        response = self.client.get(self.url, {'players': a.profile.slug})
+        self.assertEqual(response.context['this_game_json'], [])
+        self.assertIn(str(a.profile_id), response.context['player_games_json'])
+
+    def test_search_shows_only_the_top_two(self):
+        for name in ("top_a", "top_b", "top_c"):
+            self._player(name)
+        self._login(self.host)
+        html = self.client.get(self.search_url, {'q': 'top_'}).content.decode()
+        self.assertEqual(html.count('data-add-player='), 2)
+
+    # ── entry point ──────────────────────────────────────────────────────────
+    def test_the_settings_hub_links_to_it(self):
+        mod = self._onboarded("hub_mod")
+        self.tournament.moderators.add(mod)
+        hub = reverse('tournament-settings', kwargs={'slug': self.tournament.slug})
+        for profile in (self.host, mod):
+            with self.subTest(profile=profile.user.username):
+                self._login(profile)
+                self.assertContains(self.client.get(hub), self.url)

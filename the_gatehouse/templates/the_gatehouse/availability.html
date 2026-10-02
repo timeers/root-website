@@ -112,10 +112,12 @@
               {% trans 'Saving also updates the timezone for your profile.' %}
             </p>
 
-            {# A :30/:45 zone cannot line up with whole UTC hours; say so rather than letting the rounding skew someone's availability silently. #}
-            <p class="text-muted small mt-2 mb-0 d-none" id="halfhour-note">
+            {% comment %} In a :30/:45 zone each row starts at that minute ("9:30am"), so it
+            lines up exactly with one UTC hour. Shown server-side for the zone the grid is
+            drawn in; the script also shows it for a browser-detected zone. {% endcomment %}
+            <p class="text-muted small mt-2 mb-0{% if not grid_minute %} d-none{% endif %}" id="halfhour-note">
               <i class="bi bi-info-circle me-1"></i>
-              {% trans 'Your timezone is offset by a partial hour, so each selection is stored to the hour that contains it.' %}
+              {% blocktrans with minute=grid_minute|stringformat:"02d" %}Your timezone is offset from UTC by a partial hour, so each time slot starts at :<span id="halfhour-minute">{{ minute }}</span>.{% endblocktrans %}
             </p>
 
             <div class="form-check mt-3">
@@ -142,7 +144,7 @@
             </div>
 
             <p class="text-secondary small mb-2 mt-3">
-              {% trans "General is used as your default availability. Select a specific week to override your defaults." %}
+              {% trans "Mark when you can start a game. General Availability is used as your default availability. Select a specific date in Weekly Availability to override your defaults." %}
             </p>
             <div class="avail-week-row mb-3" id="week-navigator" data-tournament="{{ schedule_target }}">
               <div class="avail-week-arrow avail-week-arrow--prev">
@@ -355,6 +357,7 @@ on the fresh DOM, rather than trying to reconstruct the grid client-side.
 
     gridContainer.innerHTML = data.grid_html;
     initGrid();
+    labelPartialHourZone(data.grid_minute || 0);
 
     weekField.value = data.week_start || '';
     document.getElementById('id_schedule_target').value = data.schedule_target || '';
@@ -551,6 +554,9 @@ on the fresh DOM, rather than trying to reconstruct the grid client-side.
   // With no saved profile timezone, fall back to whatever the browser reports.
   // json_script escapes the value safely rather than interpolating it into JS.
   var savedTz = JSON.parse(document.getElementById('saved-timezone').textContent);
+  // The browser zone's minute offset (0, 30 or 45) -- set below ONLY when that
+  // zone is the one in use (no saved profile zone). See labelPartialHourZone.
+  var browserMinute = 0;
   var drawnField = document.getElementById('id_drawn_timezone');
   if (!savedTz) {
     try {
@@ -565,19 +571,28 @@ on the fresh DOM, rather than trying to reconstruct the grid client-side.
           // so that is the zone the user is actually painting in. Without this the
           // first save would be interpreted as UTC and land an offset off.
           drawnField.value = browserTz;
+          // ...and in a :30/:45 zone the rows must say so, or "9am" would be
+          // saved as 9:30 (see labelPartialHourZone below).
+          browserMinute = window.browserMinuteOffset();
         }
       }
     } catch (err) { /* Intl unavailable -- the server default stands. */ }
   }
 
-  function flagPartialHourZone() {
+  // ---- :30 / :45 zones -------------------------------------------------------
+  // Each grid row starts at the zone's minute offset ("9:30am"), so a row is
+  // exactly one UTC hour. The server labels the grid for the zone it draws in.
+  // The ONE case it can't: no saved profile zone, where it draws in UTC while
+  // the save uses the browser's zone -- so then the labels are rewritten to
+  // match (relabelGridMinute, in availability_grid.js).
+  function labelPartialHourZone(serverMinute) {
+    var minute = browserMinute || serverMinute;
+    if (browserMinute) { window.relabelGridMinute(gridContainer, browserMinute); }
     var note = document.getElementById('halfhour-note');
     if (!note) { return; }
-    try {
-      // getTimezoneOffset is in minutes; a non-multiple of 60 is a :30/:45 zone.
-      var offset = new Date().getTimezoneOffset();
-      note.classList.toggle('d-none', offset % 60 === 0);
-    } catch (err) { /* leave hidden */ }
+    note.classList.toggle('d-none', !minute);
+    var span = document.getElementById('halfhour-minute');
+    if (span && minute) { span.textContent = (minute < 10 ? '0' : '') + minute; }
   }
 
   // Changing the zone re-renders server-side: the local<->UTC mapping needs
@@ -591,7 +606,7 @@ on the fresh DOM, rather than trying to reconstruct the grid client-side.
     form.submit();
   });
 
-  flagPartialHourZone();
+  labelPartialHourZone({{ grid_minute|default:0 }});
 })();
 </script>
 {% endblock scripts %}

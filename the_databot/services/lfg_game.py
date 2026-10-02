@@ -771,3 +771,67 @@ def schedule_closed_embed(proposal, title, reason, actor=None, label=None,
     if fields:
         embed["fields"] = fields
     return embed
+
+
+# ── Moderator-request rendering ──────────────────────────────────────────────
+# A /schedule set request awaiting a moderator is a CONTENT-only message, not a
+# poll embed, so its closed form has to replace that content rather than bolt
+# schedule_closed_embed underneath it -- otherwise the stale "A moderator must
+# confirm this time first." survives above the closed note. Here, not in
+# discord_interactions, for the same reason as everything above: the strip task
+# renders it too.
+
+# Reasons whose poll wording is wrong for a request. "expired" talks about
+# everyone confirming and points at /schedule poll; a request waits on one
+# moderator, and the requester re-asks with /schedule set.
+_MOD_REQUEST_REASON_TEXT = {
+    "expired": "This request's time passed before a moderator confirmed it.",
+}
+
+
+def _request_who(proposal):
+    """The requester as the request message names them."""
+    if proposal.proposed_by_id and proposal.proposed_by:
+        return roster_name(proposal.proposed_by, nudge=False)
+    return "Someone"
+
+
+def schedule_request_closed_content(proposal, reason, actor=None,
+                                    reason_text=None):
+    """A closed moderator request: the original ask struck through, then why.
+
+    `reason_text` is prose that overrides the reason key, for callers that only
+    have a sentence -- _finalize_proposal reports its failures as prose, and
+    proposal_reason_line would read an unknown key as "changed or cleared".
+
+    Mentions render but never notify: every caller pairs this with
+    allowed_mentions={"parse": []}, and an edit never notifies anyway."""
+    from the_databot.services.time_parsing import format_discord_timestamp
+
+    when = format_discord_timestamp(proposal.proposed_time)
+    label = match_label(proposal.match)
+    if reason_text is None:
+        reason_text = (_MOD_REQUEST_REASON_TEXT.get(reason)
+                       or proposal_reason_line(reason, actor))
+    lines = [f"~~{_request_who(proposal)} asked to schedule **{label}** for {when}~~"]
+    # Per line, as schedule_closed_embed does: "-#" covers one line only.
+    lines.extend(f"-# {line}" for line in reason_text.split("\n"))
+    return "\n".join(lines)
+
+
+def schedule_request_announcement(proposal, url=None):
+    """The schedule_channel's note that a moderator request is waiting.
+
+    Worded as a SNAPSHOT ("requested … — awaiting a moderator"), not a live
+    status: this post is never edited when the request resolves. The link opens
+    the request message itself, which is kept accurate as it closes.
+
+    `url` is None when the row has no guild_id -- a bare label then, rather than
+    an @me link that resolves to nothing in a public channel."""
+    from the_databot.services.time_parsing import format_discord_timestamp
+
+    label = match_label(proposal.match)
+    target = f"[{label}]({url})" if url else f"**{label}**"
+    when = format_discord_timestamp(proposal.proposed_time)
+    return (f"{_request_who(proposal)} requested {target} for {when} "
+            "— awaiting a moderator.")

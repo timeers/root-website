@@ -7093,6 +7093,26 @@ def stage_players_import(request, tournament_slug, stage_slug):
     return redirect('stage-manage-players', tournament_slug=tournament_slug, stage_slug=stage_slug)
 
 
+def _tournament_profile_search(tournament, query, exclude_q=Q()):
+    """Profiles with a TournamentPlayer in `tournament` (any status) whose discord
+    or display name contains `query`, minus `exclude_q`.
+
+    The one tournament-player search: the stage page and the tournament
+    availability page both build on it. Callers add their own ordering,
+    annotations and slicing. The tournament filter is applied in this single
+    filter() call, so a caller's later annotate() on tournament_participations
+    reuses that join and reads THIS tournament's row."""
+    players = Profile.objects.filter(
+        tournament_participations__tournament=tournament,
+    ).exclude(exclude_q)
+    if query:
+        players = players.filter(
+            Q(discord__icontains=query) |
+            Q(display_name__icontains=query)
+        )
+    return players
+
+
 @player_required
 def stage_search_players(request, tournament_slug, stage_slug):
     """HTMX endpoint: Search for tournament players not yet in this stage."""
@@ -7116,20 +7136,12 @@ def stage_search_players(request, tournament_slug, stage_slug):
         default=Value(4),
         output_field=IntegerField(),
     )
-    available_players = Profile.objects.filter(
-        tournament_participations__tournament=tournament,
-    ).exclude(id__in=existing_participant_profile_ids).annotate(
+    available_players = _tournament_profile_search(
+        tournament, query, Q(id__in=existing_participant_profile_ids),
+    ).annotate(
         tournament_status=F('tournament_participations__status'),
         status_order=status_order,
-    ).order_by('status_order', 'display_name')
-
-    if query:
-        available_players = available_players.filter(
-            Q(discord__icontains=query) |
-            Q(display_name__icontains=query)
-        )
-
-    available_players = available_players[:50]
+    ).order_by('status_order', 'display_name')[:50]
 
     unregistered_players = []
     if query:
@@ -8460,10 +8472,9 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
             # Same sweep every /schedule write path does -- this one was missing.
             _cancel_open_proposals(match, 'website')
             # And announce it, exactly as the bot does: "scheduled" for a match
-            # that gained a time, "rescheduled" for one that moved. A CLEARED time
-            # announces nothing to the channel -- the helper returns early on
-            # new_time=None. The thread version below DOES announce a clear: the
-            # roster wants to know a postponement happened just as much as a move.
+            # that gained a time, "rescheduled" for one that moved, "no longer
+            # scheduled" for one that was cleared. Both the channel and the thread
+            # announce a clear: a postponement matters just as much as a move.
             _announce_schedule_to_channel(match, old_time, new_time)
             _announce_schedule_to_thread(match, old_time, new_time)
 

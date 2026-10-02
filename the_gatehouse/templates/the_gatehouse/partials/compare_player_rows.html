@@ -1,0 +1,48 @@
+{% load i18n %}
+{% comment %} One row per compared player. Included by availability_compare.html AND
+rendered by _compare_week_json as `player_list_html`, so a week-switch or an add /
+remove redraws the list from the same markup the page loaded with.
+
+`roster_editable` (the tournament page) adds a red X per row; data-player-slug is
+what that page's ?players= roster is keyed on. {% endcomment %}
+{% for p in players %}
+  {% comment %} data-player-id is the handle the grid's hover /
+  click highlight reaches these rows by. The only other
+  per-player id is on the checkbox, which would mean walking up
+  to the row on every cell. {% endcomment %}
+  <li class="player-row d-flex align-items-center gap-2 py-1 mb-1"
+      data-player-id="{{ p.profile.id }}"
+      {% if roster_editable %}data-player-slug="{{ p.profile.slug }}"{% endif %}
+      {% if not p.has_schedule %}data-no-schedule="1"{% endif %}>
+    {% if roster_editable %}
+      {# Leftmost, before the checkbox. #}
+      <button type="button" class="btn btn-link p-0 lh-1 text-danger text-decoration-none" data-remove-player="{{ p.profile.slug }}"
+              title="{% trans 'Remove' %}" aria-label="{% blocktrans with name=p.profile.display_name %}Remove {{ name }}{% endblocktrans %}">
+        <i class="bi bi-x-circle"></i>
+      </button>
+    {% endif %}
+    <input class="form-check-input mt-0 player-toggle" type="checkbox"
+           id="player-{{ p.profile.id }}" value="{{ p.profile.id }}"
+           checked>
+    <label class="d-flex align-items-center gap-2 flex-grow-1 mb-0" for="player-{{ p.profile.id }}"
+           style="min-width:0; cursor:pointer;">
+      {% if p.profile.image %}
+        <img src="{{ p.profile.image.url }}" alt="" class="rounded-circle" style="width:24px;height:24px;">
+      {% else %}
+        <i class="bi bi-person-circle"></i>
+      {% endif %}
+      {% comment %} "Last updated: …" on hover -- a Bootstrap tooltip delegated off
+      #player-list, the same as the grid cells'. {% endcomment %}
+      <span class="text-truncate" data-bs-title="{{ p.last_updated_label }}">{{ p.profile.display_name }}</span>
+      {% if p.profile.display_timezone and p.profile.timezone %}
+        <span class="badge text-bg-light" title="{{ p.profile.timezone }}">{{ p.profile.timezone_code }}</span>
+      {% endif %}
+      {% if p.is_viewer %}<span class="badge text-bg-secondary">{% trans 'You' %}</span>{% endif %}
+    </label>
+    {% if p.has_schedule %}
+      <small class="text-muted">{{ p.hour_count }}h</small>
+    {% else %}
+      <small class="text-muted fst-italic">{% trans 'none' %}</small>
+    {% endif %}
+  </li>
+{% endfor %}

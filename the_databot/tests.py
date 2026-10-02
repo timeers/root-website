@@ -2792,11 +2792,11 @@ class ScheduleAnnouncementDescriptionTests(ScheduleFixtureMixin, TestCase):
         self.assertIn("scheduled for", content)
         self.assertNotIn("next scheduled", content)
 
-    def test_consensus_finalized_view_carries_only_the_closing_note(self):
-        """summary=None still strips /upcoming's "next scheduled game" line. The
-        description that remains is the poll's own closing note and nothing else
-        — previously there was no description at all, which asserted the same
-        thing by proxy."""
+    def test_consensus_finalized_view_is_just_the_time_and_who_confirmed(self):
+        """No description (no /upcoming "next scheduled game" line, no closing
+        note repeating the title) and exactly two fields: when, and who
+        confirmed it."""
+        from the_databot.services.time_parsing import format_discord_timestamp
         self.match.scheduled_time = self.when
         self.match.save(update_fields=["scheduled_time"])
         proposal = ScheduleProposal.objects.create(
@@ -2804,13 +2804,12 @@ class ScheduleAnnouncementDescriptionTests(ScheduleFixtureMixin, TestCase):
         proposal.confirmed_by.add(self.player)
 
         embed = di._schedule_finalized_data(proposal, self.match)["embeds"][0]
-        self.assertEqual(embed["description"],
-                         "-# Scheduled — everyone confirmed.")
-        self.assertNotIn("next scheduled", embed["description"])
+        self.assertNotIn("description", embed)
         self.assertIn("scheduled", embed["title"])
-        # The roster field is what reports who agreed; it survives the override.
-        self.assertTrue(
-            any(f["name"] == "✅ Confirmed by" for f in embed["fields"]))
+        self.assertEqual([f["name"] for f in embed["fields"]],
+                         ["Scheduled", "✅ Confirmed by"])
+        self.assertEqual(embed["fields"][0]["value"],
+                         format_discord_timestamp(self.when))
 
     def test_builder_failure_falls_back_without_doubling_the_title(self):
         """The fallback title is prefixed and suffixed by the caller below it, so it
@@ -2823,8 +2822,10 @@ class ScheduleAnnouncementDescriptionTests(ScheduleFixtureMixin, TestCase):
 
         self.assertEqual(embed["title"].count("🗓️"), 1)
         self.assertEqual(embed["title"].lower().count("scheduled"), 1)
-        self.assertTrue(
-            any(f["name"] == "✅ Confirmed by" for f in embed["fields"]))
+        # The same shape as the normal view, time included.
+        self.assertEqual([f["name"] for f in embed["fields"]],
+                         ["Scheduled", "✅ Confirmed by"])
+        self.assertNotIn("description", embed)
 
 
 class ScheduleThreadAnnouncementContentTests(ScheduleFixtureMixin, TestCase):
@@ -4798,12 +4799,22 @@ class ScheduleChannelAnnounceTests(ScheduleFixtureMixin, TestCase):
         self.tournament.refresh_from_db()
         self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
 
+    @staticmethod
+    def _inline_channel_task():
+        """Run the queued schedule-channel task inline, so the guild check and the
+        post_channel_message_task capture below see exactly what a worker would."""
+        from the_databot import tasks
+        return mock.patch.object(
+            di.post_to_tournament_channel_task, "delay",
+            side_effect=lambda *a, **k: tasks.post_to_tournament_channel_task(*a, **k))
+
     def _capture(self, fn):
         """Run fn with Discord reads stubbed, returning the posted content or None."""
         from the_databot import tasks
         with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                         return_value=self.TEXT), \
              mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
+             self._inline_channel_task(), \
              mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
                 fn()
@@ -4865,11 +4876,55 @@ class ScheduleChannelAnnounceTests(ScheduleFixtureMixin, TestCase):
         with mock.patch("the_databot.services.discordservice.get_guild_text_channels",
                         return_value=[]), \
              mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
+             self._inline_channel_task(), \
              mock.patch.object(tasks.post_channel_message_task, "delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
                 di._finalize_proposal(proposal)
         for call in delay.call_args_list:
             self.assertNotEqual(call.args[0], self.CHANNEL)
+
+    def test_a_cleared_time_is_announced(self):
+        """The channel saw the time go up, so it must see it come down."""
+        content = self._capture(
+            lambda: di._announce_schedule_to_channel(self.match, self.when, None))
+        self.assertIsNotNone(content)
+        self.assertIn("no longer scheduled", content)
+        self.assertIn(self.group.name, content)
+        self.assertIn(f"<t:{int(self.when.timestamp())}:F>", content)
+        # One line, no copyable markup: nobody quotes a time that was removed.
+        self.assertEqual(len(content.split("\n")), 1)
+        self.assertNotIn("`", content)
+
+    def test_no_time_before_or_after_announces_nothing(self):
+        content = self._capture(
+            lambda: di._announce_schedule_to_channel(self.match, None, None))
+        self.assertIsNone(content)
+
+    def test_the_post_is_queued_not_sent_inline(self):
+        """The guild check is a synchronous Discord GET, so it must run in the
+        worker, never on the interaction's request path."""
+        with mock.patch.object(di.post_to_tournament_channel_task, "delay") as delay, \
+             mock.patch("the_warroom.services.channel_posts."
+                        "resolve_tournament_channel") as resolve:
+            with self.captureOnCommitCallbacks(execute=True):
+                di._announce_schedule_to_channel(self.match, None, self.when)
+        resolve.assert_not_called()
+        delay.assert_called_once()
+        self.assertEqual(delay.call_args.args[:2],
+                         (self.tournament.pk, "schedule_channel"))
+
+    def test_schedule_clear_announces_to_the_channel(self):
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        content = self._capture(lambda: di._handle_schedule_clear_confirm({
+            "data": {"custom_id": di.encode_custom_id(
+                "schedule_clear_confirm", self.match.id, self.player.discord_id)},
+            "guild_id": self.guild.guild_id, "token": None,
+        }))
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+        self.assertIsNotNone(content)
+        self.assertIn("no longer scheduled", content)
 
 
 class TournamentChannelSecurityTests(_NoLoginSignalMixin, TestCase):
@@ -10983,13 +11038,48 @@ class ScheduleProposalCommandTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(enqueue.call_args.args[0][0], proposal.pk)
         self.assertEqual(enqueue.call_args.kwargs["countdown"], 2)
 
-    def test_the_public_message_tags_without_pinging(self):
+    def test_the_public_message_tags_without_pinging_the_requester(self):
         _response, enqueue = self._confirm()
         message = enqueue.call_args.args[0][1]
         self.assertIn(f"<@{self.player.discord_id}>", message["content"])
-        # Renders the tag, notifies nobody.
-        self.assertEqual(message["allowed_mentions"], {"parse": []})
+        # Renders the requester's tag but never notifies them. An explicit users
+        # list, not {"parse": ["users"]}, is what keeps them out.
+        self.assertNotIn("parse", message["allowed_mentions"])
+        self.assertNotIn(str(self.player.discord_id),
+                         message["allowed_mentions"]["users"])
         self.assertIn("moderator must confirm", message["content"])
+
+    def test_the_group_moderator_is_named_and_pinged(self):
+        _response, enqueue = self._confirm()
+        message = enqueue.call_args.args[0][1]
+        self.assertIn(f"<@{self.group_mod.discord_id}> or another moderator must "
+                      "confirm this time first.", message["content"])
+        self.assertEqual(message["allowed_mentions"],
+                         {"users": [str(self.group_mod.discord_id)]})
+
+    def test_no_group_moderator_falls_back_to_the_generic_line(self):
+        self.group.group_moderator = None
+        self.group.save(update_fields=["group_moderator"])
+        _response, enqueue = self._confirm()
+        message = enqueue.call_args.args[0][1]
+        self.assertIn("\nA moderator must confirm this time first.",
+                      message["content"])
+        self.assertEqual(message["allowed_mentions"], {"parse": []})
+
+    def test_an_unlinked_moderator_is_named_not_pinged(self):
+        self.group_mod.discord_id = None
+        self.group_mod.save(update_fields=["discord_id"])
+        _response, enqueue = self._confirm()
+        message = enqueue.call_args.args[0][1]
+        name = di._roster_name(self.group_mod, nudge=False)
+        self.assertIn(f"{name} or another moderator must confirm",
+                      message["content"])
+        self.assertEqual(message["allowed_mentions"], {"parse": []})
+
+    def test_a_moderator_requesting_is_not_pinged_about_their_own_request(self):
+        _response, enqueue = self._confirm(owner=self.group_mod.discord_id)
+        message = enqueue.call_args.args[0][1]
+        self.assertEqual(message["allowed_mentions"], {"parse": []})
 
     def test_records_channel_for_later_edits(self):
         self._confirm()
@@ -11091,6 +11181,64 @@ class ScheduleModRequestButtonTests(ScheduleFixtureMixin, TestCase):
         self.request.refresh_from_db()
         self.assertEqual(self.request.status, ScheduleProposal.Status.CONFIRMED)
         self.assertEqual(body["data"]["components"], [])
+
+    def _confirm_capturing_thread(self):
+        """Approve as the group moderator, returning the THREAD posts only. The
+        schedule channel is queued through its own task, patched out here."""
+        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
+                mock.patch.object(di.post_to_tournament_channel_task, "delay"), \
+                mock.patch.object(di.post_channel_message_task, "delay") as post, \
+                self.captureOnCommitCallbacks(execute=True):
+            di._handle_mod_schedule_confirm(
+                self._payload("sched_mod_ok", self.group_mod))
+        return [c.args[1] for c in post.call_args_list if c.args[0] == "555000111"]
+
+    def test_approval_pings_the_thread_exactly_once(self):
+        """_finalize_proposal is the single announcer; the handler used to post a
+        second, always-"scheduled" copy of its own."""
+        posts = self._confirm_capturing_thread()
+        self.assertEqual(len(posts), 1)
+        self.assertIn("your game has been scheduled for", posts[0])
+
+    def test_approving_a_reschedule_keeps_the_rescheduled_verb(self):
+        self.match.scheduled_time = self.when - timedelta(days=1)
+        self.match.save(update_fields=["scheduled_time"])
+        posts = self._confirm_capturing_thread()
+        self.assertEqual(len(posts), 1)
+        self.assertIn("rescheduled", posts[0])
+
+    def test_a_failed_confirm_replaces_the_request_text(self):
+        """The request is content-only: a closed EMBED would land under the stale
+        "A moderator must confirm" line. The content itself is replaced."""
+        with mock.patch.object(
+                di, "_finalize_proposal",
+                return_value=(False, "another time was confirmed for this match first")):
+            body = self._body(di._handle_mod_schedule_confirm(
+                self._payload("sched_mod_ok", self.group_mod)))
+        data = body["data"]
+        self.assertNotIn("moderator must confirm", data["content"])
+        self.assertIn("another time was confirmed for this match first",
+                      data["content"])
+        # Prose is passed through, not misread as the "cancelled" key.
+        self.assertNotIn("changed or cleared", data["content"])
+        self.assertEqual(data["embeds"], [])
+        self.assertEqual(data["components"], [])
+        self.assertEqual(data["allowed_mentions"], {"parse": []})
+
+    def test_a_request_retired_on_click_reads_as_a_closed_request(self):
+        """The passed-time refusal retires the row; for a request that must
+        replace the content, with request wording rather than the poll's."""
+        self.request.proposed_time = timezone.now() - timedelta(hours=1)
+        self.request.save(update_fields=["proposed_time"])
+        body = self._body(di._handle_mod_schedule_confirm(
+            self._payload("sched_mod_ok", self.group_mod)))
+        data = body["data"]
+        self.assertEqual(data["embeds"], [])
+        self.assertIn("~~", data["content"])
+        self.assertIn("before a moderator confirmed it", data["content"])
+        self.assertNotIn("/schedule poll", data["content"])
+        self.request.refresh_from_db()
+        self.assertEqual(self.request.status, ScheduleProposal.Status.CANCELLED)
 
     def test_the_requester_cannot_confirm_their_own_request(self):
         """can_schedule admits a seated player, which is usually the very person who
@@ -11963,10 +12111,17 @@ class ScheduleProposalInvalidationTests(_NoLoginSignalMixin, ScheduleFixtureMixi
             "stage_slug": self.stage.slug,
             "round_slug": self.round.slug,
         })
+        # A configured channel, so the announcer's local pre-check lets the post
+        # through to the (mocked) task -- otherwise every "announces nothing"
+        # assertion below would pass for the wrong reason.
+        Tournament.objects.filter(pk=self.tournament.pk).update(
+            schedule_channel="200000000000000011")
+        # The announcement is queued, not posted inline: announce.call_args.args
+        # is (tournament_pk, field, content).
         with mock.patch.object(
                 di.strip_schedule_proposal_messages_task, "delay") as strip, \
-                mock.patch("the_warroom.services.channel_posts."
-                           "post_to_tournament_channel") as announce:
+                mock.patch.object(
+                    di.post_to_tournament_channel_task, "delay") as announce:
             with self.captureOnCommitCallbacks(execute=True):
                 response = self.client.post(
                     url, data=json.dumps({"series_id": self.series.id, **body}),
@@ -12023,7 +12178,8 @@ class ScheduleProposalInvalidationTests(_NoLoginSignalMixin, ScheduleFixtureMixi
             "matches": [{"id": self.match.id,
                          "scheduled_time": new_time.isoformat()}]})
         announce.assert_called_once()
-        _tournament, field, content = announce.call_args.args
+        tournament_id, field, content = announce.call_args.args
+        self.assertEqual(tournament_id, self.tournament.pk)
         self.assertEqual(field, "schedule_channel")
         self.assertIn("is scheduled", content)
         self.assertIn(f"<t:{int(new_time.timestamp())}:F>", content)
@@ -12037,13 +12193,17 @@ class ScheduleProposalInvalidationTests(_NoLoginSignalMixin, ScheduleFixtureMixi
                          "scheduled_time": moved.isoformat()}]})
         self.assertIn("is rescheduled", announce.call_args.args[2])
 
-    def test_clearing_a_time_on_the_website_announces_nothing(self):
-        """Matches the bot: there is no 'unscheduled' announcement anywhere."""
+    def test_clearing_a_time_on_the_website_announces_the_clear(self):
+        """Matches the bot: the channel saw the time go up, so it sees it come
+        down."""
         self.match.scheduled_time = self.when
         self.match.save(update_fields=["scheduled_time"])
         _response, _strip, announce = self._edit_series({
             "matches": [{"id": self.match.id, "scheduled_time": None}]})
-        announce.assert_not_called()
+        announce.assert_called_once()
+        content = announce.call_args.args[2]
+        self.assertIn("no longer scheduled", content)
+        self.assertIn(f"<t:{int(self.when.timestamp())}:F>", content)
         self.match.refresh_from_db()
         self.assertIsNone(self.match.scheduled_time)
 
@@ -12200,14 +12360,18 @@ class ScheduleProposalRenderTests(ScheduleFixtureMixin, TestCase):
         names = [f["name"] for f in data["embeds"][0]["fields"]]
         self.assertIn("✅ Confirmed by", names)
 
-    def test_finalized_view_says_everyone_confirmed(self):
-        """Both modes must say HOW the poll ended; a match poll used to leave it
-        to be inferred from the title."""
+    def test_finalized_view_drops_players_and_platform(self):
+        """Players repeats Confirmed by and Platform is noise here, even though
+        the shared builder (also used by /upcoming) adds both."""
         self.match.scheduled_time = self.when
         self.match.save(update_fields=["scheduled_time"])
-        data = di._schedule_finalized_data(self.proposal, self.match)
-        self.assertIn("-# Scheduled — everyone confirmed.",
-                      data["embeds"][0]["description"])
+        Tournament.objects.filter(pk=self.tournament.pk).update(platform="In Person")
+        self.match.refresh_from_db()
+        embed = di._schedule_finalized_data(self.proposal, self.match)["embeds"][0]
+        names = [f["name"] for f in embed["fields"]]
+        self.assertNotIn("Players", names)
+        self.assertNotIn("Platform", names)
+        self.assertNotIn("description", embed)
 
     def test_closed_notes_are_subtext_in_both_modes(self):
         """The closing line renders small and grey either side. Without the "-#"
@@ -12391,6 +12555,144 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
         # Closed by a consequence, not a person.
         self.assertNotIn("Rejected by", embed["description"])
         self.assertNotIn("Closed by", embed["description"])
+
+    # ── moderator requests ───────────────────────────────────────────────────
+    def _mod_request(self, **extra):
+        fields = dict(match=self.match,
+                      proposed_time=timezone.now() + timedelta(days=10),
+                      proposed_by=self.player, channel_id="555000111",
+                      approval=ScheduleProposal.Approval.MODERATOR)
+        fields.update(extra)
+        return ScheduleProposal.objects.create(**fields)
+
+    def test_strip_task_replaces_a_mod_requests_content(self):
+        """A request is content-only, so its content must be REPLACED -- an
+        appended embed left "A moderator must confirm" reading as live."""
+        from the_databot import tasks
+        request = self._mod_request(message_id="222")
+        with mock.patch(
+            "the_databot.services.discordservice.edit_channel_message",
+            return_value=ds.THREAD_OK,
+        ) as edit:
+            tasks.strip_schedule_proposal_messages_task([request.pk], "superseded")
+        kwargs = edit.call_args.kwargs
+        self.assertNotIn("moderator must confirm", kwargs["content"])
+        self.assertIn("~~", kwargs["content"])
+        self.assertIn("A different time was confirmed", kwargs["content"])
+        self.assertEqual(kwargs["embeds"], [])
+        self.assertEqual(kwargs["components"], [])
+
+    def test_strip_task_uses_request_wording_for_an_expired_request(self):
+        from the_databot import tasks
+        request = self._mod_request(message_id="222")
+        with mock.patch(
+            "the_databot.services.discordservice.edit_channel_message",
+            return_value=ds.THREAD_OK,
+        ) as edit:
+            tasks.strip_schedule_proposal_messages_task([request.pk], "expired")
+        content = edit.call_args.kwargs["content"]
+        self.assertIn("before a moderator confirmed it", content)
+        self.assertNotIn("/schedule poll", content)
+
+    def test_strip_task_leaves_a_roster_poll_content_alone(self):
+        from the_databot import tasks
+        self.proposal.message_id = "111"
+        self.proposal.save(update_fields=["message_id"])
+        with mock.patch(
+            "the_databot.services.discordservice.edit_channel_message",
+            return_value=ds.THREAD_OK,
+        ) as edit:
+            tasks.strip_schedule_proposal_messages_task(
+                [self.proposal.pk], "superseded")
+        self.assertNotIn("content", edit.call_args.kwargs)
+        self.assertTrue(edit.call_args.kwargs["embeds"])
+
+    def test_one_sweep_retires_a_poll_and_a_request_together(self):
+        self.proposal.message_id = "111"
+        self.proposal.save(update_fields=["message_id"])
+        request = self._mod_request(message_id="222")
+        with mock.patch.object(
+                di.strip_schedule_proposal_messages_task, "delay") as strip:
+            with self.captureOnCommitCallbacks(execute=True):
+                di._cancel_open_proposals(self.match, "superseded")
+        self.proposal.refresh_from_db()
+        request.refresh_from_db()
+        self.assertFalse(self.proposal.is_live)
+        self.assertFalse(request.is_live)
+        ids, _reason = strip.call_args.args
+        self.assertEqual(set(ids), {self.proposal.pk, request.pk})
+
+    def _post_request(self, request, result=None):
+        """Run the post task on `request`, returning the announce .delay mock."""
+        from the_databot import tasks
+        with mock.patch(
+            "the_databot.services.discordservice.post_channel_message_full",
+            return_value=result or (ds.THREAD_OK, "98765"),
+        ), mock.patch.object(
+                tasks.post_to_tournament_channel_task, "delay") as announce:
+            tasks.post_schedule_proposal_task(request.pk, {"content": "x"})
+        return announce
+
+    def _configure_schedule_channel(self):
+        Tournament.objects.filter(pk=self.tournament.pk).update(
+            schedule_channel="200000000000000011")
+
+    def test_a_posted_request_is_announced_with_its_link(self):
+        self._configure_schedule_channel()
+        request = self._mod_request(guild_id=self.guild.guild_id)
+        announce = self._post_request(request)
+        announce.assert_called_once()
+        tournament_id, field, content = announce.call_args.args
+        self.assertEqual(tournament_id, self.tournament.pk)
+        self.assertEqual(field, "schedule_channel")
+        self.assertIn(f"channels/{self.guild.guild_id}/555000111/98765", content)
+        self.assertIn(self.group.name, content)
+        self.assertIn(f"<t:{int(request.proposed_time.timestamp())}:F>", content)
+        self.assertIn("awaiting a moderator", content)
+        self.assertEqual(announce.call_args.kwargs["allowed_mentions"],
+                         {"parse": []})
+
+    def test_a_roster_poll_is_not_announced(self):
+        self._configure_schedule_channel()
+        announce = self._post_request(self.proposal)
+        announce.assert_not_called()
+
+    def test_no_schedule_channel_queues_nothing(self):
+        request = self._mod_request(guild_id=self.guild.guild_id)
+        announce = self._post_request(request)
+        announce.assert_not_called()
+
+    def test_a_failed_post_announces_nothing(self):
+        """There is no request for anyone to confirm."""
+        self._configure_schedule_channel()
+        request = self._mod_request(guild_id=self.guild.guild_id)
+        announce = self._post_request(request, result=(ds.THREAD_BLOCKED, None))
+        announce.assert_not_called()
+
+    def test_a_blank_guild_id_posts_no_broken_link(self):
+        self._configure_schedule_channel()
+        request = self._mod_request()
+        announce = self._post_request(request)
+        content = announce.call_args.args[2]
+        self.assertNotIn("discord.com/channels", content)
+        self.assertNotIn("@me", content)
+
+    def test_a_failed_queue_never_reposts_the_request(self):
+        """The post task retries on any exception, and a retry would POST the
+        request again -- a duplicate, and a second ping to the moderator."""
+        from the_databot import tasks
+        self._configure_schedule_channel()
+        request = self._mod_request(guild_id=self.guild.guild_id)
+        with mock.patch(
+            "the_databot.services.discordservice.post_channel_message_full",
+            return_value=(ds.THREAD_OK, "98765"),
+        ) as post, mock.patch.object(
+                tasks.post_to_tournament_channel_task, "delay",
+                side_effect=RuntimeError("broker down")):
+            tasks.post_schedule_proposal_task(request.pk, {"content": "x"})
+        post.assert_called_once()
+        request.refresh_from_db()
+        self.assertEqual(request.message_id, "98765")
 
     def test_strip_task_swallows_permanent_failure(self):
         from the_databot import tasks

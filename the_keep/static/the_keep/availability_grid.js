@@ -316,6 +316,61 @@
 
   window.initAvailabilityGrid = initAvailabilityGrid;
 
+  // ---- :30 / :45 zones ------------------------------------------------------
+  // In a sub-hour zone each row starts at the zone's minute offset ("9:30am"),
+  // which is what makes a row exactly one UTC hour. The server labels a grid for
+  // the zone it draws in; these are for the one case it can't -- a grid drawn
+  // with no known zone that the browser's zone is then applied to (the
+  // /availability page and survey grids with no saved profile timezone).
+
+  // Mirrors services.availability.format_hour_12.
+  function formatHourMinute(hour, minute, compact) {
+    var period = hour >= 12 ? 'PM' : 'AM';
+    var display = hour % 12 === 0 ? 12 : hour % 12;
+    var mm = (minute < 10 ? '0' : '') + minute;
+    if (compact) {
+      return minute ? display + ':' + mm + period.toLowerCase()
+                    : display + period.toLowerCase();
+    }
+    return display + ':' + mm + ' ' + period;
+  }
+
+  // The browser's own minute offset: 0, 30 or 45.
+  function browserMinuteOffset() {
+    try {
+      var offset = -new Date().getTimezoneOffset();
+      return ((offset % 60) + 60) % 60;
+    } catch (err) { return 0; }
+  }
+
+  // Rewrite a whole-hour-labelled grid's row labels, cell times, titles and
+  // aria-labels to start at `minute`. A no-op for 0.
+  function relabelGridMinute(container, minute) {
+    if (!container || !minute) { return; }
+    container.querySelectorAll('[data-hour]').forEach(function (el) {
+      var hour = parseInt(el.dataset.hour, 10);
+      var oldShort = formatHourMinute(hour, 0, true);
+      var oldLong = formatHourMinute(hour, 0, false);
+      var newShort = formatHourMinute(hour, minute, true);
+      var newLong = formatHourMinute(hour, minute, false);
+      el.querySelectorAll('.hour-text, .cell-time').forEach(function (span) {
+        span.textContent = newShort;
+      });
+      ['title', 'aria-label'].forEach(function (attr) {
+        var value = el.getAttribute(attr);
+        if (!value) { return; }
+        // Long form first, so "9:00 AM" is never half-rewritten via "9am".
+        value = value.indexOf(oldLong) !== -1 ? value.replace(oldLong, newLong)
+                                              : value.replace(oldShort, newShort);
+        el.setAttribute(attr, value);
+      });
+    });
+  }
+
+  window.formatHourMinute = formatHourMinute;
+  window.browserMinuteOffset = browserMinuteOffset;
+  window.relabelGridMinute = relabelGridMinute;
+
   function initAll() {
     document.querySelectorAll('.js-availability-grid').forEach(initAvailabilityGrid);
   }

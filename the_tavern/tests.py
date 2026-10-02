@@ -250,6 +250,20 @@ class WeeklyAvailabilitySubmissionTests(_SurveyTestBase):
             'timezone_offset_hours': '0',
         })
 
+    def test_a_half_hour_zone_grid_is_labelled_and_saves_exactly(self):
+        """The grid is drawn in the profile's zone, says so in its timezone
+        input, labels rows at :30, and stores exactly what was picked."""
+        self.profile.timezone = 'Asia/Kolkata'
+        self.profile.save(update_fields=['timezone'])
+
+        page = self.client.get(self.url)
+        self.assertContains(page, '<span class="hour-text">9:30am</span>')
+        self.assertContains(page, 'value="Asia/Kolkata"')
+
+        self._post([9], tz='Asia/Kolkata')        # Monday 9:30am local
+        answer = Answer.objects.get(question=self.question)
+        self.assertEqual(answer.availability_hours, [4])   # Monday 04:00 UTC
+
     def test_a_submission_stores_hours_and_writes_the_schedule(self):
         self._post([10, 11, 12])
 
@@ -479,6 +493,26 @@ class SurveyTimezoneNameTests(_SurveyTestBase):
         for day in days:
             dy_answer.selected_choices.add(dy.choices.get(text=day))
         return response
+
+    def test_a_half_hour_zone_round_trips_its_slot(self):
+        """Kolkata (+5:30) shows UTC 10 as 3:30pm. That must store as UTC 10 --
+        flooring to 15 and converting back used to land on UTC 9."""
+        # The browser records both: the offset it displayed with, and its zone.
+        response = self._ta_response(['10'], ['Tuesday'],
+                                     tz_name='Asia/Kolkata', offset=5.5)
+        self.assertEqual(response.get_combined_availability_hours(), {34})
+
+    def test_a_half_hour_offset_without_a_zone_round_trips_too(self):
+        response = self._ta_response(['10'], ['Tuesday'], offset=5.5)
+        self.assertEqual(response.get_combined_availability_hours(), {34})
+
+    def test_a_negative_half_hour_offset_never_leaves_the_week(self):
+        """Marquesas (-9:30): UTC 9 displays as Sunday 11:30pm. Rounding the
+        hour up AFTER wrapping it gave 24, i.e. hour-of-week 168 on a Sunday."""
+        response = self._ta_response(['9'], ['Sunday'], offset=-9.5)
+        hours = response.get_combined_availability_hours()
+        self.assertEqual(hours, {9})            # Monday 09:00 UTC
+        self.assertTrue(all(0 <= h < 168 for h in hours))
 
     def test_a_summer_answer_survives_the_winter_reference_week(self):
         """The reported bug. In UTC-7 the slots displaying 4/5/6pm are the UTC

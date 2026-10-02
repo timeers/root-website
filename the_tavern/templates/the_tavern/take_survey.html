@@ -221,10 +221,13 @@
                             </div>
                             {% comment %} The hidden inputs the grid JS writes into. The
                             timezone one tells the server what the painted LOCAL hours
-                            mean; it is filled in by the script below. {% endcomment %}
+                            mean: the zone the grid's labels were drawn in (the profile's),
+                            or -- with none saved -- the browser's, filled in by the
+                            script below. {% endcomment %}
                             {{ form|get_question_field:question.id }}
                             <input type="hidden" name="question_{{ question.id }}_timezone"
-                                   id="wa_tz_{{ question.id }}" class="js-wa-timezone">
+                                   id="wa_tz_{{ question.id }}" class="js-wa-timezone"
+                                   value="{{ wa_timezone }}">
                             {% include 'partials/availability_grid.html' with grid_id=question.wa_grid_id field_id=question.wa_field_id count_id=question.wa_count_id clear_id=question.wa_clear_id editable=True %}
                             {% if question.required %}
                                 <div class="invalid-feedback" id="wa_error_{{ question.id }}" style="display: none;">
@@ -554,8 +557,18 @@ document.addEventListener('DOMContentLoaded', function () {
     try {
         zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     } catch (err) { /* server falls back to the profile zone, then UTC */ }
+    var minute = window.browserMinuteOffset ? window.browserMinuteOffset() : 0;
     document.querySelectorAll('.js-wa-timezone').forEach(function (field) {
-        if (!field.value) { field.value = zone; }
+        if (!field.value) {
+            field.value = zone;
+            // The server drew this grid in UTC (no saved zone), so in a :30/:45
+            // browser zone its rows must be relabelled to start at that minute,
+            // or "9am" would be saved as 9:30.
+            if (window.relabelGridMinute) {
+                window.relabelGridMinute(
+                    field.parentElement.querySelector('.js-availability-grid'), minute);
+            }
+        }
     });
 });
 </script>
@@ -853,10 +866,14 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // `hour` can be fractional in a :30/:45 zone (15.5 = 3:30 PM): the slot is a
+    // whole UTC hour, which starts part way through the local hour.
     function formatHour(hour) {
-        const period = hour >= 12 ? 'PM' : 'AM';
-        const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-        return `${displayHour}:00 ${period}`;
+        const h = Math.floor(hour);
+        const minutes = Math.round((hour - h) * 60);
+        const period = h >= 12 ? 'PM' : 'AM';
+        const displayHour = h === 0 ? 12 : h > 12 ? h - 12 : h;
+        return `${displayHour}:${String(minutes).padStart(2, '0')} ${period}`;
     }
 
     // Multiple Selection validation (at least one checkbox required)

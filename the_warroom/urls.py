@@ -1,4 +1,6 @@
 from django.urls import path
+from the_gatehouse.views import (tournament_availability, tournament_availability_week_data,
+                                tournament_availability_search)
 # from .views import
 from .views import (game_list_view, leaderboard_view,
                     game_detail_view,
@@ -94,6 +96,11 @@ urlpatterns = [
     path('series/<slug:slug>/players/search/', tournament_search_players, name='tournament-search-players'),
     path('series/<slug:slug>/players/move/', tournament_move_player, name='tournament-move-player'),
     path('moderators/search/', search_moderators, name='search-moderators'),
+
+    # Availability compare for a tournament's host/moderators (editable roster)
+    path('series/<slug:slug>/availability/compare/', tournament_availability, name='tournament-availability'),
+    path('series/<slug:slug>/availability/compare/week-data/', tournament_availability_week_data, name='tournament-availability-week-data'),
+    path('series/<slug:slug>/availability/compare/search/', tournament_availability_search, name='tournament-availability-search'),
 
     # HTMX endpoints for asset management
     path('series/<slug:slug>/assets/<str:asset_type>/search/', tournament_search_assets, name='tournament-search-assets'),
