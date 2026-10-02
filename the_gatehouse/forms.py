@@ -649,11 +649,18 @@ class TournamentGuildAutomationForm(forms.ModelForm):
     guild the bot is in -- but are rows rather than a field, so they ride as a separate
     formset (make_reminder_formset) that the view saves in the same transaction.
 
-    All fields are rendered as live dropdowns by tournament_channels_form_fields.html and
-    bind normally by name. results/schedule/moderators are TEXT channels; game_threads is
-    a FORUM channel — validated against separate lists so a text channel can't be saved
-    where a forum is required. game_threads_tag is one of that forum's tags, and
-    match_moderator_role is validated against the guild's ROLES, a third list again."""
+    All channel fields are rendered as live dropdowns by
+    tournament_channels_form_fields.html and bind normally by name.
+    results/schedule/moderators are TEXT channels; game_threads is a FORUM channel —
+    validated against separate lists so a text channel can't be saved where a forum is
+    required. game_threads_tag is one of that forum's tags, and match_moderator_role is
+    validated against the guild's ROLES, a third list again.
+
+    require_participant_schedule_confirmation is the one field here that is NOT guild
+    plumbing: it governs who may set a match time with /schedule set. It rides on this
+    form because that command only exists in a linked guild, and because this is the
+    page a guild moderator already opens to configure scheduling -- it was previously
+    reachable only from the Django admin."""
 
     class Meta:
         # apps.get_model rather than a module import: the_warroom.models imports from
@@ -662,9 +669,11 @@ class TournamentGuildAutomationForm(forms.ModelForm):
         model = apps.get_model('the_warroom', 'Tournament')
         fields = ['results_channel', 'schedule_channel', 'game_threads_channel',
                   'game_threads_tag', 'match_moderator_role', 'moderators_channel',
-                  'thread_message']
+                  'thread_message', 'require_participant_schedule_confirmation']
         widgets = {
             'thread_message': forms.Textarea(attrs={'rows': 3, 'class': 'form-control'}),
+            'require_participant_schedule_confirmation': forms.CheckboxInput(
+                attrs={'class': 'form-check-input'}),
         }
 
     def __init__(self, *args, guild=None, **kwargs):

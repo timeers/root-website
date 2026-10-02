@@ -3234,6 +3234,87 @@ class TournamentGuildAutomationFormReminderTests(TestCase):
         self.assertFalse(formset.is_valid())
 
 
+class ScheduleConfirmationToggleTests(TestCase):
+    """require_participant_schedule_confirmation on the series-channels form: who
+    may set a match time with /schedule set.
+
+    The only non-channel FIELD on that form (reminders are rows), and the only one
+    that isn't guild plumbing -- it was previously reachable from the Django admin
+    alone."""
+
+    def setUp(self):
+        from the_warroom.models import Tournament
+        # bot_member defaults to False, so the form's clean() skips every Discord
+        # fetch and these tests stay offline.
+        self.guild = DiscordGuild.objects.create(
+            guild_id="900410", name="Toggle Guild")
+        self.tournament = Tournament.objects.create(
+            name="Toggle Tournament", guild=self.guild)
+
+    def _form(self, **posted):
+        from the_gatehouse.forms import TournamentGuildAutomationForm
+        return TournamentGuildAutomationForm(
+            {"thread_message": "", **posted},
+            instance=self.tournament, guild=self.guild)
+
+    def test_it_defaults_to_requiring_confirmation(self):
+        self.assertTrue(self.tournament.require_participant_schedule_confirmation)
+
+    def test_an_unchecked_box_turns_it_off(self):
+        """An unchecked checkbox submits NOTHING, which is exactly why this works:
+        absent binds to False on a bound ModelForm. A hidden companion input or a
+        `value` on the widget would break it."""
+        form = self._form()
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.tournament.refresh_from_db()
+        self.assertFalse(self.tournament.require_participant_schedule_confirmation)
+
+    def test_a_checked_box_turns_it_back_on(self):
+        self.tournament.require_participant_schedule_confirmation = False
+        self.tournament.save(
+            update_fields=["require_participant_schedule_confirmation"])
+        form = self._form(require_participant_schedule_confirmation="on")
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.tournament.refresh_from_db()
+        self.assertTrue(self.tournament.require_participant_schedule_confirmation)
+
+    def test_unchecking_is_not_a_validation_error(self):
+        """A model BooleanField with a default is blank=True, so the form field is
+        not required. If it ever became required, unchecking would fail instead of
+        saving False -- which is the subtle way a checkbox like this breaks."""
+        from the_gatehouse.forms import TournamentGuildAutomationForm
+        field = TournamentGuildAutomationForm().fields[
+            "require_participant_schedule_confirmation"]
+        self.assertFalse(field.required)
+
+    def test_it_saves_alongside_the_channels(self):
+        form = self._form(results_channel="200000000000000011",
+                          require_participant_schedule_confirmation="on")
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.tournament.refresh_from_db()
+        self.assertEqual(self.tournament.results_channel, "200000000000000011")
+        self.assertTrue(self.tournament.require_participant_schedule_confirmation)
+
+    def test_the_summary_row_names_only_the_surprising_state(self):
+        """The row list drops falsy values and this defaults to ON, so a row for the
+        default would appear on every series and say nothing. Only the state worth
+        surfacing -- players setting times unsupervised -- gets a line."""
+        from the_gatehouse.views import _tournament_row_ctx
+        labels = dict((lbl, val) for lbl, val, _tag in
+                      _tournament_row_ctx(self.tournament, self.guild, {})["channels"])
+        self.assertNotIn("Match scheduling", labels)
+
+        self.tournament.require_participant_schedule_confirmation = False
+        self.tournament.save(
+            update_fields=["require_participant_schedule_confirmation"])
+        labels = dict((lbl, val) for lbl, val, _tag in
+                      _tournament_row_ctx(self.tournament, self.guild, {})["channels"])
+        self.assertEqual(labels.get("Match scheduling"), "Players can set times")
+
+
 class ReminderModalSaveTests(_NoLoginSignalMixin, TestCase):
     """The reminders through the REAL modal endpoint, which saves them in the
     same request as the channels. The formset tests above cover the rows in

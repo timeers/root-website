@@ -1,9 +1,18 @@
 # Changelog
 
-## [1.13.13] - 2026-10-1 Hoot Bugs
+## [1.13.13] - 2026-10-2 Hoot 4 Improvements
+
+### Improvements
+- Game threads now receive a message that pings the players and match mod when the game is scheduled
+- /schedule set now directly sets the time of the match instead of polling
+- /schedule poll now contains the polling features from the old /schedule set command
+- Added field to Series Automation to allow users to individually schedule match times or require moderator confirmation
 
 ### Bug Fixes
 - The scheduling command now uses can_schedule instead of piggybacking on the can_record method. Users can now use /schedule as long as they are on the roster or a moderator
+
+### Breaking Changes
+- The "/schedule set" command has now been split into two commands "/schedule set" and "/schedule poll" with the poll subcommand retaining most of the functionality from the old set command. Each will need to be whitelisted before becoming available
 
 ## [1.13.12] - 2026-9-30 Roster Commands
 

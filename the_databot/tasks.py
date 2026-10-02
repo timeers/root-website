@@ -410,7 +410,7 @@ def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
             # the same tri-state the "yes" branch above reads.
             names = ", ".join(f"**{n}**" for n in declined)
             content = (f"The poll for {when} closed — {names} couldn't make it, so "
-                       f"no time was scheduled. Run `/schedule set` to propose "
+                       f"no time was scheduled. Run `/schedule poll` to propose "
                        f"another.{link}")
         elif declined and confirmed:
             # No roster, so nothing was ever going to be booked and a decline

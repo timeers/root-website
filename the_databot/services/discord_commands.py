@@ -300,6 +300,11 @@ UPCOMING_COMMAND = {
 SCHEDULE_SUBCOMMANDS = [
     {
         "name": "set",
+        # Every leaf carries an explicit whitelist_key, for the reason /boxscore's
+        # do: bare "set"/"poll"/"clear" would be meaningless in a stored
+        # enabled_commands list, and "poll" in particular would collide the moment
+        # another command gains one of its own.
+        "whitelist_key": "schedule_set",
         "description": "Set the scheduled time for this thread's match",
         "type": 1,  # SUB_COMMAND
         "options": [
@@ -315,7 +320,26 @@ SCHEDULE_SUBCOMMANDS = [
             #
             # NOTE its autocomplete is keyed ("schedule set", "timezone") -- the
             # dispatcher builds that key as "<parent> <sub>", so the bare
-            # "schedule" key would silently return no choices.
+            # "schedule" key would silently return no choices. That key is the path
+            # the user TYPES, which is a different namespace from whitelist_key
+            # above -- the two deliberately disagree here.
+            {"name": "timezone",
+             "description": "Override your saved timezone (otherwise I'll just ask)",
+             "type": 3, "required": False, "autocomplete": True},
+        ],
+    },
+    {
+        "name": "poll",
+        "whitelist_key": "schedule_poll",
+        "description": "Ask this match's players to agree on a time",
+        "type": 1,  # SUB_COMMAND
+        # Same two options as `set`: one parser, one timezone picker, one confirm
+        # prompt -- only the button the prompt offers differs (Suggest, not Set
+        # Time). Its autocomplete is keyed ("schedule poll", "timezone").
+        "options": [
+            {"name": "time",
+             "description": 'e.g. "4pm", "tomorrow 4pm", "Mar 15 8pm", or a <t:...> paste',
+             "type": 3, "required": True},
             {"name": "timezone",
              "description": "Override your saved timezone (otherwise I'll just ask)",
              "type": 3, "required": False, "autocomplete": True},
@@ -323,6 +347,7 @@ SCHEDULE_SUBCOMMANDS = [
     },
     {
         "name": "clear",
+        "whitelist_key": "schedule_clear",
         "description": "Remove the scheduled time for this thread's match",
         "type": 1,  # SUB_COMMAND
     },
@@ -330,9 +355,14 @@ SCHEDULE_SUBCOMMANDS = [
 
 SCHEDULE_SUBCOMMAND_NAMES = [s["name"] for s in SCHEDULE_SUBCOMMANDS]
 
+# /schedule's subcommands are the whitelist toggles, not the parent -- see
+# PARENT_COMMANDS below. Named like every other parent so the dict key and the
+# definition cannot drift.
+SCHEDULE_COMMAND_NAME = "schedule"
+
 SCHEDULE_COMMAND = {
-    "name": "schedule",
-    "description": "Set or clear the scheduled time for this thread's match",
+    "name": SCHEDULE_COMMAND_NAME,
+    "description": "Set, poll for, or clear this thread's match time",
     "options": SCHEDULE_SUBCOMMANDS,
 }
 
@@ -649,6 +679,10 @@ PARENT_COMMANDS = {
     BOXSCORE_COMMAND_NAME: (BOXSCORE_COMMAND, BOXSCORE_SUBCOMMANDS),
     JOIN_COMMAND_NAME: (JOIN_COMMAND, JOIN_SUBCOMMANDS),
     LEAVE_COMMAND_NAME: (LEAVE_COMMAND, LEAVE_SUBCOMMANDS),
+    # Setting a time, polling the players for one and clearing one are three
+    # different powers -- a guild that wants players proposing times need not also
+    # let them overwrite a time a moderator set -- so each is its own toggle.
+    SCHEDULE_COMMAND_NAME: (SCHEDULE_COMMAND, SCHEDULE_SUBCOMMANDS),
 }
 
 # Flat list of every subcommand's WHITELIST KEY across all parents. Keyed by
@@ -920,7 +954,8 @@ COMMAND_GROUPS = [
     ("General", ["help"]),
     ("Lookups", ["law", "faction", "clockwork", "map", "deck", "vagabond",
                  "captain", "landmark", "hireling", "houserule", "card", "stats"]),
-    ("Organization", ["availability", "schedule", "timestamp", "upcoming"]),
+    ("Organization", ["availability", "schedule_set", "schedule_poll",
+                      "schedule_clear", "timestamp", "upcoming"]),
     ("Games", ["lfg", "adset", "seating", "pick",
                "boxscore_upload", "boxscore_paste", "boxscore_token",
                "join_game", "join_substitute", "join_moderator",

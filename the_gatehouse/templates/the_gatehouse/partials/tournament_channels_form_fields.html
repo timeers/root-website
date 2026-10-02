@@ -85,6 +85,35 @@ stale the moment a different series' form was opened. {% endcomment %}
         {% endif %}
     </div>
 
+    {% comment %} ----- Who can set a match time -----
+    Not a channel, and the only field here that isn't guild plumbing: it decides who
+    may write a time with /schedule set. On this form because that command only
+    exists in a linked guild, and because scheduling is already configured here.
+
+    A CHECKBOX, so an unchecked box submits nothing at all -- which is exactly what
+    makes it work: absent binds to False on a bound ModelForm. Don't give it a
+    hidden companion input or a `value`.
+    {% endcomment %}
+    <div class="mb-3">
+        {% if form.require_participant_schedule_confirmation.errors %}
+            <div class="alert alert-danger py-2">{{ form.require_participant_schedule_confirmation.errors|striptags }}</div>
+        {% endif %}
+        <div class="form-check">
+            {{ form.require_participant_schedule_confirmation }}
+            <label class="form-check-label"
+                   for="{{ form.require_participant_schedule_confirmation.id_for_label }}">
+                {% trans 'Require a moderator to approve individually set times' %}
+            </label>
+        </div>
+        <div class="form-text text-muted">
+            {% trans "When on, only moderators can set a time with" %}
+            <code>/schedule set</code>
+            {% trans ": a player's request waits for a moderator to confirm it. When off, any player in the game can set the time directly." %}
+            <code>/schedule poll</code>,
+            {% trans "which asks every player to agree on a time, works either way." %}
+        </div>
+    </div>
+
     {# ----- Game threads channel (FORUM — different source list) ----- #}
     <div class="mb-3">
         <label class="form-label">{% trans 'Game threads forum' %}</label>
