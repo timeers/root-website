@@ -16,15 +16,17 @@ what that page's ?players= roster is keyed on. {% endcomment %}
       {% if not p.has_schedule %}data-no-schedule="1"{% endif %}>
     <input class="form-check-input mt-0 player-toggle" type="checkbox"
            id="player-{{ p.profile.id }}" value="{{ p.profile.id }}"
-           {% if p.has_schedule %}checked{% else %}disabled{% endif %}>
+           checked>
     <label class="d-flex align-items-center gap-2 flex-grow-1 mb-0" for="player-{{ p.profile.id }}"
-           style="min-width:0; cursor:{% if p.has_schedule %}pointer{% else %}default{% endif %};">
+           style="min-width:0; cursor:pointer;">
       {% if p.profile.image %}
         <img src="{{ p.profile.image.url }}" alt="" class="rounded-circle" style="width:24px;height:24px;">
       {% else %}
         <i class="bi bi-person-circle"></i>
       {% endif %}
-      <span class="text-truncate">{{ p.profile.display_name }}</span>
+      {% comment %} "Last updated: …" on hover -- a Bootstrap tooltip delegated off
+      #player-list, the same as the grid cells'. {% endcomment %}
+      <span class="text-truncate" data-bs-title="{{ p.last_updated_label }}">{{ p.profile.display_name }}</span>
       {% if p.profile.display_timezone and p.profile.timezone %}
         <span class="badge text-bg-light" title="{{ p.profile.timezone }}">{{ p.profile.timezone_code }}</span>
       {% endif %}

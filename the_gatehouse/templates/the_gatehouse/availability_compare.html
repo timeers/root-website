@@ -366,6 +366,52 @@ is nothing worth indexing. {% endcomment %}
      and must not become markup. */
   .tooltip-inner { white-space: pre-line; }
 
+  /* ---- Scheduled-game overlays --------------------------------------------
+     A selected player's scheduled game (black, 45deg) and the match being
+     compared (green, -45deg), on each cell the game is estimated to cover (4 h
+     from its rounded start). Styled per cell: the 4 hours are a guess, not a
+     block with a known end.
+
+     OVERLAYS, not restyles: the stripes sit on the cell's own pseudo-elements
+     (::after black, ::before green), inset and rounded, with transparent gaps,
+     so the heat colour, borders, focus outline and player-hover border
+     underneath all still show -- and a cell covered by both shows both. No
+     other rule uses these pseudo-elements or sets position on a cell.
+     pointer-events: none keeps hover, click and tooltips on the cell. */
+  .compare-grid .avail-cell.has-game,
+  .compare-grid .avail-cell.this-game { position: relative; }
+  .compare-grid .avail-cell.has-game::after,
+  .compare-grid .avail-cell.this-game::before {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    border-radius: 4px;
+    pointer-events: none;
+  }
+  .compare-grid .avail-cell.has-game::after {
+    background-image: repeating-linear-gradient(45deg,
+      rgba(0, 0, 0, 0.45) 0 2px, transparent 2px 6px);
+    border: 1.5px solid rgba(0, 0, 0, 0.6);
+  }
+  .compare-grid .avail-cell.this-game::before {
+    background-image: repeating-linear-gradient(-45deg,
+      rgba(25, 135, 84, 0.6) 0 2px, transparent 2px 6px);
+    border: 1.5px solid #198754;
+  }
+  /* The cell's time text stays readable above both stripe layers. */
+  .compare-grid .avail-cell .cell-time { position: relative; z-index: 1; }
+
+  .heat-legend-swatch.scheduled-game-swatch {
+    background-image: repeating-linear-gradient(45deg,
+      rgba(0, 0, 0, 0.45) 0 2px, transparent 2px 5px);
+    border-color: rgba(0, 0, 0, 0.6);
+  }
+  .heat-legend-swatch.this-game-swatch {
+    background-image: repeating-linear-gradient(-45deg,
+      rgba(25, 135, 84, 0.6) 0 2px, transparent 2px 5px);
+    border-color: #198754;
+  }
+
   .heat-legend-item { display: flex; align-items: center; gap: 4px; }
   .heat-legend-swatch {
     width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0;
@@ -504,6 +550,8 @@ is nothing worth indexing. {% endcomment %}
 {{ compare_config|json_script:"compare-config" }}
 {{ player_hours_json|json_script:"player-hours" }}
 {{ player_names_json|json_script:"player-names" }}
+{{ player_games_json|json_script:"player-games" }}
+{{ this_game_json|json_script:"this-game" }}
 <script>
 (function () {
   var gridContainer = document.getElementById('compare-grid-container');
@@ -518,6 +566,15 @@ is nothing worth indexing. {% endcomment %}
   // the hours differ per (roster, week) -- see applyState().
   var PLAYER_HOURS = JSON.parse(document.getElementById('player-hours').textContent);
   var NAMES = JSON.parse(document.getElementById('player-names').textContent);
+  // Scheduled games (see _compare_scheduled_games): {pid: [{tokens, label,
+  // start_label}]} for the roster's other matches, and [{...}] for the match
+  // being compared. Replaced on every week-switch, like PLAYER_HOURS.
+  var PLAYER_GAMES = JSON.parse(document.getElementById('player-games').textContent);
+  var THIS_GAME = JSON.parse(document.getElementById('this-game').textContent);
+  // token -> [{kind: 'this'|'player', name, label, start_label}], rebuilt by
+  // every render() BEFORE its cell loop, so describeCell, renderLegend and
+  // showDetail all read the current selection's games.
+  var GAMES_BY_TOKEN = {};
   var HEAT_BUCKETS = 4;
 
   // Rebuilt every time #compare-grid-container's innerHTML is swapped, since
@@ -583,12 +640,12 @@ is nothing worth indexing. {% endcomment %}
 
   // Each row's hour badge is stale after a week-switch reassigns PLAYER_HOURS
   // (applyState() below) -- it was only ever rendered once, server-side, for
-  // whichever week the page first loaded on. Checked/disabled state is
-  // deliberately left alone here: a player with SOME availability is always
-  // selectable regardless of this week's count, so only the visible count
-  // needs to catch up. A player flagged data-no-schedule has no PlayerSchedule
-  // row at all -- that never changes with the week being viewed, so their
-  // disabled "none" row is left completely untouched.
+  // whichever week the page first loaded on. Checked state is deliberately left
+  // alone here: every player is selectable, whatever their hours, so only the
+  // visible count needs to catch up. A player flagged data-no-schedule has no
+  // PlayerSchedule row at all -- that never changes with the week being viewed,
+  // so their label keeps reading "none" rather than being rewritten to "0h".
+  // That label is the only difference: they select, count and draw like anyone.
   function updatePlayerHourLabels() {
     playerRows().forEach(function (row) {
       if (row.dataset.noSchedule) { return; }
@@ -618,9 +675,80 @@ is nothing worth indexing. {% endcomment %}
     return missing >= HEAT_BUCKETS ? 'heat-far' : 'heat-' + missing;
   }
 
+  var GAME_CLASSES = ['has-game', 'this-game'];
+
+  // Mark one game's cells (`cls` is 'this-game' or 'has-game') and record it
+  // under each token for the tooltip and detail panel. Styled per cell -- a
+  // game is an estimate of 4 hours, not a block with a known end.
+  function markGame(game, cls, entry) {
+    (game.tokens || []).forEach(function (token) {
+      var cell = CELLS_BY_HOUR[token];
+      if (!cell) { return; }   // reaches in from a neighbouring week
+      cell.classList.add(cls);
+      (GAMES_BY_TOKEN[token] = GAMES_BY_TOKEN[token] || []).push(entry);
+    });
+  }
+
+  function renderGames() {
+    cells.forEach(function (cell) {
+      GAME_CLASSES.forEach(function (c) { cell.classList.remove(c); });
+    });
+    GAMES_BY_TOKEN = {};
+    // The match being compared, whatever is ticked: it is the match itself.
+    (THIS_GAME || []).forEach(function (game) {
+      markGame(game, 'this-game', {
+        kind: 'this', match_id: game.match_id, start_label: game.start_label });
+    });
+    // Only the TICKED players' games: unticking everyone in a match clears its
+    // stripes, the same way the heat colours follow the selection.
+    checkedIds().forEach(function (id) {
+      (PLAYER_GAMES[id] || []).forEach(function (game) {
+        markGame(game, 'has-game', {
+          kind: 'player', match_id: game.match_id, name: NAMES[id] || '',
+          label: game.label, start_label: game.start_label });
+      });
+    });
+  }
+
+  // "A", "A and B", "A, B and C" -- mirrors lfg_game.name_join.
+  function nameJoin(names) {
+    if (names.length <= 1) { return names.join(''); }
+    return names.slice(0, -1).join(', ') + ' {% trans "and" %} ' + names[names.length - 1];
+  }
+
+  // Plain-text lines for the games covering `cell`: this game first, then one
+  // line per OTHER match naming every selected player seated in it. Text,
+  // never HTML -- names and labels are user data.
+  function gameLines(cell) {
+    var games = GAMES_BY_TOKEN[cell.dataset.how] || [];
+    var lines = [];
+    var byMatch = {};
+    var order = [];
+    games.forEach(function (g) {
+      if (g.kind === 'this') {
+        lines.push('{% trans "This game starts " %} ' + g.start_label);
+        return;
+      }
+      if (!byMatch[g.match_id]) {
+        byMatch[g.match_id] = { label: g.label, start_label: g.start_label, names: [] };
+        order.push(g.match_id);
+      }
+      byMatch[g.match_id].names.push(g.name);
+    });
+    order.forEach(function (id) {
+      var m = byMatch[id];
+      lines.push(m.label + ' {% trans "starts " %} ' + m.start_label
+                 + ' {% trans "for" %} ' + nameJoin(m.names));
+    });
+    return lines;
+  }
+
   function render() {
     var ids = checkedIds();
     var total = ids.length;
+
+    // FIRST: describeCell (in the loop below) and renderLegend read these.
+    renderGames();
 
     // hour -> who is free then
     var freeAt = {};
@@ -653,7 +781,10 @@ is nothing worth indexing. {% endcomment %}
       // tooltip only repeats what the colour already says, and popping one up
       // over every dead cell makes the grid noisier to scan. With no players
       // selected the text is just the day and hour, which is still worth having.
-      if (total && !who.length) {
+      //
+      // ...unless a game covers it: a player is usually NOT free during their
+      // own game, so that is exactly where the game line matters.
+      if (total && !who.length && !gameLines(cell).length) {
         cell.removeAttribute('data-bs-title');
       } else {
         cell.setAttribute('data-bs-title', describeCell(cell, who, total));
@@ -698,16 +829,22 @@ is nothing worth indexing. {% endcomment %}
     // a dash and split it back out, which silently stopped working the moment the
     // two dashes drifted apart. (Touch users get the same information from the
     // detail panel instead; a `title` never appears on a phone.)
-    var label = cellLabel(cell);
-    if (!total) { return label; }
-    if (!who.length) {
-      return label + '\n{% trans "nobody selected is free" %}';
+    //
+    // Any games covering the cell follow as further lines (see gameLines) --
+    // even with nobody ticked, so "This Game" still explains itself.
+    var lines = [cellLabel(cell)];
+    if (total) {
+      if (!who.length) {
+        lines.push('{% trans "nobody selected is free" %}');
+      } else {
+        var names = who.map(function (id) { return NAMES[id]; }).join(', ');
+        var count = who.length === total
+          ? '{% trans "all" %} ' + total
+          : who.length + ' {% trans "of" %} ' + total;
+        lines.push(count + ': ' + names);
+      }
     }
-    var names = who.map(function (id) { return NAMES[id]; }).join(', ');
-    var count = who.length === total
-      ? '{% trans "all" %} ' + total
-      : who.length + ' {% trans "of" %} ' + total;
-    return label + '\n' + count + ': ' + names;
+    return lines.concat(gameLines(cell)).join('\n');
   }
 
   function freeAtCell(cell) {
@@ -786,6 +923,14 @@ is nothing worth indexing. {% endcomment %}
       + '</span>';
   }
 
+  // For the places that still build the detail panel as an HTML string:
+  // player display names and labels are user data, so they are escaped.
+  function escapeHtml(text) {
+    return String(text == null ? '' : text)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
   function showDetail(cell) {
     var ids = checkedIds();
     var free = freeAtCell(cell);
@@ -798,7 +943,7 @@ is nothing worth indexing. {% endcomment %}
     var everyone = ids.length && free.length === ids.length;
     detail.innerHTML =
       '<div class="d-flex align-items-center justify-content-between gap-2 flex-wrap">'
-      + '<strong>' + cellLabel(cell) + '</strong>'
+      + '<strong>' + escapeHtml(cellLabel(cell)) + '</strong>'
       + discordTimestampPill(cell)
       + '</div>'
       + '<br><span class="text-muted">'
@@ -806,30 +951,46 @@ is nothing worth indexing. {% endcomment %}
           ? '{% trans "No players selected." %}'
           : (free.length
               ? (everyone ? '' : free.length + ' {% trans "of" %} ' + ids.length + ': ')
-                + free.map(function (id) { return NAMES[id]; }).join(', ')
+                + free.map(function (id) { return escapeHtml(NAMES[id]); }).join(', ')
               : '{% trans "Nobody selected is free then." %}'))
       + '</span>';
+    // Game lines as text nodes -- names and labels are user data.
+    gameLines(cell).forEach(function (line) {
+      var row = document.createElement('div');
+      row.className = 'small mt-1';
+      row.textContent = line;
+      detail.appendChild(row);
+    });
   }
 
   function renderLegend(total) {
     legend.innerHTML = '';
-    if (!total) { return; }
-    // Only the bands this many players can actually produce.
-    var names = [];
-    for (var missing = 0; missing < Math.min(total, HEAT_BUCKETS); missing++) {
-      names.push('heat-' + missing);
-    }
-    if (total > HEAT_BUCKETS) { names.push('heat-far'); }
-
-    names.forEach(function (name) {
+    function addItem(swatchClass, text) {
       var item = document.createElement('span');
       item.className = 'heat-legend-item';
       var swatch = document.createElement('span');
-      swatch.className = 'heat-legend-swatch ' + name;
+      swatch.className = 'heat-legend-swatch ' + swatchClass;
       item.appendChild(swatch);
-      item.appendChild(document.createTextNode(BUCKET_LABELS[name]));
+      item.appendChild(document.createTextNode(text));
       legend.appendChild(item);
-    });
+    }
+
+    // Heat bands only with players ticked -- and only the bands this many
+    // players can actually produce.
+    if (total) {
+      for (var missing = 0; missing < Math.min(total, HEAT_BUCKETS); missing++) {
+        addItem('heat-' + missing, BUCKET_LABELS['heat-' + missing]);
+      }
+      if (total > HEAT_BUCKETS) { addItem('heat-far', BUCKET_LABELS['heat-far']); }
+    }
+
+    // The game overlays, whenever this render drew one (renderGames ran first).
+    if (cells.some(function (c) { return c.classList.contains('this-game'); })) {
+      addItem('this-game-swatch', '{% trans "This Game" %}');
+    }
+    if (cells.some(function (c) { return c.classList.contains('has-game'); })) {
+      addItem('scheduled-game-swatch', '{% trans "Scheduled Game" %}');
+    }
   }
 
   function longestRun(hours) {
@@ -892,7 +1053,7 @@ is nothing worth indexing. {% endcomment %}
   document.querySelectorAll('[data-select]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var on = btn.dataset.select === 'all';
-      toggles().forEach(function (t) { if (!t.disabled) { t.checked = on; } });
+      toggles().forEach(function (t) { t.checked = on; });
       render();
     });
   });
@@ -949,6 +1110,15 @@ is nothing worth indexing. {% endcomment %}
       placement: 'top',
       trigger: 'hover',
     });
+    // The same, for each player's "Last updated" -- delegated off the stable
+    // #player-list so re-rendered rows (week-switch, add/remove) are covered.
+    if (playerList) {
+      new bootstrap.Tooltip(playerList, {
+        selector: '[data-bs-title]',
+        placement: 'top',
+        trigger: 'hover',
+      });
+    }
   }
 
   render();
@@ -1007,14 +1177,15 @@ is nothing worth indexing. {% endcomment %}
 
   function swapPlayerList(data) {
     if (!playerList || data.player_list_html === undefined) { return; }
-    // Keep whoever the viewer unticked unticked; anyone new arrives ticked (or
-    // disabled, with no schedule at all), exactly as on first load.
+    // Keep whoever the viewer unticked unticked; anyone new arrives ticked,
+    // exactly as on first load.
     var unchecked = toggles().filter(function (t) {
-      return !t.checked && !t.disabled;
+      return !t.checked;
     }).map(function (t) { return t.value; });
+    disposeTooltips(playerList);
     playerList.innerHTML = data.player_list_html;
     toggles().forEach(function (t) {
-      if (!t.disabled && unchecked.indexOf(t.value) !== -1) { t.checked = false; }
+      if (unchecked.indexOf(t.value) !== -1) { t.checked = false; }
     });
     if (playerCount && data.player_count_label) {
       playerCount.textContent = data.player_count_label;
@@ -1022,12 +1193,25 @@ is nothing worth indexing. {% endcomment %}
     if (playerEmpty) { playerEmpty.hidden = data.player_count > 0; }
   }
 
+  // Dispose any open tooltip under `root` before its elements are replaced --
+  // otherwise one showing at the time is orphaned and stays stuck on screen.
+  function disposeTooltips(root) {
+    if (!root || !(window.bootstrap && bootstrap.Tooltip)) { return; }
+    root.querySelectorAll('[data-bs-title]').forEach(function (el) {
+      var tip = bootstrap.Tooltip.getInstance(el);
+      if (tip) { tip.dispose(); }
+    });
+  }
+
   function applyState(data) {
+    disposeTooltips(gridContainer);
     gridContainer.innerHTML = data.grid_html;
     indexGrid();
 
     PLAYER_HOURS = data.player_hours_json || {};
     NAMES = data.player_names_json || {};
+    PLAYER_GAMES = data.player_games_json || {};
+    THIS_GAME = data.this_game_json || [];
     indexPlayerHours();
     swapPlayerList(data);
     updatePlayerHourLabels();

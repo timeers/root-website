@@ -1124,6 +1124,105 @@ def _compare_player_sort_key(week_start):
     return key
 
 
+def _compare_time_label(dt, tz_name, fmt):
+    """`dt` formatted on the compare page's clock -- the viewer's zone, the same
+    one the grid is drawn in -- or UTC without one. tz_name is pre-validated
+    (_compare_viewer_tz)."""
+    from zoneinfo import ZoneInfo
+    from django.utils.formats import date_format
+    return date_format(timezone.localtime(dt, ZoneInfo(tz_name or 'UTC')), fmt)
+
+
+# How long a scheduled game is drawn for on the compare grid. Matches store only
+# a start time, so this is a deliberately generous estimate: the start hour plus
+# the next three.
+COMPARE_GAME_HOURS = 4
+
+
+def _compare_game_tokens(scheduled_time):
+    """The data-how tokens a game starting at `scheduled_time` covers: its start
+    rounded to the NEAREST whole UTC hour (every grid cell is exactly one UTC
+    hour, even for a :30 viewer), then COMPARE_GAME_HOURS hours from there.
+
+    The same string utc_instant_token builds for that hour
+    ('2026-01-05T04:00:00+00:00'), so the client looks each one up directly."""
+    from datetime import timezone as dt_timezone
+    start = (scheduled_time.astimezone(dt_timezone.utc) + timedelta(minutes=30)
+             ).replace(minute=0, second=0, microsecond=0)
+    return [(start + timedelta(hours=k)).isoformat() for k in range(COMPARE_GAME_HOURS)]
+
+
+def _compare_scheduled_games(resolved, week_start, is_week_specific):
+    """(player_games, this_game) for the overlay on the compare grid.
+
+    player_games -- {str(profile_id): [{match_id, tokens, label, start_label}]}: the
+        roster's scheduled matches in THIS tournament within the shown week,
+        minus the series being compared (it is `this_game` instead).
+    this_game -- [{match_id, tokens, label, start_label}]: the compared series's own
+        scheduled matches in the week (a series can hold several). Only on the
+        match compare page.
+
+    start_label is the game's real, unrounded start on the page's clock.
+    Empty for a refused viewer, a roster with no tournament (?players=, or an
+    LFG thread with no series), or a non-week view.
+    """
+    from datetime import datetime, time as dt_time, timezone as dt_timezone
+    from the_warroom.models import Match
+    from the_databot.services.lfg_game import match_label
+
+    tournament = resolved['tournament']
+    series = resolved['series']
+    if not (resolved['can_view'] and tournament and is_week_specific and week_start):
+        return {}, []
+
+    # The grid stitches in edge hours from the neighbouring weeks (see
+    # local_week_cell_shape), and a game started before the week can run into
+    # it -- so the window is generous; tokens not on the grid simply never match.
+    week_midnight = datetime.combine(week_start, dt_time.min, tzinfo=dt_timezone.utc)
+    lo = week_midnight - timedelta(days=1, hours=COMPARE_GAME_HOURS)
+    hi = week_midnight + timedelta(days=8)
+
+    def entry(match_id, scheduled_time, label):
+        return {
+            # Lets the client group one match's seated players into one line.
+            'match_id': match_id,
+            'tokens': _compare_game_tokens(scheduled_time),
+            'label': label,
+            'start_label': _compare_time_label(scheduled_time, resolved['tz_name'],
+                                               'D g:i A'),
+        }
+
+    def label_for(group_name, match_name):
+        # Mirrors lfg_game.match_label: the group's name, else the match's.
+        return group_name or match_name or str(_('Match'))
+
+    player_games = {}
+    profile_ids = [p.id for p in resolved['profiles']]
+    if profile_ids:
+        seat_path = 'series__matchseat__stage_participant__tournament_player__profile_id'
+        rows = (Match.objects
+                .filter(Q(round__stage__tournament=tournament) | Q(round__tournament=tournament),
+                        scheduled_time__gte=lo, scheduled_time__lt=hi,
+                        **{f'{seat_path}__in': profile_ids})
+                .values('id', 'scheduled_time', 'name', 'series__player_group__name',
+                        pid=F(seat_path)))
+        if series is not None:
+            rows = rows.exclude(series=series)
+        for row in rows:
+            player_games.setdefault(str(row['pid']), []).append(entry(
+                row['id'], row['scheduled_time'],
+                label_for(row['series__player_group__name'], row['name'])))
+
+    this_game = []
+    if series is not None:
+        for match in (series.matches.select_related('series__player_group')
+                      .filter(scheduled_time__gte=lo, scheduled_time__lt=hi)
+                      .order_by('scheduled_time')):
+            this_game.append(entry(match.id, match.scheduled_time, match_label(match)))
+
+    return player_games, this_game
+
+
 def _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profile):
     """The template-ready context shared by the full-page render and the
     AJAX week-switch endpoint -- `players`/`player_hours_json`/etc, plus the
@@ -1138,29 +1237,36 @@ def _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profi
     tournament = resolved['tournament']
     can_view = resolved['can_view']
 
-    # Distinguishes "0 hours THIS week" from "no availability, ever" -- a
-    # profile with any PlayerSchedule row at all (any tournament, any week,
-    # even one whose available_hours is []) counts as having availability, so
-    # a week with nothing shown just means they haven't filled in that
-    # particular week. Only a profile with zero rows anywhere is genuinely
-    # "none". One query for the whole roster rather than one per player.
-    # Named distinctly from the page-level `has_any_availability` context key
-    # below (whether ANYONE in the roster has hours THIS week) -- the two are
-    # unrelated despite the similar name.
-    has_any_schedule_ids = set(
-        PlayerSchedule.objects.filter(
-            profile_id__in=[p.id for p in profiles]
-        ).values_list('profile_id', flat=True).distinct()
-    ) if can_view else set()
+    # When each player last saved ANY availability row (general, tournament or
+    # a week) -- and, by being present at all, that they have one. A profile
+    # with any PlayerSchedule row (even one whose available_hours is []) counts
+    # as having availability, so a week with nothing shown just means they
+    # haven't filled in that particular week; only a profile with zero rows
+    # anywhere is genuinely "none". One aggregate for the whole roster rather
+    # than one query per player. Distinct from the page-level
+    # `has_any_availability` key below (whether ANYONE has hours THIS week).
+    from django.db.models import Max
+    last_updated_by_id = dict(
+        PlayerSchedule.objects.filter(profile_id__in=[p.id for p in profiles])
+        .values('profile_id').annotate(last=Max('updated_at'))
+        .values_list('profile_id', 'last')
+    ) if can_view else {}
 
     players = []
     for profile in (profiles if can_view else []):
         local = hours_by_profile.get(profile.id, [])
+        last_updated = last_updated_by_id.get(profile.id)
         players.append({
             'profile': profile,
             'hours': local,
             'hour_count': len(local),
-            'has_schedule': profile.id in has_any_schedule_ids,
+            'has_schedule': profile.id in last_updated_by_id,
+            # The name's tooltip, on the page's own clock (the grid's zone).
+            'last_updated_label': (
+                _('Last updated: %(when)s') % {
+                    'when': _compare_time_label(last_updated, resolved['tz_name'],
+                                                'M j, Y, g:i A')}
+                if last_updated else _('Last updated: never')),
             'is_viewer': viewer is not None and profile.id == viewer.id,
         })
     players.sort(key=_compare_player_sort_key(week_start))
@@ -1190,7 +1296,12 @@ def _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profi
     columns = _compare_grid_columns(week_start, is_week_specific)
 
     dropped_count = resolved['dropped_count']
+    player_games, this_game = _compare_scheduled_games(
+        resolved, week_start, is_week_specific)
     return {
+        # Scheduled-game overlays (see _compare_scheduled_games).
+        'player_games_json': player_games,
+        'this_game_json': this_game,
         'players': players,
         'player_count': len(players),
         # Server-side so the heading and the AJAX refresh share one string; the
@@ -1451,6 +1562,8 @@ def _compare_week_json(resolved, week_start, is_week_specific, hours_by_profile,
         'dropped_label': grid_ctx['dropped_label'],
         'player_hours_json': grid_ctx['player_hours_json'],
         'player_names_json': grid_ctx['player_names_json'],
+        'player_games_json': grid_ctx['player_games_json'],
+        'this_game_json': grid_ctx['this_game_json'],
         'has_any_availability': grid_ctx['has_any_availability'],
         'edit_url': grid_ctx['edit_url'],
     })

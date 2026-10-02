@@ -14,7 +14,7 @@
 - Improved the message text for closed schedule set requests
 - Match moderator is now pinged when a user needs approval for a /schedule set command
 - Schedule set sends a message to the schedules channel to show that the time is awaiting approval
-- Added support for setting and viewing availability in half-hour and 45-minute timezones
+- Existing scheduled games now show as 4 hour blocks on the availability compare page
 
 ### Bug Fixes
 - The scheduling command now uses can_schedule instead of piggybacking on the can_record method. Users can now use /schedule as long as they are on the roster or a moderator
