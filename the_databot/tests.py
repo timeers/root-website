@@ -495,6 +495,131 @@ class ScheduleFixtureMixin:
             self.group.tournament_players.add(self.tournament_player, self.teammate_tp)
 
 
+class ScheduleSiblingHintTests(ScheduleFixtureMixin, TestCase):
+    """Each scheduling command points at the other, so someone who picked the wrong
+    one can tell from the prompt. Gated on the guild actually having the other
+    command enabled -- naming a disabled subcommand is the thing the /boxscore
+    precedent exists to avoid."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.player.timezone = TZ
+        self.player.save(update_fields=["timezone"])
+
+    def _enable(self, *keys):
+        self.guild.enabled_commands = list(keys)
+        self.guild.save(update_fields=["enabled_commands"])
+
+    def _content(self, sub):
+        data = {
+            "name": "schedule",
+            "options": [{"name": sub, "type": 1, "options": [
+                {"name": "time", "value": SCHEDULE_TIME_TEXT}]}],
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": "555000111",
+            "_channel_name": None,
+            "_author_id": self.player.discord_id,
+            "_author_username": "player",
+        }
+        return json.loads(
+            di._handle_schedule_command(data).content)["data"]["content"]
+
+    # ── /schedule set -> poll ────────────────────────────────────────────────
+    def test_set_points_at_poll(self):
+        self._enable("schedule_set", "schedule_poll")
+        self.assertIn("Use `/schedule poll` instead to let the other players "
+                      "confirm the time.", self._content("set"))
+
+    def test_set_stays_quiet_when_poll_is_disabled(self):
+        self._enable("schedule_set")
+        self.assertNotIn("/schedule poll", self._content("set"))
+
+    # ── /schedule poll -> set ────────────────────────────────────────────────
+    def test_poll_points_at_set_as_a_request_when_confirmation_is_on(self):
+        """The default. A player's set would wait for a moderator, so the hint must
+        not promise the time gets set."""
+        self._enable("schedule_set", "schedule_poll")
+        content = self._content("poll")
+        self.assertIn("Use `/schedule set` instead to request the time.", content)
+        self.assertNotIn("set the time directly", content)
+
+    def test_poll_points_at_set_as_a_direct_write_when_confirmation_is_off(self):
+        self._enable("schedule_set", "schedule_poll")
+        self.tournament.require_participant_schedule_confirmation = False
+        self.tournament.save(
+            update_fields=["require_participant_schedule_confirmation"])
+        self.assertIn("Use `/schedule set` instead to set the time directly.",
+                      self._content("poll"))
+
+    def test_poll_stays_quiet_when_set_is_disabled(self):
+        self._enable("schedule_poll")
+        self.assertNotIn("/schedule set", self._content("poll"))
+
+    # ── the other prompts ───────────────────────────────────────────────────
+    def test_an_unlinked_thread_gets_no_hint(self):
+        """/schedule set refuses with no match, so pointing at it would send the
+        user to an error."""
+        self._enable("schedule_set", "schedule_poll")
+        data = {
+            "name": "schedule",
+            "options": [{"name": "poll", "type": 1, "options": [
+                {"name": "time", "value": SCHEDULE_TIME_TEXT}]}],
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": "999000111",   # no match, no LFG thread
+            "_channel_name": None,
+            "_author_id": self.player.discord_id,
+            "_author_username": "player",
+        }
+        content = json.loads(
+            di._handle_schedule_command(data).content)["data"]["content"]
+        self.assertNotIn("/schedule set", content)
+
+    def test_timestamp_never_hints(self):
+        """Neither command is an alternative to /timestamp -- it writes nothing
+        anywhere, so they are a different job rather than a different route."""
+        self._enable("schedule_set", "schedule_poll", "timestamp")
+        self.assertIsNone(
+            di._sibling_command_hint(self.guild.guild_id, di.TIMESTAMP_MODE))
+
+    def test_a_dm_gets_no_hint(self):
+        """_guild_allows(None, ...) answers True ("no whitelist to consult"), which
+        would otherwise recommend a subcommand that isn't registered here."""
+        for mode in (di.SCHEDULE_MODE, di.POLL_MODE):
+            with self.subTest(mode=mode):
+                self.assertIsNone(di._sibling_command_hint(None, mode))
+
+    def test_the_hint_survives_the_timezone_picker(self):
+        """The picker re-renders the prompt from a custom_id that has no room for
+        the hint, so it has to be rebuilt there or it silently vanishes for anyone
+        who sets their zone on the way through."""
+        self._enable("schedule_set", "schedule_poll")
+        payload = {
+            "guild_id": self.guild.guild_id,
+            "channel_id": "555000111",
+            "member": {"user": {"id": self.player.discord_id}},
+            "data": {"custom_id": di.encode_custom_id(
+                "schedule_tz_zone", self.match.id, "AM", di.POLL_MODE,
+                self.player.discord_id),
+                "values": [TZ]},
+            "message": {"id": "m",
+                        "content": f"-# From your input: `{SCHEDULE_TIME_TEXT}`",
+                        "components": []},
+        }
+        content = json.loads(
+            di._handle_schedule_tz_zone(payload).content)["data"]["content"]
+        self.assertIn("Use `/schedule set` instead", content)
+
+    def test_the_hint_is_subtext_above_the_input_echo(self):
+        """It is advice about WHICH COMMAND to use, so it sits with the question
+        rather than below the echo of what was typed."""
+        self._enable("schedule_set", "schedule_poll")
+        lines = self._content("set").split("\n")
+        hint = next(i for i, l in enumerate(lines) if "/schedule poll" in l)
+        carrier = next(i for i, l in enumerate(lines) if "From your input" in l)
+        self.assertTrue(lines[hint].startswith("-# "))
+        self.assertLess(hint, carrier)
+
+
 class MatchCanScheduleTests(ScheduleFixtureMixin, TestCase):
 
     def setUp(self):
