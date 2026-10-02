@@ -1286,6 +1286,24 @@ def _schedule_input_text(payload):
     return match.group(1) if match else ""
 
 
+def _schedule_tz_line(tz_name, at=None):
+    """The subtext line naming the zone a time was read in, or None.
+
+    Its own `-#` line rather than a suffix on _schedule_input_line: that line's
+    regex is anchored to end-of-line, and the anchor is what makes a forged marker
+    line harmless, so nothing may be appended to it. A line AFTER it is fine --
+    the pattern matches its own line only.
+
+    `at` is passed through to describe_timezone, so the offset shown is the one in
+    effect at the SCHEDULED instant rather than today: a booking across a DST
+    boundary would otherwise read wrong by an hour.
+
+    Returns None for a falsy or unrecognized zone -- describe_timezone answers ""
+    for both -- so callers drop the line with a plain truthiness check."""
+    described = describe_timezone(tz_name, at=at)
+    return f"-# Timezone: {described}" if described else None
+
+
 def _tz_region_data(match_id, time_text, owner, current_tz=None, mode=SCHEDULE_MODE):
     """Step 1 of the timezone prompt: pick a broad region.
 
@@ -1451,8 +1469,10 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
     # rendered line, never before: _poll_embed_meta and friends read the FIRST
     # `<t:` in a message, and this must not become that.
     lines.append(format_discord_timestamp_code(when))
-    if tz_name:
-        lines.append(f"Interpreted in **{describe_timezone(tz_name, at=when)}**.")
+    # The zone this was read in is reference information, not the subject of the
+    # message, so it rides in the subtext block at the bottom (see the tz line
+    # appended after the carrier below) rather than as a sentence competing with the
+    # time itself.
     if not unlinked and match.scheduled_time:
         # Stated as an OVERWRITE, not a replacement: this game already has a time
         # that players may have planned around, and the old wording ("This replaces
@@ -1480,10 +1500,18 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
         lines.append("\nYou can suggest this time, but a moderator has to confirm it "
                      "before it's set.")
     lines.append("\nDoes that look right?")
+    # The subtext block. The carrier MUST come first of the two and nothing may be
+    # appended to its line -- the timezone picker reads the typed text back out of
+    # it, and its regex is line-anchored. A separate line after it is safe.
     if time_text:
-        # MUST stay last: this is the carrier the timezone picker reads the typed
-        # text back out of, and its regex is line-anchored.
         lines.append(_schedule_input_line(time_text))
+    # OUTSIDE the `if time_text` above, deliberately: the two are independent, and a
+    # prompt rendered without the echoed input (see
+    # test_confirmation_offset_reflects_dst_at_the_scheduled_time) must still say
+    # which zone the time was read in.
+    tz_line = _schedule_tz_line(tz_name, at=when)
+    if tz_line:
+        lines.append(tz_line)
 
     # ONE primary action per mode -- see the docstring. Each branch assigns
     # `buttons`; Change timezone and Cancel are appended to all three below.
@@ -1635,11 +1663,14 @@ def _consensus_required(match):
     return bool(roster), roster
 
 
-# Which can_schedule tiers may write a time with /schedule set outright. An
-# ALLOW-LIST, deliberately not `reason != 'participant'`: EditPermission carries
-# other reasons too (see its reason_label map, which includes 'recorder'), and any
-# tier added to can_schedule later must default to needing approval rather than
-# silently gaining the power to bypass it.
+# Which can_schedule tiers may APPROVE a moderator request -- see
+# _mod_request_clicker, now the only consumer. An ALLOW-LIST, deliberately not
+# `reason != 'participant'`: EditPermission carries other reasons too (see its
+# reason_label map, which includes 'recorder'), and any tier added to can_schedule
+# later must default to NOT being able to approve rather than silently gaining it.
+#
+# Deliberately NOT consulted by _direct_set_allowed: being a moderator no longer
+# exempts anyone from the confirmation step, only from being unable to end it.
 MOD_SCHEDULE_REASONS = frozenset({"group_moderator", "organizer", "admin"})
 
 
@@ -1653,14 +1684,16 @@ def _direct_set_allowed(match, profile):
       (False, True)  — open a moderator-approval request instead.
 
     The gate is the tournament's require_participant_schedule_confirmation, read
-    through requires_schedule_confirmation(). It keeps its original meaning ("a time
-    must be confirmed before it is written"); what changed is WHO confirms on this
-    command. With the flag OFF, anyone who passes can_schedule -- a seated player
-    included -- sets the time directly. With it ON, only a moderator does, and
-    everyone else's set becomes a request.
+    through requires_schedule_confirmation(), and it means exactly what it says: a
+    time must be confirmed before it is written. With the flag OFF, anyone who
+    passes can_schedule -- a seated player included -- sets the time directly. With
+    it ON, EVERY set becomes a request, a moderator's included.
 
-    Reuses the reason string can_schedule already returns rather than re-deriving
-    the tiers, so the two can't disagree about who counts as a moderator.
+    No tier check here, deliberately. Exempting moderators made the flag mean
+    "players need approval" rather than "times need confirming", and skipped the
+    confirmation step for the people who schedule most often -- the ones a second
+    pair of eyes is most useful for. A moderator approving their own request is one
+    extra click, which is the point of the setting, and they can still turn it off.
 
     A match with no tournament falls through to "set freely", matching
     _consensus_required: there is no setting to opt in with."""
@@ -1670,8 +1703,7 @@ def _direct_set_allowed(match, profile):
     tournament = match.round.get_tournament() if match.round_id else None
     if not tournament or not tournament.requires_schedule_confirmation():
         return True, False
-    is_mod = permission.reason in MOD_SCHEDULE_REASONS
-    return is_mod, not is_mod
+    return False, True
 
 
 # These live in services.lfg_game so the Celery strip task can render the same
@@ -2768,8 +2800,16 @@ def _mod_request_clicker(payload, match):
     """(profile, error) for someone pressing Confirm/Cancel on a moderator request.
 
     Narrower than can_schedule on purpose: that admits a seated participant, who is
-    typically the very person who asked, so sharing it would let a request approve
-    itself. Same tier test _direct_set_allowed uses to decide a direct write."""
+    typically the very person who asked, so sharing it would let any requester
+    approve their own request.
+
+    This is now the ONLY tier test in the schedule flow. _direct_set_allowed used to
+    make the same one to let moderators bypass the request entirely; it no longer
+    does, because the confirmation step should apply to everyone. So being a
+    moderator is what lets you END the step, never what exempts you from it.
+
+    A moderator approving their OWN request is allowed and expected -- the request
+    is a deliberate second look, not a second person."""
     clicker = Profile.objects.filter(
         discord_id=str(_interaction_user_id(payload) or "")).first()
     if not clicker:
@@ -2790,9 +2830,17 @@ def _handle_mod_schedule_confirm(payload):
     compare-and-swap, the write, the channel announcement and the supersede sweep.
 
     `actor=clicker` is REQUIRED, not cosmetic: the default authorizes against
-    proposed_by, who is by definition someone that could not set the time, so the
-    proposal would cancel itself with "whoever proposed it no longer has permission".
-    The legacy sched_prop_set path passes the clicker for exactly this reason."""
+    proposed_by, who may well be someone that could not set the time themselves, so
+    the proposal would cancel itself with "whoever proposed it no longer has
+    permission". The legacy sched_prop_set path passes the clicker for the same
+    reason.
+
+    ⚠️ _finalize_proposal authorizes with match.can_schedule(actor) and must NOT be
+    changed to consult _direct_set_allowed. The flag is ON in every situation that
+    produces one of these requests, so a flag-aware check there would refuse every
+    approval -- including the approving moderator's own -- and nothing could ever be
+    confirmed. can_schedule plus _mod_request_clicker's tier test above is the whole
+    authorization; the flag's job ends once the request exists."""
     proposal, match, error = _proposal_for_click(payload, expect_mod_request=True)
     if error:
         return error

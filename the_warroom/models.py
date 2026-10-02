@@ -655,17 +655,21 @@ class Tournament(models.Model):
             'plus any member of the linked guild can record games for rounds.'
         ),
     )
-    # Whether a time has to be CONFIRMED before it is written, and therefore who may
-    # use /schedule set directly:
+    # Whether a time has to be CONFIRMED before it is written:
     #
-    #   True (default) — only a group moderator, organizer or admin sets a time
-    #                    outright. Anyone else who passes Match.can_schedule (a
-    #                    seated player) gets a public request a moderator confirms.
-    #   False          — anyone who passes can_schedule sets the time directly.
+    #   True (default) — NOBODY sets a time on their own say-so. Every /schedule set
+    #                    posts a public request that a moderator confirms or
+    #                    cancels, including a request made BY a moderator -- they
+    #                    just approve their own with one more click.
+    #   False          — anyone who passes Match.can_schedule sets the time directly.
+    #
+    # Moderators used to be exempt, which made this read as "players need approval"
+    # rather than "times need confirming", and skipped the second look for the people
+    # who schedule most often. Approving is still moderator-only
+    # (MOD_SCHEDULE_REASONS); being one no longer exempts you from the step.
     #
     # /schedule poll is NOT gated on this: asking the players to agree is always
     # allowed, and a unanimous roster writes the time itself with no moderator step.
-    # This flag only decides whether /schedule set may bypass that conversation.
     #
     # Applies under EVERY recording_access tier: scheduling no longer consults that
     # setting (see Match.can_schedule), so there is always a roster to poll.
@@ -673,10 +677,10 @@ class Tournament(models.Model):
         default=True,
         verbose_name="Require Player Confirmation for Scheduling",
         help_text=(
-            "Require a time to be confirmed before it's set. When on, only "
-            "moderators can use /schedule set directly — a player's request waits "
-            "for a moderator to confirm it. When off, any player in the game can "
-            "set the time. /schedule poll, which asks every player to agree, works "
+            "Require a time to be confirmed before it's set. When on, every time "
+            "set with /schedule set waits for a moderator to confirm it — including "
+            "a moderator's own. When off, any player in the game can set the time "
+            "directly. /schedule poll, which asks every player to agree, works "
             "either way."
         ),
     )
@@ -836,10 +840,10 @@ class Tournament(models.Model):
 
           /schedule poll — always polls the roster regardless of this flag, and
             writes the time once everyone has confirmed. No moderator step follows.
-          /schedule set  — when True, only a moderator may write a time outright;
-            anyone else's becomes a request ONE MODERATOR confirms (never a roster
-            poll -- that is what the poll command is for). When False, anyone who
-            passes Match.can_schedule writes it directly. See
+          /schedule set  — when True, EVERY set becomes a request that ONE MODERATOR
+            confirms (never a roster poll -- that is what the poll command is for),
+            a moderator's own set included. When False, anyone who passes
+            Match.can_schedule writes it directly. See
             discord_interactions._direct_set_allowed.
 
         Deliberately does NOT consider recording_access -- nor does can_schedule any
