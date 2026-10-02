@@ -655,9 +655,17 @@ class Tournament(models.Model):
             'plus any member of the linked guild can record games for rounds.'
         ),
     )
-    # When True (the default), /schedule proposes a time that every player on the
-    # match roster must confirm before it's written. When False, /schedule keeps the
-    # original behavior: whoever runs it confirms once and the time is set.
+    # Whether a time has to be CONFIRMED before it is written, and therefore who may
+    # use /schedule set directly:
+    #
+    #   True (default) — only a group moderator, organizer or admin sets a time
+    #                    outright. Anyone else who passes Match.can_schedule (a
+    #                    seated player) gets a public request a moderator confirms.
+    #   False          — anyone who passes can_schedule sets the time directly.
+    #
+    # /schedule poll is NOT gated on this: asking the players to agree is always
+    # allowed, and a unanimous roster writes the time itself with no moderator step.
+    # This flag only decides whether /schedule set may bypass that conversation.
     #
     # Applies under EVERY recording_access tier: scheduling no longer consults that
     # setting (see Match.can_schedule), so there is always a roster to poll.
@@ -665,9 +673,11 @@ class Tournament(models.Model):
         default=True,
         verbose_name="Require Player Confirmation for Scheduling",
         help_text=(
-            "Require every player in a game to confirm a proposed time before "
-            "/schedule sets it. When off, whoever runs /schedule sets the time "
-            "directly."
+            "Require a time to be confirmed before it's set. When on, only "
+            "moderators can use /schedule set directly — a player's request waits "
+            "for a moderator to confirm it. When off, any player in the game can "
+            "set the time. /schedule poll, which asks every player to agree, works "
+            "either way."
         ),
     )
     # Player management handled via TournamentPlayer
@@ -820,13 +830,21 @@ class Tournament(models.Model):
         )
 
     def requires_schedule_confirmation(self):
-        """True when /schedule must collect every player's confirmation before a
-        time is written.
+        """True when a proposed time must be confirmed before it is written.
 
-        Deliberately does NOT consider recording_access -- nor does can_schedule
-        any more, so this is now the ONLY thing deciding whether a time is polled
-        or written outright. Once the roster has fully agreed the time is set;
-        there is no moderator approval step after that."""
+        Read differently by the two scheduling commands:
+
+          /schedule poll — always polls the roster regardless of this flag, and
+            writes the time once everyone has confirmed. No moderator step follows.
+          /schedule set  — when True, only a moderator may write a time outright;
+            anyone else's becomes a request ONE MODERATOR confirms (never a roster
+            poll -- that is what the poll command is for). When False, anyone who
+            passes Match.can_schedule writes it directly. See
+            discord_interactions._direct_set_allowed.
+
+        Deliberately does NOT consider recording_access -- nor does can_schedule any
+        more, so this flag is the only thing deciding whether /schedule set may write
+        on the invoker's say-so."""
         return self.require_participant_schedule_confirmation
 
     def sends_match_reminders(self):
@@ -2254,8 +2272,10 @@ class Match(models.Model):
         a RECORDING permission, so under the default MODERATORS tier a player in
         their own group's thread was told to contact the series admin. Being
         unable to record a result is no reason to be unable to say when you can
-        play. Whether players must AGREE on a time is a separate setting
-        (require_participant_schedule_confirmation).
+        play. Whether players must AGREE on a time -- and whether a seated player
+        may set one WITHOUT a moderator confirming -- is a separate setting
+        (require_participant_schedule_confirmation). Passing this check is the floor
+        for either; it does not by itself mean a direct write.
 
         can_record is the tier-aware sibling that still honors recording_access;
         use that one for anything that writes a result.

@@ -1001,13 +1001,20 @@ _THREAD_CHANNEL_TYPES = {10, 11, 12}
 SCHEDULE_NO_MATCH = "0"
 
 # Which command a schedule prompt belongs to. A DIFFERENT axis from whether a Match
-# resolved: /schedule set in a plain channel has no match but may still poll, while
+# resolved: /schedule poll in a plain channel has no match but still polls, while
 # /timestamp never writes anything no matter where it runs.
 #
 # Short strings because they ride in the timezone picker's custom_ids, which are
 # capped at 100 chars -- see _tz_region_data.
-SCHEDULE_MODE = "s"
-TIMESTAMP_MODE = "t"
+SCHEDULE_MODE = "s"   # /schedule set  -- writes a time, or asks a moderator to
+POLL_MODE = "p"       # /schedule poll -- puts a time to the roster, never writes
+TIMESTAMP_MODE = "t"  # /timestamp     -- formats a time and nothing else
+
+# Every mode a timezone-picker custom_id may legitimately carry. _tz_mode validates
+# against this rather than testing one value at a time, so a mode added here can
+# never be silently read back as SCHEDULE_MODE -- which, for POLL_MODE, would hand
+# the user a Set Time button on a prompt that must not have one.
+_SCHEDULE_MODES = (SCHEDULE_MODE, POLL_MODE, TIMESTAMP_MODE)
 
 
 def _is_no_match(match_id):
@@ -1369,26 +1376,36 @@ def _tz_zone_data(match_id, region_key, time_text, owner, current_tz=None,
 
 def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=None,
                            pending_confirmers=0, already_proposed=False,
+                           needs_mod_approval=False,
                            unlinked_kind="bare", mode=SCHEDULE_MODE):
     """The ephemeral confirm prompt: the time as Discord renders it in the clicker's
-    own timezone, plus the actions / Change timezone / Cancel. The owner snowflake
+    own timezone, plus the action / Change timezone / Cancel. The owner snowflake
     rides LAST in each custom_id so the dispatcher's owner-lock applies without extra
     checks — correct in every mode, since only the invoker may act on their own
     prompt.
 
-    `mode` is the COMMAND this prompt belongs to, and it is a different axis from
-    whether a Match resolved:
+    `mode` is the COMMAND this prompt belongs to, and EACH MODE OFFERS EXACTLY ONE
+    primary action. It is a different axis from whether a Match resolved:
 
-      SCHEDULE_MODE  (/schedule set)  — may write a time, so it offers Suggest (poll)
-                                        and, when no confirmation is required and a
-                                        match resolved, Set Time.
-      TIMESTAMP_MODE (/timestamp)     — formats a time and nothing else, so its only
-                                        action is Display. Never offers Set Time.
+      SCHEDULE_MODE  (/schedule set)  — Set Time: writes the time, or (when
+                                        `needs_mod_approval`) asks a moderator to
+                                        confirm it first. Never polls the roster.
+      POLL_MODE      (/schedule poll) — Suggest: puts the time to the roster and
+                                        writes nothing itself. Never offers Set Time.
+      TIMESTAMP_MODE (/timestamp)     — Display: formats a time and nothing else.
 
-    `pending_confirmers` (>0) switches the copy to the consensus flow: the prompt
-    says who still has to agree and Set Time is withheld, because only a confirmed
-    poll may schedule there. `already_proposed` adds the warning that another
-    proposal is open.
+    The two used to share one prompt that offered Suggest AND, conditionally, Set
+    Time, with `require_participant_schedule_confirmation` silently deciding which.
+    Splitting the commands is what makes the user's intent explicit, so do not
+    re-add a second action here: the mode IS the choice.
+
+    `needs_mod_approval` (SCHEDULE_MODE only) says this invoker may not write the
+    time themselves — the tournament requires confirmation and they are not a
+    moderator — so the copy warns them and the button reads Request Time. The real
+    check is server-side in _handle_schedule_confirm; this only sets expectations.
+
+    `pending_confirmers` (>0) and `already_proposed` are POLL_MODE copy: how many
+    players still have to agree, and whether another proposal is already open.
 
     `tz_name` is falsy for an epoch/`<t:…>` input, which is absolute: there's no
     timezone to show and re-interpreting it in another one would be a no-op, so the
@@ -1397,12 +1414,14 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
     re-shown prompt can look unchanged even though it now means a different
     instant.
 
-    `match` is None for a time that isn't linked to any Match. In SCHEDULE_MODE that
-    still offers the poll (a rosterless one in a plain channel), just never a write;
-    the copy says so plainly so it can't be mistaken for a real schedule.
-    `unlinked_kind` is "lfg" (the thread's players get asked to confirm) or "bare"."""
+    `match` is None for a time that isn't linked to any Match — only reachable in
+    POLL_MODE and TIMESTAMP_MODE now, since /schedule set refuses outright when no
+    match resolves. The copy says so plainly so it can't be mistaken for a real
+    schedule. `unlinked_kind` is "lfg" (the thread's players get asked to confirm)
+    or "bare"."""
     unlinked = match is None
     timestamp_mode = mode == TIMESTAMP_MODE
+    poll_mode = mode == POLL_MODE
     match_id = SCHEDULE_NO_MATCH if unlinked else match.id
     ts = int(when.timestamp())
     lines = []
@@ -1418,9 +1437,15 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
         lines.append("Suggest this time for the game in this thread:" if unlinked_kind == "lfg"
                      else "Suggest this time:")
     else:
-        lines.append(
-            f"{'Propose' if pending_confirmers else 'Schedule'} "
-            f"**{_match_label(match)}** for:")
+        # Name the game, and in a multi-game series say WHICH game -- both commands
+        # target the first still-unscheduled one, which the invoker can't otherwise
+        # tell from a best-of-N thread. series_position is None for a single-game
+        # series, so the suffix simply disappears there.
+        label = _match_label(match)
+        position = match.series_position
+        if position:
+            label = f"{label} (game {position})"
+        lines.append(f"{'Propose' if poll_mode else 'Schedule'} **{label}** for:")
     lines.append(format_discord_timestamp(when))
     # The raw markup, so the time can be copied out and pasted elsewhere. AFTER the
     # rendered line, never before: _poll_embed_meta and friends read the FIRST
@@ -1429,8 +1454,14 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
     if tz_name:
         lines.append(f"Interpreted in **{describe_timezone(tz_name, at=when)}**.")
     if not unlinked and match.scheduled_time:
+        # Stated as an OVERWRITE, not a replacement: this game already has a time
+        # that players may have planned around, and the old wording ("This replaces
+        # the current time of ...") read like a neutral detail rather than the
+        # destructive part of the action.
         lines.append(
-            f"\nThis replaces the current time of {format_discord_timestamp(match.scheduled_time)}."
+            f"\n⚠️ Already scheduled for "
+            f"{format_discord_timestamp(match.scheduled_time)} — "
+            f"{'proposing' if poll_mode else 'setting'} this will overwrite it."
         )
     if unlinked and not timestamp_mode:
         lines.append(f"\n{SCHEDULE_UNLINKED_NOTE}")
@@ -1442,19 +1473,27 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
     if already_proposed:
         lines.append("\n⚠️ A time has already been proposed for this match. Proposing "
                      "another is fine — the first one everyone confirms wins.")
+    if needs_mod_approval:
+        # Said BEFORE they click, so the public "awaiting a moderator" message isn't
+        # a surprise. _handle_schedule_confirm re-derives this at click time; the
+        # copy here is only an expectation.
+        lines.append("\nYou can suggest this time, but a moderator has to confirm it "
+                     "before it's set.")
     lines.append("\nDoes that look right?")
     if time_text:
         # MUST stay last: this is the carrier the timezone picker reads the typed
         # text back out of, and its regex is line-anchored.
         lines.append(_schedule_input_line(time_text))
 
+    # ONE primary action per mode -- see the docstring. Each branch assigns
+    # `buttons`; Change timezone and Cancel are appended to all three below.
     if timestamp_mode:
-        # One action only. `sched_free` posts the time publicly and writes nothing,
-        # which is the whole of what /timestamp does.
+        # `sched_free` posts the time publicly and writes nothing, which is the
+        # whole of what /timestamp does.
         buttons = [button(
             "Display", encode_custom_id("sched_free", unlinked_kind, ts, owner),
             style=STYLE_SUCCESS)]
-    else:
+    elif poll_mode:
         # Poll carries the match id in match mode so the open handler can re-resolve
         # the match at click time; the sentinel keeps the arg count identical
         # elsewhere, so one decode shape reads both.
@@ -1465,12 +1504,17 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
         # Suggest = put the time to the group. In a plain channel that is a poll
         # with no roster, which closes only when the host does.
         buttons = [button("Suggest", poll_id, style=STYLE_SUCCESS)]
-        if not unlinked and not pending_confirmers:
-            # The only direct write on offer anywhere, and only here: a match
-            # resolved AND the tournament doesn't require participant confirmation.
-            buttons.append(button(
-                "Set Time", encode_custom_id("schedule_confirm", match_id, ts, owner),
-                style=STYLE_SECONDARY))
+    else:
+        # SCHEDULE_MODE. The only direct write on offer anywhere. `match` is never
+        # None here -- /schedule set refuses when no match resolves -- so the
+        # custom_id always carries a real id.
+        #
+        # The label follows what pressing it actually does: a moderator writes the
+        # time, anyone else opens a request for one to confirm.
+        buttons = [button(
+            "Request Time" if needs_mod_approval else "Set Time",
+            encode_custom_id("schedule_confirm", match_id, ts, owner),
+            style=STYLE_SUCCESS)]
     if tz_name:
         # Carries the mode so the picker can hand it back on the way out -- this
         # button is the entry point to the whole tz round-trip.
@@ -1578,12 +1622,56 @@ def _consensus_required(match):
         ask; consensus would be vacuous at best and a deadlock at worst.
 
     A match with no tournament falls back to the old behavior — there's no setting
-    to opt in with."""
+    to opt in with.
+
+    Only /schedule poll consults this now. /schedule set asks _direct_set_allowed
+    instead: the same flag, but the confirmation it requires there is ONE
+    MODERATOR's, not the whole roster's -- polling the players is what the poll
+    command is for."""
     tournament = match.round.get_tournament() if match.round_id else None
     if not tournament or not tournament.requires_schedule_confirmation():
         return False, []
     roster = _match_roster(match)
     return bool(roster), roster
+
+
+# Which can_schedule tiers may write a time with /schedule set outright. An
+# ALLOW-LIST, deliberately not `reason != 'participant'`: EditPermission carries
+# other reasons too (see its reason_label map, which includes 'recorder'), and any
+# tier added to can_schedule later must default to needing approval rather than
+# silently gaining the power to bypass it.
+MOD_SCHEDULE_REASONS = frozenset({"group_moderator", "organizer", "admin"})
+
+
+def _direct_set_allowed(match, profile):
+    """(allowed, needs_approval) — may `profile` write this match's time with
+    /schedule set, or must a moderator confirm it first?
+
+    Three outcomes, and the caller must distinguish all three:
+      (False, False) — not permitted to schedule this match at all; refuse.
+      (True, False)  — write it.
+      (False, True)  — open a moderator-approval request instead.
+
+    The gate is the tournament's require_participant_schedule_confirmation, read
+    through requires_schedule_confirmation(). It keeps its original meaning ("a time
+    must be confirmed before it is written"); what changed is WHO confirms on this
+    command. With the flag OFF, anyone who passes can_schedule -- a seated player
+    included -- sets the time directly. With it ON, only a moderator does, and
+    everyone else's set becomes a request.
+
+    Reuses the reason string can_schedule already returns rather than re-deriving
+    the tiers, so the two can't disagree about who counts as a moderator.
+
+    A match with no tournament falls through to "set freely", matching
+    _consensus_required: there is no setting to opt in with."""
+    permission = match.can_schedule(profile)
+    if not permission:
+        return False, False
+    tournament = match.round.get_tournament() if match.round_id else None
+    if not tournament or not tournament.requires_schedule_confirmation():
+        return True, False
+    is_mod = permission.reason in MOD_SCHEDULE_REASONS
+    return is_mod, not is_mod
 
 
 # These live in services.lfg_game so the Celery strip task can render the same
@@ -1748,7 +1836,7 @@ def _schedule_rejected_data(proposal, match=None, author=None):
         proposal, "🗓 Time not scheduled", "rejected",
         label=_match_label(match) if match else None,
         author=author)
-    embed["description"] += "\n-# Run `/schedule set` to propose another time."
+    embed["description"] += "\n-# Run `/schedule poll` to propose another time."
     return {
         "embeds": [embed],
         "components": [],
@@ -2153,6 +2241,48 @@ def _schedule_context(data):
     return profile, None
 
 
+def _schedule_when(data, profile, time_text, match_id, mode):
+    """(when, tz_name, response) — parse the typed time for any schedule command.
+
+    Exactly one of `when` / `response` is set. `response` is either an error or the
+    timezone picker, which is not a failure: it's the flow continuing in another
+    interaction, so callers return it unchanged.
+
+    One copy for all four commands (/schedule set, poll, the unlinked fallback and
+    /timestamp), which previously each carried an identical block -- four chances to
+    fix a parser bug in three places. `match_id` and `mode` only steer the picker's
+    custom_id; pass SCHEDULE_NO_MATCH when nothing resolved.
+
+    The timezone is persisted ONLY on success, so a good zone paired with an
+    unreadable time isn't saved on the way out."""
+    tz_option = (_get_option(data, "timezone") or "").strip()
+    if tz_option and not valid_timezone(tz_option):
+        return None, None, _ephemeral(
+            f'"{tz_option}" isn\'t a timezone I recognize. Pick one from the '
+            "suggestions, e.g. `America/New_York` — or leave it blank and I'll ask."
+        )
+    tz_name = tz_option or profile.timezone or None
+
+    when, error = parse_user_datetime(time_text, tz_name)
+    if error == NEED_TIMEZONE:
+        # Ask rather than erroring out and making them re-type the command. An
+        # epoch/`<t:…>` paste never lands here -- it parses with no zone at all. The
+        # picker carries the mode so it can hand the right prompt back on the way
+        # out; that cannot be re-derived from the channel.
+        return None, tz_name, JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": _tz_region_data(match_id, time_text, data.get("_author_id"),
+                                    current_tz=tz_name, mode=mode),
+        })
+    if error:
+        return None, tz_name, _ephemeral(error)
+
+    if tz_option and profile.timezone != tz_option:
+        profile.timezone = tz_option
+        profile.save(update_fields=["timezone"])
+    return when, tz_name, None
+
+
 def _handle_schedule_clear_command(data):
     """/schedule clear: remove the scheduled time of this thread's match.
 
@@ -2238,14 +2368,28 @@ def _handle_schedule_set_command(data, explicit=False):
         prefer="scheduled" if clearing else "unscheduled",
     )
     if error:
-        # No match: instead of the old dead end, suggest a time that is explicitly
-        # NOT linked to anything on the site.
-        return _handle_schedule_unlinked(data, profile, time_text, clearing)
+        if clearing:
+            # Only reachable from a stale client sending no subcommand (see the
+            # docstring). No stored time to remove, and the unlinked handler says so
+            # in its own words.
+            return _handle_schedule_unlinked(data, profile, time_text, clearing)
+        # `set` WRITES a time, so with no match there is nothing to write to.
+        # Suggesting one anyway is what /schedule poll is for -- say which command
+        # to use rather than silently doing the other thing. The lookup error itself
+        # is kept for the cases where the real problem is the thread link (several
+        # groups share this name, or no thread saved), which naming another command
+        # would not help with.
+        if _lfg_thread_for_channel(channel_id) is None:
+            return _ephemeral(error)
+        return _ephemeral(
+            "This thread isn't linked to a tournament match, so there's no time to "
+            "set. Use `/schedule poll` to suggest one to the other players."
+        )
 
     # Checked before the clear branch so an unauthorized user gets the permission
-    # error rather than a prompt they can't act on.
-    permission = match.can_schedule(profile)
-    if not permission:
+    # error rather than a prompt they can't act on. The finer question -- write
+    # directly, or ask a moderator -- is _direct_set_allowed's, below.
+    if not match.can_schedule(profile):
         return _ephemeral(
             "You're not able to schedule this game. If you think you should be, "
             "contact the series admin."
@@ -2264,59 +2408,97 @@ def _handle_schedule_set_command(data, explicit=False):
             "data": _schedule_clear_data(match, author_id),
         })
 
-    # Timezone: an explicit option (remembered for next time) beats the stored one.
-    # It's rarely needed now that we ask, but it's the only route to a zone the
-    # region/city picker doesn't curate.
-    tz_option = (_get_option(data, "timezone") or "").strip()
-    if tz_option and not valid_timezone(tz_option):
-        return _ephemeral(
-            f'"{tz_option}" isn\'t a timezone I recognize. Pick one from the '
-            "suggestions, e.g. `America/New_York` — or leave it blank and I'll ask."
-        )
-    tz_name = tz_option or profile.timezone or None
+    when, tz_name, response = _schedule_when(
+        data, profile, time_text, match.id, SCHEDULE_MODE)
+    if response:
+        return response
 
-    when, error = parse_user_datetime(time_text, tz_name)
-    if error == NEED_TIMEZONE:
-        # Ask, rather than erroring out and making them re-type the command. An
-        # epoch/`<t:…>` paste never lands here — it parses with no zone at all.
-        return JsonResponse({
-            "type": RESPONSE_CHANNEL_MESSAGE,
-            "data": _tz_region_data(match.id, time_text, author_id, current_tz=tz_name),
-        })
+    # Whether this invoker may write the time themselves, or needs a moderator to
+    # confirm it. Re-derived at click time in _handle_schedule_confirm, which is the
+    # check that actually gates the write; this only shapes the prompt.
+    _allowed, needs_approval = _direct_set_allowed(match, profile)
+
+    # The preview is ephemeral -- it's what catches a misparse, and it's where the
+    # Change-timezone flow lands. Nothing is written until the button is pressed.
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": _schedule_confirm_data(match, when, author_id, tz_name, time_text,
+                                       needs_mod_approval=needs_approval),
+    })
+
+
+def _handle_schedule_poll_command(data):
+    """/schedule poll: ask this match's players to agree on a time.
+
+    The roster-consensus half of what /schedule set used to do. Writes nothing and
+    never offers Set Time: pressing Suggest opens a ScheduleProposal (or, with no
+    match, a stateless embed poll) that the players answer.
+
+    Deliberately NOT gated on require_participant_schedule_confirmation. Putting a
+    time to the group is always reasonable -- the flag decides whether /schedule set
+    may bypass it, not whether asking is allowed."""
+    guild_id = data.get("_guild_id")
+    channel_id = data.get("_channel_id")
+    author_id = data.get("_author_id")
+
+    profile, error = _schedule_context(data)
     if error:
-        return _ephemeral(error)
+        return error
 
-    # Persisted only once the whole command has succeeded, so a good timezone
-    # paired with an unreadable time doesn't get saved on the way out.
-    if tz_option and profile.timezone != tz_option:
-        profile.timezone = tz_option
-        profile.save(update_fields=["timezone"])
+    # No "blank means clear" shim here: that legacy form belongs to `set`, which a
+    # stale no-subcommand interaction falls through to. `poll` is new, so no client
+    # ever knew it without a `time`, and a poll with no time is meaningless anyway.
+    time_text = (_get_option(data, "time") or "").strip()
+    if not time_text:
+        return _ephemeral("Give me a `time` to suggest to the other players.")
 
-    # The preview is ephemeral in BOTH modes — it's what catches a misparse, and
-    # it's where the Change-timezone flow lands. Only the copy and what Confirm
-    # does differ.
-    consensus, roster = _consensus_required(match)
-    pending = 0
-    already_proposed = False
-    if consensus:
-        # The proposer doesn't confirm their own time, so they don't count toward
-        # the "others must agree" tally.
-        pending = sum(1 for p in roster if str(p.discord_id or "") != str(author_id))
-        already_proposed = ScheduleProposal.objects.filter(
-            match=match,
-            status__in=ScheduleProposal.LIVE_STATUSES).exists()
+    match, lookup_error = _match_for_thread(
+        channel_id, guild_id, data.get("_channel_name"), prefer="unscheduled")
+    if lookup_error:
+        # Unlike `set`, a poll still works with nothing linked: it becomes a
+        # suggestion in the thread that writes nowhere, which the prompt says
+        # plainly. That handler already renders Suggest-only.
+        return _handle_schedule_unlinked(data, profile, time_text, False)
+
+    if not match.can_schedule(profile):
+        return _ephemeral(
+            "You're not able to schedule this game. If you think you should be, "
+            "contact the series admin."
+        )
+
+    when, tz_name, response = _schedule_when(
+        data, profile, time_text, match.id, POLL_MODE)
+    if response:
+        return response
+
+    # Who still has to agree, and whether someone already proposed a time. Read off
+    # the roster rather than _consensus_required: this command polls regardless of
+    # the tournament flag, so the flag must not decide whether the copy appears.
+    roster = _match_roster(match)
+    # The proposer doesn't confirm their own time, so they don't count toward the
+    # "others must agree" tally.
+    pending = sum(1 for p in roster if str(p.discord_id or "") != str(author_id))
+    already_proposed = ScheduleProposal.objects.filter(
+        match=match, status__in=ScheduleProposal.LIVE_STATUSES).exists()
 
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": _schedule_confirm_data(match, when, author_id, tz_name, time_text,
                                        pending_confirmers=pending,
-                                       already_proposed=already_proposed),
+                                       already_proposed=already_proposed,
+                                       mode=POLL_MODE),
     })
 
 
 # `set` is not here: it stays the fallthrough in _handle_schedule_command so a
 # stale registration (bare /schedule, no subcommand) still reaches it.
-SCHEDULE_SUBCOMMAND_HANDLERS = {"clear": _handle_schedule_clear_command}
+#
+# Keyed by the subcommand NAME that _subcommand() returns -- never the whitelist
+# key, which is "schedule_poll" for this one.
+SCHEDULE_SUBCOMMAND_HANDLERS = {
+    "poll": _handle_schedule_poll_command,
+    "clear": _handle_schedule_clear_command,
+}
 
 
 def _handle_schedule_unlinked(data, profile, time_text, clearing):
@@ -2345,39 +2527,25 @@ def _handle_schedule_unlinked(data, profile, time_text, clearing):
             )
         return _ephemeral(
             "This thread isn't linked to a match, so there's no scheduled time to "
-            "clear. Use `/schedule set` to propose a time."
+            "clear. Use `/schedule poll` to propose a time."
         )
 
     kind = "lfg" if thread else "bare"
 
     tz_option = (_get_option(data, "timezone") or "").strip()
-    if tz_option and not valid_timezone(tz_option):
-        return _ephemeral(
-            f'"{tz_option}" isn\'t a timezone I recognize. Pick one from the '
-            "suggestions, e.g. `America/New_York` — or leave it blank and I'll ask."
-        )
-    tz_name = tz_option or profile.timezone or None
-
-    when, error = parse_user_datetime(time_text, tz_name)
-    if error == NEED_TIMEZONE:
-        # The picker carries the sentinel, so the whole region/city flow works here
-        # and the timezone it saves is reused everywhere afterwards.
-        return JsonResponse({
-            "type": RESPONSE_CHANNEL_MESSAGE,
-            "data": _tz_region_data(SCHEDULE_NO_MATCH, time_text, author_id,
-                                    current_tz=tz_name),
-        })
-    if error:
-        return _ephemeral(error)
-
-    if tz_option and profile.timezone != tz_option:
-        profile.timezone = tz_option
-        profile.save(update_fields=["timezone"])
+    # POLL_MODE, not the SCHEDULE_MODE default: with no Match there is nothing to
+    # write, so the only honest action is Suggest. The picker carries the sentinel
+    # for the match id, so the whole region/city flow works here and the timezone it
+    # saves is reused everywhere afterwards.
+    when, tz_name, response = _schedule_when(
+        data, profile, time_text, SCHEDULE_NO_MATCH, POLL_MODE)
+    if response:
+        return response
 
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": _schedule_confirm_data(None, when, author_id, tz_name, time_text,
-                                       unlinked_kind=kind),
+                                       unlinked_kind=kind, mode=POLL_MODE),
     })
 
 
@@ -2398,30 +2566,12 @@ def _handle_timestamp_command(data):
     if not time_text:
         return _ephemeral("Give me a `time` to turn into a timestamp.")
 
-    tz_option = (_get_option(data, "timezone") or "").strip()
-    if tz_option and not valid_timezone(tz_option):
-        return _ephemeral(
-            f'"{tz_option}" isn\'t a timezone I recognize. Pick one from the '
-            "suggestions, e.g. `America/New_York` — or leave it blank and I'll ask."
-        )
-    tz_name = tz_option or profile.timezone or None
-
-    when, error = parse_user_datetime(time_text, tz_name)
-    if error == NEED_TIMEZONE:
-        # The picker carries the mode so it can hand this prompt back on the way
-        # out -- it cannot be re-derived from the channel.
-        return JsonResponse({
-            "type": RESPONSE_CHANNEL_MESSAGE,
-            "data": _tz_region_data(SCHEDULE_NO_MATCH, time_text, author_id,
-                                    current_tz=tz_name, mode=TIMESTAMP_MODE),
-        })
-    if error:
-        return _ephemeral(error)
-
-    # Persisted only once the whole command has succeeded, matching /schedule set.
-    if tz_option and profile.timezone != tz_option:
-        profile.timezone = tz_option
-        profile.save(update_fields=["timezone"])
+    # The picker carries the mode so it can hand this prompt back on the way out --
+    # it cannot be re-derived from the channel.
+    when, tz_name, response = _schedule_when(
+        data, profile, time_text, SCHEDULE_NO_MATCH, TIMESTAMP_MODE)
+    if response:
+        return response
 
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
@@ -2431,10 +2581,13 @@ def _handle_timestamp_command(data):
 
 
 def _handle_schedule_confirm(payload):
-    """Confirm button. Either writes the scheduled time outright (the original
-    behavior, kept for tournaments that haven't opted in) or — when the tournament
-    requires player confirmation — opens a ScheduleProposal for the roster to
-    confirm, writing nothing yet."""
+    """Set Time / Request Time, the button on /schedule set's prompt.
+
+    Either writes the scheduled time outright, or -- when the tournament requires
+    confirmation and the clicker is not a moderator -- opens a public request for a
+    MODERATOR to confirm, writing nothing yet. It never opens a roster poll: that is
+    /schedule poll's job, and routing a `set` into one was the implicit behaviour
+    this split exists to remove."""
     _action, args = decode_custom_id(payload["data"]["custom_id"])  # [match_id, ts, owner]
     if len(args) < 3:
         return _ephemeral("That button is out of date — run /schedule again.")
@@ -2449,7 +2602,7 @@ def _handle_schedule_confirm(payload):
     # The button is a second request, so re-check permission rather than trusting
     # the check made when the prompt was built.
     profile = Profile.objects.filter(discord_id=str(owner)).first()
-    if not profile or not match.can_schedule(profile):
+    if not profile:
         return _ephemeral("You can't set the time for this match.")
 
     try:
@@ -2458,11 +2611,14 @@ def _handle_schedule_confirm(payload):
         return _ephemeral("That time is no longer valid: run /schedule again.")
 
     # Re-read the gate rather than trusting a value baked into the custom_id, the
-    # same way the match and permission are re-checked above: a moderator may have
-    # flipped the tournament setting since the prompt was built.
-    consensus, roster = _consensus_required(match)
-    if consensus:
-        return _open_schedule_proposal(payload, match, when, profile, roster)
+    # same way the match is re-fetched above: a moderator may have flipped the
+    # tournament setting, or the clicker's role may have changed, since the prompt
+    # was built.
+    allowed, needs_approval = _direct_set_allowed(match, profile)
+    if needs_approval:
+        return _open_mod_schedule_request(payload, match, when, profile)
+    if not allowed:
+        return _ephemeral("You can't set the time for this match.")
 
     # Read before the write, for the announcement's scheduled/rescheduled verb.
     previous_time = match.scheduled_time
@@ -2530,7 +2686,185 @@ def _open_schedule_proposal(payload, match, when, profile, roster, author=None):
     })
 
 
-def _proposal_for_click(payload, allow_agreed=False, allow_passed=False):
+def _mod_request_content(proposal, match, actor=None, rejected=False):
+    """The public moderator-request message's text.
+
+    Mentions render but never NOTIFY: every caller pairs this with
+    allowed_mentions={"parse": []}. The requester is tagged so the thread can see
+    whose time this is at a glance, not to ping them -- they are the one who asked.
+
+    `rejected` renders the closed form naming the moderator who turned it down, so
+    the thread keeps a record of what happened rather than a message that merely
+    stops having buttons."""
+    who = (f"<@{proposal.proposed_by.discord_id}>"
+           if proposal.proposed_by and proposal.proposed_by.discord_id
+           else _roster_name(proposal.proposed_by, nudge=False)
+           if proposal.proposed_by else "Someone")
+    when = format_discord_timestamp(proposal.proposed_time)
+    label = _match_label(match)
+    if rejected:
+        by = (f"<@{actor.discord_id}>" if actor and actor.discord_id
+              else _roster_name(actor, nudge=False) if actor else "a moderator")
+        return f"{who} suggested {when} for **{label}** but {by} rejected it."
+    return (f"{who} would like to schedule **{label}** for {when}.\n"
+            "A moderator must confirm this time first.")
+
+
+def _schedule_mod_request_data(proposal, match):
+    """The public "awaiting a moderator" message: Confirm / Cancel.
+
+    Both custom_ids end in the non-snowflake "g" marker so the dispatcher's
+    owner-lock does NOT fire -- the moderator who answers this is by definition not
+    the person who asked, and the lock admits exactly one snowflake. Each handler
+    authorizes for itself."""
+    return {
+        "content": _mod_request_content(proposal, match),
+        # Renders the tags without notifying anyone.
+        "allowed_mentions": {"parse": []},
+        "components": [action_row(
+            button("Confirm", encode_custom_id("sched_mod_ok", proposal.pk, "g"),
+                   style=STYLE_SUCCESS),
+            button("Cancel", encode_custom_id("sched_mod_no", proposal.pk, "g"),
+                   style=STYLE_DANGER),
+        )],
+    }
+
+
+def _open_mod_schedule_request(payload, match, when, profile):
+    """Create a MODERATOR-approval ScheduleProposal and post it publicly.
+
+    The requester is NOT seeded into confirmed_by: that field means "a roster player
+    agreed", and this flow doesn't poll the roster at all. Nor is `roster` set --
+    `approval` is what marks the kind, precisely so an empty roster keeps its
+    existing meaning everywhere else."""
+    proposal = ScheduleProposal.objects.create(
+        match=match,
+        proposed_time=when,
+        proposed_by=profile,
+        approval=ScheduleProposal.Approval.MODERATOR,
+        channel_id=str(payload.get("channel_id") or ""),
+        guild_id=str(payload.get("guild_id") or ""),
+    )
+
+    # The same task as the roster flow, so message_id is recorded and the buttons can
+    # be stripped later from outside this interaction. countdown=2 sequences the post
+    # after this response's ACK.
+    post_schedule_proposal_task.apply_async(
+        (proposal.pk, _schedule_mod_request_data(proposal, match)),
+        countdown=2,
+    )
+
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {
+            "content": (f"✔ Asked for {format_discord_timestamp(when)}.\n"
+                        "A moderator needs to confirm it before it's set."),
+            "components": [],
+        },
+    })
+
+
+def _mod_request_clicker(payload, match):
+    """(profile, error) for someone pressing Confirm/Cancel on a moderator request.
+
+    Narrower than can_schedule on purpose: that admits a seated participant, who is
+    typically the very person who asked, so sharing it would let a request approve
+    itself. Same tier test _direct_set_allowed uses to decide a direct write."""
+    clicker = Profile.objects.filter(
+        discord_id=str(_interaction_user_id(payload) or "")).first()
+    if not clicker:
+        return None, _ephemeral(
+            "I don't know who you are yet — log in"
+            f"{_login_hint()} with Discord once, then try again.")
+    permission = match.can_schedule(clicker)
+    if not permission or permission.reason not in MOD_SCHEDULE_REASONS:
+        return None, _ephemeral(
+            "Only a moderator or organizer can confirm this time.")
+    return clicker, None
+
+
+def _handle_mod_schedule_confirm(payload):
+    """Confirm on a moderator request: write the time the requester asked for.
+
+    _finalize_proposal does the real work -- the authority check, the live->CONFIRMED
+    compare-and-swap, the write, the channel announcement and the supersede sweep.
+
+    `actor=clicker` is REQUIRED, not cosmetic: the default authorizes against
+    proposed_by, who is by definition someone that could not set the time, so the
+    proposal would cancel itself with "whoever proposed it no longer has permission".
+    The legacy sched_prop_set path passes the clicker for exactly this reason."""
+    proposal, match, error = _proposal_for_click(payload, expect_mod_request=True)
+    if error:
+        return error
+
+    clicker, error = _mod_request_clicker(payload, match)
+    if error:
+        return error
+
+    ok, failure = _finalize_proposal(proposal, actor=clicker)
+    if not ok:
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": _schedule_closed_data(
+                "Request closed",
+                f"The time can no longer be set for this match — {failure}."),
+        })
+
+    match.refresh_from_db()
+    # _finalize_proposal tells the tournament's schedule channel; the match's own
+    # thread is told here rather than inside it, because the roster-poll flow
+    # announces there through its own closing message and must not get two.
+    _announce_schedule_to_thread(match, None, proposal.proposed_time)
+    when = format_discord_timestamp(proposal.proposed_time)
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {
+            "content": (f"✅ **{_match_label(match)}** is scheduled for {when}, "
+                        f"confirmed by {_roster_name(clicker, nudge=False)}."),
+            "allowed_mentions": {"parse": []},
+            "components": [],
+        },
+    })
+
+
+def _handle_mod_schedule_reject(payload):
+    """Cancel on a moderator request: retire it and say who turned it down.
+
+    allow_passed=True, mirroring the roster flow's Reject: rejecting writes no time,
+    so the guard that keeps a past instant out of Match.scheduled_time has nothing to
+    protect here -- and without it a request whose time had gone by could not be
+    dismissed by anyone at all."""
+    proposal, match, error = _proposal_for_click(
+        payload, allow_passed=True, expect_mod_request=True)
+    if error:
+        return error
+
+    clicker, error = _mod_request_clicker(payload, match)
+    if error:
+        return error
+
+    # Guarded on LIVE_STATUSES so a request confirmed a moment ago isn't overwritten
+    # as rejected by a slower second click.
+    claimed = ScheduleProposal.objects.filter(
+        pk=proposal.pk, status__in=ScheduleProposal.LIVE_STATUSES,
+    ).update(status=ScheduleProposal.Status.REJECTED, resolved_at=timezone.now())
+    if not claimed:
+        proposal.refresh_from_db()
+        return _ephemeral("That request has already been answered.")
+
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {
+            "content": _mod_request_content(proposal, match, actor=clicker,
+                                            rejected=True),
+            "allowed_mentions": {"parse": []},
+            "components": [],
+        },
+    })
+
+
+def _proposal_for_click(payload, allow_agreed=False, allow_passed=False,
+                        expect_mod_request=False):
     """Shared guards for the proposal buttons: (proposal, match, error).
 
     These custom_ids end in the non-snowflake "g" marker precisely so the
@@ -2548,6 +2882,13 @@ def _proposal_for_click(payload, allow_agreed=False, allow_passed=False):
     check was not merely unnecessary, it was the thing stopping the one button
     whose job is clearing the message.
 
+    `expect_mod_request` says which KIND of proposal the calling button belongs to,
+    and both directions are refused: a roster poll's buttons must not act on a
+    moderator request, nor the reverse. The two kinds share this table and its pk
+    space, and with the owner-lock off a pk is effectively user-supplied -- so
+    without this, a roster pk in a sched_mod_ok custom_id would let one moderator
+    finalize a time the players were still voting on.
+
     The two branches that refuse a LIVE proposal below RETIRE it rather than only
     saying no. A bare refusal left the row live and the message fully buttoned,
     with nothing able to dismiss it until the cleanup sweep happened to run."""
@@ -2559,6 +2900,12 @@ def _proposal_for_click(payload, allow_agreed=False, allow_passed=False):
     if not proposal:
         return None, None, _ephemeral(
             "That proposal is no longer available — run /schedule again.")
+    if proposal.is_mod_request != bool(expect_mod_request):
+        # Not a user-facing situation: either a stale message from before the two
+        # flows diverged, or a hand-built custom_id. Say so plainly rather than
+        # acting on the wrong kind.
+        return None, None, _ephemeral(
+            "That button doesn't match this request — run /schedule again.")
     acceptable = proposal.is_live if allow_agreed else proposal.is_open
     if not acceptable:
         return None, None, _ephemeral({
@@ -3143,7 +3490,7 @@ def _poll_closed_note(reason, closed_by, no_entries, scheduled, kind,
         if kind == "match":
             names = name_join([f"<@{e['id']}>" for e in no_entries])
             return (f"-# Not scheduled — {names} couldn't make it."
-                    "\n-# Run `/schedule set` to propose another time.")
+                    "\n-# Run `/schedule poll` to propose another time.")
         # Nothing was being booked here, so "Not scheduled" would describe a
         # failure that never applied. Report who is in instead.
         if yes_entries:
@@ -3815,9 +4162,24 @@ def _tz_mode(args):
 
     The mode rides second-to-last, just before the owner snowflake. A custom_id
     posted BEFORE the mode was added has no such arg, so anything unrecognized
-    falls back to SCHEDULE_MODE -- the behavior those older prompts already had."""
+    falls back to SCHEDULE_MODE -- the behavior those older prompts already had.
+
+    Validated against _SCHEDULE_MODES rather than compared to one mode at a time.
+    This was a two-way ternary (TIMESTAMP_MODE or else SCHEDULE_MODE), which FAILED
+    OPEN for any new mode: POLL_MODE went in and SCHEDULE_MODE came back, so a
+    /schedule poll prompt that detoured through the timezone picker returned as a
+    /schedule set prompt -- offering Set Time on the one flow whose whole purpose is
+    not to write a time. Keep the membership test when adding a mode.
+
+    The fallback depends on the MATCH ID, which rides first: SCHEDULE_MODE is
+    impossible without a match (its one button writes a time, so it needs something
+    to write to), and a legacy custom_id carrying the sentinel would otherwise come
+    back as a Set Time button with nothing behind it. Those fall back to POLL_MODE,
+    which is what an unlinked prompt has always offered."""
     candidate = args[-2] if len(args) >= 2 else None
-    return TIMESTAMP_MODE if candidate == TIMESTAMP_MODE else SCHEDULE_MODE
+    if candidate in _SCHEDULE_MODES:
+        return candidate
+    return POLL_MODE if args and _is_no_match(args[0]) else SCHEDULE_MODE
 
 
 def _handle_schedule_tz_region(payload):
@@ -12051,6 +12413,12 @@ COMPONENT_HANDLERS = {
     "sched_poll_no": _handle_schedule_poll_dispatch,
     "sched_poll_notify": _handle_schedule_poll_dispatch,
     "sched_poll_close": _handle_schedule_poll_dispatch,
+    # /schedule set by someone who may not write the time themselves: one moderator
+    # confirms or rejects. Also "g"-tailed -- the moderator answering is by
+    # definition not the person who asked -- and gated so these can only ever act on
+    # a MODERATOR-approval row, never a roster poll's.
+    "sched_mod_ok": _handle_mod_schedule_confirm,
+    "sched_mod_no": _handle_mod_schedule_reject,
     "schedule_tz_region": _handle_schedule_tz_region,
     "schedule_tz_zone": _handle_schedule_tz_zone,
     "schedule_tz_back": _handle_schedule_tz_back,
@@ -12280,7 +12648,13 @@ AUTOCOMPLETE_HANDLERS = {
     ("upcoming", "player"): _ac_upcoming_player,
     # "schedule set", not "schedule": the dispatcher keys autocomplete by the
     # composite "<parent> <sub>", so a bare key silently returns no choices.
+    #
+    # This key is the path the user TYPES, which is a THIRD namespace alongside the
+    # subcommand name ("set"/"poll") and the whitelist key ("schedule_set"/
+    # "schedule_poll"). They deliberately disagree -- registering "schedule_poll"
+    # here would return no choices, just as silently.
     ("schedule set", "timezone"): _ac_schedule_timezone,
+    ("schedule poll", "timezone"): _ac_schedule_timezone,
     # A TOP-LEVEL command, so the key is the bare name -- no composite here.
     ("timestamp", "timezone"): _ac_schedule_timezone,
     ("lookup law", "law"): _ac_law,

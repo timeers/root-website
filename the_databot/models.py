@@ -610,12 +610,19 @@ class BoxScoreUploadToken(models.Model):
 
 
 class ScheduleProposal(models.Model):
-    """A proposed time for a Match, pending confirmation from every roster player.
+    """A proposed time for a Match, pending confirmation before it is written.
 
-    /schedule no longer writes Match.scheduled_time directly (when the tournament
-    opts in via require_participant_schedule_confirmation): it creates one of these
-    and posts a public message with Confirm/Reject. The time is written only once
-    every roster player has confirmed.
+    TWO KINDS, distinguished by `approval`:
+
+      ROSTER (/schedule poll) — every player on the roster must confirm. The time is
+        written when the last one does; a "no" is a vote, and the poll closes once
+        everyone has answered.
+      MODERATOR (/schedule set, by someone who may not write the time themselves) —
+        one moderator confirms or rejects. The roster is not consulted and `roster`
+        is empty, which is why this is a FIELD rather than inferred from that: an
+        empty roster already means "a poll that can never complete" to
+        all_confirmed(), all_responded() and _consensus_required, so overloading it
+        would make a moderator request indistinguishable from a broken poll.
 
     Several proposals may be OPEN for one match at once — two players may each
     suggest a time. The first to reach full confirmation wins and supersedes the
@@ -623,6 +630,11 @@ class ScheduleProposal(models.Model):
 
     channel_id/message_id record the public message so a superseded or cancelled
     proposal can have its buttons stripped from OUTSIDE its own interaction."""
+
+    class Approval(models.TextChoices):
+        """Who has to agree before the time is written."""
+        ROSTER = "roster", "Every player"
+        MODERATOR = "moderator", "A moderator"
 
     class Status(models.TextChoices):
         OPEN = "open", "Open"
@@ -678,6 +690,13 @@ class ScheduleProposal(models.Model):
     status = models.CharField(
         max_length=16, choices=Status.choices, default=Status.OPEN, db_index=True)
 
+    # ROSTER is the default so every row predating /schedule poll -- all of which
+    # were roster polls -- backfills correctly, and so a caller that forgets to set
+    # it gets the stricter flow rather than one a single click can finalize.
+    approval = models.CharField(
+        max_length=16, choices=Approval.choices, default=Approval.ROSTER,
+        help_text="Whether every player must confirm this time, or one moderator.")
+
     # Where the public message lives, so it can be edited later from a task or from
     # a DIFFERENT proposal's interaction (superseding).
     channel_id = models.CharField(max_length=32, blank=True, default="")
@@ -705,6 +724,16 @@ class ScheduleProposal(models.Model):
     def is_live(self):
         """Still in play: open, or agreed and waiting on a moderator."""
         return self.status in self.LIVE_STATUSES
+
+    @property
+    def is_mod_request(self):
+        """One moderator confirms this, not the roster.
+
+        Read this rather than testing `roster` for emptiness: the two kinds share a
+        table and a pk space, and every public button's custom_id is effectively
+        user-supplied, so the roster handlers and the moderator handlers each refuse
+        the other's rows on this flag."""
+        return self.approval == self.Approval.MODERATOR
 
     def pending_profiles(self):
         """Roster players who have not ANSWERED yet — neither yes nor no.
