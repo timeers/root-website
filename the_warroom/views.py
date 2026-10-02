@@ -8460,10 +8460,9 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
             # Same sweep every /schedule write path does -- this one was missing.
             _cancel_open_proposals(match, 'website')
             # And announce it, exactly as the bot does: "scheduled" for a match
-            # that gained a time, "rescheduled" for one that moved. A CLEARED time
-            # announces nothing to the channel -- the helper returns early on
-            # new_time=None. The thread version below DOES announce a clear: the
-            # roster wants to know a postponement happened just as much as a move.
+            # that gained a time, "rescheduled" for one that moved, "no longer
+            # scheduled" for one that was cleared. Both the channel and the thread
+            # announce a clear: a postponement matters just as much as a move.
             _announce_schedule_to_channel(match, old_time, new_time)
             _announce_schedule_to_thread(match, old_time, new_time)
 

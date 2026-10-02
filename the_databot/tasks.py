@@ -27,6 +27,7 @@ from .services.discordservice import (send_discord_dm, sync_bot_guilds,
 # the circular-import reason documented there), so this is safe at import time.
 from .services.lfg_game import (
     schedule_closed_embed, PROPOSAL_RETIRED_TEXT, name_join,
+    schedule_request_closed_content, schedule_request_announcement,
 )
 # Lives in discord_commands, not discord_interactions: that module imports THIS one,
 # so importing it back would cycle.
@@ -1086,6 +1087,43 @@ def post_schedule_proposal_task(proposal_id, message_data):
         # .update() rather than .save(): never clobber a status another request
         # changed while this task was in flight.
         ScheduleProposal.objects.filter(pk=proposal_id).update(message_id=message_id)
+        if proposal.is_mod_request:
+            proposal.message_id = message_id
+            _announce_schedule_request(proposal)
+
+
+def _announce_schedule_request(proposal):
+    """Tell the tournament's schedule_channel a moderator request is waiting.
+
+    Here rather than in the interaction handler because the post links to the
+    request message, whose id only exists once post_schedule_proposal_task has
+    posted it. That placement also means a request that never posted is never
+    announced.
+
+    QUEUED, never posted inline, and never allowed to raise: the caller retries
+    on any exception, and a retry would POST the request a second time -- a
+    duplicate message, and with it a second ping to the group moderator. The
+    guild-ownership check is a synchronous Discord GET besides, which
+    post_to_tournament_channel_task keeps off this task."""
+    match = proposal.match
+    tournament = match.round.get_tournament() if match.round_id else None
+    if tournament is None:
+        return
+    # Cheap local check so an unconfigured channel costs no task at all.
+    if not (tournament.schedule_channel or "").strip():
+        return
+    url = (f"https://discord.com/channels/{proposal.guild_id}/"
+           f"{proposal.channel_id}/{proposal.message_id}"
+           if proposal.guild_id else None)
+    content = schedule_request_announcement(proposal, url)
+    try:
+        # Renders the requester's tag without notifying them, or anyone.
+        post_to_tournament_channel_task.delay(
+            tournament.pk, "schedule_channel", content,
+            allowed_mentions={"parse": []})
+    except Exception:
+        logger.exception("Could not queue the schedule-request announcement for "
+                         "proposal %s", proposal.pk)
 
 
 @shared_task(
@@ -1123,12 +1161,26 @@ def strip_schedule_proposal_messages_task(proposal_ids, reason):
         # No actor: every reason reaching this task (superseded, website, expired,
         # cancelled) is a consequence rather than someone's decision about THIS
         # proposal, so none of them may name a person.
-        result = edit_channel_message(
-            proposal.channel_id, proposal.message_id,
-            embeds=[schedule_closed_embed(
-                proposal, "Proposal closed", reason)],
-            components=[],
-        )
+        if proposal.is_mod_request:
+            # A moderator request is content-only, so its content must be
+            # REPLACED: edit_channel_message only sends the keys it is given, and
+            # leaving content out kept "A moderator must confirm this time first."
+            # above a closed embed. embeds=[] is deliberate for the same reason --
+            # the request never had one. No allowed_mentions needed: an edit never
+            # notifies.
+            result = edit_channel_message(
+                proposal.channel_id, proposal.message_id,
+                content=schedule_request_closed_content(proposal, reason),
+                embeds=[],
+                components=[],
+            )
+        else:
+            result = edit_channel_message(
+                proposal.channel_id, proposal.message_id,
+                embeds=[schedule_closed_embed(
+                    proposal, "Proposal closed", reason)],
+                components=[],
+            )
         if result == THREAD_ERROR:
             transient.append(proposal.pk)
     if transient:

@@ -8,10 +8,15 @@
 - /schedule poll now contains the polling features from the old /schedule set command
 - Added field to Series Automation to allow users to individually schedule match times or require moderator confirmation
 - Timezone line moved to subtext and timezone field help text reworded to be clearer
+- Improved the message text for closed schedule set requests
+- Match moderator is now pinged when a user needs approval for a /schedule set command
+- Schedule set sends a message to the schedules channel to show that the time is awaiting approval
 
 ### Bug Fixes
 - The scheduling command now uses can_schedule instead of piggybacking on the can_record method. Users can now use /schedule as long as they are on the roster or a moderator
 - Schedule clear now always displays the correct suggestions when no time exists
+- Removed duplicate pings when scheduling games with /schedule set
+- Cleared match times are announced in the schedule channel
 
 ### Breaking Changes
 - The "/schedule set" command has now been split into two commands "/schedule set" and "/schedule poll" with the poll subcommand retaining most of the functionality from the old set command. Each will need to be whitelisted before becoming available
