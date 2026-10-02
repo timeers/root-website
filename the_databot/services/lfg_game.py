@@ -833,5 +833,4 @@ def schedule_request_announcement(proposal, url=None):
     label = match_label(proposal.match)
     target = f"[{label}]({url})" if url else f"**{label}**"
     when = format_discord_timestamp(proposal.proposed_time)
-    return (f"{_request_who(proposal)} requested {target} for {when} "
-            "— awaiting a moderator.")
+    return (f"{_request_who(proposal)} set {target} to {when}. Needs moderator approval to finalize time.")
