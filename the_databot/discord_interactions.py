@@ -1959,6 +1959,13 @@ def _announce_schedule_to_channel(match, old_time, new_time):
 def _announce_schedule_to_thread(match, old_time, new_time):
     """Ping the match's own thread when its time is set, moved, or cleared.
 
+    Addressed TO the roster and the group moderator, rather than reporting about
+    the match in the third person the way the schedule_channel post does: the
+    thread's audience is exactly the people who have to show up, so it reads
+    "@a @b your game has been scheduled for <time> with @mod moderating". No match
+    label -- the thread already is the match -- and no copyable `<t:...>` line,
+    which belongs in the channel announcement people quote from.
+
     Unlike _announce_schedule_to_channel, DOES fire on a clear (new_time=None) --
     a postponement is exactly the case a roster most needs pinged about, since a
     game night they were expecting just came off the calendar. Still a no-op when
@@ -1986,17 +1993,41 @@ def _announce_schedule_to_thread(match, old_time, new_time):
     mentions = [f"<@{p.discord_id}>" if p.discord_id else str(p) for p in roster]
     ping_line = " ".join(mentions)
 
-    label = _match_label(match)
+    # The group's moderator, when it has one, named LAST so the players read the
+    # time first. Mentioned by the SAME rule as a player -- snowflake when linked,
+    # plain name when not -- and folded into the same allowed_mentions, so a linked
+    # moderator is notified too. Kept on the CLEAR branch as well: whoever has to
+    # run the game needs to know a postponement happened just as much as the
+    # players do.
+    #
+    # Deliberately NOT added to `mentions`: they are not on the roster, and leading
+    # with them would read as though they were playing. Same convention as
+    # remind_upcoming_matches.
+    group = match.player_group
+    moderator = group.group_moderator if group else None
+    moderating = ""
+    if moderator is not None:
+        who = f"<@{moderator.discord_id}>" if moderator.discord_id else str(moderator)
+        moderating = f"with {who} moderating"
+
+    # The sentence leads with the pings, so it reads as addressed to the roster
+    # ("@a @b your game has been scheduled for ..."). With an empty roster the
+    # subject has to carry the line itself, hence the capitalized fallback.
     if new_time is None:
-        body = f"🗓️ The scheduled time for **{label}** has been removed."
+        opening = ("the scheduled time for your game has been removed"
+                   if ping_line else "The scheduled time for your game has been removed")
+        head = " ".join(s for s in (ping_line, opening) if s)
+        content = " ".join(s for s in (head, moderating) if s) + "."
     else:
         verb = "rescheduled" if old_time is not None else "scheduled"
-        body = "\n".join([
-            f"🗓️ **{label}** is {verb} for",
-            format_discord_timestamp(new_time),
-            format_discord_timestamp_code(new_time),
-        ])
-    content = f"{ping_line}\n{body}" if ping_line else body
+        opening = (f"your game has been {verb} for" if ping_line
+                   else f"Your game has been {verb} for")
+        head = " ".join(s for s in (ping_line, opening) if s)
+        # The rendered timestamp gets its own line to read the time against; it
+        # already carries the relative hint, so there is nothing to add after it.
+        tail = " ".join(
+            s for s in (format_discord_timestamp(new_time), moderating) if s)
+        content = f"{head}\n{tail}"
 
     from the_databot.tasks import post_channel_message_task
     # on_commit: callers run inside transaction.atomic(), and the worker must never
@@ -2063,7 +2094,12 @@ def _finalize_proposal(proposal, actor=None):
         # update_fields is required: a bare save() re-runs Match.save()'s name and
         # match_number derivation.
         match.save(update_fields=["scheduled_time"])
+        # Both, same as the direct-write path: the channel reports it, the thread
+        # tells the players who have to show up. A consensus-agreed time used to
+        # announce only to the channel, so a roster that had just voted on a slot
+        # never got told in their own thread that it had been written.
         _announce_schedule_to_channel(match, previous_time, proposal.proposed_time)
+        _announce_schedule_to_thread(match, previous_time, proposal.proposed_time)
 
         # exclude_pk is REQUIRED, not incidental: don't rely on the CAS above having
         # already moved this row out of OPEN. If these are ever reordered, an

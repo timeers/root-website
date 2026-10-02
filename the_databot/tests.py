@@ -2330,7 +2330,11 @@ class ScheduleAnnouncementDescriptionTests(ScheduleFixtureMixin, TestCase):
     discord thread") announces via a plain content post to the match's own
     thread (_announce_schedule_to_thread), not a followup embed -- that older
     embed-based announcement (with its /upcoming-style "next scheduled game"
-    line) no longer exists."""
+    line) no longer exists.
+
+    The content FORMAT those posts take is covered by
+    ScheduleThreadAnnouncementContentTests below; these tests only assert that the
+    thread is the thing told."""
 
     def setUp(self):
         self.build(populate_group=True)
@@ -2388,6 +2392,146 @@ class ScheduleAnnouncementDescriptionTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(embed["title"].lower().count("scheduled"), 1)
         self.assertTrue(
             any(f["name"] == "✅ Confirmed by" for f in embed["fields"]))
+
+
+class ScheduleThreadAnnouncementContentTests(ScheduleFixtureMixin, TestCase):
+    """What _announce_schedule_to_thread actually SAYS.
+
+    The message is addressed to the people who have to show up, so it leads with
+    their mentions and names the group moderator in a trailing clause:
+    "@a @b your game has been scheduled for <time> with @mod moderating".
+
+    Note the fixture seats one player and sets a LINKED group_moderator
+    (discord_id="4"), so the moderator clause is present by default -- a test that
+    wants it absent has to clear the field."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.when = (timezone.now() + timedelta(days=2)).replace(microsecond=0)
+        self.later = self.when + timedelta(days=1)
+
+    def _announce(self, old_time, new_time):
+        """The content the helper would post, or None if it posted nothing."""
+        with mock.patch.object(di.post_channel_message_task, "delay") as post, \
+                self.captureOnCommitCallbacks(execute=True):
+            di._announce_schedule_to_thread(self.match, old_time, new_time)
+        if not post.call_args:
+            return None
+        return post.call_args.args[1]
+
+    def test_a_new_time_addresses_the_roster_and_names_the_moderator(self):
+        content = self._announce(None, self.when)
+        ping = f"<@{self.player.discord_id}> <@{self.teammate.discord_id}>"
+        self.assertEqual(
+            content,
+            f"{ping} your game has been scheduled for\n"
+            f"{di.format_discord_timestamp(self.when)} "
+            f"with <@{self.group_mod.discord_id}> moderating")
+
+    def test_the_timestamp_carries_both_absolute_and_relative_forms(self):
+        """One format_discord_timestamp call renders `<t:ts:F> (<t:ts:R>)` -- the
+        absolute time to read against and the relative hint, which is the whole
+        reason no second timestamp line is built."""
+        content = self._announce(None, self.when)
+        ts = int(self.when.timestamp())
+        self.assertIn(f"<t:{ts}:F>", content)
+        self.assertIn(f"<t:{ts}:R>", content)
+
+    def test_no_match_label_or_copyable_markup(self):
+        """The thread IS the match, so labelling it is noise; the copyable raw
+        `<t:...>` line belongs in the channel post people quote from."""
+        content = self._announce(None, self.when)
+        self.assertNotIn("🗓️", content)
+        self.assertNotIn(self.group.name, content)
+        self.assertNotIn("`", content)
+
+    def test_moving_an_existing_time_reads_rescheduled(self):
+        content = self._announce(self.when, self.later)
+        self.assertIn("has been rescheduled for", content)
+        self.assertNotIn("has been scheduled for", content)
+
+    def test_clearing_a_time_still_tells_the_roster_and_the_moderator(self):
+        """A postponement is the case a roster most needs pinged about, and
+        whoever has to run the game needs to know too."""
+        content = self._announce(self.when, None)
+        self.assertEqual(
+            content,
+            f"<@{self.player.discord_id}> <@{self.teammate.discord_id}> "
+            f"the scheduled time for your game has been removed "
+            f"with <@{self.group_mod.discord_id}> moderating.")
+
+    def test_an_unlinked_moderator_is_named_never_mentioned_empty(self):
+        """A literal "<@>" makes Discord reject the whole payload with a 400, so an
+        unlinked moderator must fall back to a plain name."""
+        self.group.group_moderator = Profile.objects.create(discord="unlinked_mod")
+        self.group.save(update_fields=["group_moderator"])
+        content = self._announce(None, self.when)
+        self.assertNotIn("<@>", content)
+        self.assertNotIn("<@None>", content)
+        self.assertIn(f"with {self.group.group_moderator} moderating", content)
+
+    def test_no_moderator_leaves_no_dangling_clause_or_double_space(self):
+        self.group.group_moderator = None
+        self.group.save(update_fields=["group_moderator"])
+        content = self._announce(None, self.when)
+        self.assertNotIn("moderating", content)
+        self.assertNotIn("  ", content)
+        self.assertTrue(content.endswith(di.format_discord_timestamp(self.when)))
+
+    def test_an_empty_roster_still_reads_as_a_sentence(self):
+        """With nobody to ping the subject has to carry the line, so the opening
+        word is capitalized rather than left as a bare "your game ..."."""
+        self.group.tournament_players.clear()
+        self.series.matchseat_set.all().delete()
+        content = self._announce(None, self.when)
+        self.assertTrue(content.startswith("Your game has been scheduled for"))
+        self.assertNotIn("  ", content)
+
+    def test_an_unchanged_time_says_nothing(self):
+        self.assertIsNone(self._announce(self.when, self.when))
+
+    def test_a_foreign_guild_thread_is_never_posted_to(self):
+        """Fail-closed: a stale or mistyped URL would otherwise drop a tournament's
+        schedule into an unrelated server."""
+        self.group.discord_thread = (
+            "https://discord.com/channels/999999/555000111")
+        self.group.save(update_fields=["discord_thread"])
+        self.assertIsNone(self._announce(None, self.when))
+
+    def test_the_mentions_are_allowed_so_they_actually_notify(self):
+        """Without parse: ["users"] the mentions render as blue text and ping
+        nobody, which is the entire feature."""
+        with mock.patch.object(di.post_channel_message_task, "delay") as post, \
+                self.captureOnCommitCallbacks(execute=True):
+            di._announce_schedule_to_thread(self.match, None, self.when)
+        self.assertEqual(post.call_args.kwargs["allowed_mentions"],
+                         {"parse": ["users"]})
+
+
+class ScheduleConsensusThreadAnnouncementTests(ScheduleFixtureMixin, TestCase):
+    """A consensus-agreed time must reach the thread too. It previously announced
+    only to the schedule_channel, so a roster that had just voted on a slot never
+    got told in their own thread that it had been written."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.when = (timezone.now() + timedelta(days=2)).replace(microsecond=0)
+
+    def test_finalizing_a_proposal_pings_the_thread(self):
+        proposal = ScheduleProposal.objects.create(
+            match=self.match, proposed_time=self.when, proposed_by=self.player)
+        with mock.patch.object(di, "_announce_schedule_to_channel"), \
+                mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
+                mock.patch.object(di.post_channel_message_task, "delay") as post, \
+                self.captureOnCommitCallbacks(execute=True):
+            ok, error = di._finalize_proposal(proposal)
+
+        self.assertTrue(ok, error)
+        thread_id, content = post.call_args.args
+        self.assertEqual(thread_id, "555000111")
+        self.assertIn(f"<@{self.player.discord_id}>", content)
+        self.assertIn("your game has been scheduled for", content)
+        self.assertIn(f"with <@{self.group_mod.discord_id}> moderating", content)
 
 
 class ScheduleAutocompleteTests(TestCase):
@@ -9966,7 +10110,8 @@ class ScheduleWriteRuleTests(ScheduleFixtureMixin, TestCase):
         handler = (di._handle_schedule_proposal_confirm if action == "sched_poll_ok"
                    else di._handle_schedule_proposal_reject)
         with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
-                mock.patch.object(di, "_announce_schedule_to_channel"):
+                mock.patch.object(di, "_announce_schedule_to_channel"), \
+                mock.patch.object(di, "_announce_schedule_to_thread"):
             return handler(payload)
 
     def _scheduled(self):
@@ -10033,6 +10178,7 @@ class ScheduleWriteRuleTests(ScheduleFixtureMixin, TestCase):
         }
         with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
                 mock.patch.object(di, "_announce_schedule_to_channel"), \
+                mock.patch.object(di, "_announce_schedule_to_thread"), \
                 mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
             di._handle_schedule_proposal_confirm(payload)
         targets = delay.call_args.args[0]
@@ -10496,6 +10642,7 @@ class ScheduleProposalButtonTests(ScheduleFixtureMixin, TestCase):
         self.host = Profile.objects.create(discord="host", discord_id="7")
         with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"), \
                 mock.patch.object(di, "_announce_schedule_to_channel"), \
+                mock.patch.object(di, "_announce_schedule_to_thread"), \
                 mock.patch.object(di.notify_schedule_poll_task, "delay") as delay:
             self._body(di._handle_schedule_proposal_confirm(
                 self._notify_payload()))

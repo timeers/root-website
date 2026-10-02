@@ -1,6 +1,9 @@
 # Changelog
 
-## [1.13.13] - 2026-10-1 Hoot Bugs
+## [1.13.13] - 2026-10-2 Hoot 4 Improvements
+
+### Improvements
+- Game threads now receive a message that pings the players and match mod when the game is scheduled
 
 ### Bug Fixes
 - The scheduling command now uses can_schedule instead of piggybacking on the can_record method. Users can now use /schedule as long as they are on the roster or a moderator
