@@ -3513,6 +3513,14 @@ def _tournament_row_ctx(tournament, guild, channel_names):
         # Carries its unit: a bare "30" beside three channel names reads as an id.
         (ngettext('Match reminder', 'Match reminders', len(leads)),
          reminder_text, None),
+        # Shown only when OFF, because the filter below drops falsy values and the
+        # field defaults to ON: a row for the default would appear on every series
+        # and say nothing, while the surprising state -- players setting times with
+        # no moderator confirmation -- is the one worth surfacing. So the VALUE
+        # carries the meaning rather than the label.
+        (_('Match scheduling'),
+         None if tournament.require_participant_schedule_confirmation
+         else _('Players can set times'), None),
     ]
     return {'tournament': tournament, 'guild': guild,
             'channels': [(lbl, val, tag) for lbl, val, tag in channels if val]}
