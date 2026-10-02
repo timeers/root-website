@@ -747,6 +747,65 @@ def _can_view_lfg_availability(profile, thread):
     return False
 
 
+def _compare_viewer_tz(request):
+    """(viewer, tz_name) for a compare request.
+
+    viewer is None for an anonymous visitor. Every player is drawn on the VIEWER's
+    clock so they're comparable on one grid; an anonymous visitor has no timezone,
+    so UTC (tz_name None)."""
+    from the_databot.services.time_parsing import valid_timezone
+
+    viewer = request.user.profile if request.user.is_authenticated else None
+    tz_name = (viewer.timezone
+               if viewer and valid_timezone(viewer.timezone) else None)
+    return viewer, tz_name
+
+
+def _compare_resolved(viewer, tz_name, profiles, **overrides):
+    """The `resolved` dict every compare reader consumes, with a default for EVERY
+    key -- _compare_grid_context reads 'viewer', the page reads 'denied_message',
+    and so on. One builder so a new roster source (see _resolve_tournament_roster)
+    can't forget a key and KeyError somewhere downstream."""
+    resolved = {
+        'viewer': viewer,
+        'series': None,
+        'tournament': None,
+        'back_url': None,
+        # Which back-button wording the page uses; None is "Back to Matches".
+        'back_label': None,
+        'title': _('Player Availability'),
+        'can_view': True,
+        'denied_message': None,
+        'profiles': profiles,
+        'tz_name': tz_name,
+        # Only the editable roster page reports these: the slugs that survived
+        # resolution (so the URL can be cleaned) and how many were dropped.
+        'roster_slugs': None,
+        'dropped_count': 0,
+    }
+    resolved.update(overrides)
+    return resolved
+
+
+def _profiles_from_slugs(slugs, base_qs):
+    """(profiles, kept_slugs, dropped_count) for a comma-list of profile slugs,
+    limited to `base_qs`.
+
+    A slug outside base_qs -- or one that doesn't exist -- is simply dropped:
+    nothing about it reaches the page. kept_slugs keeps the REQUEST order (minus
+    the dropped and duplicates), which is what the editable page writes back into
+    its URL."""
+    wanted = []
+    for slug in slugs:
+        slug = slug.strip()
+        if slug and slug not in wanted:
+            wanted.append(slug)
+    profiles = list(base_qs.filter(slug__in=wanted).distinct()) if wanted else []
+    found = {p.slug for p in profiles}
+    kept = [slug for slug in wanted if slug in found]
+    return profiles, kept, len(wanted) - len(kept)
+
+
 def _resolve_compare_roster(request):
     """Which profiles a compare-page request is about, and whether THIS
     viewer may see their hours -- the permission/roster resolution shared by
@@ -760,12 +819,10 @@ def _resolve_compare_roster(request):
     week axis differs in shape between a GET's `?week=` and nothing else
     compare currently accepts server-side.
     """
-    from the_databot.services.time_parsing import valid_timezone
-
     # None for an anonymous visitor. Every permission test below treats that as
     # "not permitted" rather than short-circuiting, because the branches also
     # resolve the page title and roster that the link preview needs.
-    viewer = request.user.profile if request.user.is_authenticated else None
+    viewer, tz_name = _compare_viewer_tz(request)
     series = None
     tournament = None
     back_url = None
@@ -859,29 +916,21 @@ def _resolve_compare_roster(request):
             my_tournaments = TournamentPlayer.objects.filter(
                 profile=viewer
             ).values_list('tournament_id', flat=True)
-            profiles = list(
+            profiles, _kept, _dropped = _profiles_from_slugs(
+                player_slugs,
                 Profile.objects.filter(
-                    slug__in=player_slugs,
-                    tournament_participations__tournament_id__in=my_tournaments,
-                ).distinct()
+                    tournament_participations__tournament_id__in=my_tournaments),
             )
 
-    # Every player is drawn on the VIEWER's clock so they're comparable on one
-    # grid. An anonymous visitor has no timezone, so UTC.
-    tz_name = (viewer.timezone
-               if viewer and valid_timezone(viewer.timezone) else None)
-
-    return {
-        'viewer': viewer,
-        'series': series,
-        'tournament': tournament,
-        'back_url': back_url,
-        'title': title,
-        'can_view': can_view,
-        'denied_message': denied_message,
-        'profiles': profiles,
-        'tz_name': tz_name,
-    }
+    return _compare_resolved(
+        viewer, tz_name, profiles,
+        series=series,
+        tournament=tournament,
+        back_url=back_url,
+        title=title,
+        can_view=can_view,
+        denied_message=denied_message,
+    )
 
 
 def _week_anchored_and_dateless_hours(profile_ids, tournament, week_start, tz_name):
@@ -1009,6 +1058,46 @@ def _compare_hours_by_profile(resolved, week_start, is_week_specific):
     return result
 
 
+def _compare_player_sort_key(week_start):
+    """Sort key for the compare page's player list: by TIMEZONE, west to east,
+    then alphabetically.
+
+    Grouping by zone puts people who share a clock together, which is what makes
+    the list readable against a grid drawn on the viewer's own clock. Ordered by
+    UTC offset (not zone name, which would scatter e.g. America/New_York and
+    America/Los_Angeles by spelling), measured at the SHOWN week so a DST change
+    reorders only across weeks it actually affects. Same-offset zones then group
+    by name. A profile with no (or an unknown) timezone sorts last.
+
+    Deliberately NOT by hours: those differ per week, so the list used to reshuffle
+    on every week-switch now that applyState redraws it."""
+    from datetime import datetime, time
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    when = datetime.combine(week_start or timezone.now().date(), time(12),
+                            tzinfo=ZoneInfo('UTC'))
+    offsets = {}
+
+    def offset(name):
+        if name not in offsets:
+            try:
+                offsets[name] = when.astimezone(ZoneInfo(name)).utcoffset()
+            except (ZoneInfoNotFoundError, ValueError, KeyError):
+                offsets[name] = None
+        return offsets[name]
+
+    def key(player):
+        profile = player['profile']
+        name = (profile.display_name or '').lower()
+        tz = profile.timezone or ''
+        off = offset(tz) if tz else None
+        if off is None:
+            return (1, timedelta(0), '', name)
+        return (0, off, tz, name)
+
+    return key
+
+
 def _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profile):
     """The template-ready context shared by the full-page render and the
     AJAX week-switch endpoint -- `players`/`player_hours_json`/etc, plus the
@@ -1048,7 +1137,7 @@ def _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profi
             'has_schedule': profile.id in has_any_schedule_ids,
             'is_viewer': viewer is not None and profile.id == viewer.id,
         })
-    players.sort(key=lambda p: (-p['hour_count'], (p['profile'].display_name or '').lower()))
+    players.sort(key=_compare_player_sort_key(week_start))
 
     with_hours = {p['profile'].id: p['hours'] for p in players if p['hours']}
 
@@ -1074,9 +1163,22 @@ def _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profi
     current_week = week_start_for(today)
     columns = _compare_grid_columns(week_start, is_week_specific)
 
+    dropped_count = resolved['dropped_count']
     return {
         'players': players,
         'player_count': len(players),
+        # Server-side so the heading and the AJAX refresh share one string; the
+        # same msgids the template's blocktrans used, so translations carry over.
+        'player_count_label': ngettext(
+            '%(counter)s Player', '%(counter)s Players', len(players)
+        ) % {'counter': len(players)},
+        'roster_slugs': resolved['roster_slugs'],
+        'dropped_count': dropped_count,
+        'dropped_label': ngettext(
+            "%(count)s player in this link isn't in this tournament and was left out.",
+            "%(count)s players in this link aren't in this tournament and were left out.",
+            dropped_count,
+        ) % {'count': dropped_count} if dropped_count else None,
         'has_any_availability': bool(with_hours),
         'player_hours_json': {str(pid): hrs for pid, hrs in
                                ((p['profile'].id, p['hours']) for p in players)},
@@ -1230,6 +1332,109 @@ def _resolve_compare_week(request, today):
     return week_start or week_start_for(today), True
 
 
+def _compare_state(request, resolved):
+    """(week_start, is_week_specific, hours_by_profile, grid_ctx) for one
+    resolved roster -- the week + hours + context chain both the full page and
+    the AJAX endpoint run, for every roster source."""
+    today = timezone.now().date()
+    week_start, is_week_specific = _resolve_compare_week(request, today)
+    hours_by_profile = _compare_hours_by_profile(resolved, week_start, is_week_specific)
+    grid_ctx = _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profile)
+    return week_start, is_week_specific, hours_by_profile, grid_ctx
+
+
+def _compare_meta_description(profiles):
+    """Link-preview text. Built from `profiles` rather than `players` so it still
+    names people on a refused page -- an unfurler has no session, so keying it on
+    can_view would make every shared link preview as the refusal notice."""
+    from the_keep.utils import clean_meta_description
+
+    names = [p.name for p in profiles]
+    if not names:
+        return _('Compare when players are free to play.')
+    if len(names) > 1:
+        joined = '%s and %s' % (', '.join(names[:-1]), names[-1])
+    else:
+        joined = names[0]
+    return clean_meta_description(
+        _('Comparing the weekly availability of %(players)s.') % {'players': joined})
+
+
+def _compare_page_context(resolved, grid_ctx, *, roster_editable=False,
+                          week_data_url=None, search_url=None):
+    """The full compare page's context, for any roster source.
+
+    `roster_editable` turns on the tournament page's search / add / remove;
+    the read-only page leaves it off. compare_config is what the page's script
+    reads, so it never hardcodes a URL of its own."""
+    week_start = grid_ctx['week_start']
+    return {
+        **grid_ctx,
+        'series': resolved['series'],
+        'tournament': resolved['tournament'],
+        'back_url': resolved['back_url'],
+        'back_label': resolved['back_label'],
+        'title': resolved['title'],
+        # False renders an explanation instead of the grid. The player lists above
+        # are empty in that case, so nothing about them reaches the template.
+        'can_view': resolved['can_view'],
+        'denied_message': resolved['denied_message'],
+        'meta_description': _compare_meta_description(resolved['profiles']),
+        'timezone_name': resolved['tz_name'] or 'UTC',
+        'roster_editable': roster_editable,
+        'compare_config': {
+            'weekDataUrl': week_data_url or reverse('availability-compare-week-data'),
+            'searchUrl': search_url,
+            'editable': roster_editable,
+            'weekStart': week_start.isoformat() if week_start else None,
+            'rosterSlugs': grid_ctx['roster_slugs'] or [],
+            'droppedLabel': grid_ctx['dropped_label'],
+        },
+    }
+
+
+def _compare_week_json(resolved, week_start, is_week_specific, hours_by_profile,
+                       grid_ctx, *, roster_editable=False):
+    """The AJAX payload that repaints the compare page for one (roster, week):
+    the grid fragment, every player's hours, and the player list itself.
+
+    The list is re-rendered from the same partial the page includes, so a
+    week-switch or an add/remove redraws every place a player appears from ONE
+    response -- the count heading and the per-row hour counts included."""
+    from django.template.loader import render_to_string
+    from django.utils.formats import date_format
+
+    return JsonResponse({
+        'ok': True,
+        'is_week_specific': is_week_specific,
+        'week_start': week_start.isoformat() if week_start else None,
+        'week_label': _('Week of %(date)s') % {'date': date_format(week_start, 'M j, Y')},
+        'prev_week': grid_ctx['prev_week'].isoformat() if grid_ctx['prev_week'] else None,
+        'next_week': grid_ctx['next_week'].isoformat() if grid_ctx['next_week'] else None,
+        'default_week': grid_ctx['default_week'].isoformat(),
+        'grid_html': _render_compare_grid_html(
+            resolved, week_start, is_week_specific, hours_by_profile),
+        'player_list_html': render_to_string(
+            'the_gatehouse/partials/compare_player_rows.html',
+            {'players': grid_ctx['players'], 'roster_editable': roster_editable}),
+        'player_count': grid_ctx['player_count'],
+        'player_count_label': grid_ctx['player_count_label'],
+        'roster_slugs': grid_ctx['roster_slugs'],
+        'dropped_count': grid_ctx['dropped_count'],
+        'dropped_label': grid_ctx['dropped_label'],
+        'player_hours_json': grid_ctx['player_hours_json'],
+        'player_names_json': grid_ctx['player_names_json'],
+        'has_any_availability': grid_ctx['has_any_availability'],
+        'edit_url': grid_ctx['edit_url'],
+    })
+
+
+def _compare_get_required(request):
+    if request.method != 'GET':
+        return JsonResponse({'ok': False, 'message': _('GET required'), 'tag': 'error'}, status=405)
+    return None
+
+
 def availability_compare(request):
     """Compare several players' weekly availability on one grid.
 
@@ -1252,45 +1457,9 @@ def availability_compare(request):
     the same way the single-user page's week navigator is (_parse_week_param).
     """
     resolved = _resolve_compare_roster(request)
-    today = timezone.now().date()
-    week_start, is_week_specific = _resolve_compare_week(request, today)
-
-    hours_by_profile = _compare_hours_by_profile(resolved, week_start, is_week_specific)
-    grid_context = _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profile)
-
-    profiles = resolved['profiles']
-    can_view = resolved['can_view']
-
-    # Link-preview text. Built from `profiles` rather than `players` so it still
-    # names people on a refused page -- an unfurler has no session, so keying it
-    # on can_view would make every shared link preview as the refusal notice.
-    from the_keep.utils import clean_meta_description
-    names = [p.name for p in profiles]
-    if names:
-        if len(names) > 1:
-            joined = '%s and %s' % (', '.join(names[:-1]), names[-1])
-        else:
-            joined = names[0]
-        meta_description = clean_meta_description(
-            _('Comparing the weekly availability of %(players)s.')
-            % {'players': joined})
-    else:
-        meta_description = _('Compare when players are free to play.')
-
-    context = {
-        **grid_context,
-        'series': resolved['series'],
-        'tournament': resolved['tournament'],
-        'back_url': resolved['back_url'],
-        'title': resolved['title'],
-        # False renders an explanation instead of the grid. The player lists above
-        # are empty in that case, so nothing about them reaches the template.
-        'can_view': can_view,
-        'denied_message': resolved['denied_message'],
-        'meta_description': meta_description,
-        'timezone_name': resolved['tz_name'] or 'UTC',
-    }
-    return render(request, 'the_gatehouse/availability_compare.html', context)
+    *_state, grid_ctx = _compare_state(request, resolved)
+    return render(request, 'the_gatehouse/availability_compare.html',
+                  _compare_page_context(resolved, grid_ctx))
 
 
 def availability_compare_week_data(request):
@@ -1305,33 +1474,11 @@ def availability_compare_week_data(request):
     _resolve_compare_roster) so a week-switch can't be used to see anything
     the full page itself would refuse.
     """
-    if request.method != 'GET':
-        return JsonResponse({'ok': False, 'message': _('GET required'), 'tag': 'error'}, status=405)
-
-    from django.utils.formats import date_format
-
+    not_get = _compare_get_required(request)
+    if not_get:
+        return not_get
     resolved = _resolve_compare_roster(request)
-    today = timezone.now().date()
-    week_start, is_week_specific = _resolve_compare_week(request, today)
-
-    hours_by_profile = _compare_hours_by_profile(resolved, week_start, is_week_specific)
-    grid_context = _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profile)
-    grid_html = _render_compare_grid_html(resolved, week_start, is_week_specific, hours_by_profile)
-
-    return JsonResponse({
-        'ok': True,
-        'is_week_specific': is_week_specific,
-        'week_start': week_start.isoformat() if week_start else None,
-        'week_label': _('Week of %(date)s') % {'date': date_format(week_start, 'M j, Y')},
-        'prev_week': grid_context['prev_week'].isoformat() if grid_context['prev_week'] else None,
-        'next_week': grid_context['next_week'].isoformat() if grid_context['next_week'] else None,
-        'default_week': grid_context['default_week'].isoformat(),
-        'grid_html': grid_html,
-        'player_hours_json': grid_context['player_hours_json'],
-        'player_names_json': grid_context['player_names_json'],
-        'has_any_availability': grid_context['has_any_availability'],
-        'edit_url': grid_context['edit_url'],
-    })
+    return _compare_week_json(resolved, *_compare_state(request, resolved))
 
 
 @login_required
@@ -1614,6 +1761,98 @@ def player_onboard_required(view_func):
         else:
             return _not_a_player_redirect(request)
     return wrapper
+
+
+# ── Tournament availability compare (host / moderators) ─────────────────────
+# The compare page with an EDITABLE roster: a tournament's host or moderators
+# search its players and add or remove them. Same template, same JS, same
+# helpers as availability_compare -- only the roster source differs. Defined
+# down here because the decorators above must exist first.
+
+def _get_managed_tournament(request, slug):
+    """The tournament, or PermissionDenied unless the viewer may manage it --
+    the host, a tournament moderator, or a site admin (has_permission). Django
+    turns PermissionDenied into a 403 for the JSON and fragment endpoints too."""
+    tournament = get_object_or_404(Tournament, slug=slug)
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+    return tournament
+
+
+def _resolve_tournament_roster(request, tournament):
+    """The editable page's roster: whichever `?players=` slugs are players in
+    THIS tournament (any status). Anyone else is dropped, so nothing about them
+    reaches the page; roster_slugs/dropped_count let the page clean its URL and
+    say so."""
+    viewer, tz_name = _compare_viewer_tz(request)
+    slugs = (request.GET.get('players') or '').split(',')
+    profiles, kept, dropped = _profiles_from_slugs(
+        slugs,
+        Profile.objects.filter(tournament_participations__tournament=tournament),
+    )
+    return _compare_resolved(
+        viewer, tz_name, profiles,
+        # Tournament-specific schedules take precedence over general ones.
+        tournament=tournament,
+        title=_('%(tournament)s Availability') % {'tournament': tournament.name},
+        back_url=reverse('tournament-settings', kwargs={'slug': tournament.slug}),
+        back_label='settings',
+        roster_slugs=kept,
+        dropped_count=dropped,
+    )
+
+
+@player_onboard_required
+def tournament_availability(request, slug):
+    """Compare availability for any players of a tournament, picked by its host or
+    moderators with search / add / remove. The roster rides in `?players=` so a
+    reload or a shared link restores it."""
+    tournament = _get_managed_tournament(request, slug)
+    resolved = _resolve_tournament_roster(request, tournament)
+    *_state, grid_ctx = _compare_state(request, resolved)
+    return render(request, 'the_gatehouse/availability_compare.html',
+                  _compare_page_context(
+                      resolved, grid_ctx, roster_editable=True,
+                      week_data_url=reverse('tournament-availability-week-data',
+                                            kwargs={'slug': slug}),
+                      search_url=reverse('tournament-availability-search',
+                                         kwargs={'slug': slug})))
+
+
+@player_required
+def tournament_availability_week_data(request, slug):
+    """GET JSON for tournament_availability: the same payload as
+    availability_compare_week_data, used for week-switches AND for every add or
+    remove (the roster is just a different `?players=`)."""
+    not_get = _compare_get_required(request)
+    if not_get:
+        return not_get
+    tournament = _get_managed_tournament(request, slug)
+    resolved = _resolve_tournament_roster(request, tournament)
+    return _compare_week_json(resolved, *_compare_state(request, resolved),
+                              roster_editable=True)
+
+
+@player_required
+def tournament_availability_search(request, slug):
+    """HTML fragment: the tournament's players (any status) matching `?q=`, minus
+    the ones already on the roster (`?exclude=slug,slug`). Only the top TWO: the
+    search pane is short, and Enter adds the first, so typing narrows rather
+    than scrolling. An empty query lists the first two alphabetically, so the box
+    is useful before anyone types."""
+    from the_warroom.views import _tournament_profile_search
+
+    tournament = _get_managed_tournament(request, slug)
+    query = (request.GET.get('q') or '').strip()
+    exclude = [s.strip() for s in (request.GET.get('exclude') or '').split(',') if s.strip()]
+    # Null slugs are excluded: the add button is keyed on the slug.
+    players = _tournament_profile_search(
+        tournament, query, Q(slug__in=exclude) | Q(slug__isnull=True),
+    ).distinct().order_by('display_name')[:2]
+    return render(request, 'the_gatehouse/partials/compare_player_search_results.html', {
+        'players': players,
+        'query': query,
+    })
 
 
 def player_required_class_based_view(view_class):

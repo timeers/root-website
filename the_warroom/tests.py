@@ -5309,3 +5309,184 @@ class GameDeleteUnwindsLFGThreadTests(TestCase):
         game.delete()
 
         self.assertEqual(cleanup_stale_lfg_threads(dry_run=True), 0)
+
+
+class TournamentAvailabilityPageTests(_AvailabilityFixtureMixin, TestCase):
+    """series/<slug>/availability/compare/ -- the compare page with a roster the
+    tournament's host or moderators pick, via search / add / remove."""
+
+    def setUp(self):
+        super().setUp()
+        self.url = reverse('tournament-availability', kwargs={'slug': self.tournament.slug})
+        self.week_url = reverse('tournament-availability-week-data',
+                                kwargs={'slug': self.tournament.slug})
+        self.search_url = reverse('tournament-availability-search',
+                                  kwargs={'slug': self.tournament.slug})
+        self.host = self._onboarded("host")
+        self.tournament.designer = self.host
+        self.tournament.save(update_fields=["designer"])
+
+    def _onboarded(self, username):
+        user = User.objects.create_user(username=username, password="x")
+        profile = user.profile
+        profile.group = Profile.GroupChoices.PLAYER
+        profile.player_onboard = True
+        profile.save()
+        return profile
+
+    def _login(self, profile):
+        self.client.force_login(profile.user)
+
+    def _outsider(self, name="outsider"):
+        """A profile with hours but no TournamentPlayer in this tournament."""
+        profile = self._onboarded(name)
+        # A display name distinct from the slug: the slug legitimately appears in
+        # the requested URL (og:url), the name must not appear anywhere.
+        profile.display_name = f"{name} Secret Name"
+        profile.save(update_fields=["display_name"])
+        PlayerSchedule.objects.create(
+            profile=profile, tournament=None, available_hours=self.A_HOURS)
+        return profile
+
+    # ── access ───────────────────────────────────────────────────────────────
+    def test_host_moderator_and_admin_can_open_it(self):
+        mod = self._onboarded("mod")
+        self.tournament.moderators.add(mod)
+        admin = self._onboarded("site_admin")
+        admin.group = Profile.GroupChoices.ADMIN
+        admin.save(update_fields=["group"])
+        for profile in (self.host, mod, admin):
+            with self.subTest(profile=profile.user.username):
+                self._login(profile)
+                self.assertEqual(self.client.get(self.url).status_code, 200)
+
+    def test_a_plain_tournament_player_is_refused_everywhere(self):
+        tp = self._player("plain", hours=self.A_HOURS)
+        tp.profile.group = Profile.GroupChoices.PLAYER
+        tp.profile.player_onboard = True
+        tp.profile.save()
+        self._login(tp.profile)
+        for url in (self.url, self.week_url, self.search_url):
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 403)
+
+    # ── roster ───────────────────────────────────────────────────────────────
+    def test_an_empty_roster_still_renders_the_search(self):
+        self._login(self.host)
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['player_count'], 0)
+        self.assertContains(response, 'id="player-search"')
+        self.assertContains(response, 'id="player-empty"')
+        self.assertNotContains(response, "There are no players to compare yet")
+
+    def test_players_outside_the_tournament_are_dropped(self):
+        a = self._player("in_a", hours=self.A_HOURS)
+        outsider = self._outsider()
+        self._login(self.host)
+        players = f"{a.profile.slug},{outsider.slug},no-such-slug"
+
+        response = self.client.get(self.url, {'players': players})
+        self.assertEqual([p['profile'].id for p in response.context['players']],
+                         [a.profile_id])
+        self.assertNotIn(str(outsider.id), response.context['player_hours_json'])
+        self.assertNotContains(response, outsider.display_name)
+        self.assertNotIn(str(outsider.id), response.context['player_names_json'])
+        self.assertEqual(response.context['roster_slugs'], [a.profile.slug])
+        self.assertEqual(response.context['dropped_count'], 2)
+        self.assertIn("left out", response.context['dropped_label'])
+
+        data = self.client.get(self.week_url, {'players': players}).json()
+        self.assertEqual(data['roster_slugs'], [a.profile.slug])
+        self.assertEqual(data['dropped_count'], 2)
+        self.assertNotIn(str(outsider.id), data['player_hours_json'])
+
+    def test_week_data_redraws_the_list_with_remove_buttons(self):
+        a = self._player("wd_a", hours=self.A_HOURS)
+        b = self._player("wd_b", hours=self.B_HOURS)
+        self._login(self.host)
+        data = self.client.get(
+            self.week_url, {'players': f"{a.profile.slug},{b.profile.slug}"}).json()
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['player_count'], 2)
+        self.assertEqual(data['player_count_label'], "2 Players")
+        for tp in (a, b):
+            self.assertIn(f'data-remove-player="{tp.profile.slug}"',
+                          data['player_list_html'])
+
+    def test_tournament_schedules_take_precedence(self):
+        a = self._player("prec_a", hours=self.A_HOURS, tournament_hours=self.C_HOURS)
+        self._login(self.host)
+        response = self.client.get(self.url, {'players': a.profile.slug})
+        self.assertEqual(response.context['players'][0]['hour_count'],
+                         len(self.C_HOURS))
+
+    # ── search ───────────────────────────────────────────────────────────────
+    def test_search_covers_every_status_and_skips_the_roster(self):
+        reg = self._player("srch_reg")
+        wait = self._player("srch_wait")
+        elim = self._player("srch_elim")
+        TournamentPlayer.objects.filter(pk=wait.pk).update(
+            status=TournamentPlayer.StatusChoices.WAITLIST)
+        TournamentPlayer.objects.filter(pk=elim.pk).update(
+            status=TournamentPlayer.StatusChoices.ELIMINATED)
+        outsider = self._outsider("srch_out")
+        self._login(self.host)
+
+        response = self.client.get(
+            self.search_url, {'q': 'srch', 'exclude': reg.profile.slug})
+        html = response.content.decode()
+        self.assertNotIn(f'data-add-player="{reg.profile.slug}"', html)
+        self.assertIn(f'data-add-player="{wait.profile.slug}"', html)
+        self.assertIn(f'data-add-player="{elim.profile.slug}"', html)
+        self.assertNotIn(f'data-add-player="{outsider.slug}"', html)
+        # The compare variant of the shared card: a +, never the trash button.
+        self.assertNotIn("bi-trash", html)
+
+    def test_an_empty_search_lists_players_and_skips_null_slugs(self):
+        a = self._player("empty_a")
+        nameless = self._player("empty_b")
+        Profile.objects.filter(pk=nameless.profile_id).update(slug=None)
+        self._login(self.host)
+        html = self.client.get(self.search_url).content.decode()
+        self.assertIn(f'data-add-player="{a.profile.slug}"', html)
+        self.assertNotIn('data-add-player="None"', html)
+
+    def test_players_sort_by_timezone_then_name(self):
+        """West to east by UTC offset, then alphabetically; no timezone last.
+        Hours play no part, so the list doesn't reshuffle between weeks."""
+        rows = [
+            ("tz_tokyo", "Asia/Tokyo", self.A_HOURS),
+            ("tz_ny_b", "America/New_York", self.C_HOURS),
+            ("tz_none", None, self.B_HOURS),
+            ("tz_la", "America/Los_Angeles", []),
+            ("tz_ny_a", "America/New_York", self.A_HOURS),
+        ]
+        slugs = []
+        for name, tz, hours in rows:
+            tp = self._player(name, hours=hours)
+            Profile.objects.filter(pk=tp.profile_id).update(
+                timezone=tz, display_name=name)
+            slugs.append(tp.profile.slug)
+        self._login(self.host)
+        response = self.client.get(self.url, {'players': ','.join(slugs)})
+        self.assertEqual(
+            [p['profile'].display_name for p in response.context['players']],
+            ["tz_la", "tz_ny_a", "tz_ny_b", "tz_tokyo", "tz_none"])
+
+    def test_search_shows_only_the_top_two(self):
+        for name in ("top_a", "top_b", "top_c"):
+            self._player(name)
+        self._login(self.host)
+        html = self.client.get(self.search_url, {'q': 'top_'}).content.decode()
+        self.assertEqual(html.count('data-add-player='), 2)
+
+    # ── entry point ──────────────────────────────────────────────────────────
+    def test_the_settings_hub_links_to_it(self):
+        mod = self._onboarded("hub_mod")
+        self.tournament.moderators.add(mod)
+        hub = reverse('tournament-settings', kwargs={'slug': self.tournament.slug})
+        for profile in (self.host, mod):
+            with self.subTest(profile=profile.user.username):
+                self._login(profile)
+                self.assertContains(self.client.get(hub), self.url)

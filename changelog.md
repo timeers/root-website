@@ -2,6 +2,9 @@
 
 ## [1.13.13] - 2026-10-2 Hoot 4 Improvements
 
+### New Features
+- New Series Compare Availability page for Series moderators to compare start times between selected players in the series
+
 ### Improvements
 - Game threads now receive a message that pings the players and match mod when the game is scheduled
 - /schedule set now directly sets the time of the match instead of polling

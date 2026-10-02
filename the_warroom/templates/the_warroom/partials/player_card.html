@@ -37,6 +37,12 @@
                 <i class="bi bi-plus-circle"></i> Add
             </button>
             {% endif %}
+        {% elif group == 'compare' %}
+            {% comment %} The tournament availability compare page's search. Keyed on
+            the slug, which is what its ?players= roster carries. {% endcomment %}
+            <button type="button" class="btn btn-link p-0 lh-1 text-success text-decoration-none js-add-player-btn" data-add-player="{{ player.slug }}" title="Add to comparison" aria-label="Add {{ player.display_name }} to comparison">
+                <i class="bi bi-plus-circle"></i>
+            </button>
         {% elif group == 'players' %}
             <button class="btn btn-outline-warning" onclick="movePlayer({{ player.id }}, 'players', 'waitlist')" title="Move to waitlist">
                 <i class="bi bi-clock"></i>
@@ -59,7 +65,7 @@
                 <i class="bi bi-clock"></i>
             </button>
         {% endif %}
-        {% if group != 'available' and group != 'available_round' %}
+        {% if group != 'available' and group != 'available_round' and group != 'compare' %}
         <button class="btn btn-outline-secondary" onclick="movePlayer({{ player.id }}, '{{group}}', '')" title="Remove">
             <i class="bi bi-trash"></i>
         </button>

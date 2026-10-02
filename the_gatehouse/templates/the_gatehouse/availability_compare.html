@@ -30,18 +30,21 @@ is nothing worth indexing. {% endcomment %}
           the two buttons need ~313px and a 375px phone only leaves ~311px inside
           the card's padding, so without flex-wrap they would overflow it.
           {% endcomment %}
-          {% if back_url or edit_url %}
+          {% comment %} The editable page always renders the row: "My Availability"
+          appears there once the moderator adds THEMSELVES, without a reload. {% endcomment %}
+          {% if back_url or edit_url or roster_editable %}
             <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
               {% if back_url %}
                 <a href="{{ back_url }}" class="databot-btn databot-btn-outline avail-btn-compact">
-                  <i class="bi bi-arrow-left me-1"></i><span class="d-none d-sm-inline">{% trans 'Back to Matches' %}</span><span class="d-sm-none">{% trans 'Matches' %}</span>
+                  <i class="bi bi-arrow-left me-1"></i>{% if back_label == 'settings' %}<span class="d-none d-sm-inline">{% trans 'Back to Settings' %}</span><span class="d-sm-none">{% trans 'Settings' %}</span>{% else %}<span class="d-none d-sm-inline">{% trans 'Back to Matches' %}</span><span class="d-sm-none">{% trans 'Matches' %}</span>{% endif %}
                 </a>
               {% endif %}
-              {% if edit_url %}
-                <a href="{{ edit_url }}" id="my-availability-link" class="databot-btn databot-btn-primary avail-btn-compact ms-auto">
-                  <i class="bi bi-pencil me-1"></i>{% trans 'My Availability' %}
-                </a>
-              {% endif %}
+              {% comment %} Always rendered, hidden without an edit_url, so the script
+              can show or hide it as the roster changes. {% endcomment %}
+              <a href="{{ edit_url|default:'#' }}" id="my-availability-link" class="databot-btn databot-btn-primary avail-btn-compact ms-auto"
+                 {% if not edit_url %}hidden{% endif %}>
+                <i class="bi bi-pencil me-1"></i>{% trans 'My Availability' %}
+              </a>
             </div>
           {% endif %}
           <h1 class="info-card-title mb-1">
@@ -80,7 +83,7 @@ is nothing worth indexing. {% endcomment %}
             {% endif %}
           </div>
         </div>
-      {% elif not players %}
+      {% elif not players and not roster_editable %}
         <div class="info-card">
           <div class="info-card-body">
             <div class="alert alert-secondary mb-0">
@@ -89,7 +92,7 @@ is nothing worth indexing. {% endcomment %}
             </div>
           </div>
         </div>
-      {% elif not has_any_availability %}
+      {% elif not has_any_availability and not roster_editable %}
         <div class="info-card">
           <div class="info-card-body">
             <div class="alert alert-secondary">
@@ -142,49 +145,41 @@ is nothing worth indexing. {% endcomment %}
 
               <div class="compare-pane compare-pane--players">
               <div class="d-flex justify-content-between align-items-center flex-wrap mb-2 gap-2">
-                <h2 class="info-card-title h6 mb-0">
-                  {% blocktrans count counter=player_count %}{{ counter }} Player{% plural %}{{ counter }} Players{% endblocktrans %}
-                </h2>
+                <h2 class="info-card-title h6 mb-0" id="player-count">{{ player_count_label }}</h2>
                 <div class="d-flex gap-1">
                   <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" data-select="all">{% trans 'All' %}</button>
                   <button type="button" class="databot-btn databot-btn-outline avail-btn-compact" data-select="none">{% trans 'None' %}</button>
                 </div>
               </div>
 
+              {% if roster_editable %}
+                <div id="roster-notice" class="small text-muted mb-1" role="status"
+                     {% if not dropped_label %}hidden{% endif %}>{{ dropped_label|default:'' }}</div>
+                <p id="player-empty" class="text-muted small mb-1" {% if players %}hidden{% endif %}>
+                  {% trans 'Search for players to compare their availability.' %}
+                </p>
+              {% endif %}
+
               <ul class="list-unstyled mb-0" id="player-list">
-                {% for p in players %}
-                  {% comment %} data-player-id is the handle the grid's hover /
-                  click highlight reaches these rows by. The only other
-                  per-player id is on the checkbox, which would mean walking up
-                  to the row on every cell. {% endcomment %}
-                  <li class="player-row d-flex align-items-center gap-2 py-1 mb-1"
-                      data-player-id="{{ p.profile.id }}"
-                      {% if not p.has_schedule %}data-no-schedule="1"{% endif %}>
-                    <input class="form-check-input mt-0 player-toggle" type="checkbox"
-                           id="player-{{ p.profile.id }}" value="{{ p.profile.id }}"
-                           {% if p.has_schedule %}checked{% else %}disabled{% endif %}>
-                    <label class="d-flex align-items-center gap-2 flex-grow-1 mb-0" for="player-{{ p.profile.id }}"
-                           style="min-width:0; cursor:{% if p.has_schedule %}pointer{% else %}default{% endif %};">
-                      {% if p.profile.image %}
-                        <img src="{{ p.profile.image.url }}" alt="" class="rounded-circle" style="width:24px;height:24px;">
-                      {% else %}
-                        <i class="bi bi-person-circle"></i>
-                      {% endif %}
-                      <span class="text-truncate">{{ p.profile.display_name }}</span>
-                      {% if p.profile.display_timezone and p.profile.timezone %}
-                        <span class="badge text-bg-light" title="{{ p.profile.timezone }}">{{ p.profile.timezone_code }}</span>
-                      {% endif %}
-                      {% if p.is_viewer %}<span class="badge text-bg-secondary">{% trans 'You' %}</span>{% endif %}
-                    </label>
-                    {% if p.has_schedule %}
-                      <small class="text-muted">{{ p.hour_count }}h</small>
-                    {% else %}
-                      <small class="text-muted fst-italic">{% trans 'none' %}</small>
-                    {% endif %}
-                  </li>
-                {% endfor %}
+                {% include 'the_gatehouse/partials/compare_player_rows.html' %}
               </ul>
               </div>
+
+              {% if roster_editable %}
+                <hr class="card-section-divider">
+                {% comment %} Search the tournament's players; the green + on a result
+                adds them, the red X on a row removes them. Both redraw the whole page
+                through the same fetch the week arrows use. Its own fixed-height pane, like
+                Legend and Players, sized to fit the input plus the two results the
+                search returns, so nothing in it scrolls. Below the list, so the
+                players it adds appear just above where they were picked. {% endcomment %}
+                <div class="compare-pane compare-pane--search">
+                  <input type="text" id="player-search" class="form-control form-control-sm"
+                         placeholder="{% trans 'Search tournament players…' %}" autocomplete="off"
+                         aria-label="{% trans 'Search tournament players' %}">
+                  <div id="player-search-results" class="compare-search-results mt-1"></div>
+                </div>
+              {% endif %}
 
               </div>
 
@@ -411,6 +406,56 @@ is nothing worth indexing. {% endcomment %}
       min-height: 0;
       overflow-y: auto;
     }
+    /* The editable (tournament) page adds a Search pane. Its height comes out of
+       the PLAYERS share, never the legend's or the card's: legend keeps its
+       1/3, search takes exactly its fixed height, and players take whatever is
+       left. The card is still the grid card's height, so the page grows by
+       nothing. */
+    .compare-pane--search {
+      flex: 0 0 var(--compare-search-h);
+    }
+    .compare-left-body:has(.compare-pane--search) .compare-pane--legend {
+      flex: 0 1 33%;
+    }
+    .compare-left-body:has(.compare-pane--search) .compare-pane--players {
+      flex: 1 1 0;
+    }
+  }
+
+  /* Search pane, at every width: the input plus at most TWO result cards (the
+     search endpoint returns no more), so it never needs to scroll. Fixed rather
+     than content-sized so the panes below don't jump as the result count goes
+     0 -> 1 -> 2 while typing. The value is one small input (~1.94rem) + its
+     0.25rem gap + two compact player cards (~2rem each with border and the
+     button's line box, + 0.25rem margin). Tuned by eye in the browser: 6.25rem
+     clipped the second card's bottom edge, 6.5rem fits it exactly. */
+  .compare-left-body {
+    --compare-search-h: 6.5rem;
+  }
+  .compare-pane--search {
+    height: var(--compare-search-h);
+    overflow: hidden;
+  }
+  /* The shared player card (the_warroom/partials/player_card.html), made compact
+     HERE ONLY: every selector is scoped to .compare-search-results, which exists
+     only on this page, so the player-management searches using the same card
+     keep their normal size. !important because Bootstrap's p-2/mb-2 utilities on
+     the card are themselves !important. */
+  .compare-search-results .player-card {
+    padding-top: 0.25rem !important;
+    padding-bottom: 0.25rem !important;
+    margin-bottom: 0.25rem !important;
+    font-size: 0.875rem;
+  }
+  .compare-search-results .md-avatar-icon {
+    width: 20px;
+    height: 20px;
+  }
+  .compare-search-results .bi-person-circle {
+    font-size: 1.1rem !important;   /* inline 1.5rem on the card */
+  }
+  .compare-search-results .js-add-player-btn {
+    font-size: 1rem;
   }
 
   /* Mobile: the card stacks above the grid with no h-100 partner to split, so
@@ -424,6 +469,10 @@ is nothing worth indexing. {% endcomment %}
       height: 20vh;
       overflow-y: auto;
     }
+    /* Players keeps its full 20vh here, and the search pane's fixed height is
+       ADDED to the page rather than taken out of it (unlike desktop, where it
+       comes out of the players' share). On a phone 20vh is barely more than the
+       search pane alone, so subtracting it left about two visible rows. */
   }
 
   /* Discord dynamic-timestamp copy pill in the click-detail panel: a grey
@@ -452,12 +501,17 @@ is nothing worth indexing. {% endcomment %}
 {% endblock styles %}
 
 {% block scripts %}
+{{ compare_config|json_script:"compare-config" }}
 {{ player_hours_json|json_script:"player-hours" }}
 {{ player_names_json|json_script:"player-names" }}
 <script>
 (function () {
   var gridContainer = document.getElementById('compare-grid-container');
   if (!gridContainer) { return; }
+
+  // URLs and roster state from the view (see _compare_page_context) -- one script
+  // serves both the read-only page and the tournament page's editable roster.
+  var CONFIG = JSON.parse(document.getElementById('compare-config').textContent);
 
   // {profile_id: [local hour-of-week, ...]} -- already converted server-side, so
   // no timezone maths happens in here. Reassigned on every week-switch, since
@@ -514,11 +568,17 @@ is nothing worth indexing. {% endcomment %}
   indexGrid();
   indexPlayerHours();
 
-  var toggles = Array.prototype.slice.call(document.querySelectorAll('.player-toggle'));
+  // Queried live, not cached: the player list is re-rendered wholesale on a
+  // week-switch and on every add/remove (applyState), which detaches old rows.
+  function toggles() {
+    return Array.prototype.slice.call(document.querySelectorAll('.player-toggle'));
+  }
   var legend = document.getElementById('heat-legend');
   var summary = document.getElementById('summary-line');
   var detail = document.getElementById('cell-detail');
-  var playerRows = Array.prototype.slice.call(document.querySelectorAll('.player-row'));
+  function playerRows() {
+    return Array.prototype.slice.call(document.querySelectorAll('.player-row'));
+  }
   var focusedCell = null;
 
   // Each row's hour badge is stale after a week-switch reassigns PLAYER_HOURS
@@ -530,7 +590,7 @@ is nothing worth indexing. {% endcomment %}
   // row at all -- that never changes with the week being viewed, so their
   // disabled "none" row is left completely untouched.
   function updatePlayerHourLabels() {
-    playerRows.forEach(function (row) {
+    playerRows().forEach(function (row) {
       if (row.dataset.noSchedule) { return; }
       var hourCount = (PLAYER_HOURS[row.dataset.playerId] || []).length;
       var badge = row.querySelector('small');
@@ -548,7 +608,7 @@ is nothing worth indexing. {% endcomment %}
   var BUCKET_CLASSES = ['heat-0', 'heat-1', 'heat-2', 'heat-3', 'heat-far'];
 
   function checkedIds() {
-    return toggles.filter(function (t) { return t.checked; })
+    return toggles().filter(function (t) { return t.checked; })
                   .map(function (t) { return t.value; });
   }
 
@@ -663,7 +723,7 @@ is nothing worth indexing. {% endcomment %}
     // `cell` null clears. Ids arrive as JSON object keys, so they are strings --
     // the dataset value is too, which is why this compares without coercion.
     var free = cell ? freeAtCell(cell) : [];
-    playerRows.forEach(function (row) {
+    playerRows().forEach(function (row) {
       row.classList.toggle('is-free',
                            free.indexOf(row.dataset.playerId) !== -1);
     });
@@ -818,12 +878,18 @@ is nothing worth indexing. {% endcomment %}
     }).catch(function () { alert('{% trans "Failed to copy timestamp." %}'); });
   });
 
-  toggles.forEach(function (t) { t.addEventListener('change', render); });
+  // Delegated on the list itself, which survives every re-render of its rows.
+  var playerList = document.getElementById('player-list');
+  if (playerList) {
+    playerList.addEventListener('change', function (e) {
+      if (e.target.classList.contains('player-toggle')) { render(); }
+    });
+  }
 
   document.querySelectorAll('[data-select]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var on = btn.dataset.select === 'all';
-      toggles.forEach(function (t) { if (!t.disabled) { t.checked = on; } });
+      toggles().forEach(function (t) { if (!t.disabled) { t.checked = on; } });
       render();
     });
   });
@@ -861,7 +927,6 @@ is nothing worth indexing. {% endcomment %}
   // mouseleave fires once on leaving the list instead of on every row-to-row
   // move. Purely additive -- it never touches the pinned cell or the row
   // highlights, so a player preview and a pinned hour can be read at once.
-  var playerList = document.getElementById('player-list');
   if (playerList) {
     playerList.addEventListener('mouseover', function (e) {
       var row = e.target.closest('.player-row');
@@ -890,21 +955,68 @@ is nothing worth indexing. {% endcomment %}
   // the single-user page's week navigator. No General/Weekly tabs here --
   // this page always shows one specific real week (defaulting server-side to
   // the current one), so there is nothing to switch modes between.
+  //
+  // The tournament page's add/remove reuses this exact path: a roster change is
+  // just a re-fetch of the current week with a different ?players=, so every
+  // place a player appears is redrawn from one response.
   var navigator_ = document.getElementById('compare-week-navigator');
   var weekLabel = document.getElementById('compare-week-label');
+  var playerCount = document.getElementById('player-count');
+  var playerEmpty = document.getElementById('player-empty');
+  var rosterNotice = document.getElementById('roster-notice');
+  var currentWeek = CONFIG.weekStart;
 
-  // Set once at load from whichever roster params the page was opened with --
-  // these never change client-side (switching series/lfg/players is a
-  // separate full-page link elsewhere), so this never goes stale mid-session.
+  // The roster params the page was opened with (series / lfg / players). Fixed
+  // on the read-only page; on the editable page `players` changes with every
+  // add/remove (setRoster).
   var rosterParams = new URLSearchParams(window.location.search);
   rosterParams.delete('week');
 
-  function pushUrl(data) {
+  function currentRoster() {
+    return (rosterParams.get('players') || '').split(',').filter(Boolean);
+  }
+
+  function setRoster(slugs) {
+    if (!CONFIG.editable) { return; }
+    if (slugs && slugs.length) { rosterParams.set('players', slugs.join(',')); }
+    else { rosterParams.delete('players'); }
+  }
+
+  // mode: 'push' (a week arrow -- Back returns to it), 'replace' (a roster
+  // change or URL cleanup -- no Back entry per click), or 'none' (popstate,
+  // which is already AT that history entry).
+  function writeUrl(mode) {
+    if (mode === 'none') { return; }
     var params = new URLSearchParams(rosterParams);
-    if (data.week_start) { params.set('week', data.week_start); }
+    if (currentWeek) { params.set('week', currentWeek); }
     var qs = params.toString();
     var url = window.location.pathname + (qs ? '?' + qs : '');
-    history.pushState({ week: data.week_start }, '', url);
+    var state = { week: currentWeek };
+    if (mode === 'replace') { history.replaceState(state, '', url); }
+    else { history.pushState(state, '', url); }
+  }
+
+  function showRosterNotice(label) {
+    if (!rosterNotice) { return; }
+    rosterNotice.textContent = label || '';
+    rosterNotice.hidden = !label;
+  }
+
+  function swapPlayerList(data) {
+    if (!playerList || data.player_list_html === undefined) { return; }
+    // Keep whoever the viewer unticked unticked; anyone new arrives ticked (or
+    // disabled, with no schedule at all), exactly as on first load.
+    var unchecked = toggles().filter(function (t) {
+      return !t.checked && !t.disabled;
+    }).map(function (t) { return t.value; });
+    playerList.innerHTML = data.player_list_html;
+    toggles().forEach(function (t) {
+      if (!t.disabled && unchecked.indexOf(t.value) !== -1) { t.checked = false; }
+    });
+    if (playerCount && data.player_count_label) {
+      playerCount.textContent = data.player_count_label;
+    }
+    if (playerEmpty) { playerEmpty.hidden = data.player_count > 0; }
   }
 
   function applyState(data) {
@@ -914,6 +1026,7 @@ is nothing worth indexing. {% endcomment %}
     PLAYER_HOURS = data.player_hours_json || {};
     NAMES = data.player_names_json || {};
     indexPlayerHours();
+    swapPlayerList(data);
     updatePlayerHourLabels();
 
     // A week-switch drops whatever was pinned/hovered -- the old cell nodes
@@ -922,6 +1035,7 @@ is nothing worth indexing. {% endcomment %}
     focusedCell = null;
     clearDetail();
 
+    currentWeek = data.week_start;
     weekLabel.textContent = data.week_label;
 
     var prevBtn = document.getElementById('compare-nav-prev');
@@ -933,44 +1047,143 @@ is nothing worth indexing. {% endcomment %}
     nextBtn.dataset.week = data.next_week || data.default_week;
 
     // Keep "My Availability" pointed at whichever week is now showing, so
-    // it always opens straight to that week's own editable grid.
+    // it always opens straight to that week's own editable grid -- and on the
+    // editable page, appearing/disappearing as the viewer adds or removes
+    // themselves.
     var editLink = document.getElementById('my-availability-link');
-    if (editLink && data.edit_url) { editLink.href = data.edit_url; }
+    if (editLink) {
+      editLink.hidden = !data.edit_url;
+      if (data.edit_url) { editLink.href = data.edit_url; }
+    }
+
+    if (CONFIG.editable) {
+      // The server drops anyone who isn't in the tournament; take its kept list
+      // so they leave the URL too, rather than riding along on every fetch.
+      setRoster(data.roster_slugs || []);
+      showRosterNotice(data.dropped_label);
+    }
 
     render();
   }
 
-  async function goToWeek(weekValue) {
+  // Each fetch is numbered; only the newest may paint. Two quick + clicks can
+  // otherwise come back out of order and leave the older roster on screen.
+  var requestSeq = 0;
+
+  async function goToWeek(weekValue, historyMode) {
     var params = new URLSearchParams(rosterParams);
     if (weekValue && weekValue !== 'general') { params.set('week', weekValue); }
+    var seq = ++requestSeq;
 
     var response;
     try {
-      response = await fetch("{% url 'availability-compare-week-data' %}?" + params.toString());
+      response = await fetch(CONFIG.weekDataUrl + '?' + params.toString());
     } catch (err) {
       return;
     }
-    if (!response.ok) { return; }
+    if (!response.ok || seq !== requestSeq) { return; }
     var data = await response.json();
-    if (!data.ok) { return; }
+    if (!data.ok || seq !== requestSeq) { return; }
     applyState(data);
-    pushUrl(data);
+    writeUrl(historyMode || 'push');
+  }
+
+  function refresh() {
+    return goToWeek(currentWeek, 'replace');
   }
 
   if (navigator_) {
     navigator_.addEventListener('click', function (e) {
       var btn = e.target.closest('button[data-week]');
       if (!btn || btn.hidden) { return; }
-      goToWeek(btn.dataset.week);
+      goToWeek(btn.dataset.week, 'push');
     });
   }
 
-  // A browser Back/Forward through pushState'd week changes re-fetches that
-  // week's state rather than reloading the page.
+  // A browser Back/Forward re-fetches that entry's state rather than reloading
+  // the page -- roster included, so the grid never disagrees with the URL.
   window.addEventListener('popstate', function () {
     var params = new URLSearchParams(window.location.search);
-    goToWeek(params.get('week') || 'general');
+    setRoster((params.get('players') || '').split(',').filter(Boolean));
+    goToWeek(params.get('week') || 'general', 'none');
   });
+
+  // ---- Editable roster: search / add / remove ------------------------------
+  if (CONFIG.editable) {
+    var searchInput = document.getElementById('player-search');
+    var searchResults = document.getElementById('player-search-results');
+    var searchTimer = null;
+    var searchSeq = 0;
+
+    // Clean the URL of anyone the server dropped on first load, and say so.
+    setRoster(CONFIG.rosterSlugs || []);
+    writeUrl('replace');
+    showRosterNotice(CONFIG.droppedLabel);
+
+    async function runSearch() {
+      if (!searchResults || !CONFIG.searchUrl) { return; }
+      var params = new URLSearchParams({
+        q: searchInput ? searchInput.value.trim() : '',
+        exclude: currentRoster().join(','),
+      });
+      var seq = ++searchSeq;
+      var response;
+      try {
+        response = await fetch(CONFIG.searchUrl + '?' + params.toString());
+      } catch (err) {
+        return;
+      }
+      if (!response.ok || seq !== searchSeq) { return; }
+      var html = await response.text();
+      if (seq === searchSeq) { searchResults.innerHTML = html; }
+    }
+
+    async function changeRoster(slugs) {
+      setRoster(slugs);
+      await refresh();
+      runSearch();
+    }
+
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(runSearch, 300);
+      });
+      // Enter adds the top result, as on the player-management pages.
+      searchInput.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') { return; }
+        e.preventDefault();
+        var first = searchResults && searchResults.querySelector('.js-add-player-btn');
+        if (first) { first.click(); }
+      });
+    }
+
+    if (searchResults) {
+      searchResults.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-add-player]');
+        if (!btn) { return; }
+        var slug = btn.dataset.addPlayer;
+        var roster = currentRoster();
+        if (slug && roster.indexOf(slug) === -1) { roster.push(slug); }
+        // Drop the card at once so a double-click can't queue it twice.
+        var card = btn.closest('.player-card');
+        if (card) { card.remove(); }
+        changeRoster(roster);
+        if (searchInput) { searchInput.focus(); }
+      });
+    }
+
+    if (playerList) {
+      playerList.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-remove-player]');
+        if (!btn) { return; }
+        var slug = btn.dataset.removePlayer;
+        changeRoster(currentRoster().filter(function (s) { return s !== slug; }));
+      });
+    }
+
+    runSearch();
+  }
 })();
 </script>
 {% endblock scripts %}
