@@ -324,7 +324,7 @@ SCHEDULE_SUBCOMMANDS = [
             # the user TYPES, which is a different namespace from whitelist_key
             # above -- the two deliberately disagree here.
             {"name": "timezone",
-             "description": "Override your saved timezone (otherwise I'll just ask)",
+             "description": "Rarely needed. Only fill on first use or if TZ isn't in the picker",
              "type": 3, "required": False, "autocomplete": True},
         ],
     },
@@ -341,7 +341,7 @@ SCHEDULE_SUBCOMMANDS = [
              "description": 'e.g. "4pm", "tomorrow 4pm", "Mar 15 8pm", or a <t:...> paste',
              "type": 3, "required": True},
             {"name": "timezone",
-             "description": "Override your saved timezone (otherwise I'll just ask)",
+             "description": "Rarely needed. Only fill on first use or if TZ isn't in the picker",
              "type": 3, "required": False, "autocomplete": True},
         ],
     },
@@ -384,7 +384,7 @@ TIMESTAMP_COMMAND = {
         # NOTE its autocomplete is keyed ("timestamp", "timezone") -- a TOP-LEVEL
         # command, so the bare name is the key, unlike /schedule set's composite.
         {"name": "timezone",
-         "description": "Override your saved timezone (otherwise I'll just ask)",
+         "description": "Rarely needed. Only fill on first use or if TZ isn't in the picker",
          "type": 3, "required": False, "autocomplete": True},
     ],
 }

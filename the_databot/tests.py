@@ -413,6 +413,41 @@ class ScheduleInputMarkerTests(TestCase):
         self.assertEqual(di._schedule_input_text({"message": {"content": "nothing"}}), "")
         self.assertEqual(di._schedule_input_text({}), "")
 
+    def test_a_trailing_timezone_line_does_not_disturb_the_carrier(self):
+        """The regex is line-anchored, so a line AFTER the carrier is invisible to
+        it -- which is exactly why the timezone subtext goes on its own line rather
+        than being appended to this one."""
+        content = "\n".join([
+            "Pick a region.",
+            di._schedule_input_line("Mar 15 8pm"),
+            di._schedule_tz_line("America/New_York"),
+        ])
+        self.assertEqual(
+            di._schedule_input_text({"message": {"content": content}}),
+            "Mar 15 8pm")
+
+
+class ScheduleTimezoneLineTests(TestCase):
+    """The subtext line naming the zone a time was read in."""
+
+    def test_it_renders_the_described_zone(self):
+        line = di._schedule_tz_line("America/New_York", at=NOW)
+        self.assertEqual(line, "-# Timezone: New York (US Eastern) — UTC-4")
+
+    def test_the_offset_is_the_one_in_effect_at_that_instant(self):
+        """Not today's offset: a booking across a DST boundary would read an hour
+        wrong. Same `at` contract as the line this replaced."""
+        january = datetime(2027, 1, 15, 20, 0, tzinfo=dt_timezone.utc)
+        self.assertIn("UTC-5", di._schedule_tz_line("America/New_York", at=january))
+        self.assertIn("UTC-4", di._schedule_tz_line("America/New_York", at=NOW))
+
+    def test_an_unusable_zone_renders_nothing(self):
+        """None rather than a half-built line, so callers drop it with a plain
+        truthiness check."""
+        for zone in (None, "", "Not/AZone"):
+            with self.subTest(zone=zone):
+                self.assertIsNone(di._schedule_tz_line(zone, at=NOW))
+
 
 class ScheduleFixtureMixin:
     """A tournament with one stage, round, group, series and match, plus a guild
@@ -1073,16 +1108,24 @@ class ScheduleHandlerTests(ScheduleFixtureMixin, TestCase):
 
 
 class ScheduleConfirmTests(ScheduleFixtureMixin, TestCase):
-    """The DIRECT-write Confirm path: no roster to poll, so the invoker's click
-    sets the time. The consensus path (a roster exists) is covered by
-    ScheduleProposalFlowTests -- see ScheduleConsensusGateTests for the gate."""
+    """The DIRECT-write Confirm path, reached by turning confirmation OFF.
+
+    That flag is the only thing deciding this now -- NOT the roster, and NOT whether
+    the clicker is a moderator. With it on, every click opens a moderator request
+    instead (ScheduleProposalCommandTests); with it off, whoever passes can_schedule
+    writes the time."""
 
     def setUp(self):
         self.build()
-        # Drop the seat so _match_roster finds nobody: with either group members
-        # or seats present, Confirm now opens a proposal instead of writing.
-        # That also un-seats self.player, so these payloads are owned by the GROUP
-        # MODERATOR, whose can_schedule permission doesn't depend on a seat.
+        # Confirmation off: these tests are about the write itself, so the request
+        # detour has to be out of the way. Dropping the seat is NOT enough any more
+        # -- an empty roster used to mean "nobody to poll, so just write", but the
+        # flag no longer consults the roster at all.
+        self.tournament.require_participant_schedule_confirmation = False
+        self.tournament.save(
+            update_fields=["require_participant_schedule_confirmation"])
+        # Un-seats self.player, so these payloads are owned by the GROUP MODERATOR,
+        # whose can_schedule permission doesn't depend on a seat.
         MatchSeat.objects.filter(series=self.series).delete()
         self.when = (timezone.now() + timedelta(days=10)).replace(microsecond=0)
         self.ts = int(self.when.timestamp())
@@ -1471,15 +1514,34 @@ class ScheduleConfirmDisplayTests(ScheduleFixtureMixin, TestCase):
             self.match, self.when, self.player.discord_id, **kwargs)
         return data, [c["custom_id"] for c in data["components"][0]["components"]]
 
-    def test_confirmation_shows_the_timezone(self):
+    def test_confirmation_shows_the_timezone_as_subtext(self):
+        """The zone is reference information, not the subject of the message, so it
+        rides in the small grey subtext block rather than as a sentence competing
+        with the time."""
         data, _ = self._buttons(tz_name=TZ, time_text="Sep 15 2026 8pm")
-        self.assertIn("New York", data["content"])
+        self.assertIn("-# Timezone: New York", data["content"])
         self.assertIn("UTC-", data["content"])
+        self.assertNotIn("Interpreted in", data["content"])
 
     def test_confirmation_shows_an_uncurated_timezone(self):
         data, _ = self._buttons(tz_name="Asia/Kathmandu", time_text="Sep 15 2026 8pm")
-        self.assertIn("Kathmandu", data["content"])
+        self.assertIn("-# Timezone: Kathmandu", data["content"])
         self.assertIn("UTC+5:45", data["content"])
+
+    def test_the_timezone_line_follows_the_input_carrier(self):
+        """Order matters: the carrier's regex is anchored to end-of-line, so nothing
+        may be appended to ITS line -- but a separate line after it is safe."""
+        data, _ = self._buttons(tz_name=TZ, time_text="Sep 15 2026 8pm")
+        lines = data["content"].split("\n")
+        self.assertEqual(lines[-2], di._schedule_input_line("Sep 15 2026 8pm"))
+        self.assertTrue(lines[-1].startswith("-# Timezone: "))
+
+    def test_the_timezone_line_appears_without_any_input_text(self):
+        """The two subtext lines are independent -- nesting the zone under the
+        carrier would hide it on any prompt rendered without echoed input."""
+        data, _ = self._buttons(tz_name=TZ)
+        self.assertIn("-# Timezone: New York", data["content"])
+        self.assertNotIn("From your input", data["content"])
 
     def test_confirmation_offers_a_change_timezone_button(self):
         """ONE primary action per mode, then Change timezone and Cancel."""
@@ -1501,7 +1563,14 @@ class ScheduleConfirmDisplayTests(ScheduleFixtureMixin, TestCase):
         """An epoch is absolute — there's no zone to show and nothing to change."""
         data, ids = self._buttons(tz_name=None, time_text="<t:1789000000:F>")
         self.assertEqual(len(ids), 2)
+        self.assertNotIn("Timezone:", data["content"])
         self.assertNotIn("timezone", data["content"].lower())
+
+    def test_an_unrecognized_zone_renders_no_timezone_line(self):
+        """describe_timezone answers "" for a bad zone, so the line drops rather
+        than rendering "Timezone: " with nothing after it."""
+        data, _ = self._buttons(tz_name="Not/AZone", time_text="Sep 15 2026 8pm")
+        self.assertNotIn("Timezone:", data["content"])
 
     # ── the overwrite warning ────────────────────────────────────────────────
     def test_an_unscheduled_match_gets_no_overwrite_warning(self):
@@ -1573,6 +1642,23 @@ class ScheduleCommandShapeTests(TestCase):
                 time_option = next(o for o in self._sub(sub)["options"]
                                    if o["name"] == "time")
                 self.assertTrue(time_option["required"])
+
+    def test_the_timezone_option_tells_you_to_skip_it(self):
+        """It is an escape hatch for the ~522 IANA zones the region/city picker
+        doesn't curate, not something to fill in each time -- an always-visible
+        optional parameter invites exactly that. Shared verbatim by all three
+        commands so a reword can't drift between them."""
+        descriptions = {
+            self._sub("set")["options"][1]["description"],
+            self._sub("poll")["options"][1]["description"],
+            next(o for o in dc.TIMESTAMP_COMMAND["options"]
+                 if o["name"] == "timezone")["description"],
+        }
+        self.assertEqual(len(descriptions), 1, descriptions)
+        description = descriptions.pop()
+        self.assertIn("Rarely needed", description)
+        # Discord rejects a definition whose option description exceeds 100.
+        self.assertLessEqual(len(description), 100)
 
     def test_timezone_option_still_autocompletes(self):
         for sub in ("set", "poll"):
@@ -9547,6 +9633,42 @@ class SchedulePickerTests(ScheduleFixtureMixin, TestCase):
                 self.assertNotIn("sched_poll_open", actions)
                 self.assertNotIn("sched_free", actions)
 
+    def _labels(self, **kwargs):
+        data = {
+            "name": "schedule",
+            "options": [{
+                "name": kwargs.get("sub", "set"), "type": 1,
+                "options": [{"name": "time", "value": SCHEDULE_TIME_TEXT}],
+            }],
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": "555000111",
+            "_channel_name": None,
+            "_author_id": kwargs.get("author", self.player.discord_id),
+            "_author_username": "player",
+        }
+        body = json.loads(di._handle_schedule_command(data).content)
+        return [c.get("label") for r in body["data"].get("components", [])
+                for c in r["components"]]
+
+    def test_the_button_label_says_which_outcome_youll_get(self):
+        """The custom_id is identical either way, so the LABEL is the only signal on
+        the prompt itself of whether pressing it writes or asks."""
+        self.assertIn("Request Time", self._labels())
+
+        self.tournament.require_participant_schedule_confirmation = False
+        self.tournament.save(
+            update_fields=["require_participant_schedule_confirmation"])
+        self.assertIn("Set Time", self._labels())
+
+    def test_a_moderator_sees_request_time_too(self):
+        """They are not exempt from the step, so the prompt must not promise they
+        are."""
+        # Without a stored zone the command answers with the region picker instead
+        # of the confirm prompt, and there would be no action button to inspect.
+        self.group_mod.timezone = TZ
+        self.group_mod.save(update_fields=["timezone"])
+        self.assertIn("Request Time", self._labels(author=self.group_mod.discord_id))
+
     def test_set_in_an_unlinked_thread_points_at_poll(self):
         """`set` writes a time, so with nothing to write to it names the command
         that does work there rather than quietly suggesting instead."""
@@ -10596,11 +10718,67 @@ class ScheduleProposalCommandTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(proposal.roster.count(), 0)
         self.assertEqual(proposal.confirmed_by.count(), 0)
 
-    def test_a_moderator_writes_the_time_directly(self):
-        """Same button, same flag -- the difference is who pressed it."""
+    def test_a_moderators_set_also_becomes_a_request(self):
+        """Being a moderator does NOT exempt you from the confirmation step -- it
+        only means you can end it. Exempting moderators made the flag read as
+        "players need approval" rather than "times need confirming", and skipped
+        the second look for the people who schedule most often."""
         self._confirm(owner=self.group_mod.discord_id)
         self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+        proposal = ScheduleProposal.objects.get()
+        self.assertTrue(proposal.is_mod_request)
+        self.assertEqual(proposal.proposed_by, self.group_mod)
+
+    def test_a_moderator_can_approve_their_own_request(self):
+        """The deliberate one-extra-click path, and the common one now. Nothing
+        about the request requires a SECOND person -- it requires a second look."""
+        self._confirm(owner=self.group_mod.discord_id)
+        proposal = ScheduleProposal.objects.get()
+        with self.captureOnCommitCallbacks(execute=True):
+            di._handle_mod_schedule_confirm({
+                "data": {"custom_id": di.encode_custom_id(
+                    "sched_mod_ok", proposal.pk, "g")},
+                "guild_id": self.guild.guild_id,
+                "channel_id": "555000111",
+                "member": {"user": {"id": self.group_mod.discord_id}},
+                "message": {"id": "m", "content": "", "components": []},
+                "token": "tok",
+            })
+        self.match.refresh_from_db()
         self.assertEqual(int(self.match.scheduled_time.timestamp()), self.ts)
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.status, ScheduleProposal.Status.CONFIRMED)
+
+    def test_with_confirmation_off_everyone_writes_directly(self):
+        """The flag is the whole gate: off, and the tier no longer matters."""
+        self.tournament.require_participant_schedule_confirmation = False
+        self.tournament.save(
+            update_fields=["require_participant_schedule_confirmation"])
+        for actor in (self.group_mod, self.player):
+            with self.subTest(actor=actor.discord):
+                self.match.scheduled_time = None
+                self.match.save(update_fields=["scheduled_time"])
+                self._confirm(owner=actor.discord_id)
+                self.match.refresh_from_db()
+                self.assertEqual(
+                    int(self.match.scheduled_time.timestamp()), self.ts)
+        self.assertEqual(ScheduleProposal.objects.count(), 0)
+
+    def test_someone_who_cannot_schedule_is_still_refused(self):
+        """The refusal path must not have become an approval path: (False, False)
+        and (False, True) are different outcomes."""
+        for required in (True, False):
+            with self.subTest(confirmation_required=required):
+                self.tournament.require_participant_schedule_confirmation = required
+                self.tournament.save(
+                    update_fields=["require_participant_schedule_confirmation"])
+                body = json.loads(self._confirm(
+                    owner=self.outsider.discord_id)[0].content)
+                self.assertEqual(body["data"].get("flags"), di.EPHEMERAL)
+                self.assertIn("can't set the time", body["data"]["content"])
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
         self.assertEqual(ScheduleProposal.objects.count(), 0)
 
     def test_enqueues_public_post_with_proposal_id(self):
@@ -10650,9 +10828,15 @@ class ScheduleLegacyPathTests(ScheduleFixtureMixin, TestCase):
 
     def test_recording_access_does_not_affect_scheduling(self):
         """Scheduling is independent of recording_access: a group moderator writes
-        the time under MODERATORS access exactly as under any other tier."""
+        the time under MODERATORS access exactly as under any other tier.
+
+        Confirmation off, so this stays a direct-write test -- with it on, every set
+        becomes a request regardless of tier, which would test the wrong thing."""
         self.build(recording_access=Tournament.RecordingAccessTypes.MODERATORS,
                    populate_group=True)
+        self.tournament.require_participant_schedule_confirmation = False
+        self.tournament.save(
+            update_fields=["require_participant_schedule_confirmation"])
         with mock.patch.object(di.post_schedule_proposal_task, "apply_async"):
             di._handle_schedule_confirm({
                 "data": {"custom_id": di.encode_custom_id(

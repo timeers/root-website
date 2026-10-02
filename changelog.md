@@ -7,6 +7,7 @@
 - /schedule set now directly sets the time of the match instead of polling
 - /schedule poll now contains the polling features from the old /schedule set command
 - Added field to Series Automation to allow users to individually schedule match times or require moderator confirmation
+- Timezone line moved to subtext and timezone field help text reworded to be clearer
 
 ### Bug Fixes
 - The scheduling command now uses can_schedule instead of piggybacking on the can_record method. Users can now use /schedule as long as they are on the roster or a moderator
