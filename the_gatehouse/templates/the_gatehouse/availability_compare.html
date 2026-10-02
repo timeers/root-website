@@ -760,16 +760,19 @@ is nothing worth indexing. {% endcomment %}
   }
 
   function cellUnixTimestamp(cell) {
-    // Same local Date construction as cellLabel(): data-date is the cell's
-    // real local calendar date, data-hour its local hour-of-day. setHours
-    // (not a fixed offset) so DST-affected days still land on the right
-    // real instant, same reasoning as cellLabel's own local-midnight parse.
+    // A week cell's data-how IS its exact UTC instant (utc_instant_token, an
+    // ISO string), so read it directly. That is right for any zone -- a :30
+    // viewer's 9:30 cell, not 9:00 -- whatever the browser's own clock says,
+    // and it tells the two halves of a DST fall-back split cell apart.
     //
-    // NOTE: on a fall-back split cell (avail-cell--split), both halves share
-    // the same data-date/data-hour and so produce the SAME timestamp here
-    // even though they are an hour apart in reality -- same ambiguity
-    // cellLabel has, disambiguated there only by an appended "(1)"/"(2)"
-    // suffix. Not resolved here; rare one-night-a-year edge case.
+    // Detected by the 'T', NOT by Date.parse succeeding: the General-mode
+    // fallback data-how is a bare integer string, and Date.parse("123")
+    // happily parses as the year 123.
+    var how = cell.dataset.how || '';
+    if (how.indexOf('T') !== -1) {
+      return Math.floor(Date.parse(how) / 1000);
+    }
+    // Fallback: rebuild from the local date + hour (whole hours only).
     var d = new Date(cell.dataset.date + 'T00:00:00');
     d.setHours(parseInt(cell.dataset.hour, 10));
     return Math.floor(d.getTime() / 1000);

@@ -260,6 +260,23 @@ def _resolve_availability_target(request, profile):
     return tournament, tournament_schedules, schedule_target, week_start, is_week_specific
 
 
+def _grid_hour_labels(tz_name, week_start, is_week_specific):
+    """hour_labels() for a grid drawn in `tz_name`: rows start at the zone's real
+    minute offset ("9:30am" in a :30 zone), measured at the shown week, or at the
+    reference week the General grid converts against."""
+    from .services.availability import hour_labels
+    return hour_labels(_grid_minute(tz_name, week_start, is_week_specific))
+
+
+def _grid_minute(tz_name, week_start, is_week_specific):
+    """The minute past the hour each grid row starts at, for `tz_name` -- see
+    services.availability.zone_minute_offset."""
+    from .services.availability import zone_minute_offset, week_minute_offset
+    if is_week_specific and week_start:
+        return week_minute_offset(week_start, tz_name)
+    return zone_minute_offset(tz_name)
+
+
 def _week_grid_template_context(week_start, grid_columns, tz_name, general_hours=()):
     """The template-ready column headers and per-row cell data for a
     week-specific grid, built from week_grid_columns/week_grid_cells.
@@ -291,7 +308,7 @@ def _week_grid_template_context(week_start, grid_columns, tz_name, general_hours
     doesn't use this at all).
     """
     from django.utils.formats import date_format
-    from .services.availability import week_grid_cells, hour_labels
+    from .services.availability import week_grid_cells
 
     if grid_columns is None:
         return None, None
@@ -305,7 +322,9 @@ def _week_grid_template_context(week_start, grid_columns, tz_name, general_hours
     } for local_date in grid_columns]
 
     hour_rows = []
-    for hour, short_label, long_label in hour_labels():
+    # Labelled at the zone's real row start ("9:30am" in a :30 zone) -- measured
+    # from THIS tz_name, so a just-changed timezone relabels correctly too.
+    for hour, short_label, long_label in _grid_hour_labels(tz_name, week_start, True):
         row_cells = [
             [(utc_how, utc_how in general_hours)
              for utc_how in cells.get((local_date, hour), [])]
@@ -398,6 +417,8 @@ def _resolve_availability_view(request, profile):
         'schedule': schedule,
         'tz_name': tz_name,
         'timezone_display': describe_timezone(tz_name) if tz_name else '',
+        # Minute past the hour the grid's rows start at (0 unless a :30/:45 zone).
+        'grid_minute': _grid_minute(tz_name, week_start, is_week_specific),
         'selected_hours': selected,
         'grid_columns': grid_columns,
         'has_own_row': has_own_row,
@@ -591,8 +612,11 @@ def availability_settings(request):
         'tournament_schedules': resolved['tournament_schedules'],
         'schedule_target': schedule_target,
         'editing_tournament': tournament,
-        # (hour, '9a', '9:00 AM') per row -- see services.availability.hour_labels.
-        'hours': hour_labels(),
+        # (hour, '9am', '9:00 AM') per row -- see services.availability.hour_labels.
+        # From the zone the grid is DRAWN in (tz_name, which change_timezone may
+        # just have replaced), so a :30 zone's rows read "9:30am".
+        'hours': _grid_hour_labels(tz_name, week_start, is_week_specific),
+        'grid_minute': _grid_minute(tz_name, week_start, is_week_specific),
         # Week navigator state.
         'is_week_specific': is_week_specific,
         'week_start': week_start,
@@ -617,7 +641,7 @@ def _render_grid_html(resolved):
     rendering path (this template), not two.
     """
     from django.template.loader import render_to_string
-    from .services.availability import hour_labels, DAY_LABELS
+    from .services.availability import DAY_LABELS
 
     # Only preview general's pattern when this week has no saved row of its
     # own -- see availability_settings for the same gate.
@@ -633,7 +657,8 @@ def _render_grid_html(resolved):
         'columns': columns,
         'hour_rows': hour_rows,
         'days': DAY_LABELS,
-        'hours': hour_labels(),
+        'hours': _grid_hour_labels(resolved['tz_name'], resolved['week_start'],
+                                   resolved['is_week_specific']),
     })
 
 
@@ -667,6 +692,7 @@ def _availability_state_json(resolved):
         # distinct from `next_week`, which is only set once already week-specific.
         'default_week': resolved['current_week'].isoformat(),
         'has_own_row': resolved['has_own_row'],
+        'grid_minute': resolved['grid_minute'],
         'selected_hours': resolved['selected_hours'],
         'grid_html': _render_grid_html(resolved),
         'copy_from_general_hours': resolved['copy_from_general_hours'],
@@ -1198,7 +1224,7 @@ def _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profi
         'legend_buckets': reachable_buckets(len(with_hours)),
         'edit_url': edit_url,
         'days': DAY_LABELS,
-        'hours': hour_labels(),
+        'hours': _grid_hour_labels(resolved['tz_name'], week_start, is_week_specific),
         'columns': columns,
         'hour_rows': _compare_hour_rows(week_start, resolved['tz_name'], is_week_specific, columns),
         'is_week_specific': is_week_specific,
@@ -1230,7 +1256,7 @@ def _compare_grid_columns(week_start, is_week_specific):
 
     A week-specific column's date is simply `week_start + i days`: that IS
     the local calendar date each column represents by construction (slot
-    i*24+h in local_week_hours_for's output corresponds to exactly this
+    i*24+h in local_week_cell_shape's output corresponds to exactly this
     date), so no further timezone conversion belongs here -- the conversion
     already happened when the hours themselves were re-projected onto this
     local frame.
@@ -1279,14 +1305,16 @@ def _compare_hour_rows(week_start, tz_name, is_week_specific, columns):
     None, since the dateless reference week has no real DST transitions and
     the partial's own General-mode columns carry no data-date/split concept.
     """
-    from .services.availability import hour_labels, local_week_cell_shape, utc_instant_token
+    from .services.availability import local_week_cell_shape, utc_instant_token
 
     if not is_week_specific:
         return None
 
     cell_shape = local_week_cell_shape(week_start, tz_name)
     hour_rows = []
-    for hour, short_label, long_label in hour_labels():
+    # Each local row holds the UTC hour starting at H:MM, so label it that way
+    # ("9:30am" for a :30 viewer) -- the row -> token mapping is unchanged.
+    for hour, short_label, long_label in _grid_hour_labels(tz_name, week_start, True):
         row_cells = []
         for day in range(7):
             local_slot = day * 24 + hour
@@ -1304,14 +1332,13 @@ def _render_compare_grid_html(resolved, week_start, is_week_specific, hours_by_p
     template), not two -- mirrors _render_grid_html for the single-user grid.
     """
     from django.template.loader import render_to_string
-    from .services.availability import hour_labels
 
     columns = _compare_grid_columns(week_start, is_week_specific)
     hour_rows = _compare_hour_rows(week_start, resolved['tz_name'], is_week_specific, columns)
 
     return render_to_string('partials/compare_grid.html', {
         'columns': columns,
-        'hours': hour_labels(),
+        'hours': _grid_hour_labels(resolved['tz_name'], week_start, is_week_specific),
         'hour_rows': hour_rows,
     })
 
@@ -1452,7 +1479,7 @@ def availability_compare(request):
 
     Always shows one specific real UTC week (fixed 7-column Mon-Sun, drawn in
     the viewer's local time, with edge fill-in from the neighboring real
-    weeks -- see local_week_hours_for), defaulting to the CURRENT week when
+    weeks -- see local_week_cell_shape), defaulting to the CURRENT week when
     no `?week=` is given -- see _resolve_compare_week. Re-validated/clamped
     the same way the single-user page's week navigator is (_parse_week_param).
     """

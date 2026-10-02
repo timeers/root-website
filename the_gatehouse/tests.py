@@ -1191,9 +1191,55 @@ class AvailabilityConversionTests(TestCase):
         # Monday 00:00 in Tokyo (UTC+9) is Sunday 15:00 UTC -> hour 159, not -9.
         self.assertEqual(local_to_utc_hours([0], 'Asia/Tokyo'), [159])
 
-    def test_half_hour_zone_rounds_down_to_the_containing_hour(self):
-        # Kolkata is UTC+5:30, so Monday 09:00 local is 03:30 UTC -> hour 3.
-        self.assertEqual(local_to_utc_hours([9], 'Asia/Kolkata'), [3])
+    def test_half_hour_zone_row_maps_to_the_hour_starting_inside_it(self):
+        """In a :30 zone local row H is the hour starting at H:30 -- the only
+        whole UTC hour that starts inside it. The old rule rounded H:00 DOWN to
+        the UTC hour containing it, which redisplayed one row earlier."""
+        # Kolkata (+5:30): Monday 09:30 local is 04:00 UTC.
+        self.assertEqual(local_to_utc_hours([9], 'Asia/Kolkata'), [4])
+        # St. John's in January (-3:30): Monday 09:30 local is 13:00 UTC.
+        self.assertEqual(local_to_utc_hours([9], 'America/St_Johns'), [13])
+
+    SUB_HOUR_ZONES = ('Asia/Kolkata', 'America/St_Johns', 'Asia/Kathmandu',
+                      'Australia/Adelaide', 'Australia/Eucla', 'Pacific/Chatham',
+                      'Pacific/Marquesas')
+
+    def test_round_trip_is_identity_for_sub_hour_zones(self):
+        """The drift regression: a saved selection must redisplay in the SAME
+        rows, every hour of the week, so re-saving never slides it."""
+        every_hour = list(range(168))
+        for tz_name in self.SUB_HOUR_ZONES:
+            with self.subTest(tz=tz_name):
+                utc = local_to_utc_hours(every_hour, tz_name)
+                # One distinct UTC hour per row: nothing collides or is skipped.
+                self.assertEqual(len(utc), 168)
+                self.assertEqual(utc_to_local_hours(utc, tz_name), every_hour)
+
+    def test_whole_hour_zones_convert_exactly_as_before(self):
+        """Rounding up only differs from rounding down off the hour, so whole-hour
+        zones are untouched: each local hour is just shifted by the offset."""
+        for tz_name, offset in (('America/New_York', -5), ('Europe/London', 0),
+                                ('Asia/Tokyo', 9), ('UTC', 0)):
+            with self.subTest(tz=tz_name):
+                self.assertEqual(
+                    local_to_utc_hours(range(168), tz_name),
+                    sorted((h - offset) % 168 for h in range(168)))
+
+    def test_zone_minute_offset(self):
+        from the_gatehouse.services.availability import zone_minute_offset
+        cases = {'America/St_Johns': 30, 'Asia/Kolkata': 30, 'Asia/Kathmandu': 45,
+                 'Australia/Eucla': 45, 'America/New_York': 0, 'UTC': 0,
+                 'Not/AZone': 0, None: 0}
+        for tz_name, minute in cases.items():
+            with self.subTest(tz=tz_name):
+                self.assertEqual(zone_minute_offset(tz_name), minute)
+
+    def test_hour_labels_start_at_the_zone_minute(self):
+        labels = hour_labels(30)
+        self.assertEqual(labels[9], (9, '9:30am', '9:30 AM'))
+        self.assertEqual(labels[0], (0, '12:30am', '12:30 AM'))
+        self.assertEqual(labels[12], (12, '12:30pm', '12:30 PM'))
+        self.assertEqual(hour_labels(45)[23], (23, '11:45pm', '11:45 PM'))
 
     def test_unknown_timezone_falls_back_to_utc(self):
         self.assertEqual(local_to_utc_hours([9], 'Not/AZone'), [9])
@@ -1235,6 +1281,91 @@ class AvailabilityConversionTests(TestCase):
         self.assertEqual(labels[0], (0, '12am', '12:00 AM'))
         self.assertEqual(labels[12], (12, '12pm', '12:00 PM'))
         self.assertEqual(labels[23], (23, '11pm', '11:00 PM'))
+
+
+class SubHourZoneAvailabilityPageTests(_NoLoginSignalMixin, TestCase):
+    """:30/:45 timezones on the availability pages: rows are labelled at their
+    real start ("9:30am") and what is picked is exactly what is stored."""
+
+    VISIBLE_NOTE = 'mt-2 mb-0" id="halfhour-note"'
+    HIDDEN_NOTE = 'mt-2 mb-0 d-none" id="halfhour-note"'
+    # The rendered row label itself -- the bare text also appears in a script
+    # comment, so it alone would prove nothing.
+    ROW_930 = '<span class="hour-text">9:30am</span>'
+    ROW_9 = '<span class="hour-text">9am</span>'
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username='halfhour', password='pw')
+        self.profile = self.user.profile
+        self.client.force_login(self.user)
+        self.url = reverse('availability')
+
+    def _set_timezone(self, tz_name):
+        Profile.objects.filter(pk=self.profile.pk).update(timezone=tz_name)
+
+    def _save_general(self, hours):
+        return self.client.post(self.url, {
+            'timezone': 'Asia/Kolkata', 'drawn_timezone': 'Asia/Kolkata',
+            'available_hours': hours, 'action': 'save',
+        })
+
+    def test_general_save_is_exact_and_never_drifts(self):
+        """The reported bug: each re-save slid a half-hour player's hours one
+        row earlier. Row 9 (9:30am) must store UTC 04:00 and come back as 9."""
+        self._save_general('9')
+        schedule = PlayerSchedule.objects.get(profile=self.profile, tournament=None)
+        self.assertEqual(schedule.available_hours, [4])
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.context['selected_hours'], [9])
+        self.assertContains(response, self.ROW_930)
+        self.assertContains(response, self.VISIBLE_NOTE)
+
+        # Re-save exactly what came back: no drift.
+        self._save_general(','.join(map(str, response.context['selected_hours'])))
+        schedule.refresh_from_db()
+        self.assertEqual(schedule.available_hours, [4])
+
+    def test_week_grid_labels_rows_at_the_zone_minute(self):
+        from the_gatehouse.services.availability import week_start_for
+        week = week_start_for(timezone.now().date()).isoformat()
+
+        self._set_timezone('America/St_Johns')
+        response = self.client.get(self.url, {'week': week})
+        self.assertContains(response, self.ROW_930)
+        self.assertContains(response, self.VISIBLE_NOTE)
+
+        self._set_timezone('America/New_York')
+        response = self.client.get(self.url, {'week': week})
+        self.assertNotContains(response, self.ROW_930)
+        self.assertContains(response, self.ROW_9)
+        self.assertContains(response, self.HIDDEN_NOTE)
+
+    def test_changing_to_a_half_hour_zone_relabels_the_grid(self):
+        """change_timezone swaps tz_name after the page's state was resolved, so
+        the labels must be measured from the NEW zone."""
+        self._set_timezone('America/New_York')
+        response = self.client.post(self.url, {
+            'timezone': 'Asia/Kolkata', 'drawn_timezone': 'America/New_York',
+            'available_hours': '', 'action': 'change_timezone',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['hours'][9][1], '9:30am')
+        self.assertContains(response, self.VISIBLE_NOTE)
+
+    def test_compare_rows_are_labelled_and_hold_the_right_instant(self):
+        from the_gatehouse import views
+        from the_gatehouse.services.availability import (utc_instant_token,
+                                                         week_start_for)
+        week = week_start_for(timezone.now().date())
+        columns = views._compare_grid_columns(week, True)
+        rows = views._compare_hour_rows(week, 'Asia/Kolkata', True, columns)
+        hour, short_label, long_label, cells = rows[9]
+        self.assertEqual((short_label, long_label), ('9:30am', '9:30 AM'))
+        # Monday's 9:30 cell (+5:30) is Monday 04:00 UTC.
+        _column, tokens = cells[0]
+        self.assertEqual(tokens, [utc_instant_token(week, 4)])
 
 
 class PlayerScheduleModelTests(TestCase):

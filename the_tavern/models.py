@@ -1,4 +1,5 @@
 import calendar
+import math
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.urls import reverse
@@ -1219,6 +1220,9 @@ class SurveyResponse(models.Model):
             offset = (float(self.timezone_offset_hours)
                       if self.timezone_offset_hours else 0)
             local_of = {}
+            # Flooring is RIGHT here, for :30/:45 offsets too: a UTC hour that
+            # starts at local 15:30 belongs to local row 15 (rows start at H:MM),
+            # matching utc_to_local_hours above.
             for hour_of_week in ordered:
                 utc_day, utc_hour = divmod(hour_of_week, 24)
                 carry = int((utc_hour + offset) // 24)
@@ -1632,13 +1636,17 @@ class Answer(models.Model):
 
         # No zone on record (a response predating timezone_name, on a profile
         # with none either). Fall back to the offset, carrying the day the same
-        # way local_to_utc_hours would.
+        # way local_to_utc_hours would -- including its H:MM rule: in a :30/:45
+        # zone the row's H:00 is rounded UP to the UTC hour starting inside it,
+        # so UTC 10 shown as 15:30 (+5.5) comes back as 10, not 9.
+        #
+        # Rounded BEFORE splitting into day and hour: rounding the hour after
+        # the % 24 can land on 24, and on a Sunday that is hour-of-week 168.
         hours_of_week = []
         for how in local_hours:
             day_index, local_hour = divmod(how, 24)
-            utc_hour = local_hour - offset
-            carry = int(utc_hour // 24)
-            hours_of_week.append(((day_index + carry) % 7) * 24 + int(utc_hour % 24))
+            carry, utc_hour = divmod(math.ceil(local_hour - offset), 24)
+            hours_of_week.append(((day_index + carry) % 7) * 24 + utc_hour)
         return sorted(set(hours_of_week))
 
 

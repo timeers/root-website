@@ -62,8 +62,14 @@ function _renderCalendarInModal(rawDatasets) {
         return;
     }
 
-    // Timezone offset
+    // Timezone offset (hours east of UTC; 5.5 for India)
     const localOffsetHours = -(new Date().getTimezoneOffset() / 60);
+    // In a :30/:45 zone each local row starts at that minute: the UTC hour
+    // starting at local 15:30 is row 15, labelled "15:30". 0 for whole-hour zones.
+    const localMinute = Math.round((localOffsetHours - Math.floor(localOffsetHours)) * 60);
+    function mm() {
+        return (showingUTC ? 0 : localMinute).toString().padStart(2, '0');
+    }
 
     function getTimezoneAbbr() {
         try {
@@ -75,8 +81,10 @@ function _renderCalendarInModal(rawDatasets) {
     }
     const tzAbbr = getTimezoneAbbr();
 
+    // Floored: a fractional offset (5.5) would otherwise give 15.5-style values
+    // that no integer cell ever matches, leaving the whole calendar blank.
     function shiftHours(hours, offset) {
-        return hours.map(h => ((h + offset) % 168 + 168) % 168);
+        return hours.map(h => ((Math.floor(h + offset)) % 168 + 168) % 168);
     }
 
     const datasets = rawDatasets.map(d => ({
@@ -136,7 +144,7 @@ function _renderCalendarInModal(rawDatasets) {
         for (let hour = 0; hour < 24; hour++) {
             const lbl = document.createElement('div');
             lbl.className = 'cal-time-label';
-            if (hour % 6 === 0) lbl.textContent = hour + ':00';
+            if (hour % 6 === 0) lbl.textContent = hour + ':' + mm();
             grid.appendChild(lbl);
 
             for (let day = 0; day < 7; day++) {
@@ -157,8 +165,8 @@ function _renderCalendarInModal(rawDatasets) {
                     const hoursSet = showingUTC ? datasets[i].utcHours : datasets[i].localHours;
                     if (hoursSet.has(hourOfWeek)) matchingLabels.push(datasets[i].label);
                 }
-                const timeStr = DAY_NAMES[day] + ' ' + hour.toString().padStart(2, '0') + ':00 - '
-                    + ((hour + 1) % 24).toString().padStart(2, '0') + ':00';
+                const timeStr = DAY_NAMES[day] + ' ' + hour.toString().padStart(2, '0') + ':' + mm() + ' - '
+                    + ((hour + 1) % 24).toString().padStart(2, '0') + ':' + mm();
                 cell.title = matchingLabels.length ? timeStr + '\n' + matchingLabels.join(', ') : timeStr;
 
                 grid.appendChild(cell);
