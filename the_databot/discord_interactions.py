@@ -1486,7 +1486,7 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
     if unlinked and not timestamp_mode:
         lines.append(f"\n{SCHEDULE_UNLINKED_NOTE}")
         if unlinked_kind == "lfg":
-            lines.append("I'll ask the other players in this thread to confirm.")
+            lines.append("The other players in this thread will be asked to confirm.")
     if pending_confirmers:
         others = "the other player" if pending_confirmers == 1 else f"the other {pending_confirmers} players"
         lines.append(f"\nI'll ask {others} in this game to confirm before it's set.")
@@ -1699,16 +1699,45 @@ def _sibling_command_hint(guild_id, mode, direct_allowed=False):
     if mode == SCHEDULE_MODE:
         if guild_id and _guild_allows(guild_id, "schedule_poll"):
             return ("-# Use `/schedule poll` instead to let the other players "
-                    "confirm the time.")
+                    "confirm the time")
         return None
     if mode == POLL_MODE:
         if guild_id and _guild_allows(guild_id, "schedule_set"):
             what = "set the time directly" if direct_allowed else "request the time"
-            return f"-# Use `/schedule set` instead to {what}."
+            return f"-# Use `/schedule set` instead to {what}"
         return None
     # TIMESTAMP_MODE writes nothing anywhere, so neither command is an alternative
     # to it -- suggesting one would point at a different job, not a different route.
     return None
+
+
+def _set_a_time_suggestion(guild_id, allow_set=True, allow_poll=True):
+    """"Use `/schedule set` to add one." — the trailing sentence for an error that
+    has nothing to act on, naming only the commands this guild has. "" when neither
+    is available, so the caller's message simply ends after its own explanation.
+
+    Three outcomes rather than two, because BOTH commands can set a time and a guild
+    may have either, both, or neither. Phrased as a complete sentence including the
+    leading space, so callers concatenate without deciding punctuation.
+
+    `allow_set` / `allow_poll` let a caller exclude a command the SITUATION rules out
+    regardless of the whitelist -- /schedule set refuses in an unlinked thread, so
+    naming it there would send the user to a different error.
+
+    Same `guild_id and _guild_allows(...)` shape as _sibling_command_hint; see its
+    note on why the guild_id guard is not redundant."""
+    have_set = bool(allow_set and guild_id and _guild_allows(guild_id, "schedule_set"))
+    have_poll = bool(allow_poll and guild_id
+                     and _guild_allows(guild_id, "schedule_poll"))
+    if have_set and have_poll:
+        # Set leads: it is the direct route, and the one whose name says "set".
+        return (" Use `/schedule set` to add one, or `/schedule poll` to ask the "
+                "other players first.")
+    if have_set:
+        return " Use `/schedule set` to add one."
+    if have_poll:
+        return " Use `/schedule poll` to suggest one to the other players."
+    return ""
 
 
 def _direct_set_allowed(match, profile):
@@ -2386,7 +2415,7 @@ def _handle_schedule_clear_command(data):
     if not scheduled:
         return _ephemeral(
             f"**{_match_label(matches[0])}** doesn't have a scheduled time to "
-            "remove. Use `/schedule set` to add one."
+            "remove." + _set_a_time_suggestion(guild_id)
         )
 
     if len(scheduled) > 1:
@@ -2450,9 +2479,11 @@ def _handle_schedule_set_command(data, explicit=False):
         # would not help with.
         if _lfg_thread_for_channel(channel_id) is None:
             return _ephemeral(error)
+        # allow_set=False: `set` is the command they just ran and it cannot work
+        # here, so only `poll` is worth naming -- and only if this guild has it.
         return _ephemeral(
             "This thread isn't linked to a tournament match, so there's no time to "
-            "set. Use `/schedule poll` to suggest one to the other players."
+            "set." + _set_a_time_suggestion(guild_id, allow_set=False)
         )
 
     # Checked before the clear branch so an unauthorized user gets the permission
@@ -2603,14 +2634,16 @@ def _handle_schedule_unlinked(data, profile, time_text, clearing):
                 "This command must be used in a thread with a scheduled game to "
                 "clear that scheduled time."
             )
+        # allow_set=False for the same reason as the set handler's unlinked branch:
+        # with no match there is nothing for `set` to write to.
         return _ephemeral(
             "This thread isn't linked to a match, so there's no scheduled time to "
-            "clear. Use `/schedule poll` to propose a time."
+            "clear." + _set_a_time_suggestion(data.get("_guild_id"),
+                                              allow_set=False)
         )
 
     kind = "lfg" if thread else "bare"
 
-    tz_option = (_get_option(data, "timezone") or "").strip()
     # POLL_MODE, not the SCHEDULE_MODE default: with no Match there is nothing to
     # write, so the only honest action is Suggest. The picker carries the sentinel
     # for the match id, so the whole region/city flow works here and the timezone it

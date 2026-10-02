@@ -528,7 +528,7 @@ class ScheduleSiblingHintTests(ScheduleFixtureMixin, TestCase):
     def test_set_points_at_poll(self):
         self._enable("schedule_set", "schedule_poll")
         self.assertIn("Use `/schedule poll` instead to let the other players "
-                      "confirm the time.", self._content("set"))
+                      "confirm the time", self._content("set"))
 
     def test_set_stays_quiet_when_poll_is_disabled(self):
         self._enable("schedule_set")
@@ -540,7 +540,7 @@ class ScheduleSiblingHintTests(ScheduleFixtureMixin, TestCase):
         not promise the time gets set."""
         self._enable("schedule_set", "schedule_poll")
         content = self._content("poll")
-        self.assertIn("Use `/schedule set` instead to request the time.", content)
+        self.assertIn("Use `/schedule set` instead to request the time", content)
         self.assertNotIn("set the time directly", content)
 
     def test_poll_points_at_set_as_a_direct_write_when_confirmation_is_off(self):
@@ -548,7 +548,7 @@ class ScheduleSiblingHintTests(ScheduleFixtureMixin, TestCase):
         self.tournament.require_participant_schedule_confirmation = False
         self.tournament.save(
             update_fields=["require_participant_schedule_confirmation"])
-        self.assertIn("Use `/schedule set` instead to set the time directly.",
+        self.assertIn("Use `/schedule set` instead to set the time directly",
                       self._content("poll"))
 
     def test_poll_stays_quiet_when_set_is_disabled(self):
@@ -608,6 +608,68 @@ class ScheduleSiblingHintTests(ScheduleFixtureMixin, TestCase):
         content = json.loads(
             di._handle_schedule_tz_zone(payload).content)["data"]["content"]
         self.assertIn("Use `/schedule set` instead", content)
+
+    # ── "nothing to remove" names only the commands this guild has ──────────
+    def _clear_content(self, channel="555000111"):
+        data = {
+            "name": "schedule",
+            "options": [{"name": "clear", "type": 1, "options": []}],
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": channel,
+            "_channel_name": None,
+            "_author_id": self.player.discord_id,
+            "_author_username": "player",
+        }
+        return json.loads(
+            di._handle_schedule_command(data).content)["data"]["content"]
+
+    def test_nothing_to_remove_offers_both_commands(self):
+        self._enable("schedule_clear", "schedule_set", "schedule_poll")
+        content = self._clear_content()
+        self.assertIn("`/schedule set` to add one", content)
+        self.assertIn("`/schedule poll` to ask the other players", content)
+
+    def test_nothing_to_remove_offers_only_set(self):
+        self._enable("schedule_clear", "schedule_set")
+        content = self._clear_content()
+        self.assertIn("`/schedule set` to add one.", content)
+        self.assertNotIn("/schedule poll", content)
+
+    def test_nothing_to_remove_offers_only_poll(self):
+        self._enable("schedule_clear", "schedule_poll")
+        content = self._clear_content()
+        self.assertIn("`/schedule poll` to suggest one", content)
+        self.assertNotIn("/schedule set", content)
+
+    def test_nothing_to_remove_names_neither_when_neither_is_enabled(self):
+        """The sentence simply ends after its own explanation rather than
+        recommending a command this guild doesn't have."""
+        self._enable("schedule_clear")
+        content = self._clear_content()
+        self.assertIn("doesn't have a scheduled time to remove", content)
+        self.assertNotIn("/schedule set", content)
+        self.assertNotIn("/schedule poll", content)
+        self.assertNotIn("Use ", content)
+
+    def test_an_unlinked_thread_never_offers_set(self):
+        """`set` cannot write without a match, so naming it would hand the user a
+        different error -- even with the command enabled."""
+        self._enable("schedule_set", "schedule_poll")
+        LFGThread.objects.create(thread_id="999000222")
+        data = {
+            "name": "schedule",
+            "options": [{"name": "set", "type": 1, "options": [
+                {"name": "time", "value": SCHEDULE_TIME_TEXT}]}],
+            "_guild_id": self.guild.guild_id,
+            "_channel_id": "999000222",
+            "_channel_name": None,
+            "_author_id": self.player.discord_id,
+            "_author_username": "player",
+        }
+        content = json.loads(
+            di._handle_schedule_command(data).content)["data"]["content"]
+        self.assertIn("/schedule poll", content)
+        self.assertNotIn("`/schedule set`", content)
 
     def test_the_hint_is_subtext_above_the_input_echo(self):
         """It is advice about WHICH COMMAND to use, so it sits with the question
@@ -2017,7 +2079,11 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
     def test_clearing_in_an_unlinked_thread_points_at_schedule_poll(self):
         """Here there IS a thread, just no match on it. Nothing can be written in an
         unlinked thread, so the only command that does anything useful is `poll` --
-        pointing at `set` would send them to a refusal."""
+        pointing at `set` would send them to a refusal.
+
+        The suggestion is whitelist-gated, so `poll` has to be enabled to be named."""
+        self.guild.enabled_commands = ["schedule_poll"]
+        self.guild.save(update_fields=["enabled_commands"])
         self._lfg_thread()
         data = self._body(di._handle_schedule_command(
             self._data(time=None, sub=None)))["data"]
@@ -9796,7 +9862,12 @@ class SchedulePickerTests(ScheduleFixtureMixin, TestCase):
 
     def test_set_in_an_unlinked_thread_points_at_poll(self):
         """`set` writes a time, so with nothing to write to it names the command
-        that does work there rather than quietly suggesting instead."""
+        that does work there rather than quietly suggesting instead.
+
+        The suggestion is whitelist-gated, so `poll` has to be enabled for it to be
+        named at all -- see ScheduleSiblingHintTests for the other combinations."""
+        self.guild.enabled_commands = ["schedule_set", "schedule_poll"]
+        self.guild.save(update_fields=["enabled_commands"])
         thread = LFGThread.objects.create(thread_id="777000111")
         thread.players.set([self.player, self.teammate])
         data = {

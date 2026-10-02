@@ -526,7 +526,7 @@ class Profile(models.Model):
         help_text="IANA timezone (e.g. America/New_York) used to interpret times "
                   "given to the Discord bot.")
     display_timezone = models.BooleanField(
-        default=False,
+        default=True,
         help_text="Show this player's timezone next to their name on the "
                   "availability comparison page.")
 
