@@ -34,7 +34,7 @@ is nothing worth indexing. {% endcomment %}
             <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
               {% if back_url %}
                 <a href="{{ back_url }}" class="databot-btn databot-btn-outline avail-btn-compact">
-                  <i class="bi bi-arrow-left me-1"></i>{% trans 'Back to Matches' %}
+                  <i class="bi bi-arrow-left me-1"></i><span class="d-none d-sm-inline">{% trans 'Back to Matches' %}</span><span class="d-sm-none">{% trans 'Matches' %}</span>
                 </a>
               {% endif %}
               {% if edit_url %}
@@ -51,7 +51,7 @@ is nothing worth indexing. {% endcomment %}
           logged-out visitor would be told UTC is "your timezone". {% endcomment %}
           {% if user.is_authenticated %}
             <p class="text-secondary mb-0">
-              {% blocktrans %}Times are shown in your timezone ({{ timezone_name }}).{% endblocktrans %}
+              {% blocktrans %}Times below are available start times and are shown in your timezone ({{ timezone_name }}).{% endblocktrans %}
             </p>
           {% endif %}
         </div>
