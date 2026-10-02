@@ -11,6 +11,7 @@
 
 ### Bug Fixes
 - The scheduling command now uses can_schedule instead of piggybacking on the can_record method. Users can now use /schedule as long as they are on the roster or a moderator
+- Schedule clear now always displays the correct suggestions when no time exists
 
 ### Breaking Changes
 - The "/schedule set" command has now been split into two commands "/schedule set" and "/schedule poll" with the poll subcommand retaining most of the functionality from the old set command. Each will need to be whitelisted before becoming available
