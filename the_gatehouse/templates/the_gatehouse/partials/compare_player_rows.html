@@ -14,6 +14,13 @@ what that page's ?players= roster is keyed on. {% endcomment %}
       data-player-id="{{ p.profile.id }}"
       {% if roster_editable %}data-player-slug="{{ p.profile.slug }}"{% endif %}
       {% if not p.has_schedule %}data-no-schedule="1"{% endif %}>
+    {% if roster_editable %}
+      {# Leftmost, before the checkbox. #}
+      <button type="button" class="btn btn-link p-0 lh-1 text-danger text-decoration-none" data-remove-player="{{ p.profile.slug }}"
+              title="{% trans 'Remove' %}" aria-label="{% blocktrans with name=p.profile.display_name %}Remove {{ name }}{% endblocktrans %}">
+        <i class="bi bi-x-circle"></i>
+      </button>
+    {% endif %}
     <input class="form-check-input mt-0 player-toggle" type="checkbox"
            id="player-{{ p.profile.id }}" value="{{ p.profile.id }}"
            checked>
@@ -36,12 +43,6 @@ what that page's ?players= roster is keyed on. {% endcomment %}
       <small class="text-muted">{{ p.hour_count }}h</small>
     {% else %}
       <small class="text-muted fst-italic">{% trans 'none' %}</small>
-    {% endif %}
-    {% if roster_editable %}
-      <button type="button" class="btn btn-link p-0 lh-1 text-danger text-decoration-none" data-remove-player="{{ p.profile.slug }}"
-              title="{% trans 'Remove' %}" aria-label="{% blocktrans with name=p.profile.display_name %}Remove {{ name }}{% endblocktrans %}">
-        <i class="bi bi-x-circle"></i>
-      </button>
     {% endif %}
   </li>
 {% endfor %}
