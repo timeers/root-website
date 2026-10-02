@@ -1394,7 +1394,7 @@ def _tz_zone_data(match_id, region_key, time_text, owner, current_tz=None,
 
 def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=None,
                            pending_confirmers=0, already_proposed=False,
-                           needs_mod_approval=False,
+                           needs_mod_approval=False, sibling_hint=None,
                            unlinked_kind="bare", mode=SCHEDULE_MODE):
     """The ephemeral confirm prompt: the time as Discord renders it in the clicker's
     own timezone, plus the action / Change timezone / Cancel. The owner snowflake
@@ -1500,9 +1500,15 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
         lines.append("\nYou can suggest this time, but a moderator has to confirm it "
                      "before it's set.")
     lines.append("\nDoes that look right?")
-    # The subtext block. The carrier MUST come first of the two and nothing may be
-    # appended to its line -- the timezone picker reads the typed text back out of
-    # it, and its regex is line-anchored. A separate line after it is safe.
+    # The subtext block. `sibling_hint` leads it: it is advice about WHICH COMMAND to
+    # use, so it belongs beside the question above rather than below the echo of what
+    # was typed. Built by the handlers via _sibling_command_hint, which needs a
+    # guild_id this renderer doesn't take.
+    if sibling_hint:
+        lines.append(sibling_hint)
+    # The carrier MUST come before the timezone line and nothing may be appended to
+    # its own line -- the timezone picker reads the typed text back out of it, and
+    # its regex is line-anchored. A separate line on either side is safe.
     if time_text:
         lines.append(_schedule_input_line(time_text))
     # OUTSIDE the `if time_text` above, deliberately: the two are independent, and a
@@ -1672,6 +1678,37 @@ def _consensus_required(match):
 # Deliberately NOT consulted by _direct_set_allowed: being a moderator no longer
 # exempts anyone from the confirmation step, only from being unable to end it.
 MOD_SCHEDULE_REASONS = frozenset({"group_moderator", "organizer", "admin"})
+
+
+def _sibling_command_hint(guild_id, mode, direct_allowed=False):
+    """The "use the other command instead" subtext line, or None.
+
+    The two scheduling commands do different jobs and a user who picked the wrong
+    one has no way to tell from the prompt, so each points at the other -- but only
+    when this guild actually has the other one enabled. Same `guild_id and
+    _guild_allows(...)` shape as _boxscore_paste_too_long, and for the same reason:
+    _guild_allows(None, ...) answers True ("no whitelist to consult"), which would
+    otherwise recommend a subcommand that isn't registered here.
+
+    `direct_allowed` only matters for the hint shown ON /schedule poll: it decides
+    whether /schedule set is described as setting the time or as requesting it,
+    which is the difference between a one-click write and a moderator approval.
+    Pass the `allowed` half of _direct_set_allowed.
+
+    Returns None rather than "" so callers drop it with a truthiness check."""
+    if mode == SCHEDULE_MODE:
+        if guild_id and _guild_allows(guild_id, "schedule_poll"):
+            return ("-# Use `/schedule poll` instead to let the other players "
+                    "confirm the time.")
+        return None
+    if mode == POLL_MODE:
+        if guild_id and _guild_allows(guild_id, "schedule_set"):
+            what = "set the time directly" if direct_allowed else "request the time"
+            return f"-# Use `/schedule set` instead to {what}."
+        return None
+    # TIMESTAMP_MODE writes nothing anywhere, so neither command is an alternative
+    # to it -- suggesting one would point at a different job, not a different route.
+    return None
 
 
 def _direct_set_allowed(match, profile):
@@ -2454,8 +2491,10 @@ def _handle_schedule_set_command(data, explicit=False):
     # Change-timezone flow lands. Nothing is written until the button is pressed.
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": _schedule_confirm_data(match, when, author_id, tz_name, time_text,
-                                       needs_mod_approval=needs_approval),
+        "data": _schedule_confirm_data(
+            match, when, author_id, tz_name, time_text,
+            needs_mod_approval=needs_approval,
+            sibling_hint=_sibling_command_hint(guild_id, SCHEDULE_MODE)),
     })
 
 
@@ -2513,12 +2552,19 @@ def _handle_schedule_poll_command(data):
     already_proposed = ScheduleProposal.objects.filter(
         match=match, status__in=ScheduleProposal.LIVE_STATUSES).exists()
 
+    # Whether /schedule set would WRITE for this user or merely request -- the hint
+    # must not promise a direct write to someone who would get an approval message.
+    direct_allowed, _needs_approval = _direct_set_allowed(match, profile)
+
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": _schedule_confirm_data(match, when, author_id, tz_name, time_text,
-                                       pending_confirmers=pending,
-                                       already_proposed=already_proposed,
-                                       mode=POLL_MODE),
+        "data": _schedule_confirm_data(
+            match, when, author_id, tz_name, time_text,
+            pending_confirmers=pending,
+            already_proposed=already_proposed,
+            sibling_hint=_sibling_command_hint(guild_id, POLL_MODE,
+                                               direct_allowed=direct_allowed),
+            mode=POLL_MODE),
     })
 
 
@@ -2574,6 +2620,9 @@ def _handle_schedule_unlinked(data, profile, time_text, clearing):
     if response:
         return response
 
+    # No sibling_hint here, deliberately: /schedule set refuses outright when no
+    # match resolves, so pointing at it from an unlinked thread would send the user
+    # to an error message.
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": _schedule_confirm_data(None, when, author_id, tz_name, time_text,
@@ -4292,6 +4341,19 @@ def _handle_schedule_tz_zone(payload):
             "data": {"content": f"{saved}\n{error}", "components": []},
         })
 
+    # Rebuilt rather than carried: the hint is derived state, and the tz custom_ids
+    # have no room for it. Only with a real match -- the sentinel path has nothing to
+    # recommend, for the reason _handle_schedule_unlinked gives. Needs the direct-set
+    # answer too, so a poll prompt reached through the picker describes /schedule set
+    # the same way the command itself would.
+    sibling_hint = None
+    if match:
+        profile = Profile.objects.filter(discord_id=str(owner)).first()
+        if profile:
+            direct_allowed, _needs = _direct_set_allowed(match, profile)
+            sibling_hint = _sibling_command_hint(
+                payload.get("guild_id"), mode, direct_allowed=direct_allowed)
+
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         # match is None on the no-match sentinel; re-derive the unlinked kind from
@@ -4301,6 +4363,7 @@ def _handle_schedule_tz_zone(payload):
         # that found no match.
         "data": _schedule_confirm_data(
             match, when, owner, tz_name, time_text, note=f"{saved}\n",
+            sibling_hint=sibling_hint,
             unlinked_kind=("lfg" if _lfg_thread_for_channel(payload.get("channel_id"))
                            else "bare"),
             mode=mode),
