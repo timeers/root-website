@@ -1943,44 +1943,46 @@ def _schedule_rejected_data(proposal, match=None, author=None):
 
 
 def _schedule_finalized_data(proposal, match):
-    """The 'game has been scheduled' view: the standard announcement embed plus the
-    roster who agreed to it. build_upcoming_embed is treated as fallible here for
-    the same reason the legacy confirm path does.
+    """The 'game has been scheduled' view: the tournament, "<Game> scheduled"
+    linked to the matches page, the time, and who confirmed it -- nothing else.
 
-    summary=None drops that builder's "The next scheduled game" line: it's
-    /upcoming's wording, and the match just scheduled here isn't necessarily the
-    next one in the tournament. The title and the Confirmed-by field already say
-    what happened."""
+    Takes only the title, url and author from build_upcoming_embed. Its Players
+    field repeats Confirmed by, Platform is noise here, and a closing note would
+    only repeat the title. summary=None drops the builder's "The next scheduled
+    game" line: /upcoming's wording, and the match just scheduled here isn't
+    necessarily the next one. build_upcoming_embed is treated as fallible here for
+    the same reason the legacy confirm path does."""
     try:
         embed = build_upcoming_embed(match, summary=None)
     except Exception:
         logger.exception("Failed to build /schedule announcement embed")
         embed = None
-    # `is None` rather than a falsy check: the builder strips None values, and with
-    # summary=None an embed can legitimately come back without a description. A
-    # bare `not embed` would treat such a sparse embed as a failure and fall
-    # through to the fallback, whose title would then get double-prefixed below.
+    # `is None` rather than a falsy check: the builder strips None values, so a
+    # sparse embed is still a success. A bare `not embed` would fall through to
+    # the fallback, whose title would then get double-prefixed below.
     if embed is None:
-        embed = {
-            "title": _match_label(match),
-            "description": format_discord_timestamp(proposal.proposed_time),
-        }
+        embed = {"title": _match_label(match)}
     embed = dict(embed)
     embed["title"] = f"🗓️ {embed.get('title') or _match_label(match)} scheduled"
-    # The same closing note an embed-mode poll gets, so both modes say how the
-    # poll ended rather than leaving the match one to be inferred from the title.
-    # Appended to whatever description build_upcoming_embed produced (which may
-    # be absent entirely -- summary=None strips it).
-    note = "-# Scheduled — everyone confirmed."
-    existing = embed.get("description")
-    embed["description"] = f"{existing}\n\n{note}" if existing else note
-    fields = list(embed.get("fields") or [])
-    fields.append({
+    embed.pop("description", None)
+
+    # Exactly two fields: when, and who confirmed it. The builder's Scheduled
+    # field when it made one (in each viewer's own time); otherwise -- a failed
+    # builder, or a match whose time isn't saved yet -- built the same way.
+    scheduled = next((f for f in embed.get("fields") or []
+                      if f.get("name") == "Scheduled"), None)
+    if scheduled is None:
+        scheduled = {
+            "name": "Scheduled",
+            "value": format_discord_timestamp(
+                match.scheduled_time or proposal.proposed_time),
+            "inline": False,
+        }
+    embed["fields"] = [scheduled, {
         "name": "✅ Confirmed by",
         "value": _name_list_value(list(proposal.confirmed_by.all())),
         "inline": False,
-    })
-    embed["fields"] = fields
+    }]
     return {"embeds": [embed], "components": [],
             "allowed_mentions": {"parse": []}}
 

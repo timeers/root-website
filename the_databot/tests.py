@@ -2792,11 +2792,11 @@ class ScheduleAnnouncementDescriptionTests(ScheduleFixtureMixin, TestCase):
         self.assertIn("scheduled for", content)
         self.assertNotIn("next scheduled", content)
 
-    def test_consensus_finalized_view_carries_only_the_closing_note(self):
-        """summary=None still strips /upcoming's "next scheduled game" line. The
-        description that remains is the poll's own closing note and nothing else
-        — previously there was no description at all, which asserted the same
-        thing by proxy."""
+    def test_consensus_finalized_view_is_just_the_time_and_who_confirmed(self):
+        """No description (no /upcoming "next scheduled game" line, no closing
+        note repeating the title) and exactly two fields: when, and who
+        confirmed it."""
+        from the_databot.services.time_parsing import format_discord_timestamp
         self.match.scheduled_time = self.when
         self.match.save(update_fields=["scheduled_time"])
         proposal = ScheduleProposal.objects.create(
@@ -2804,13 +2804,12 @@ class ScheduleAnnouncementDescriptionTests(ScheduleFixtureMixin, TestCase):
         proposal.confirmed_by.add(self.player)
 
         embed = di._schedule_finalized_data(proposal, self.match)["embeds"][0]
-        self.assertEqual(embed["description"],
-                         "-# Scheduled — everyone confirmed.")
-        self.assertNotIn("next scheduled", embed["description"])
+        self.assertNotIn("description", embed)
         self.assertIn("scheduled", embed["title"])
-        # The roster field is what reports who agreed; it survives the override.
-        self.assertTrue(
-            any(f["name"] == "✅ Confirmed by" for f in embed["fields"]))
+        self.assertEqual([f["name"] for f in embed["fields"]],
+                         ["Scheduled", "✅ Confirmed by"])
+        self.assertEqual(embed["fields"][0]["value"],
+                         format_discord_timestamp(self.when))
 
     def test_builder_failure_falls_back_without_doubling_the_title(self):
         """The fallback title is prefixed and suffixed by the caller below it, so it
@@ -2823,8 +2822,10 @@ class ScheduleAnnouncementDescriptionTests(ScheduleFixtureMixin, TestCase):
 
         self.assertEqual(embed["title"].count("🗓️"), 1)
         self.assertEqual(embed["title"].lower().count("scheduled"), 1)
-        self.assertTrue(
-            any(f["name"] == "✅ Confirmed by" for f in embed["fields"]))
+        # The same shape as the normal view, time included.
+        self.assertEqual([f["name"] for f in embed["fields"]],
+                         ["Scheduled", "✅ Confirmed by"])
+        self.assertNotIn("description", embed)
 
 
 class ScheduleThreadAnnouncementContentTests(ScheduleFixtureMixin, TestCase):
@@ -12359,14 +12360,18 @@ class ScheduleProposalRenderTests(ScheduleFixtureMixin, TestCase):
         names = [f["name"] for f in data["embeds"][0]["fields"]]
         self.assertIn("✅ Confirmed by", names)
 
-    def test_finalized_view_says_everyone_confirmed(self):
-        """Both modes must say HOW the poll ended; a match poll used to leave it
-        to be inferred from the title."""
+    def test_finalized_view_drops_players_and_platform(self):
+        """Players repeats Confirmed by and Platform is noise here, even though
+        the shared builder (also used by /upcoming) adds both."""
         self.match.scheduled_time = self.when
         self.match.save(update_fields=["scheduled_time"])
-        data = di._schedule_finalized_data(self.proposal, self.match)
-        self.assertIn("-# Scheduled — everyone confirmed.",
-                      data["embeds"][0]["description"])
+        Tournament.objects.filter(pk=self.tournament.pk).update(platform="In Person")
+        self.match.refresh_from_db()
+        embed = di._schedule_finalized_data(self.proposal, self.match)["embeds"][0]
+        names = [f["name"] for f in embed["fields"]]
+        self.assertNotIn("Players", names)
+        self.assertNotIn("Platform", names)
+        self.assertNotIn("description", embed)
 
     def test_closed_notes_are_subtext_in_both_modes(self):
         """The closing line renders small and grey either side. Without the "-#"
