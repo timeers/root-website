@@ -9114,9 +9114,14 @@ def _threads_to_create_count(round):
 
 
 @login_required
-@require_http_methods(['POST'])
+@require_http_methods(['GET', 'POST'])
 def round_create_game_threads(request, tournament_slug, stage_slug, round_slug):
     """Queue creation of a Discord forum thread for every un-threaded series in a round.
+
+    GET returns the current count (and the modal's sentence for it) without queuing
+    anything: the matches page refetches it each time the confirm modal opens, so the
+    count follows series created, edited or deleted since the page loaded -- and
+    threads linked from Discord or by the task itself.
 
     The button that reaches this is hidden for non-moderators, but hiding a button is
     not access control -- this endpoint posts into a Discord server, so it re-checks
@@ -9129,6 +9134,17 @@ def round_create_game_threads(request, tournament_slug, stage_slug, round_slug):
 
     if not tournament.has_permission(request.user.profile):
         raise PermissionDenied
+
+    # Before the channel checks: the forum-tag check below calls the Discord API,
+    # and merely opening the modal must not.
+    if request.method == 'GET':
+        from django.template.loader import render_to_string
+        count = _threads_to_create_count(round)
+        return JsonResponse({
+            'count': count,
+            'html': render_to_string('the_warroom/partials/create_threads_count.html',
+                                     {'threads_to_create_count': count}, request=request),
+        })
 
     if not tournament.guild_id:
         return JsonResponse(
