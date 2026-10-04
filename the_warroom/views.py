@@ -5,6 +5,7 @@ import csv
 
 from datetime import timezone as dt_timezone
 from io import StringIO
+from collections import Counter
 from itertools import groupby
 from django.shortcuts import render
 from django.views.generic import DeleteView
@@ -7130,12 +7131,37 @@ def _analytics_ordering(sort, direction):
             F('time_key').asc(nulls_last=True), 'kind', 'obj_id']
 
 
-def _analytics_params(request):
+def _analytics_stage_options(tournament):
+    """[(stage id, label)] for the Stage filter -- empty unless the tournament uses
+    stages and has 2+, which is also when the filter shows. Shared by the page and
+    the CSV export so both validate ?stage= identically.
+
+    Labelled by name, but Stage.name isn't unique, so a shared name gets its
+    1-based position appended ("Swiss (Stage 1)"). Position, not the `order`
+    field, because order isn't enforced unique either."""
+    if not tournament.use_stages:
+        return []
+    stages = list(tournament.stages.order_by('order', 'pk'))
+    if len(stages) < 2:
+        return []
+    name_counts = Counter(stage.name for stage in stages)
+    return [
+        (str(stage.pk),
+         f"{stage.name} ({_('Stage')} {position})" if name_counts[stage.name] > 1 else stage.name)
+        for position, stage in enumerate(stages, start=1)
+    ]
+
+
+def _analytics_params(request, stage_ids=frozenset()):
+    """The page's filter/sort params, whitelisted. `stage_ids` is the set of valid
+    ?stage= values (see _analytics_stage_options); anything else means All."""
     status = request.GET.get('status') or ''
     sort = request.GET.get('sort') or ''
+    stage = request.GET.get('stage') or ''
     return {
         'q': (request.GET.get('q') or '').strip()[:100],
         'player': (request.GET.get('player') or '').strip()[:100],
+        'stage': stage if stage in stage_ids else '',
         'status': status if status in ANALYTICS_STATUSES else '',
         'sort': sort if sort in ANALYTICS_SORTS else '',
         'dir': 'desc' if request.GET.get('dir') == 'desc' else 'asc',
@@ -7165,6 +7191,10 @@ def _analytics_halves(tournament, params):
         matches = matches.filter(
             Q(seated) | Q(played_linked) | profile_q('series__player_group__group_moderator__'))
         games = games.filter(Exists(Effort.objects.filter(game=OuterRef('pk')).filter(profile_q('player__'))))
+
+    if params['stage']:
+        matches = matches.filter(round__stage_id=params['stage'])
+        games = games.filter(round__stage_id=params['stage'])
 
     if params['status']:
         rank = ANALYTICS_STATUSES[params['status']]
@@ -7261,10 +7291,11 @@ def _analytics_rows(keys, tournament):
             proposals = match.live_proposals
             not_needed = rank == 3 and not match.game_id
             game_url = match.game.get_absolute_url() if match.game_id else None
-            name_url = game_url
-            # Unplayed: link to the series on its matches page -- but only once
-            # the bracket is finalized, since matches.html shows no cards before.
-            if not name_url and match.round.bracket_status == Round.BracketStatusChoices.FINALIZED:
+            # Name links to the series on its matches page (played or not) -- but
+            # only once the bracket is finalized, since matches.html shows no
+            # cards before. The game itself is linked from the Status column.
+            name_url = None
+            if match.round.bracket_status == Round.BracketStatusChoices.FINALIZED:
                 if match.round_id not in matches_url_by_round:
                     matches_url_by_round[match.round_id] = match.round.get_matches_url()
                 name_url = match.series.get_absolute_url(
@@ -7309,7 +7340,7 @@ def _analytics_rows(keys, tournament):
                 'status_label': ANALYTICS_STATUS_LABELS[rank],
                 'status_muted': False,
                 'game_url': game.get_absolute_url(),
-                'name_url': game.get_absolute_url(),
+                'name_url': None,  # no series to link; Status links the game
             })
     return rows
 
@@ -7329,7 +7360,8 @@ def tournament_match_analytics_page(request, slug):
     """Every match (and every game not linked to a match) in the tournament,
     with roster, availability coverage, moderator, schedule and status."""
     tournament = _get_managed_tournament(request, slug)
-    params = _analytics_params(request)
+    stage_options = _analytics_stage_options(tournament)
+    params = _analytics_params(request, {value for value, _label in stage_options})
     union, matches, games = _analytics_keys(tournament, params)
 
     paginator = _AnalyticsPaginator(union, ANALYTICS_PAGE_SIZE, total=matches.count() + games.count())
@@ -7366,6 +7398,7 @@ def tournament_match_analytics_page(request, slug):
         'export_url': reverse('tournament-match-analytics-export', kwargs={'slug': slug})
                       + _analytics_query(params),
         'show_stage': tournament.use_stages,
+        'stage_options': stage_options,
         # Suggestions for the Player filter. Profile.name's own fallback
         # (display_name, else discord) so a picked suggestion always matches the
         # filter's display_name/discord icontains.
@@ -7400,7 +7433,8 @@ def _csv_safe(value):
 def tournament_match_analytics_export(request, slug):
     """CSV of every row matching the page's filters, in the page's sort order."""
     tournament = _get_managed_tournament(request, slug)
-    params = _analytics_params(request)
+    stage_options = _analytics_stage_options(tournament)
+    params = _analytics_params(request, {value for value, _label in stage_options})
     union, _matches, _games = _analytics_keys(tournament, params)
     # All keys up front (a few small columns): re-running the sorted union per
     # OFFSET slice would redo every sort subquery once per chunk.
