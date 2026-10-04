@@ -5729,3 +5729,76 @@ class TournamentAvailabilityPageTests(_AvailabilityFixtureMixin, TestCase):
             with self.subTest(profile=profile.user.username):
                 self._login(profile)
                 self.assertContains(self.client.get(hub), self.url)
+
+
+class MatchSeriesDisplayNameTests(TestCase):
+    """MatchSeries.display_name replaced the stored MatchSeries.name, whose only
+    writer was bye creation. A bye has no PlayerGroup, so its label comes from
+    its one seat -- derived rather than snapshotted, so it follows renames."""
+
+    def setUp(self):
+        self.tournament = Tournament.objects.create(name="Bye T", use_stages=True)
+        self.stage = Stage.objects.create(tournament=self.tournament, name="S1",
+                                          order=1, use_rounds=True)
+        self.round = Round.objects.create(
+            stage=self.stage, round_number=1,
+            grouping_status=Round.GroupingStatusChoices.FINALIZED)
+
+    def _participant(self, discord, display_name):
+        profile = Profile.objects.create(discord=discord, display_name=display_name)
+        tp = TournamentPlayer.objects.create(profile=profile,
+                                             tournament=self.tournament)
+        sp = StageParticipant.objects.create(stage=self.stage, tournament_player=tp)
+        return profile, tp, sp
+
+    def _bracket_with_one_bye(self):
+        """One grouped pair plus one ungrouped participant, who gets the bye."""
+        group = PlayerGroup.objects.create(round=self.round, group_number=1,
+                                           name="Group A")
+        for i in range(2):
+            _p, tp, _sp = self._participant(f"grouped{i}", f"Grouped {i}")
+            group.tournament_players.add(tp)
+        profile, _tp, sp = self._participant("byeplayer", "Bye Player")
+        from the_warroom.services.bracket import BracketService
+        BracketService.generate_round_bracket(self.round, create_byes=True)
+        return MatchSeries.objects.get(round=self.round, is_bye=True), profile, sp
+
+    def test_bye_is_named_after_its_player(self):
+        bye, _profile, sp = self._bracket_with_one_bye()
+        self.assertEqual(bye.display_name, "Bye Player")
+        self.assertEqual(str(bye), "Bye Player")
+        self.assertEqual(bye.matchseat_set.count(), 1)
+        self.assertEqual(list(bye.winners.all()), [sp])
+
+    def test_bye_name_follows_a_rename(self):
+        bye, profile, _sp = self._bracket_with_one_bye()
+        profile.display_name = "Renamed"
+        profile.save(update_fields=["display_name"])
+        self.assertEqual(MatchSeries.objects.get(pk=bye.pk).display_name, "Renamed")
+
+    def test_grouped_series_uses_the_group_name(self):
+        group = PlayerGroup.objects.create(round=self.round, group_number=3,
+                                           name="Table Three")
+        series = MatchSeries.objects.create(round=self.round, player_group=group)
+        self.assertEqual(series.display_name, "Table Three")
+        group.name = ""
+        group.save(update_fields=["name"])
+        self.assertEqual(MatchSeries.objects.get(pk=series.pk).display_name, "Group 3")
+
+    def test_unnamed_series_falls_back_in_str(self):
+        series = MatchSeries.objects.create(round=self.round)
+        self.assertEqual(series.display_name, "")
+        self.assertEqual(str(series), f"Series {series.id} in Round 1")
+
+    def test_prefetched_bye_names_cost_no_queries(self):
+        self._bracket_with_one_bye()
+        byes = list(MatchSeries.objects.filter(round=self.round, is_bye=True)
+                    .prefetch_related(
+                        'matchseat_set__stage_participant__tournament_player__profile'))
+        with self.assertNumQueries(0):
+            self.assertEqual([b.display_name for b in byes], ["Bye Player"])
+
+    def test_series_json_carries_the_bye_name(self):
+        from the_warroom.views import _build_series_response
+        bye, _profile, _sp = self._bracket_with_one_bye()
+        self.assertEqual(_build_series_response(bye)['name'], "Bye Player")

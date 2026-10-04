@@ -2081,7 +2081,6 @@ class MatchSeries(models.Model):
     )
  
     # Optional metadata
-    name = models.CharField(max_length=100, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
  
     status = models.CharField(
@@ -2115,7 +2114,25 @@ class MatchSeries(models.Model):
         ordering = ["round", "id"]
  
     def __str__(self):
-        return self.name or f"Series {self.id} in Round {self.round.round_number}"
+        return self.display_name or f"Series {self.id} in Round {self.round.round_number}"
+
+    @property
+    def display_name(self):
+        """Label for this series: the group's name, or for a bye the seated
+        player's name (byes have no PlayerGroup). Derived, not stored, so it
+        follows renames.
+
+        Reads matchseat_set.all() rather than .first() so a prefetched
+        matchseat_set__stage_participant__tournament_player__profile is honoured
+        instead of costing a query per card -- .first() adds an ORDER BY, which
+        bypasses the prefetch cache.
+        """
+        if self.player_group_id:
+            return str(self.player_group)
+        seat = next(iter(self.matchseat_set.all()), None)
+        if seat:
+            return seat.stage_participant.tournament_player.profile.display_name
+        return ''
  
     def is_complete(self):
         """Return True if series has winners or all matches are complete."""

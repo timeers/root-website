@@ -8249,7 +8249,7 @@ def _build_series_edit_context(tournament, stage, round):
         mod = group.group_moderator if group else None
         series_map[s.id] = {
             'id': s.id,
-            'name': group.name if group else (s.name or ''),
+            'name': group.name if group else s.display_name,
             'player_group_id': group.id if group else None,
             'discord_thread': group.discord_thread if group else '',
             'video_link': group.video_link if group else '',
@@ -8297,7 +8297,7 @@ def _build_series_response(series):
     mod = group.group_moderator if group else None
     return {
         'id': series.id,
-        'name': group.name if group else (series.name or ''),
+        'name': group.name if group else series.display_name,
         'player_group_id': group.id if group else None,
         'discord_thread': group.discord_thread if group else '',
         'video_link': group.video_link if group else '',

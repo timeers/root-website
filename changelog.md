@@ -4,6 +4,7 @@
 
 ### Bug Fixes
 - Arrow buttons on availability weeks no longer stay hovered after clicking
+- Removed MatchSeries name field (unused)
 
 ## [1.13.13] - 2026-10-2 Hoot 4 Improvements
 
