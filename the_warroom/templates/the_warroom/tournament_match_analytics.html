@@ -43,10 +43,10 @@
         <div class="col-sm-4 col-md-3">
             <label for="analytics-q" class="form-label small mb-1">{% trans 'Name' %}</label>
             <input type="search" id="analytics-q" name="q" value="{{ params.q }}" maxlength="100"
-                   class="form-control form-control-sm" placeholder="{% trans 'Match or game name' %}">
+                   class="form-control form-control-sm" placeholder="{% trans 'Match name' %}">
         </div>
         <div class="col-sm-4 col-md-3">
-            <label for="analytics-player" class="form-label small mb-1">{% trans 'Player' %}</label>
+            <label for="analytics-player" class="form-label small mb-1">{% trans 'Profile' %}</label>
             <input type="search" id="analytics-player" name="player" value="{{ params.player }}" maxlength="100"
                    class="form-control form-control-sm" placeholder="{% trans 'Player or moderator' %}"
                    list="analytics-player-options" autocomplete="off">
