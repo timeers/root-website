@@ -134,17 +134,17 @@
             <div class="d-flex" id="mode-tabs">
               <button type="button" id="tab-general" data-week="general"
                       class="avail-mode-tab {% if not is_week_specific %}active{% endif %}">
-                <i class="bi bi-clock"></i><span class="avail-mode-tab-label">{% trans 'General' %}<span class="avail-mode-tab-full">{% trans ' Availability' %}</span></span>
+                <i class="bi bi-infinity"></i><span class="avail-mode-tab-label">{% trans 'General' %}<span class="avail-mode-tab-full">{% trans ' Availability' %}</span></span>
               </button>
               <button type="button" id="tab-weekly"
                       data-week="{% if is_week_specific %}{{ week_start|date:'Y-m-d' }}{% else %}{{ default_week|date:'Y-m-d' }}{% endif %}"
                       class="avail-mode-tab {% if is_week_specific %}active{% endif %}">
-                <i class="bi bi-calendar-week"></i><span class="avail-mode-tab-label">{% trans 'Weekly' %}<span class="avail-mode-tab-full">{% trans ' Availability' %}</span></span>
+                <i class="bi bi-calendar2-week"></i><span class="avail-mode-tab-label">{% trans 'Daily' %}<span class="avail-mode-tab-full">{% trans ' Availability' %}</span></span>
               </button>
             </div>
 
             <p class="text-secondary small mb-2 mt-3">
-              {% trans "Mark when you can start a game. General Availability is used as your default availability. Select a specific date in Weekly Availability to override your defaults." %}
+              {% trans "Mark when you can start a game. General Availability is used as your default availability. Select a specific date in Daily Availability to override your defaults for that week." %}
             </p>
             <div class="avail-week-row mb-3" id="week-navigator" data-tournament="{{ schedule_target }}">
               <div class="avail-week-arrow avail-week-arrow--prev">
@@ -178,7 +178,7 @@
             <div class="avail-legend" id="availability-legend">
               <span class="avail-legend-item"><span class="avail-legend-swatch avail-legend-swatch--selected"></span>{% trans 'Available' %}</span>
               <span class="avail-legend-item"><span class="avail-legend-swatch avail-legend-swatch--empty"></span>{% trans 'Unavailable' %}</span>
-              <span class="avail-legend-item" id="availability-legend-preview" {% if not is_week_specific %}hidden{% endif %}><span class="avail-legend-swatch avail-legend-swatch--preview"></span>{% trans 'Using General Availability' %}</span>
+              <span class="avail-legend-item" id="availability-legend-preview" {% if not is_week_specific %}hidden{% endif %}><span class="avail-legend-swatch avail-legend-swatch--preview"></span>{% trans 'My General Availability' %}</span>
               <span class="avail-legend-item" id="availability-legend-disabled" {% if not is_week_specific %}hidden{% endif %}><span class="avail-legend-swatch avail-legend-swatch--disabled"></span>{% trans 'Not Selectable (Prior or Next Week)' %}</span>
             </div>
 

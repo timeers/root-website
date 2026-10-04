@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.14] - 2026-10-4 Hoot 4 Refinements
+
+### Bug Fixes
+- Arrow buttons on availability weeks no longer stay hovered after clicking
+
 ## [1.13.13] - 2026-10-2 Hoot 4 Improvements
 
 ### New Features

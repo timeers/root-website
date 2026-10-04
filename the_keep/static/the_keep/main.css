@@ -5464,6 +5464,22 @@ body.forge-modal-open { overflow: hidden; }
     justify-content: flex-end;
   }
 
+  /* Week arrows swap the week in place, so the tapped button never re-renders --
+     and touch browsers keep :hover on it until the next tap elsewhere, leaving it
+     filled after the new week loads. On touch, show the fill only while pressed. */
+  @media (hover: none) {
+    .avail-week-arrow .databot-btn-outline:hover {
+      background: transparent;
+      color: #5865F2;
+      transform: none;
+      box-shadow: none;
+    }
+    .avail-week-arrow .databot-btn-outline:active {
+      background: #5865F2;
+      color: #fff;
+    }
+  }
+
   .avail-week-row #week-label,
   .avail-week-row #compare-week-label {
     flex: 1;
