@@ -906,18 +906,6 @@ class MatchForThreadTests(ScheduleFixtureMixin, TestCase):
         self.assertIsNone(err)
         self.assertEqual(match, self.match)
 
-    def test_title_fallback_ignores_series_name(self):
-        """MatchSeries.name is not a lookup key — only the group name is."""
-        self.group.discord_thread = ""
-        self.group.name = "Different Group"
-        self.group.save(update_fields=["discord_thread", "name"])
-        self.series.name = "Group A"
-        self.series.save(update_fields=["name"])
-        match, err = di._match_for_thread(
-            "999888777", self.guild.guild_id, channel_name="Group A")
-        self.assertIsNone(match)
-        self.assertTrue(err)
-
     def test_title_fallback_links_the_thread_to_the_group(self):
         """A title match is remembered, so later lookups (and /seating, /pick and
         the capture tasks, which have no title fallback of their own) resolve by

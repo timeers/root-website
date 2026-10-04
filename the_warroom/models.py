@@ -8,6 +8,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 from django.utils.translation import gettext_lazy
 from django.urls import reverse
+from urllib.parse import urlencode
 from django.core.validators import MinValueValidator, MaxValueValidator
 from django.core.exceptions import ValidationError
 
@@ -2081,7 +2082,6 @@ class MatchSeries(models.Model):
     )
  
     # Optional metadata
-    name = models.CharField(max_length=100, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
  
     status = models.CharField(
@@ -2115,7 +2115,25 @@ class MatchSeries(models.Model):
         ordering = ["round", "id"]
  
     def __str__(self):
-        return self.name or f"Series {self.id} in Round {self.round.round_number}"
+        return self.display_name or f"Series {self.id} in Round {self.round.round_number}"
+
+    @property
+    def display_name(self):
+        """Label for this series: the group's name, or for a bye the seated
+        player's name (byes have no PlayerGroup). Derived, not stored, so it
+        follows renames.
+
+        Reads matchseat_set.all() rather than .first() so a prefetched
+        matchseat_set__stage_participant__tournament_player__profile is honoured
+        instead of costing a query per card -- .first() adds an ORDER BY, which
+        bypasses the prefetch cache.
+        """
+        if self.player_group_id:
+            return str(self.player_group)
+        seat = next(iter(self.matchseat_set.all()), None)
+        if seat:
+            return seat.stage_participant.tournament_player.profile.display_name
+        return ''
  
     def is_complete(self):
         """Return True if series has winners or all matches are complete."""
@@ -2133,6 +2151,16 @@ class MatchSeries(models.Model):
         return None for exactly those, which is when a link is still useful.
         """
         return self.round.get_matches_url()
+
+    def get_absolute_url(self, matches_url=None):
+        """This series on its matches page: the page URL plus ?highlight_series=<id>,
+        which matches.html uses to scroll to and highlight the card -- the same
+        pattern as Law/Card's ?highlight_law / ?highlight_card.
+
+        `matches_url` lets a caller rendering many series pass a per-round URL it
+        already resolved: get_matches_url() runs a query per call."""
+        url = matches_url or self.get_matches_url()
+        return f"{url}?{urlencode({'highlight_series': self.id})}"
 
 
 class Match(models.Model):

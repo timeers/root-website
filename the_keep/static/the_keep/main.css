@@ -3777,6 +3777,15 @@ tr.clickable-row:hover {
   animation: highlight-pulse 1s ease-in-out;
 }
 
+/* A series linked to directly (?highlight_series=<id>): the changelog page's
+   theme-coloured ring, plus its one-off pulse so the eye finds it. The ring is
+   a box-shadow rather than .changelog-selected's 3px border, so the card
+   doesn't grow and nudge its neighbours in the grid. */
+.series-card-highlighted {
+  box-shadow: 0 0 0 3px var(--theme-color), 0 0 15px rgba(95, 120, 138, 0.3) !important;
+  animation: highlight-pulse 1s ease-in-out;
+}
+
 @keyframes highlight-pulse {
   0%, 100% {
     transform: scale(1);
@@ -5462,6 +5471,22 @@ body.forge-modal-open { overflow: hidden; }
 
   .avail-week-arrow--next {
     justify-content: flex-end;
+  }
+
+  /* Week arrows swap the week in place, so the tapped button never re-renders --
+     and touch browsers keep :hover on it until the next tap elsewhere, leaving it
+     filled after the new week loads. On touch, show the fill only while pressed. */
+  @media (hover: none) {
+    .avail-week-arrow .databot-btn-outline:hover {
+      background: transparent;
+      color: #5865F2;
+      transform: none;
+      box-shadow: none;
+    }
+    .avail-week-arrow .databot-btn-outline:active {
+      background: #5865F2;
+      color: #fff;
+    }
   }
 
   .avail-week-row #week-label,

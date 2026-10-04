@@ -1,0 +1,14 @@
+{% load i18n %}
+{% comment %} The Create Game Threads modal's count sentence. Rendered into the modal on
+page load, and re-rendered by round_create_game_threads on GET each time the modal
+opens, so the count follows series created, edited or deleted since the page loaded.
+Context: threads_to_create_count. {% endcomment %}
+{% if threads_to_create_count %}
+<p>
+    {% blocktrans count counter=threads_to_create_count %}A Discord thread will be created for {{ counter }} match, and its players pinged.{% plural %}Discord threads will be created for {{ counter }} matches, and their players pinged.{% endblocktrans %}
+</p>
+{% else %}
+<p class="mb-0">
+    <i class="bi bi-check2-all me-1"></i>{% trans 'Every match already has a thread. There is nothing to create.' %}
+</p>
+{% endif %}

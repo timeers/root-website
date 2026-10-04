@@ -1076,7 +1076,7 @@ def _matches_for_thread(channel_id, guild_id, channel_name=None):
 
     Primary key is the thread id inside PlayerGroup.discord_thread. Falls back to
     the thread's title matched against the player group's name (the name shown
-    everywhere in the UI; MatchSeries.name is usually blank), but ONLY for groups
+    everywhere in the UI), but ONLY for groups
     with no thread URL saved — a linked group is reachable by its id alone, so a
     same-named thread can't hijack it."""
     if not guild_id or not channel_id or not str(channel_id).isdigit():

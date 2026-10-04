@@ -176,25 +176,19 @@ blank-not-null, so "no thread" is the empty string. {% endcomment %}
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                {% if threads_to_create_count %}
-                <p>
-                    {% blocktrans count counter=threads_to_create_count %}A Discord thread will be created for {{ counter }} match, and its players pinged.{% plural %}Discord threads will be created for {{ counter }} matches, and their players pinged.{% endblocktrans %}
-                </p>
-                {% else %}
-                <p class="mb-0">
-                    <i class="bi bi-check2-all me-1"></i>{% trans 'Every match already has a thread. There is nothing to create.' %}
-                </p>
-                {% endif %}
+                <div id="createThreadsCount">
+                    {% include 'the_warroom/partials/create_threads_count.html' %}
+                </div>
                 <div id="createThreadsError" class="text-danger small d-none"></div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Close' %}</button>
-                {% if threads_to_create_count %}
-                <button type="button" class="btn btn-primary" id="createThreadsConfirm">
+                {% comment %} Always rendered (hidden at 0) so its listener exists when
+                the count refreshed on open goes back above 0. {% endcomment %}
+                <button type="button" class="btn btn-primary{% if not threads_to_create_count %} d-none{% endif %}" id="createThreadsConfirm">
                     <span id="createThreadsSpinner" class="spinner-border spinner-border-sm d-none me-1" role="status"></span>
                     {% trans 'Create Threads' %}
                 </button>
-                {% endif %}
             </div>
         </div>
     </div>
@@ -202,10 +196,34 @@ blank-not-null, so "no thread" is the empty string. {% endcomment %}
 <script>
 (function () {
     var btn = document.getElementById('createThreadsConfirm');
-    if (!btn) return;
+    var err = document.getElementById('createThreadsError');
+    // Set once a Create succeeds: the refresh below must never re-enable the button
+    // while the worker is running and the page is about to reload.
+    var created = false;
+
+    // Refresh the count every time the modal opens. Series created, edited or
+    // deleted on this page -- or threads linked from Discord or by the task -- change
+    // it without a reload. A failed refresh keeps the rendered count; the POST
+    // re-checks anyway.
+    document.getElementById('createThreadsModal').addEventListener('show.bs.modal', function () {
+        if (created) return;
+        btn.disabled = true;
+        err.classList.add('d-none');
+        fetch('{{ create_game_threads_url }}', { headers: { 'Accept': 'application/json' } })
+        .then(function (response) {
+            if (!response.ok) throw new Error(response.status);
+            return response.json();
+        })
+        .then(function (data) {
+            document.getElementById('createThreadsCount').innerHTML = data.html;
+            btn.classList.toggle('d-none', !data.count);
+        })
+        .catch(function () { /* keep the count rendered with the page */ })
+        .then(function () { if (!created) btn.disabled = false; });
+    });
+
     btn.addEventListener('click', function () {
         var spinner = document.getElementById('createThreadsSpinner');
-        var err = document.getElementById('createThreadsError');
         // Disabled for the rest of the page's life on success: the work runs in a
         // worker, so a second click would create duplicate threads for any series the
         // first pass hasn't linked yet.
@@ -233,6 +251,7 @@ blank-not-null, so "no thread" is the empty string. {% endcomment %}
                 err.classList.remove('d-none');
                 return;
             }
+            created = true;
             btn.textContent = '{% trans "Creating…" %}';
             // The task notifies the user when it finishes; reload so the new threads
             // show on the cards once they land.
@@ -266,5 +285,27 @@ function _initScheduledTimes() {
     });
 }
 document.addEventListener('DOMContentLoaded', _initScheduledTimes);
+
+// Scroll to and highlight a series linked to directly via
+// MatchSeries.get_absolute_url() (?highlight_series=<id>). Same scroll logic as
+// the changelog page (changelog_select.html).
+document.addEventListener('DOMContentLoaded', function() {
+    var seriesId = new URLSearchParams(window.location.search).get('highlight_series');
+    if (!seriesId || !/^\d+$/.test(seriesId)) return;
+    var wrapper = document.getElementById('series-card-' + seriesId);
+    var card = wrapper && wrapper.querySelector('.card');
+    if (!card) return;
+    card.classList.add('series-card-highlighted');
+
+    var prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    setTimeout(function() {
+        // Offset for the fixed navbar (5rem = 80px) plus some padding.
+        var target = card.getBoundingClientRect().top + window.pageYOffset - 100;
+        // Already near the top: leave the page where it is.
+        if (target > 150) {
+            window.scrollTo({ top: target, behavior: prefersReducedMotion ? 'auto' : 'smooth' });
+        }
+    }, 100);
+});
 </script>
 {% endblock %}

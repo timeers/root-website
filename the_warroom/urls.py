@@ -52,7 +52,8 @@ from .views import (game_list_view, leaderboard_view,
                     tournament_schedule_page, stage_schedule_page, round_schedule_page,
                     my_scheduled_matches_page, elo_system_leaderboard_view,
                     elo_system_games_page, elo_system_details_page,
-                    tournament_elo_page)
+                    tournament_elo_page,
+                    tournament_match_analytics_page, tournament_match_analytics_export)
 
 urlpatterns = [
     path('record/game/', manage_game, name='record-game'),
@@ -113,6 +114,8 @@ urlpatterns = [
     path('series/<slug:slug>/bracket/', tournament_bracket_page, name='tournament-bracket-page'),
     path('my-scheduled-matches/', my_scheduled_matches_page, name='my-scheduled-matches'),
     path('series/<slug:slug>/schedule/', tournament_schedule_page, name='tournament-schedule-page'),
+    path('series/<slug:slug>/match-analytics/', tournament_match_analytics_page, name='tournament-match-analytics'),
+    path('series/<slug:slug>/match-analytics/export/', tournament_match_analytics_export, name='tournament-match-analytics-export'),
     path('series/<slug:slug>/leaderboard/', tournament_leaderboard_page, name='tournament-leaderboard-page'),
     path('series/<slug:tournament_slug>/component/<slug:post_slug>/', tournament_component_leaderboard, name='tournament-component-leaderboard'),
     path('series/<slug:tournament_slug>/player/<slug:profile_slug>/', tournament_player_leaderboard, name='tournament-player-leaderboard'),

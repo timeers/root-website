@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.13.14] - 2026-10-4 Hoot 4 Refinements
+
+### New Features
+- Series match analytics page for moderators to see an overview of the scheduled and completed games in the series
+
+### Improvements
+- Removed MatchSeries name field (unused)
+- Renamed Weekly Availability to Day by Day
+- Added direct urls for matches to scroll and highlight the match
+
+### Bug Fixes
+- Arrow buttons on availability weeks no longer stay hovered after clicking
+- Count of Discord threads that will be created now updates as matches are created or deleted
+
 ## [1.13.13] - 2026-10-2 Hoot 4 Improvements
 
 ### New Features

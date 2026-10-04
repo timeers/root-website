@@ -3,7 +3,7 @@
     <div class="card-header d-flex justify-content-between align-items-center">
         <div>
             {% if series.is_bye %}
-            <strong>{{ series.name }}</strong>
+            <strong>{{ series.display_name }}</strong>
             {% else %}
             <strong>{{series.player_group}}</strong>
             {% endif %}

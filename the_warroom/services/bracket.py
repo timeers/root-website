@@ -118,7 +118,6 @@ class BracketService:
 
                 bye_series = MatchSeries.objects.create(
                     round=round,
-                    name=f"{tp.profile.display_name}",
                     is_bye=True,
                     number_of_games=0,
                     status=CompetitionStatus.COMPLETED,
