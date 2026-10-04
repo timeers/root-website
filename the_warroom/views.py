@@ -3,6 +3,7 @@ import time
 import json
 import csv
 
+from datetime import timezone as dt_timezone
 from io import StringIO
 from itertools import groupby
 from django.shortcuts import render
@@ -11,7 +12,7 @@ from django.views.decorators.http import require_http_methods
 from django.shortcuts import get_object_or_404, redirect
 from django.forms.models import modelformset_factory
 from django.forms import formset_factory
-from django.http import HttpResponse, HttpResponseBadRequest, Http404, HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseBadRequest, Http404, HttpResponseRedirect, StreamingHttpResponse
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.core.paginator import Paginator, EmptyPage, PageNotAnInteger
 from django.urls import reverse, reverse_lazy
@@ -22,10 +23,10 @@ from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
 from django.db import IntegrityError, models, transaction
 
 from django.db.models import Count, F, ExpressionWrapper, FloatField, IntegerField, Max, Min, Q, Case, When, Value, ProtectedError, Prefetch, OuterRef, Subquery, Exists, BooleanField, CharField
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Cast, Coalesce, Concat, Lower, NullIf
 from django.utils import timezone 
 from django.utils.translation import get_language, gettext as _, gettext_lazy as _lazy
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, AssetModeChoices,
                      TournamentPlayer, PlayerGroup, Stage, StageParticipant, FormatChoices,
@@ -52,15 +53,16 @@ from .utils import get_single_round, get_single_stage, build_scorecard_grid, bui
 from the_keep.models import Post, Faction, Deck, Map, Vagabond, Hireling, Landmark, Tweak, StatusChoices, PostTranslation
 from the_keep.views import paginate_or_404
 
-from the_gatehouse.models import Profile, Language, schedules_for
-from the_databot.models import LFGThread
+from the_gatehouse.models import Profile, Language, PlayerSchedule, schedules_for
+from the_databot.models import LFGThread, ScheduleProposal
 from the_databot.services.lfg_game import (
     seated_profiles, lfg_option_querysets, picked_factions_by_profile,
     unclaimed_picked_seats, captains_by_seat, undrafted_pick,
     FULL_CAPTAIN_COMPLEMENT)
 from the_gatehouse.views import (player_required, admin_required, 
                                  admin_required_class_based_view, player_required_class_based_view,
-                                 player_onboard_required, admin_onboard_required)
+                                 player_onboard_required, admin_onboard_required,
+                                 _get_managed_tournament)
 from the_gatehouse.forms import PlayerCreateForm
 from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
 from the_databot.tasks import (
@@ -6936,6 +6938,494 @@ def round_schedule_page(request, tournament_slug, round_slug, stage_slug=None):
         'bracket_url': round.get_matches_url(),
     })
     return render(request, 'the_warroom/schedule.html', context)
+
+
+# ── Match analytics (hosts / moderators / admins) ─────────────────────────────
+#
+# One table mixing every Match with every Game that isn't linked to a Match.
+# Long leagues can hold thousands of unlinked games, so sorting, filtering and
+# pagination all happen in SQL: each model contributes a `.values()` half of
+# identical shape, the halves are UNIONed, and only the visible page's objects
+# are then loaded in full (_analytics_rows).
+
+ANALYTICS_PAGE_SIZE = 50
+ANALYTICS_CSV_CHUNK = 500
+ANALYTICS_SORTS = ('name', 'stage', 'availability', 'moderator', 'time', 'status')
+# Filter value -> rank_key. Ranks double as the Status column's sort order.
+ANALYTICS_STATUSES = {'pending': 0, 'scheduled': 1, 'in_progress': 2, 'completed': 3}
+ANALYTICS_STATUS_LABELS = {
+    0: _lazy('Pending'), 1: _lazy('Scheduled'), 2: _lazy('In progress'), 3: _lazy('Completed'),
+}
+
+
+class _AnalyticsPaginator(Paginator):
+    """Paginator over the analytics UNION with a precomputed total.
+
+    The default count() wraps the whole union in SELECT COUNT(*), re-running
+    every sort-key subquery; summing the two filtered halves is far cheaper and
+    exact, since neither half can fan out (see _analytics_halves)."""
+
+    def __init__(self, object_list, per_page, total, **kwargs):
+        super().__init__(object_list, per_page, **kwargs)
+        self.__dict__['count'] = total  # pre-fill the cached_property
+
+
+def _analytics_available_expr(profile_ref, tournament):
+    """True when the referenced profile has availability, by schedules_for's
+    precedence over STANDING rows (week_start NULL): this tournament's row wins
+    if it exists -- even an empty one -- otherwise the general row decides.
+
+    The same rule the series card's availability button uses
+    (_attach_series_availability), so the page's x/y and its sort agree with it."""
+    standing = PlayerSchedule.objects.filter(profile=profile_ref, week_start__isnull=True)
+    own = standing.filter(tournament=tournament)
+    general = standing.filter(tournament__isnull=True)
+    return (
+        Q(Exists(own.exclude(available_hours=[])))
+        | (~Q(Exists(own)) & Q(Exists(general.exclude(available_hours=[]))))
+    )
+
+
+def _analytics_seat_count(tournament, available=False):
+    """Correlated count of the outer Match's seats (optionally only those with
+    availability). A Subquery rather than Count('series__matchseat'), which would
+    join and GROUP BY the half and break the count-by-halves total."""
+    seats = MatchSeat.objects.filter(series=OuterRef('series'))
+    if available:
+        seats = seats.filter(_analytics_available_expr(
+            OuterRef('stage_participant__tournament_player__profile'), tournament))
+    counted = seats.order_by().values('series').annotate(c=Count('pk')).values('c')
+    return Coalesce(Subquery(counted, output_field=IntegerField()), Value(0))
+
+
+def _analytics_name_expr(kind):
+    """The row label the page shows, minus the " (Game N)" suffix.
+
+    Case rather than one Coalesce: Concat turns NULL into '', so a group-less
+    match would otherwise come out as "Group " instead of reaching its own name."""
+    if kind == 'match':
+        group_label = Coalesce(
+            NullIf(F('series__player_group__name'), Value('')),
+            Concat(Value('Group '), Cast('series__player_group__group_number', CharField()),
+                   output_field=CharField()),
+            output_field=CharField(),
+        )
+        match_label = Coalesce(
+            NullIf(F('name'), Value('')),
+            Concat(Value('Match '), Cast('match_number', CharField()), output_field=CharField()),
+            output_field=CharField(),
+        )
+        return Case(
+            When(series__player_group__isnull=False, then=group_label),
+            default=match_label,
+            output_field=CharField(),
+        )
+    return Coalesce(
+        NullIf(F('nickname'), Value('')),
+        Concat(Value('Game '), Cast('id', CharField()), output_field=CharField()),
+        output_field=CharField(),
+    )
+
+
+def _analytics_rank_expr(kind):
+    """Status rank: 0 Pending, 1 Scheduled, 2 In progress, 3 Completed.
+
+    Reads the linked game before the stored status so a stale status can't
+    misreport. A match in a decided series with no game is ranked complete:
+    on_game_complete never touches the unplayed siblings of a best-of-N, which
+    would otherwise sit at Pending forever."""
+    if kind == 'match':
+        return Case(
+            When(game__final=True, then=Value(3)),
+            When(game__isnull=False, then=Value(2)),
+            When(status=CompetitionStatus.COMPLETED, then=Value(3)),
+            When(series__status=CompetitionStatus.COMPLETED, then=Value(3)),
+            When(scheduled_time__isnull=False, then=Value(1)),
+            default=Value(0),
+            output_field=IntegerField(),
+        )
+    return Case(When(final=True, then=Value(3)), default=Value(2), output_field=IntegerField())
+
+
+def _analytics_sort_expr(kind, sort, tournament):
+    """The expression behind `sort_key` -- only the active sort is computed, so
+    the per-row subqueries run only when sorting by availability."""
+    is_match = kind == 'match'
+    if sort == 'name':
+        return Lower(_analytics_name_expr(kind))
+    if sort == 'stage':
+        return F('round__stage__order')
+    if sort == 'availability':
+        if not is_match:
+            return Value(None, output_field=FloatField())
+        players = Cast(_analytics_seat_count(tournament), FloatField())
+        available = Cast(_analytics_seat_count(tournament, available=True), FloatField())
+        return Coalesce(available / NullIf(players, Value(0.0)), Value(0.0),
+                        output_field=FloatField())
+    if sort == 'moderator':
+        if not is_match:
+            return Value(None, output_field=CharField())
+        return Lower(Coalesce(
+            NullIf(F('series__player_group__group_moderator__display_name'), Value('')),
+            F('series__player_group__group_moderator__discord'),
+            output_field=CharField(),
+        ))
+    if sort == 'time':
+        return F('scheduled_time') if is_match else F('date_posted')
+    if sort == 'status':
+        return _analytics_rank_expr(kind)
+    return Value(0, output_field=IntegerField())
+
+
+def _analytics_sort2_expr(kind, sort):
+    """Secondary key: proposal-pending for the time sort (so Pending sits between
+    real times and blanks), match_number for the name sort (Game 1 before Game 2)."""
+    if kind == 'match':
+        if sort == 'time':
+            return Case(
+                When(Exists(ScheduleProposal.objects.filter(
+                    match=OuterRef('pk'), status__in=ScheduleProposal.LIVE_STATUSES)),
+                    then=Value(1)),
+                default=Value(0),
+                output_field=IntegerField(),
+            )
+        if sort == 'name':
+            return Coalesce(F('match_number'), Value(0), output_field=IntegerField())
+    return Value(0, output_field=IntegerField())
+
+
+def _analytics_cols(kind, sort, tournament):
+    """The ordered column dict for one UNION half. Both halves MUST produce the
+    same columns in the same order with compatible types; every entry is an
+    expression so Django can't hoist plain field names ahead of them."""
+    is_match = kind == 'match'
+    return {
+        'kind': Value(kind, output_field=CharField()),
+        'obj_id': F('pk'),
+        'sort_key': _analytics_sort_expr(kind, sort, tournament),
+        'sort_key2': _analytics_sort2_expr(kind, sort),
+        'stage_key': F('round__stage__order'),
+        'rank_key': _analytics_rank_expr(kind),
+        'time_key': F('scheduled_time') if is_match else F('date_posted'),
+    }
+
+
+def _analytics_ordering(sort, direction):
+    desc = direction == 'desc'
+    if sort == 'time' and desc:
+        # Full mirror of the ascending order: blank -> Pending -> latest time.
+        primary = F('sort_key').desc(nulls_first=True)
+        secondary = F('sort_key2').asc()
+    else:
+        primary = F('sort_key').desc(nulls_last=True) if desc else F('sort_key').asc(nulls_last=True)
+        secondary = F('sort_key2').asc() if sort == 'name' else F('sort_key2').desc()
+    # time_key needs an explicit nulls_last: SQLite sorts NULL first, Postgres last.
+    return [primary, secondary, 'stage_key', 'rank_key',
+            F('time_key').asc(nulls_last=True), 'kind', 'obj_id']
+
+
+def _analytics_params(request):
+    status = request.GET.get('status') or ''
+    sort = request.GET.get('sort') or ''
+    return {
+        'q': (request.GET.get('q') or '').strip()[:100],
+        'player': (request.GET.get('player') or '').strip()[:100],
+        'status': status if status in ANALYTICS_STATUSES else '',
+        'sort': sort if sort in ANALYTICS_SORTS else '',
+        'dir': 'desc' if request.GET.get('dir') == 'desc' else 'asc',
+    }
+
+
+def _analytics_halves(tournament, params):
+    """The filtered Match and Game querysets, without sort columns -- used both
+    for the UNION and for the page total. Filters on computed values go through
+    alias() so count() gets no extra columns or GROUP BY, and every to-many
+    check is an Exists so no join can duplicate a row."""
+    matches = Match.objects.filter(round__stage__tournament=tournament).exclude(series__is_bye=True)
+    games = Game.objects.filter(round__stage__tournament=tournament,
+                                match__isnull=True, test_match=False)
+
+    if params['q']:
+        matches = matches.alias(f_name=_analytics_name_expr('match')).filter(f_name__icontains=params['q'])
+        games = games.alias(f_name=_analytics_name_expr('game')).filter(f_name__icontains=params['q'])
+
+    if params['player']:
+        def profile_q(prefix):
+            return (Q(**{f'{prefix}display_name__icontains': params['player']})
+                    | Q(**{f'{prefix}discord__icontains': params['player']}))
+        seated = Exists(MatchSeat.objects.filter(series=OuterRef('series')).filter(
+            profile_q('stage_participant__tournament_player__profile__')))
+        played_linked = Exists(Effort.objects.filter(game=OuterRef('game')).filter(profile_q('player__')))
+        matches = matches.filter(
+            Q(seated) | Q(played_linked) | profile_q('series__player_group__group_moderator__'))
+        games = games.filter(Exists(Effort.objects.filter(game=OuterRef('pk')).filter(profile_q('player__'))))
+
+    if params['status']:
+        rank = ANALYTICS_STATUSES[params['status']]
+        matches = matches.alias(f_rank=_analytics_rank_expr('match')).filter(f_rank=rank)
+        if rank < 2:
+            games = games.none()  # unlinked games are never pending/scheduled
+        else:
+            games = games.alias(f_rank=_analytics_rank_expr('game')).filter(f_rank=rank)
+
+    return matches, games
+
+
+def _analytics_keys(tournament, params):
+    """(ordered UNION of row keys, match half, game half)."""
+    matches, games = _analytics_halves(tournament, params)
+    sort = params['sort']
+    # order_by() clears Meta.ordering: SQLite rejects ORDER BY inside a compound statement.
+    union = (
+        matches.order_by().values(**_analytics_cols('match', sort, tournament))
+        .union(games.order_by().values(**_analytics_cols('game', sort, tournament)), all=True)
+        .order_by(*_analytics_ordering(sort, params['dir']))
+    )
+    return union, matches, games
+
+
+def _proposal_jump_url(proposal):
+    if proposal.channel_id and proposal.message_id:
+        return (f"https://discord.com/channels/{proposal.guild_id or '@me'}"
+                f"/{proposal.channel_id}/{proposal.message_id}")
+    return None
+
+
+def _analytics_rows(keys, tournament):
+    """Hydrate UNION key dicts into display rows, preserving their order, in a
+    fixed number of queries however many keys there are."""
+    match_ids = [k['obj_id'] for k in keys if k['kind'] == 'match']
+    game_ids = [k['obj_id'] for k in keys if k['kind'] == 'game']
+
+    matches = {}
+    if match_ids:
+        matches = {m.pk: m for m in Match.objects.filter(pk__in=match_ids).select_related(
+            'round__stage', 'game', 'series__player_group__group_moderator',
+        ).prefetch_related(
+            Prefetch('series__matchseat_set', MatchSeat.objects.select_related(
+                'stage_participant__tournament_player__profile').order_by('seat_number', 'pk')),
+            'series__matches',
+            Prefetch('game__efforts', Effort.objects.select_related('player')),
+            Prefetch('schedule_proposals', ScheduleProposal.objects.filter(
+                status__in=ScheduleProposal.LIVE_STATUSES).order_by('-created_at'),
+                to_attr='live_proposals'),
+        )}
+    games = {}
+    if game_ids:
+        games = {g.pk: g for g in Game.objects.filter(pk__in=game_ids).select_related(
+            'round__stage',
+        ).prefetch_related(
+            Prefetch('efforts', Effort.objects.select_related('player')),
+        )}
+
+    seat_profile_ids = {
+        seat.stage_participant.tournament_player.profile_id
+        for m in matches.values() for seat in m.series.matchseat_set.all()
+    }
+    schedules = schedules_for(seat_profile_ids, tournament) if seat_profile_ids else {}
+    compare_base = reverse('availability-compare')
+
+    def players_for(profiles, efforts):
+        """Seated profiles first, then anyone who played without a seat; winners
+        are marked from the row's game."""
+        winner_ids = {e.player_id for e in efforts if e.win and e.player_id}
+        seen, players = set(), []
+        for profile in list(profiles) + [e.player for e in efforts if e.player_id]:
+            if profile.pk not in seen:
+                seen.add(profile.pk)
+                players.append({'profile': profile, 'winner': profile.pk in winner_ids})
+        return players
+
+    rows = []
+    for key in keys:
+        rank = key['rank_key']
+        if key['kind'] == 'match':
+            match = matches.get(key['obj_id'])
+            if match is None:  # deleted between the key query and now
+                continue
+            group = match.series.player_group
+            seats = [s.stage_participant.tournament_player.profile
+                     for s in match.series.matchseat_set.all()]
+            efforts = list(match.game.efforts.all()) if match.game_id else []
+            proposals = match.live_proposals
+            not_needed = rank == 3 and not match.game_id
+            rows.append({
+                'kind': 'match',
+                'name': str(group) if group else (match.name or f"Match {match.match_number}"),
+                'position': match.series_position,
+                'thread_url': (group.discord_thread or None) if group else None,
+                'stage': match.round.stage,
+                'players': players_for(seats, efforts),
+                'avail_count': sum(1 for p in seats if schedules.get(p.pk)),
+                'player_count': len(seats),
+                'compare_url': f"{compare_base}?series={match.series_id}",
+                'moderator': group.group_moderator if group else None,
+                'time': match.scheduled_time,
+                'proposal_pending': bool(proposals),
+                'proposal_url': _proposal_jump_url(proposals[0]) if proposals else None,
+                'status_label': _('Not needed') if not_needed else ANALYTICS_STATUS_LABELS[rank],
+                'status_muted': not_needed,
+                'game_url': match.game.get_absolute_url() if match.game_id else None,
+            })
+        else:
+            game = games.get(key['obj_id'])
+            if game is None:
+                continue
+            rows.append({
+                'kind': 'game',
+                'name': game.nickname or f"Game {game.pk}",
+                'position': None,
+                'thread_url': game.link or None,
+                'stage': game.round.stage,
+                'players': players_for([], list(game.efforts.all())),
+                'avail_count': None,
+                'player_count': None,
+                'compare_url': None,
+                'moderator': None,
+                'time': game.date_posted,
+                'proposal_pending': False,
+                'proposal_url': None,
+                'status_label': ANALYTICS_STATUS_LABELS[rank],
+                'status_muted': False,
+                'game_url': game.get_absolute_url(),
+            })
+    return rows
+
+
+def _analytics_query(params, **overrides):
+    """'?…' for the given params (filters + sort/dir), or '' when empty -- so a
+    link never comes out as '?&page=2'."""
+    merged = {**params, **overrides}
+    query = {k: v for k, v in merged.items() if v not in ('', None)}
+    if not query.get('sort'):
+        query.pop('dir', None)  # dir means nothing without a sort
+    return f"?{urlencode(query)}" if query else ''
+
+
+@player_onboard_required
+def tournament_match_analytics_page(request, slug):
+    """Every match (and every game not linked to a match) in the tournament,
+    with roster, availability coverage, moderator, schedule and status."""
+    tournament = _get_managed_tournament(request, slug)
+    params = _analytics_params(request)
+    union, matches, games = _analytics_keys(tournament, params)
+
+    paginator = _AnalyticsPaginator(union, ANALYTICS_PAGE_SIZE, total=matches.count() + games.count())
+    page_obj = paginator.get_page(request.GET.get('page'))
+    rows = _analytics_rows(list(page_obj.object_list), tournament)
+
+    # Header links: clicking the active column flips its direction; any other
+    # column starts ascending. Changing the sort returns to page 1.
+    header_urls = {}
+    for col in ANALYTICS_SORTS:
+        next_dir = 'desc' if params['sort'] == col and params['dir'] == 'asc' else 'asc'
+        header_urls[col] = _analytics_query(params, sort=col, dir=next_dir)
+
+    page_links = [
+        (number, None if number == paginator.ELLIPSIS else _analytics_query(params, page=number))
+        for number in paginator.get_elided_page_range(page_obj.number, on_each_side=2, on_ends=1)
+    ]
+
+    # No _tournament_base_context: like the availability compare page, this is a
+    # standalone tool page without the tournament header and nav tabs.
+    context = {
+        'tournament': tournament,
+        'back_url': reverse('tournament-settings', kwargs={'slug': slug}),
+        'rows': rows,
+        'page_obj': page_obj,
+        'page_links': page_links,
+        'prev_url': _analytics_query(params, page=page_obj.previous_page_number()) if page_obj.has_previous() else None,
+        'next_url': _analytics_query(params, page=page_obj.next_page_number()) if page_obj.has_next() else None,
+        'params': params,
+        'status_options': [('', _('All'))] + [(value, ANALYTICS_STATUS_LABELS[rank])
+                                              for value, rank in ANALYTICS_STATUSES.items()],
+        'header_urls': header_urls,
+        'clear_url': request.path,
+        'export_url': reverse('tournament-match-analytics-export', kwargs={'slug': slug})
+                      + _analytics_query(params),
+        'show_stage': tournament.use_stages,
+        # Suggestions for the Player filter. Profile.name's own fallback
+        # (display_name, else discord) so a picked suggestion always matches the
+        # filter's display_name/discord icontains.
+        'player_suggestions': sorted({
+            display_name or discord
+            for display_name, discord in TournamentPlayer.objects.filter(tournament=tournament)
+            .values_list('profile__display_name', 'profile__discord')
+            if display_name or discord
+        }, key=str.lower),
+    }
+    return render(request, 'the_warroom/tournament_match_analytics.html', context)
+
+
+class _CsvEcho:
+    """File-like object for csv.writer that hands each row straight back, so
+    rows can be streamed instead of buffered."""
+    def write(self, value):
+        return value
+
+
+def _csv_safe(value):
+    """Neutralise spreadsheet formulas in user-entered text (names, nicknames)."""
+    if value is None:
+        return ''
+    value = str(value)
+    if value and value[0] in ('=', '+', '-', '@', '\t', '\r'):
+        return "'" + value
+    return value
+
+
+@player_onboard_required
+def tournament_match_analytics_export(request, slug):
+    """CSV of every row matching the page's filters, in the page's sort order."""
+    tournament = _get_managed_tournament(request, slug)
+    params = _analytics_params(request)
+    union, _matches, _games = _analytics_keys(tournament, params)
+    # All keys up front (a few small columns): re-running the sorted union per
+    # OFFSET slice would redo every sort subquery once per chunk.
+    keys = list(union)
+    show_stage = tournament.use_stages
+
+    header = ['Name', 'Players', 'Winners', 'Moderator', 'Players With Availability',
+              'Total Players', 'Scheduled (UTC)', 'Schedule Pending', 'Schedule Message URL',
+              'Status']
+    if show_stage:
+        header.append('Stage')
+    header += ['Discord / Game Link', 'Game URL']
+
+    def cells(row):
+        name = row['name'] + (f" (Game {row['position']})" if row['position'] else '')
+        out = [
+            name,
+            '; '.join(p['profile'].name for p in row['players']),
+            '; '.join(p['profile'].name for p in row['players'] if p['winner']),
+            row['moderator'].name if row['moderator'] else '',
+            row['avail_count'],
+            row['player_count'],
+            row['time'].astimezone(dt_timezone.utc).isoformat() if row['time'] else '',
+            'Yes' if row['proposal_pending'] else '',
+            row['proposal_url'],
+            row['status_label'],
+        ]
+        if show_stage:
+            out.append(row['stage'].name if row['stage'] else '')
+        out += [
+            row['thread_url'],
+            build_absolute_uri(request, row['game_url']) if row['game_url'] else '',
+        ]
+        return [_csv_safe(c) for c in out]
+
+    writer = csv.writer(_CsvEcho())
+
+    def stream():
+        yield '\ufeff'  # BOM: Excel otherwise reads UTF-8 as ANSI and garbles names
+        yield writer.writerow(header)
+        for start in range(0, len(keys), ANALYTICS_CSV_CHUNK):
+            for row in _analytics_rows(keys[start:start + ANALYTICS_CSV_CHUNK], tournament):
+                yield writer.writerow(cells(row))
+
+    response = StreamingHttpResponse(stream(), content_type='text/csv; charset=utf-8')
+    response['Content-Disposition'] = f'attachment; filename="match_analytics_{tournament.slug}.csv"'
+    return response
 
 
 @player_onboard_required

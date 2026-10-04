@@ -1,0 +1,322 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n static %}
+
+{% block title %}{{ tournament.name }} - {% trans 'Match Analytics' %} | {% endblock %}
+
+{% comment %} Manager-only and varies per query string: nothing worth indexing. {% endcomment %}
+{% block meta %}
+<meta name="robots" content="noindex">
+{% endblock meta %}
+
+{% block main_class %}container-fluid main-content wide-page{% endblock %}
+{% block main_width_class %}col-md-12{% endblock %}
+
+{% block content %}
+<div class="py-3">
+
+    {% comment %} Standalone tool page like the availability compare page: no
+    breadcrumb, tournament header or nav tabs -- just a way back to Settings. {% endcomment %}
+    <div class="info-card mb-3">
+        <div class="info-card-body">
+            <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+                <a href="{{ back_url }}" class="databot-btn databot-btn-outline avail-btn-compact">
+                    <i class="bi bi-arrow-left me-1"></i><span class="d-none d-sm-inline">{% trans 'Back to Settings' %}</span><span class="d-sm-none">{% trans 'Settings' %}</span>
+                </a>
+                <a href="{{ export_url }}" class="databot-btn databot-btn-outline avail-btn-compact ms-auto">
+                    <i class="bi bi-download me-1"></i>{% trans 'Export CSV' %}
+                </a>
+            </div>
+            <h1 class="info-card-title mb-1">
+                <i class="bi bi-table me-2"></i>{% trans 'Match Analytics' %}
+                <span class="text-secondary fs-6">({{ page_obj.paginator.count }})</span>
+            </h1>
+            <p class="text-secondary mb-0">{{ tournament.name }}</p>
+
+            <hr class="card-section-divider">
+
+            <!-- Filters -->
+            <form method="get" class="row g-2 align-items-end analytics-filters">
+        {% if params.sort %}
+        <input type="hidden" name="sort" value="{{ params.sort }}">
+        <input type="hidden" name="dir" value="{{ params.dir }}">
+        {% endif %}
+        <div class="col-sm-4 col-md-3">
+            <label for="analytics-q" class="form-label small mb-1">{% trans 'Name' %}</label>
+            <input type="search" id="analytics-q" name="q" value="{{ params.q }}" maxlength="100"
+                   class="form-control form-control-sm" placeholder="{% trans 'Match or game name' %}">
+        </div>
+        <div class="col-sm-4 col-md-3">
+            <label for="analytics-player" class="form-label small mb-1">{% trans 'Player' %}</label>
+            <input type="search" id="analytics-player" name="player" value="{{ params.player }}" maxlength="100"
+                   class="form-control form-control-sm" placeholder="{% trans 'Player or moderator' %}"
+                   list="analytics-player-options" autocomplete="off">
+            <datalist id="analytics-player-options">
+                {% for name in player_suggestions %}<option value="{{ name }}">{% endfor %}
+            </datalist>
+        </div>
+        <div class="col-sm-4 col-md-2">
+            <label for="analytics-status" class="form-label small mb-1">{% trans 'Status' %}</label>
+            <select id="analytics-status" name="status" class="form-select form-select-sm">
+                {% for value, label in status_options %}
+                <option value="{{ value }}" {% if value == params.status %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-auto d-flex gap-2">
+            <button type="submit" class="databot-btn databot-btn-primary avail-btn-compact">
+                <i class="bi bi-funnel me-1"></i>{% trans 'Filter' %}
+            </button>
+            {% if params.q or params.player or params.status %}
+            <a href="{{ clear_url }}" class="databot-btn databot-btn-outline avail-btn-compact">{% trans 'Clear' %}</a>
+            {% endif %}
+        </div>
+            </form>
+        </div>
+    </div>
+
+    {% comment %}
+    Header cells: a sortable header links to header_urls[col] (built in the view
+    so an empty filter set never yields "?&sort="). The caret only shows when a
+    sort is explicitly chosen -- the default order is a compound one.
+    {% endcomment %}
+    <div class="info-card">
+    <div class="table-responsive">
+        <table class="table table-sm align-middle mb-0 analytics-table">
+            <thead>
+                <tr>
+                    <th>
+                        <a class="text-reset text-decoration-none" href="{{ header_urls.name }}">{% trans 'Name' %}
+                        {% if params.sort == 'name' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
+                    </th>
+                    <th>{% trans 'Players' %}</th>
+                    <th>
+                        <a class="text-reset text-decoration-none" href="{{ header_urls.moderator }}">{% trans 'Moderator' %}
+                        {% if params.sort == 'moderator' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
+                    </th>
+                    <th>
+                        <a class="text-reset text-decoration-none" href="{{ header_urls.availability }}">{% trans 'Availability' %}
+                        {% if params.sort == 'availability' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
+                    </th>
+                    <th>
+                        <a class="text-reset text-decoration-none" href="{{ header_urls.time }}">{% trans 'Scheduled' %}
+                        {% if params.sort == 'time' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
+                    </th>
+                    <th class="text-center">{% trans 'Thread' %}</th>
+                    <th>
+                        <a class="text-reset text-decoration-none" href="{{ header_urls.status }}">{% trans 'Status' %}
+                        {% if params.sort == 'status' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
+                    </th>
+                    {% if show_stage %}
+                    <th>
+                        <a class="text-reset text-decoration-none" href="{{ header_urls.stage }}">{% trans 'Stage' %}
+                        {% if params.sort == 'stage' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
+                    </th>
+                    {% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <!-- Name -->
+                    <td>
+                        {% if row.game_url %}
+                        <a href="{{ row.game_url }}" class="visible-link">{{ row.name }}</a>
+                        {% else %}
+                        {{ row.name }}
+                        {% endif %}
+                        {% if row.position %}<span class="text-muted">({% trans 'Game' %} {{ row.position }})</span>{% endif %}
+                    </td>
+
+                    <!-- Players (winner overlay matches series_card_matches.html) -->
+                    <td>
+                        {% for player in row.players %}
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="parent">
+                                {% if player.profile.image %}
+                                <img src="{{ player.profile.image.url }}" alt="" class="avatar-icon image1">
+                                {% else %}
+                                <i class="bi bi-person-circle image1"></i>
+                                {% endif %}
+                                {% if player.winner %}
+                                <img class="image2" src="{% static 'images/winner.png' %}" alt="{% trans 'Winner' %}" style="max-height:30px;max-width:30px;top:1px;left:-5px;">
+                                {% endif %}
+                            </div>
+                            <a href="{{ player.profile.get_absolute_url }}" class="visible-link">
+                                {% if player.winner %}<strong>{{ player.profile.name }}</strong>{% else %}{{ player.profile.name }}{% endif %}
+                            </a>
+                        </div>
+                        {% empty %}
+                        <span class="text-muted">—</span>
+                        {% endfor %}
+                    </td>
+
+                    <!-- Moderator -->
+                    <td>
+                        {% if row.moderator %}
+                        <div class="d-flex align-items-center gap-2">
+                            {% if row.moderator.image %}
+                            <img src="{{ row.moderator.image.url }}" alt="" class="avatar-icon">
+                            {% else %}
+                            <i class="bi bi-person-circle"></i>
+                            {% endif %}
+                            <a href="{{ row.moderator.get_absolute_url }}" class="visible-link">{{ row.moderator.name }}</a>
+                        </div>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Availability -->
+                    <td>
+                        {% if row.compare_url %}
+                        <a href="{{ row.compare_url }}" class="visible-link">{{ row.avail_count }}/{{ row.player_count }}</a>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Scheduled: filled in the viewer's local time by the script below -->
+                    <td>
+                        {% if row.time %}
+                        <span class="analytics-time" data-utc="{{ row.time|date:'c' }}"></span>
+                        {% endif %}
+                        {% if row.proposal_pending %}
+                        <div class="small text-muted">
+                            {% if row.proposal_url %}
+                            <a href="{{ row.proposal_url }}" class="visible-link" target="_blank" rel="noopener">{% trans 'Pending' %}</a>
+                            {% else %}
+                            {% trans 'Pending' %}
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                        {% if not row.time and not row.proposal_pending %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Thread -->
+                    <td class="text-center">
+                        {% if row.thread_url %}
+                        <a href="{{ row.thread_url }}" class="visible-link" target="_blank" rel="noopener"
+                           title="{% trans 'Discord thread' %}" aria-label="{% trans 'Discord thread' %}">
+                            <i class="bi bi-discord"></i>
+                        </a>
+                        {% else %}
+                        <span class="text-muted">—</span>
+                        {% endif %}
+                    </td>
+
+                    <!-- Status -->
+                    <td{% if row.status_muted %} class="text-muted"{% endif %}>{{ row.status_label }}</td>
+
+                    <!-- Stage -->
+                    {% if show_stage %}
+                    <td>{{ row.stage.name|default:"—" }}</td>
+                    {% endif %}
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="{% if show_stage %}8{% else %}7{% endif %}" class="text-center text-muted py-4">
+                        {% trans 'No matches or games found.' %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Pagination -->
+    {% if page_obj.has_previous or page_obj.has_next %}
+    <nav aria-label="{% trans 'Match analytics pages' %}" class="analytics-pagination">
+        <ul class="pagination pagination-sm justify-content-center flex-wrap mb-0">
+            <li class="page-item {% if not prev_url %}disabled{% endif %}">
+                <a class="page-link" href="{{ prev_url|default:'#' }}">{% trans 'Previous' %}</a>
+            </li>
+            {% for number, url in page_links %}
+            {% if url is None %}
+            <li class="page-item disabled"><span class="page-link">{{ number }}</span></li>
+            {% elif number == page_obj.number %}
+            <li class="page-item active" aria-current="page"><span class="page-link">{{ number }}</span></li>
+            {% else %}
+            <li class="page-item"><a class="page-link" href="{{ url }}">{{ number }}</a></li>
+            {% endif %}
+            {% endfor %}
+            <li class="page-item {% if not next_url %}disabled{% endif %}">
+                <a class="page-link" href="{{ next_url|default:'#' }}">{% trans 'Next' %}</a>
+            </li>
+        </ul>
+    </nav>
+    {% endif %}
+    </div>
+
+</div>
+{% endblock %}
+
+{% block styles %}
+<style>
+  /* Matches the availability compare page: a divider in the card's own border
+     colour rather than Bootstrap's heavier default hr. */
+  .card-section-divider {
+    border: 0;
+    border-top: 1px solid #e3e5e8;
+    opacity: 1;
+    margin: 14px 0;
+  }
+  .analytics-filters .form-label {
+    font-weight: 600;
+    color: #6c757d;
+  }
+
+  /* The table sits flush inside the rounded .info-card (which clips it with
+     overflow:hidden), so its edges follow the card's corners. */
+  .analytics-table > :not(caption) > * > * {
+    padding: 10px 14px;
+    border-bottom-color: #e3e5e8;
+  }
+  .analytics-table thead th {
+    background: #f8f9fa;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #6c757d;
+    white-space: nowrap;
+  }
+  .analytics-table thead th a:hover {
+    color: #5865F2 !important;
+  }
+  .analytics-table tbody tr:last-child > * {
+    border-bottom: 0;
+  }
+  .analytics-table tbody tr {
+    transition: background-color 90ms linear;
+  }
+  .analytics-table tbody tr:hover > * {
+    background: rgba(88, 101, 242, 0.05);
+  }
+
+  .analytics-pagination {
+    padding: 12px;
+    border-top: 1px solid #e3e5e8;
+  }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // This page's own copy of the site-wide .scheduled-time formatter
+  // (the_keep/template.html), minus the weekday to keep the column narrow.
+  // A separate class so the global one never touches these spans.
+  (function () {
+    var fmt = new Intl.DateTimeFormat(undefined, {
+      month: 'numeric', day: 'numeric', year: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+      timeZoneName: 'short'
+    });
+    document.querySelectorAll('.analytics-time[data-utc]').forEach(function (el) {
+      var d = new Date(el.dataset.utc);
+      if (!isNaN(d)) el.textContent = fmt.format(d);
+    });
+  })();
+</script>
+{% endblock scripts %}

@@ -124,6 +124,29 @@ page's ambient round/stage/tournament globals.
 {% endif %}
 
 
+<!-- Match Analytics Card (Series only). Like Player Availability, open to every
+     moderator who can reach this hub. -->
+{% if level == 'series' %}
+<div class="col-md-6">
+    <div class="card h-100">
+        <div class="card-body">
+            <h5 class="card-title root-title">
+                <i class="bi bi-table me-2"></i>Match Analytics
+            </h5>
+            <p class="card-text text-muted">
+                Track every match's players, availability, schedule and result
+            </p>
+        </div>
+        <div class="card-footer bg-transparent">
+            <a href="{% url 'tournament-match-analytics' slug=tournament.slug %}" class="btn btn-primary w-100">
+                <i class="bi bi-table me-1"></i>View Match Analytics
+            </a>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+
 <!-- Surveys Card (Stage / Series) -->
 {% if level == 'stage' or level == 'series' %}
 <div class="col-md-6">
