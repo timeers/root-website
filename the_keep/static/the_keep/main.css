@@ -3777,6 +3777,15 @@ tr.clickable-row:hover {
   animation: highlight-pulse 1s ease-in-out;
 }
 
+/* A series linked to directly (?highlight_series=<id>): the changelog page's
+   theme-coloured ring, plus its one-off pulse so the eye finds it. The ring is
+   a box-shadow rather than .changelog-selected's 3px border, so the card
+   doesn't grow and nudge its neighbours in the grid. */
+.series-card-highlighted {
+  box-shadow: 0 0 0 3px var(--theme-color), 0 0 15px rgba(95, 120, 138, 0.3) !important;
+  animation: highlight-pulse 1s ease-in-out;
+}
+
 @keyframes highlight-pulse {
   0%, 100% {
     transform: scale(1);

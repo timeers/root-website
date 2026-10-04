@@ -266,5 +266,27 @@ function _initScheduledTimes() {
     });
 }
 document.addEventListener('DOMContentLoaded', _initScheduledTimes);
+
+// Scroll to and highlight a series linked to directly via
+// MatchSeries.get_absolute_url() (?highlight_series=<id>). Same scroll logic as
+// the changelog page (changelog_select.html).
+document.addEventListener('DOMContentLoaded', function() {
+    var seriesId = new URLSearchParams(window.location.search).get('highlight_series');
+    if (!seriesId || !/^\d+$/.test(seriesId)) return;
+    var wrapper = document.getElementById('series-card-' + seriesId);
+    var card = wrapper && wrapper.querySelector('.card');
+    if (!card) return;
+    card.classList.add('series-card-highlighted');
+
+    var prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    setTimeout(function() {
+        // Offset for the fixed navbar (5rem = 80px) plus some padding.
+        var target = card.getBoundingClientRect().top + window.pageYOffset - 100;
+        // Already near the top: leave the page where it is.
+        if (target > 150) {
+            window.scrollTo({ top: target, behavior: prefersReducedMotion ? 'auto' : 'smooth' });
+        }
+    }, 100);
+});
 </script>
 {% endblock %}

@@ -7200,7 +7200,7 @@ def _analytics_rows(keys, tournament):
     matches = {}
     if match_ids:
         matches = {m.pk: m for m in Match.objects.filter(pk__in=match_ids).select_related(
-            'round__stage', 'game', 'series__player_group__group_moderator',
+            'round__stage__tournament', 'game', 'series__player_group__group_moderator',
         ).prefetch_related(
             Prefetch('series__matchseat_set', MatchSeat.objects.select_related(
                 'stage_participant__tournament_player__profile').order_by('seat_number', 'pk')),
@@ -7224,6 +7224,8 @@ def _analytics_rows(keys, tournament):
     }
     schedules = schedules_for(seat_profile_ids, tournament) if seat_profile_ids else {}
     compare_base = reverse('availability-compare')
+    # get_matches_url() costs a query per call; resolve it once per round.
+    matches_url_by_round = {}
 
     def players_for(profiles, efforts):
         """Seated profiles first, then anyone who played without a seat; winners
@@ -7249,6 +7251,15 @@ def _analytics_rows(keys, tournament):
             efforts = list(match.game.efforts.all()) if match.game_id else []
             proposals = match.live_proposals
             not_needed = rank == 3 and not match.game_id
+            game_url = match.game.get_absolute_url() if match.game_id else None
+            name_url = game_url
+            # Unplayed: link to the series on its matches page -- but only once
+            # the bracket is finalized, since matches.html shows no cards before.
+            if not name_url and match.round.bracket_status == Round.BracketStatusChoices.FINALIZED:
+                if match.round_id not in matches_url_by_round:
+                    matches_url_by_round[match.round_id] = match.round.get_matches_url()
+                name_url = match.series.get_absolute_url(
+                    matches_url=matches_url_by_round[match.round_id])
             rows.append({
                 'kind': 'match',
                 'name': str(group) if group else (match.name or f"Match {match.match_number}"),
@@ -7265,7 +7276,8 @@ def _analytics_rows(keys, tournament):
                 'proposal_url': _proposal_jump_url(proposals[0]) if proposals else None,
                 'status_label': _('Not needed') if not_needed else ANALYTICS_STATUS_LABELS[rank],
                 'status_muted': not_needed,
-                'game_url': match.game.get_absolute_url() if match.game_id else None,
+                'game_url': game_url,
+                'name_url': name_url,
             })
         else:
             game = games.get(key['obj_id'])
@@ -7288,6 +7300,7 @@ def _analytics_rows(keys, tournament):
                 'status_label': ANALYTICS_STATUS_LABELS[rank],
                 'status_muted': False,
                 'game_url': game.get_absolute_url(),
+                'name_url': game.get_absolute_url(),
             })
     return rows
 
