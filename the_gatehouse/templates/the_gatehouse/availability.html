@@ -131,6 +131,9 @@
 
         <div class="info-card mb-4">
           <div class="info-card-body">
+            <h2 class="info-card-title h5">
+              <i class="bi bi-clock me-2"></i>{% trans 'Start Times' %}
+            </h2>
             <div class="d-flex" id="mode-tabs">
               <button type="button" id="tab-general" data-week="general"
                       class="avail-mode-tab {% if not is_week_specific %}active{% endif %}">
@@ -139,12 +142,12 @@
               <button type="button" id="tab-weekly"
                       data-week="{% if is_week_specific %}{{ week_start|date:'Y-m-d' }}{% else %}{{ default_week|date:'Y-m-d' }}{% endif %}"
                       class="avail-mode-tab {% if is_week_specific %}active{% endif %}">
-                <i class="bi bi-calendar2-week"></i><span class="avail-mode-tab-label">{% trans 'Daily' %}<span class="avail-mode-tab-full">{% trans ' Availability' %}</span></span>
+                <i class="bi bi-calendar2-week"></i><span class="avail-mode-tab-label">{% trans 'Day by Day' %}<span class="avail-mode-tab-full">{% trans ' Availability' %}</span></span>
               </button>
             </div>
 
             <p class="text-secondary small mb-2 mt-3">
-              {% trans "Mark when you can start a game. General Availability is used as your default availability. Select a specific date in Daily Availability to override your defaults for that week." %}
+              {% trans "Mark when you can start a game. General Availability is used as your default availability for all weeks. Override your defaults for a specific date with Day by Day Availability." %}
             </p>
             <div class="avail-week-row mb-3" id="week-navigator" data-tournament="{{ schedule_target }}">
               <div class="avail-week-arrow avail-week-arrow--prev">

@@ -2,9 +2,12 @@
 
 ## [1.13.14] - 2026-10-4 Hoot 4 Refinements
 
+### Improvements
+- Removed MatchSeries name field (unused)
+- Renamed Weekly Availability to Day by Day
+
 ### Bug Fixes
 - Arrow buttons on availability weeks no longer stay hovered after clicking
-- Removed MatchSeries name field (unused)
 
 ## [1.13.13] - 2026-10-2 Hoot 4 Improvements
 
