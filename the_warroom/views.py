@@ -75,6 +75,7 @@ from the_warroom.services.game_recording import (
     record_game, AlreadyRecorded, _match_captured_thread)
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
 from the_gatehouse.services.markdown_utils import render_description_plaintext
+from the_gatehouse.services.availability import week_start_for
 
 from the_tavern.forms import GameCommentCreateForm
 from the_tavern.views import bookmark_toggle
@@ -6970,20 +6971,25 @@ class _AnalyticsPaginator(Paginator):
         self.__dict__['count'] = total  # pre-fill the cached_property
 
 
-def _analytics_available_expr(profile_ref, tournament):
-    """True when the referenced profile has availability, by schedules_for's
-    precedence over STANDING rows (week_start NULL): this tournament's row wins
-    if it exists -- even an empty one -- otherwise the general row decides.
+def _analytics_schedule_rows(tournament):
+    """Schedule rows that count as 'has availability' for the X/Y column:
+    non-empty, general or this tournament's, and either a standing pattern or
+    Day by Day for the current week onward (past weeks don't count).
 
-    The same rule the series card's availability button uses
-    (_attach_series_availability), so the page's x/y and its sort agree with it."""
-    standing = PlayerSchedule.objects.filter(profile=profile_ref, week_start__isnull=True)
-    own = standing.filter(tournament=tournament)
-    general = standing.filter(tournament__isnull=True)
-    return (
-        Q(Exists(own.exclude(available_hours=[])))
-        | (~Q(Exists(own)) & Q(Exists(general.exclude(available_hours=[]))))
-    )
+    Deliberately no schedules_for precedence: any qualifying row counts, so an
+    empty row never cancels a non-empty one. The single source for both the
+    Availability sort (_analytics_available_expr) and the displayed X."""
+    this_week = week_start_for(timezone.now().date())
+    return (PlayerSchedule.objects
+            .filter(Q(tournament=tournament) | Q(tournament__isnull=True))
+            .filter(Q(week_start__isnull=True) | Q(week_start__gte=this_week))
+            .exclude(available_hours=[]))
+
+
+def _analytics_available_expr(profile_ref, tournament):
+    """True when the referenced profile has a qualifying schedule row (see
+    _analytics_schedule_rows), so the Availability sort agrees with the X shown."""
+    return Q(Exists(_analytics_schedule_rows(tournament).filter(profile=profile_ref)))
 
 
 def _analytics_seat_count(tournament, available=False):
@@ -7222,7 +7228,10 @@ def _analytics_rows(keys, tournament):
         seat.stage_participant.tournament_player.profile_id
         for m in matches.values() for seat in m.series.matchseat_set.all()
     }
-    schedules = schedules_for(seat_profile_ids, tournament) if seat_profile_ids else {}
+    available_ids = set(
+        _analytics_schedule_rows(tournament).filter(profile_id__in=seat_profile_ids)
+        .values_list('profile_id', flat=True)
+    ) if seat_profile_ids else set()
     compare_base = reverse('availability-compare')
     # get_matches_url() costs a query per call; resolve it once per round.
     matches_url_by_round = {}
@@ -7267,7 +7276,7 @@ def _analytics_rows(keys, tournament):
                 'thread_url': (group.discord_thread or None) if group else None,
                 'stage': match.round.stage,
                 'players': players_for(seats, efforts),
-                'avail_count': sum(1 for p in seats if schedules.get(p.pk)),
+                'avail_count': sum(1 for p in seats if p.pk in available_ids),
                 'player_count': len(seats),
                 'compare_url': f"{compare_base}?series={match.series_id}",
                 'moderator': group.group_moderator if group else None,
