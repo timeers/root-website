@@ -54,6 +54,17 @@
                 {% for name in player_suggestions %}<option value="{{ name }}">{% endfor %}
             </datalist>
         </div>
+        {% if stage_options %}
+        <div class="col-sm-4 col-md-2">
+            <label for="analytics-stage" class="form-label small mb-1">{% trans 'Stage' %}</label>
+            <select id="analytics-stage" name="stage" class="form-select form-select-sm">
+                <option value="">{% trans 'All' %}</option>
+                {% for value, label in stage_options %}
+                <option value="{{ value }}" {% if value == params.stage %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
         <div class="col-sm-4 col-md-2">
             <label for="analytics-status" class="form-label small mb-1">{% trans 'Status' %}</label>
             <select id="analytics-status" name="status" class="form-select form-select-sm">
@@ -66,7 +77,7 @@
             <button type="submit" class="databot-btn databot-btn-primary avail-btn-compact">
                 <i class="bi bi-funnel me-1"></i>{% trans 'Filter' %}
             </button>
-            {% if params.q or params.player or params.status %}
+            {% if params.q or params.player or params.stage or params.status %}
             <a href="{{ clear_url }}" class="databot-btn databot-btn-outline avail-btn-compact">{% trans 'Clear' %}</a>
             {% endif %}
         </div>
@@ -207,7 +218,13 @@
                     </td>
 
                     <!-- Status -->
-                    <td{% if row.status_muted %} class="text-muted"{% endif %}>{{ row.status_label }}</td>
+                    <td{% if row.status_muted %} class="text-muted"{% endif %}>
+                        {% if row.game_url %}
+                        <a href="{{ row.game_url }}" class="visible-link">{{ row.status_label }}</a>
+                        {% else %}
+                        {{ row.status_label }}
+                        {% endif %}
+                    </td>
 
                     <!-- Stage -->
                     {% if show_stage %}
