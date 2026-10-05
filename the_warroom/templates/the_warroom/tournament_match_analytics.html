@@ -127,6 +127,12 @@ leave this manager-only data in localStorage. {% endcomment %}
 
   /* The table sits flush inside the rounded .info-card (which clips it with
      overflow:hidden), so its edges follow the card's corners. */
+  /* iOS Safari's text autosizing can inflate small text (notably in landscape),
+     which would undo the phone sizes below. */
+  .analytics-table {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
   .analytics-table > :not(caption) > * > * {
     padding: 10px 14px;
     border-bottom-color: #e3e5e8;
@@ -162,12 +168,24 @@ leave this manager-only data in localStorage. {% endcomment %}
      clear of the fixed navbar. */
   #analytics-results {
     scroll-margin-top: 100px;
+    /* Containing block for any absolutely positioned element in the table, so the
+       card's overflow:hidden clips it rather than it widening the page on mobile. */
+    position: relative;
   }
   /* While an HTMX request is in flight: dim, and block double clicks. */
   #analytics-results.htmx-request {
     opacity: 0.5;
     pointer-events: none;
     transition: opacity 0.15s;
+  }
+
+  /* Phones: tighter than the site-wide <=768px table step (12px, main.css), which
+     only reaches the body text here -- the headers and padding above are this
+     page's own. Must stay last: the selectors match the rules above exactly. */
+  @media (max-width: 576px) {
+    .analytics-table { font-size: 10px; }
+    .analytics-table thead th { font-size: 9px; }
+    .analytics-table > :not(caption) > * > * { padding: 6px 8px; }
   }
 </style>
 {% endblock %}

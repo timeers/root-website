@@ -9,6 +9,10 @@ anything else, which would break Ctrl/Cmd-click into a new tab. Boosting only th
 keeps the table's own links (players, games, threads, series) as normal links.
 Target, push-url, indicator and sync are inherited from #analytics-results.
 
+No .visually-hidden in here: it is position:absolute, and with no positioned ancestor
+inside the scrolling table it escapes the card's clipping and widens the whole page on
+mobile. Icon-only links use aria-label instead.
+
 The header links have stable ids so htmx can restore keyboard focus after a swap.
 URLs come from the view (header_urls / page_links), so an empty filter set never
 yields "?&sort=". The caret only shows when a sort is explicitly chosen -- the
@@ -37,7 +41,8 @@ default order is a compound one.
                 </th>
                 <th class="text-center">
                     <a id="sort-availability" class="text-reset text-decoration-none" href="{{ header_urls.availability }}"
-                       data-bs-toggle="tooltip" title="{% trans 'Players with availability' %}"><i class="bi bi-calendar2-week" aria-hidden="true"></i><span class="visually-hidden">{% trans 'Availability' %}</span>
+                       aria-label="{% trans 'Availability' %}"
+                       data-bs-toggle="tooltip" title="{% trans 'Players with availability' %}"><i class="bi bi-calendar2-week" aria-hidden="true"></i>
                     {% if params.sort == 'availability' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
                 </th>
                 <th class="text-center">{% trans 'Thread' %}</th>
