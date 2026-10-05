@@ -35,6 +35,34 @@
 
           <form method="POST" enctype="multipart/form-data">
             {% csrf_token %}
+            {% comment %} iOS can focus the Direwolf Digital field on load (AutoFill treats
+            its "Username" label as a login field), which pops up the keyboard. Until the
+            user first touches the page or presses a key, any focus landing on it is
+            undone; after that, a real tap focuses it normally. {% endcomment %}
+            <script>
+              (function () {
+                var interacted = false;
+                function stopGuard() {
+                  interacted = true;
+                  ['pointerdown', 'touchstart', 'keydown'].forEach(function (type) {
+                    document.removeEventListener(type, stopGuard, true);
+                  });
+                  document.removeEventListener('focusin', onFocus, true);
+                }
+                function onFocus(e) {
+                  if (!interacted && e.target && e.target.id === 'id_dwd') e.target.blur();
+                }
+                ['pointerdown', 'touchstart', 'keydown'].forEach(function (type) {
+                  document.addEventListener(type, stopGuard, true);
+                });
+                document.addEventListener('focusin', onFocus, true);
+                // In case it was focused before this listener existed.
+                document.addEventListener('DOMContentLoaded', function () {
+                  var el = document.getElementById('id_dwd');
+                  if (!interacted && el && document.activeElement === el) el.blur();
+                });
+              })();
+            </script>
 
             {% if user.profile.player %}
               {{ p_form | crispy }}

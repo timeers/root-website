@@ -63,6 +63,9 @@ class ProfileUpdateForm(forms.ModelForm):
                 self.fields['dwd'].label = "Direwolf Digital Username"
             else:
                 self.fields['dwd'].label = "Direwolf Digital Username (cannot be changed once saved)"
+            # The "Username" label makes iOS AutoFill / Passwords treat this as a
+            # login field, which pulls up the keyboard on page load on iPhone.
+            self.fields['dwd'].widget.attrs['autocomplete'] = 'off'
         # Save to repurpose #########################
         # if self.instance and self.instance.league == True:
         #     self.fields.pop('league')
