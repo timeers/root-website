@@ -1,0 +1,23 @@
+{% load i18n %}
+{% comment %} "Discord App / In Browser" choice, shared by the Discord link chooser
+(discord_link_modal.html) and the external-link warning (external_link_modal.html).
+The buttons are handled by one delegated listener in template.html, which reads the
+pending link from the enclosing modal's data-pending-url / data-pending-target.
+
+No ids in here: both modals are on every page, so an id would appear twice and a
+<label for> would toggle the checkbox in the other (hidden) modal. The checkbox is
+wrapped by its label instead. {% endcomment %}
+<div class="discord-open-choice w-100">
+    <div class="d-flex gap-2 justify-content-end flex-wrap">
+        <button type="button" class="btn btn-outline-secondary" data-discord-open="browser">
+            <i class="bi bi-globe me-1"></i>{% trans 'In Browser' %}
+        </button>
+        <button type="button" class="btn btn-outline-secondary" data-discord-open="app">
+            <i class="bi bi-discord me-1"></i>{% trans 'Discord App' %}
+        </button>
+    </div>
+    <label class="form-check d-flex justify-content-end gap-2 mt-2 mb-0 small text-secondary">
+        <input type="checkbox" class="form-check-input" data-discord-remember checked>
+        <span>{% trans 'Remember my choice on this device' %}</span>
+    </label>
+</div>
