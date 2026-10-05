@@ -63,6 +63,163 @@
 
       {% if user.profile.player %}
       <div class="row g-3">
+
+
+        <div class="col-lg-12">
+          <div class="info-card h-100">
+            <div class="info-card-body">
+              <h2 class="info-card-title"><i class="bi bi-discord me-2"></i>{% trans 'Discord' %}</h2>
+
+              {% comment %} 2x2 on md+, stacked on phones. Each cell is a flex column with
+              its control pushed to the bottom (mt-auto), so the controls line up across a
+              row even when the descriptions wrap to different lengths. {% endcomment %}
+              <div class="row g-4">
+                <div class="col-md-6 d-flex flex-column">
+                  <h6 class="fw-bold">{% trans 'Notifications' %}</h6>
+                  <p class="text-secondary">
+                    {% trans 'Choose which events will send you a Discord message.' %}
+                  </p>
+                  <div class="d-flex gap-2 justify-content-center mt-auto">
+                    <a href="{% url 'discord-notifications' %}" class="databot-btn databot-btn-primary btn-sm">
+                      <i class="bi bi-bell me-2"></i> {% trans 'Manage Notifications' %}
+                    </a>
+                  </div>
+                </div>
+
+                <div class="col-md-6 d-flex flex-column">
+                  <h6 class="fw-bold">{% trans 'Guilds' %}</h6>
+                  <p class="text-secondary">
+                    {% trans 'Manage or add the Discord servers you moderate.' %}
+                  </p>
+                  <div class="d-flex gap-2 justify-content-center mt-auto">
+                    <a href="{% url 'manage-guilds' %}" class="databot-btn databot-btn-primary btn-sm">
+                      <i class="bi bi-discord me-2"></i> {% trans 'Manage Guilds' %}
+                    </a>
+                  </div>
+                </div>
+
+                <div class="col-md-6 d-flex flex-column">
+                  <h6 class="fw-bold">{% trans 'Sync Avatar' %}</h6>
+                  <p class="text-secondary">
+                    {% trans 'Update your profile picture to your current Discord avatar.' %}
+                  </p>
+                  <div class="d-flex gap-2 justify-content-center mt-auto">
+                    <form action="{% url 'sync-avatar' %}" method="post">
+                      {% csrf_token %}
+                      <button type="submit" class="databot-btn databot-btn-outline btn-sm">
+                        <i class="bi bi-arrow-repeat me-2"></i> {% trans 'Sync with Discord' %}
+                      </button>
+                    </form>
+                  </div>
+                </div>
+
+                {% comment %} Stored in this browser's localStorage, not on the account --
+                it depends on whether THIS device has the Discord app. Read and written by
+                RDBDiscord (the_keep/template.html). No name and outside the form above,
+                so it is never submitted. {% endcomment %}
+                <div class="col-md-6 d-flex flex-column">
+                  <h6 class="fw-bold">{% trans 'Discord Links' %}</h6>
+                  <p class="text-secondary">
+                    {% trans 'Choose how links to Discord open on this device.' %}
+                  </p>
+                  <div class="d-flex justify-content-center mt-auto">
+                    <select id="discordLinkOpenSetting" class="form-select databot-select"
+                            aria-label="{% trans 'Open Discord links in' %}">
+                      <option value="">{% trans 'Ask every time' %}</option>
+                      <option value="app">{% trans 'Discord App' %}</option>
+                      <option value="browser">{% trans 'In Browser' %}</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <script>
+                // DOMContentLoaded: RDBDiscord is defined by the base template's
+                // scripts, which come after this page's content.
+                document.addEventListener('DOMContentLoaded', function () {
+                  var select = document.getElementById('discordLinkOpenSetting');
+                  function sync() { select.value = RDBDiscord.getPref() || ''; }
+                  select.addEventListener('change', function () { RDBDiscord.setPref(select.value || null); });
+                  // Re-read when restored from the back/forward cache.
+                  window.addEventListener('pageshow', sync);
+                  sync();
+                });
+              </script>
+            </div>
+          </div>
+        </div>
+
+        {# Steam. The SteamID64 is shown ONLY here, to its owner -- deliberately not on the public profile page (which does show DWD) and not in any serializer. #}
+        <div class="col-lg-6">
+          <div class="info-card h-100">
+            <div class="info-card-body">
+              <h2 class="info-card-title"><i class="bi bi-steam me-2"></i>{% trans 'Steam ID' %}</h2>
+
+              <p class="text-secondary">
+                {% trans 'Link your Steam ID so your TTS games can be easily matched to your profile. This ID is public on your Steam profile but will not be shared on RDB.' %}
+              </p>
+
+              {% if user.profile.steam_id %}
+                <div class="alert alert-secondary">
+                  {% trans 'Steam account linked.' %}<br>
+                  <a href="{{ user.profile.steam_profile_url }}" target="_blank" rel="noopener">
+                    {{ user.profile.steam_id }} <i class="bi bi-box-arrow-up-right"></i>
+                  </a>
+                  <br><span class="text-muted">{% trans 'Only you can see this.' %}</span>
+                </div>
+                <div class="d-flex gap-2 mb-3 justify-content-center">
+                  <form action="{% url 'steam-unlink' %}" method="post">
+                    {% csrf_token %}
+                    <button type="submit" class="databot-btn databot-btn-outline btn-sm">
+                      <i class="bi bi-x-circle me-2"></i> {% trans 'Unlink Steam Account' %}
+                    </button>
+                  </form>
+                </div>
+              {% else %}
+                <div class="alert alert-secondary">
+                  {% trans 'You have not linked a Steam account yet.' %}
+                </div>
+                <div class="d-flex gap-2 mb-3 justify-content-center">
+                  <a href="{% url 'steam-link-start' %}" class="databot-btn databot-btn-primary btn-sm">
+                    <i class="bi bi-steam me-2"></i> {% trans 'Link Steam Account' %}
+                  </a>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        {# Availability. Stored in UTC so players in different timezones can be compared; edited in the player's own timezone on the /availability page. #}
+        <div class="col-lg-6">
+          <div class="info-card h-100">
+            <div class="info-card-body">
+              <h2 class="info-card-title"><i class="bi bi-calendar-week me-2"></i>{% trans 'Availability' %}</h2>
+
+              <p class="text-secondary">
+                {% trans 'Record the hours you are usually free to play so you can be matched with players who share your schedule.' %}
+              </p>
+
+              {% if availability_hours_count %}
+                <div class="alert alert-secondary">
+                  {% blocktrans count counter=availability_hours_count %}{{ counter }} hour selected.{% plural %}{{ counter }} hours selected.{% endblocktrans %}
+                  {% if availability_timezone %}
+                    <br><span class="text-muted">{{ availability_timezone }}</span>
+                  {% endif %}
+                </div>
+              {% else %}
+                <div class="alert alert-secondary">
+                  {% trans 'You have not set your availability yet.' %}
+                </div>
+              {% endif %}
+
+              <div class="d-flex gap-2 mb-3 justify-content-center">
+                <a href="{% url 'availability' %}" class="databot-btn databot-btn-primary btn-sm">
+                  <i class="bi bi-calendar-week me-2"></i> {% trans 'Update Availability' %}
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="col-lg-6">
           <div class="info-card h-100">
             <div class="info-card-body">
@@ -147,160 +304,6 @@
           </div>
         </div>
 
-        <div class="col-lg-6">
-          <div class="info-card h-100">
-            <div class="info-card-body">
-              <h2 class="info-card-title"><i class="bi bi-discord me-2"></i>{% trans 'Discord' %}</h2>
-
-              <h6 class="fw-bold">{% trans 'Notifications' %}</h6>
-              <p class="text-secondary">
-                {% trans 'Choose which events you want to send you a Discord message.' %}
-              </p>
-              <div class="d-flex gap-2 mb-3 justify-content-center">
-                <a href="{% url 'discord-notifications' %}" class="databot-btn databot-btn-primary btn-sm">
-                  <i class="bi bi-bell me-2"></i> {% trans 'Manage Notifications' %}
-                </a>
-              </div>
-
-              <hr>
-
-              <h6 class="fw-bold">{% trans 'Sync Avatar' %}</h6>
-              <p class="text-secondary">
-                {% trans 'Update your profile picture to your current Discord avatar.' %}
-              </p>
-              <div class="d-flex gap-2 mb-3 justify-content-center">
-                <form action="{% url 'sync-avatar' %}" method="post">
-                  {% csrf_token %}
-                  <button type="submit" class="databot-btn databot-btn-outline btn-sm">
-                    <i class="bi bi-arrow-repeat me-2"></i> {% trans 'Sync with Discord' %}
-                  </button>
-                </form>
-              </div>
-
-              <hr>
-
-              {% comment %} Stored in this browser's localStorage, not on the account --
-              it depends on whether THIS device has the Discord app. Read and written by
-              RDBDiscord (the_keep/template.html). No name and outside the form above,
-              so it is never submitted. {% endcomment %}
-              <h6 class="fw-bold">{% trans 'Discord Links' %}</h6>
-              <p class="text-secondary">
-                {% trans 'Choose how links to Discord threads and channels open on this device.' %}
-              </p>
-              <div class="d-flex justify-content-center">
-                <select id="discordLinkOpenSetting" class="form-select form-select-sm w-auto"
-                        aria-label="{% trans 'Open Discord links in' %}">
-                  <option value="">{% trans 'Ask every time' %}</option>
-                  <option value="app">{% trans 'Discord App' %}</option>
-                  <option value="browser">{% trans 'In Browser' %}</option>
-                </select>
-              </div>
-              <script>
-                // DOMContentLoaded: RDBDiscord is defined by the base template's
-                // scripts, which come after this page's content.
-                document.addEventListener('DOMContentLoaded', function () {
-                  var select = document.getElementById('discordLinkOpenSetting');
-                  function sync() { select.value = RDBDiscord.getPref() || ''; }
-                  select.addEventListener('change', function () { RDBDiscord.setPref(select.value || null); });
-                  // Re-read when restored from the back/forward cache.
-                  window.addEventListener('pageshow', sync);
-                  sync();
-                });
-              </script>
-            </div>
-          </div>
-        </div>
-
-        {# Steam. The SteamID64 is shown ONLY here, to its owner -- deliberately not on the public profile page (which does show DWD) and not in any serializer. #}
-        <div class="col-lg-6">
-          <div class="info-card h-100">
-            <div class="info-card-body">
-              <h2 class="info-card-title"><i class="bi bi-steam me-2"></i>{% trans 'Steam ID' %}</h2>
-
-              <p class="text-secondary">
-                {% trans 'Link your Steam ID so your TTS games can be easily matched to your profile. This ID is public on your Steam profile but will not be shared on RDB.' %}
-              </p>
-
-              {% if user.profile.steam_id %}
-                <div class="alert alert-secondary">
-                  {% trans 'Steam account linked.' %}<br>
-                  <a href="{{ user.profile.steam_profile_url }}" target="_blank" rel="noopener">
-                    {{ user.profile.steam_id }} <i class="bi bi-box-arrow-up-right"></i>
-                  </a>
-                  <br><span class="text-muted">{% trans 'Only you can see this.' %}</span>
-                </div>
-                <div class="d-flex gap-2 mb-3 justify-content-center">
-                  <form action="{% url 'steam-unlink' %}" method="post">
-                    {% csrf_token %}
-                    <button type="submit" class="databot-btn databot-btn-outline btn-sm">
-                      <i class="bi bi-x-circle me-2"></i> {% trans 'Unlink Steam Account' %}
-                    </button>
-                  </form>
-                </div>
-              {% else %}
-                <div class="alert alert-secondary">
-                  {% trans 'You have not linked a Steam account yet.' %}
-                </div>
-                <div class="d-flex gap-2 mb-3 justify-content-center">
-                  <a href="{% url 'steam-link-start' %}" class="databot-btn databot-btn-primary btn-sm">
-                    <i class="bi bi-steam me-2"></i> {% trans 'Link Steam Account' %}
-                  </a>
-                </div>
-              {% endif %}
-            </div>
-          </div>
-        </div>
-
-        {# Guilds. Any onboarded player can reach this -- moderator status (or admin) is what the page itself shows/edits, not a precondition for having a guild to add. #}
-        <div class="col-lg-6">
-          <div class="info-card h-100">
-            <div class="info-card-body">
-              <h2 class="info-card-title"><i class="bi bi-discord me-2"></i>{% trans 'Guilds' %}</h2>
-
-              <p class="text-secondary">
-                {% trans 'Manage the Discord servers you moderate, or add a new one for the Databot.' %}
-              </p>
-
-              <div class="d-flex gap-2 mb-3 justify-content-center">
-                <a href="{% url 'manage-guilds' %}" class="databot-btn databot-btn-primary btn-sm">
-                  <i class="bi bi-discord me-2"></i> {% trans 'Manage Guilds' %}
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {# Availability. Stored in UTC so players in different timezones can be compared; edited in the player's own timezone on the /availability page. #}
-        <div class="col-lg-6">
-          <div class="info-card h-100">
-            <div class="info-card-body">
-              <h2 class="info-card-title"><i class="bi bi-calendar-week me-2"></i>{% trans 'Availability' %}</h2>
-
-              <p class="text-secondary">
-                {% trans 'Record the hours you are usually free to play so you can be matched with players who share your schedule.' %}
-              </p>
-
-              {% if availability_hours_count %}
-                <div class="alert alert-secondary">
-                  {% blocktrans count counter=availability_hours_count %}{{ counter }} hour selected.{% plural %}{{ counter }} hours selected.{% endblocktrans %}
-                  {% if availability_timezone %}
-                    <br><span class="text-muted">{{ availability_timezone }}</span>
-                  {% endif %}
-                </div>
-              {% else %}
-                <div class="alert alert-secondary">
-                  {% trans 'You have not set your availability yet.' %}
-                </div>
-              {% endif %}
-
-              <div class="d-flex gap-2 mb-3 justify-content-center">
-                <a href="{% url 'availability' %}" class="databot-btn databot-btn-primary btn-sm">
-                  <i class="bi bi-calendar-week me-2"></i> {% trans 'Update Availability' %}
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- How to use: API modal (top-level so it isn't clipped by the .info-card) -->
