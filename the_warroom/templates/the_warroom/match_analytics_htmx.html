@@ -1,0 +1,9 @@
+{% comment %} HTMX response for the Match Analytics page (filter/sort/page): the
+results swapped into #analytics-results, plus out-of-band refreshes of the header
+pieces that depend on the query. The out-of-band fragments live only here, never in
+the results partial the full page includes, so the full page has no duplicate ids. {% endcomment %}
+{% include 'the_warroom/partials/match_analytics/results.html' %}
+{% include 'the_warroom/partials/match_analytics/count.html' with oob=True %}
+{% include 'the_warroom/partials/match_analytics/export.html' with oob=True %}
+{% include 'the_warroom/partials/match_analytics/clear.html' with oob=True %}
+{% include 'the_warroom/partials/match_analytics/sort_inputs.html' with oob=True %}

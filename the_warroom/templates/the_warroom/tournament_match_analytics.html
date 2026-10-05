@@ -12,7 +12,13 @@
 {% block main_width_class %}col-md-12{% endblock %}
 
 {% block content %}
-<div class="py-3">
+{% comment %} hx-history-elt + hx-history="false": Back/Forward re-requests the page
+from the server (HX-History-Restore-Request -> full page) and swaps in just this
+element, instead of restoring htmx's localStorage snapshot of <body>. The snapshot
+would restore the filter inputs to their page-load values (typed values aren't in
+the HTML), re-run every <script> in the body (stacking duplicate click handlers), and
+leave this manager-only data in localStorage. {% endcomment %}
+<div class="py-3" hx-history-elt hx-history="false">
 
     {% comment %} Standalone tool page like the availability compare page: no
     breadcrumb, tournament header or nav tabs -- just a way back to Settings. {% endcomment %}
@@ -22,30 +28,38 @@
                 <a href="{{ back_url }}" class="databot-btn databot-btn-outline avail-btn-compact">
                     <i class="bi bi-arrow-left me-1"></i><span class="d-none d-sm-inline">{% trans 'Back to Settings' %}</span><span class="d-sm-none">{% trans 'Settings' %}</span>
                 </a>
-                <a href="{{ export_url }}" class="databot-btn databot-btn-outline avail-btn-compact ms-auto">
-                    <i class="bi bi-download me-1"></i>{% trans 'Export CSV' %}
-                </a>
+                {% include 'the_warroom/partials/match_analytics/export.html' %}
             </div>
             <h1 class="info-card-title mb-1">
                 <i class="bi bi-table me-2"></i>{% trans 'Match Analytics' %}
-                <span class="text-secondary fs-6">({{ page_obj.paginator.count }})</span>
+                {% include 'the_warroom/partials/match_analytics/count.html' %}
             </h1>
             <p class="text-secondary mb-0">{{ tournament.name }}</p>
 
             <hr class="card-section-divider">
 
-            <!-- Filters -->
-            <form method="get" class="row g-2 align-items-end analytics-filters">
-        {% if params.sort %}
-        <input type="hidden" name="sort" value="{{ params.sort }}">
-        <input type="hidden" name="dir" value="{{ params.dir }}">
-        {% endif %}
-        <div class="col-sm-4 col-md-3">
+            {% comment %} Filters. Form-level triggers so every request sends the whole form:
+            the selects apply on change, the text boxes after a 400ms pause. With from:,
+            `changed` compares the source input's value. All triggers share the form's
+            one delay timer, so Enter (submit) cancels a pending keystroke request.
+            hx-sync replace drops any in-flight request (here or from a sort/page link,
+            which sync on this form) so a slow older response can't land last. method=get
+            stays as the no-JS fallback. {% endcomment %}
+            <form method="get" id="analytics-filters" class="row g-2 align-items-end analytics-filters"
+                  hx-get="{{ request.path }}"
+                  hx-trigger="submit, input changed delay:400ms from:#analytics-q, input changed delay:400ms from:#analytics-player, change from:#analytics-stage, change from:#analytics-status"
+                  hx-target="#analytics-results" hx-swap="innerHTML" hx-push-url="true"
+                  hx-indicator="#analytics-results" hx-sync="this:replace">
+        {% include 'the_warroom/partials/match_analytics/sort_inputs.html' %}
+        {% comment %} Below lg: two fields per row, buttons on their own row. At lg+: one
+        row, with the text boxes (col-lg) absorbing whatever the fixed-width selects
+        and the auto-width buttons leave. {% endcomment %}
+        <div class="col-sm-6 col-lg">
             <label for="analytics-q" class="form-label small mb-1">{% trans 'Name' %}</label>
             <input type="search" id="analytics-q" name="q" value="{{ params.q }}" maxlength="100"
                    class="form-control form-control-sm" placeholder="{% trans 'Match name' %}">
         </div>
-        <div class="col-sm-4 col-md-3">
+        <div class="col-sm-6 col-lg">
             <label for="analytics-player" class="form-label small mb-1">{% trans 'Profile' %}</label>
             <input type="search" id="analytics-player" name="player" value="{{ params.player }}" maxlength="100"
                    class="form-control form-control-sm" placeholder="{% trans 'Player or moderator' %}"
@@ -55,7 +69,7 @@
             </datalist>
         </div>
         {% if stage_options %}
-        <div class="col-sm-4 col-md-2">
+        <div class="col-sm-6 col-lg-2">
             <label for="analytics-stage" class="form-label small mb-1">{% trans 'Stage' %}</label>
             <select id="analytics-stage" name="stage" class="form-select form-select-sm">
                 <option value="">{% trans 'All' %}</option>
@@ -65,7 +79,7 @@
             </select>
         </div>
         {% endif %}
-        <div class="col-sm-4 col-md-2">
+        <div class="col-sm-6 col-lg-2">
             <label for="analytics-status" class="form-label small mb-1">{% trans 'Status' %}</label>
             <select id="analytics-status" name="status" class="form-select form-select-sm">
                 {% for value, label in status_options %}
@@ -73,197 +87,24 @@
                 {% endfor %}
             </select>
         </div>
-        <div class="col-auto d-flex gap-2">
+        <div class="col-12 col-lg-auto d-flex gap-2">
             <button type="submit" class="databot-btn databot-btn-primary avail-btn-compact">
                 <i class="bi bi-funnel me-1"></i>{% trans 'Filter' %}
             </button>
-            {% if params.q or params.player or params.stage or params.status %}
-            <a href="{{ clear_url }}" class="databot-btn databot-btn-outline avail-btn-compact">{% trans 'Clear' %}</a>
-            {% endif %}
+            {% include 'the_warroom/partials/match_analytics/clear.html' %}
         </div>
             </form>
         </div>
     </div>
 
-    {% comment %}
-    Header cells: a sortable header links to header_urls[col] (built in the view
-    so an empty filter set never yields "?&sort="). The caret only shows when a
-    sort is explicitly chosen -- the default order is a compound one.
-    {% endcomment %}
-    <div class="info-card">
-    <div class="table-responsive">
-        <table class="table table-sm align-middle mb-0 analytics-table">
-            <thead>
-                <tr>
-                    <th>
-                        <a class="text-reset text-decoration-none" href="{{ header_urls.name }}">{% trans 'Name' %}
-                        {% if params.sort == 'name' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
-                    </th>
-                    <th>{% trans 'Players' %}</th>
-                    <th>
-                        <a class="text-reset text-decoration-none" href="{{ header_urls.moderator }}">{% trans 'Moderator' %}
-                        {% if params.sort == 'moderator' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
-                    </th>
-                    <th>
-                        <a class="text-reset text-decoration-none" href="{{ header_urls.availability }}">{% trans 'Availability' %}
-                        {% if params.sort == 'availability' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
-                    </th>
-                    <th>
-                        <a class="text-reset text-decoration-none" href="{{ header_urls.time }}">{% trans 'Scheduled' %}
-                        {% if params.sort == 'time' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
-                    </th>
-                    <th class="text-center">{% trans 'Thread' %}</th>
-                    <th>
-                        <a class="text-reset text-decoration-none" href="{{ header_urls.status }}">{% trans 'Status' %}
-                        {% if params.sort == 'status' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
-                    </th>
-                    {% if show_stage %}
-                    <th>
-                        <a class="text-reset text-decoration-none" href="{{ header_urls.stage }}">{% trans 'Stage' %}
-                        {% if params.sort == 'stage' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
-                    </th>
-                    {% endif %}
-                </tr>
-            </thead>
-            <tbody>
-                {% for row in rows %}
-                <tr>
-                    <!-- Name -->
-                    <td>
-                        {% if row.name_url %}
-                        <a href="{{ row.name_url }}" class="visible-link">{{ row.name }}</a>
-                        {% else %}
-                        {{ row.name }}
-                        {% endif %}
-                        {% if row.position %}<span class="text-muted">({% trans 'Game' %} {{ row.position }})</span>{% endif %}
-                    </td>
-
-                    <!-- Players (winner overlay matches series_card_matches.html) -->
-                    <td>
-                        {% for player in row.players %}
-                        <div class="d-flex align-items-center gap-2">
-                            <div class="parent">
-                                {% if player.profile.image %}
-                                <img src="{{ player.profile.image.url }}" alt="" class="avatar-icon image1">
-                                {% else %}
-                                <i class="bi bi-person-circle image1"></i>
-                                {% endif %}
-                                {% if player.winner %}
-                                <img class="image2" src="{% static 'images/winner.png' %}" alt="{% trans 'Winner' %}" style="max-height:30px;max-width:30px;top:1px;left:-5px;">
-                                {% endif %}
-                            </div>
-                            <a href="{{ player.profile.get_absolute_url }}" class="visible-link">
-                                {% if player.winner %}<strong>{{ player.profile.name }}</strong>{% else %}{{ player.profile.name }}{% endif %}
-                            </a>
-                        </div>
-                        {% empty %}
-                        <span class="text-muted">—</span>
-                        {% endfor %}
-                    </td>
-
-                    <!-- Moderator -->
-                    <td>
-                        {% if row.moderator %}
-                        <div class="d-flex align-items-center gap-2">
-                            {% if row.moderator.image %}
-                            <img src="{{ row.moderator.image.url }}" alt="" class="avatar-icon">
-                            {% else %}
-                            <i class="bi bi-person-circle"></i>
-                            {% endif %}
-                            <a href="{{ row.moderator.get_absolute_url }}" class="visible-link">{{ row.moderator.name }}</a>
-                        </div>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-
-                    <!-- Availability -->
-                    <td>
-                        {% if row.compare_url %}
-                        <a href="{{ row.compare_url }}" class="visible-link">{{ row.avail_count }}/{{ row.player_count }}</a>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-
-                    <!-- Scheduled: filled in the viewer's local time by the script below -->
-                    <td>
-                        {% if row.time %}
-                        <span class="analytics-time" data-utc="{{ row.time|date:'c' }}"></span>
-                        {% endif %}
-                        {% if row.proposal_pending %}
-                        <div class="small text-muted">
-                            {% if row.proposal_url %}
-                            <a href="{{ row.proposal_url }}" class="visible-link" target="_blank" rel="noopener">{% trans 'Pending' %}</a>
-                            {% else %}
-                            {% trans 'Pending' %}
-                            {% endif %}
-                        </div>
-                        {% endif %}
-                        {% if not row.time and not row.proposal_pending %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-
-                    <!-- Thread -->
-                    <td class="text-center">
-                        {% if row.thread_url %}
-                        <a href="{{ row.thread_url }}" class="visible-link" target="_blank" rel="noopener"
-                           title="{% trans 'Discord thread' %}" aria-label="{% trans 'Discord thread' %}">
-                            <i class="bi bi-discord"></i>
-                        </a>
-                        {% else %}
-                        <span class="text-muted">—</span>
-                        {% endif %}
-                    </td>
-
-                    <!-- Status -->
-                    <td{% if row.status_muted %} class="text-muted"{% endif %}>
-                        {% if row.game_url %}
-                        <a href="{{ row.game_url }}" class="visible-link">{{ row.status_label }}</a>
-                        {% else %}
-                        {{ row.status_label }}
-                        {% endif %}
-                    </td>
-
-                    <!-- Stage -->
-                    {% if show_stage %}
-                    <td>{{ row.stage.name|default:"—" }}</td>
-                    {% endif %}
-                </tr>
-                {% empty %}
-                <tr>
-                    <td colspan="{% if show_stage %}8{% else %}7{% endif %}" class="text-center text-muted py-4">
-                        {% trans 'No matches or games found.' %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <!-- Pagination -->
-    {% if page_obj.has_previous or page_obj.has_next %}
-    <nav aria-label="{% trans 'Match analytics pages' %}" class="analytics-pagination">
-        <ul class="pagination pagination-sm justify-content-center flex-wrap mb-0">
-            <li class="page-item {% if not prev_url %}disabled{% endif %}">
-                <a class="page-link" href="{{ prev_url|default:'#' }}">{% trans 'Previous' %}</a>
-            </li>
-            {% for number, url in page_links %}
-            {% if url is None %}
-            <li class="page-item disabled"><span class="page-link">{{ number }}</span></li>
-            {% elif number == page_obj.number %}
-            <li class="page-item active" aria-current="page"><span class="page-link">{{ number }}</span></li>
-            {% else %}
-            <li class="page-item"><a class="page-link" href="{{ url }}">{{ number }}</a></li>
-            {% endif %}
-            {% endfor %}
-            <li class="page-item {% if not next_url %}disabled{% endif %}">
-                <a class="page-link" href="{{ next_url|default:'#' }}">{% trans 'Next' %}</a>
-            </li>
-        </ul>
-    </nav>
-    {% endif %}
+    {% comment %} Permanent container: HTMX swaps its innerHTML (filter/sort/page), so it
+    keeps these attributes across swaps, and the boosted sort/page links inside inherit
+    them. hx-sync shares the filter form's request slot, so a sort click and a filter
+    change cancel each other rather than racing. {% endcomment %}
+    <div id="analytics-results" class="info-card"
+         hx-target="#analytics-results" hx-push-url="true"
+         hx-indicator="#analytics-results" hx-sync="#analytics-filters:replace">
+        {% include 'the_warroom/partials/match_analytics/results.html' %}
     </div>
 
 </div>
@@ -316,23 +157,93 @@
     padding: 12px;
     border-top: 1px solid #e3e5e8;
   }
+
+  /* Pagination scrolls the table to the top after a swap; keep its header row
+     clear of the fixed navbar. */
+  #analytics-results {
+    scroll-margin-top: 100px;
+  }
+  /* While an HTMX request is in flight: dim, and block double clicks. */
+  #analytics-results.htmx-request {
+    opacity: 0.5;
+    pointer-events: none;
+    transition: opacity 0.15s;
+  }
 </style>
 {% endblock %}
 
 {% block scripts %}
 <script>
-  // This page's own copy of the site-wide .scheduled-time formatter
-  // (the_keep/template.html), minus the weekday to keep the column narrow.
-  // A separate class so the global one never touches these spans.
   (function () {
+    // This page's own copy of the site-wide .scheduled-time formatter
+    // (the_keep/template.html), minus the weekday to keep the column narrow.
+    // A separate class so the global one never touches these spans.
     var fmt = new Intl.DateTimeFormat(undefined, {
       month: 'numeric', day: 'numeric', year: '2-digit',
       hour: '2-digit', minute: '2-digit',
       timeZoneName: 'short'
     });
-    document.querySelectorAll('.analytics-time[data-utc]').forEach(function (el) {
-      var d = new Date(el.dataset.utc);
-      if (!isNaN(d)) el.textContent = fmt.format(d);
+    function formatTimes(root) {
+      root.querySelectorAll('.analytics-time[data-utc]').forEach(function (el) {
+        var d = new Date(el.dataset.utc);
+        if (!isNaN(d)) el.textContent = fmt.format(d);
+      });
+    }
+    formatTimes(document);
+
+    // htmx.onLoad rather than htmx:afterSwap: it also fires for history restores
+    // (Back/Forward), which afterSwap doesn't.
+    htmx.onLoad(function (elt) {
+      formatTimes(elt);
+      elt.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+        if (!bootstrap.Tooltip.getInstance(el)) new bootstrap.Tooltip(el);
+      });
+    });
+
+    document.body.addEventListener('htmx:beforeSwap', function (evt) {
+      var results = document.getElementById('analytics-results');
+      if (evt.detail.target !== results) return;
+      // Session expired mid-use: the XHR followed the redirect to the login
+      // page. Go there for real rather than swapping it into the table.
+      var xhr = evt.detail.xhr;
+      if (xhr && xhr.responseURL && new URL(xhr.responseURL).pathname !== window.location.pathname) {
+        evt.detail.shouldSwap = false;
+        window.location.href = xhr.responseURL;
+        return;
+      }
+      // Tooltips are attached to <body>; one whose trigger is about to be
+      // swapped out (e.g. the Availability header just clicked) would stick.
+      results.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+        var tip = bootstrap.Tooltip.getInstance(el);
+        if (tip) tip.dispose();
+      });
+    });
+
+    // Drop empty filters from requests the form makes, so the pushed URL reads
+    // ?status=pending rather than ?q=&player=&stage=&status=pending. The server
+    // treats a missing and an empty value the same.
+    document.body.addEventListener('htmx:configRequest', function (evt) {
+      var form = document.getElementById('analytics-filters');
+      if (!form || evt.detail.elt !== form) return;
+      var params = evt.detail.parameters;
+      Object.keys(params).forEach(function (key) {
+        if (params[key] === '') delete params[key];
+      });
+    });
+
+    // Clear: delegated, since #analytics-clear is replaced on every swap. Resets
+    // the filters and the sort, then re-runs the form request. Its href stays as
+    // the no-JS (and Ctrl/Cmd-click) fallback.
+    document.addEventListener('click', function (e) {
+      var link = e.target.closest('[data-analytics-clear]');
+      if (!link || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      var form = document.getElementById('analytics-filters');
+      if (!form) return;
+      e.preventDefault();
+      form.querySelectorAll('input[type="search"]').forEach(function (input) { input.value = ''; });
+      form.querySelectorAll('select').forEach(function (select) { select.value = ''; });
+      document.getElementById('analytics-sort-inputs').innerHTML = '';
+      htmx.trigger(form, 'submit');
     });
   })();
 </script>

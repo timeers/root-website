@@ -1,0 +1,6 @@
+{% load i18n %}
+{% comment %} Export CSV link; its href carries the current filters and sort, so it is
+refreshed out-of-band on every HTMX swap. {% endcomment %}
+<a id="analytics-export" href="{{ export_url }}" class="databot-btn databot-btn-outline avail-btn-compact ms-auto"{% if oob %} hx-swap-oob="true"{% endif %}>
+    <i class="bi bi-download me-1"></i>{% trans 'Export CSV' %}
+</a>

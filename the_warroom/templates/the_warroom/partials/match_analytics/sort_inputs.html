@@ -1,0 +1,10 @@
+{% comment %} The current sort, carried by the filter form so changing a filter keeps
+it. Always rendered (even empty) so the out-of-band swap after a header-click sort
+always has a target; `hidden` keeps the empty wrapper out of the form's grid.
+Hidden elements' inputs are still submitted. {% endcomment %}
+<div id="analytics-sort-inputs" hidden{% if oob %} hx-swap-oob="true"{% endif %}>
+    {% if params.sort %}
+    <input type="hidden" name="sort" value="{{ params.sort }}">
+    <input type="hidden" name="dir" value="{{ params.dir }}">
+    {% endif %}
+</div>
