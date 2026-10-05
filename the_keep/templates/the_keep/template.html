@@ -83,7 +83,8 @@
         <img id="lightbox-img" class="lightbox-content" src="" alt="Full image" />
     </div>
 
-    {% include 'the_keep/partials/external_link_modal.html' %}
+    {% include 'includes/external_link_modal.html' %}
+    {% include 'includes/discord_link_modal.html' %}
 
 
     <!-- Optional JavaScript -->
@@ -167,6 +168,164 @@
     });
 </script>
 <script>
+    // Discord links (server/channel/thread/message): on desktop, ask whether to
+    // open them in the Discord desktop app (discord://) or the browser, optionally
+    // remembering the choice on this device. Delegated at the document level like
+    // the external-link warning below, matching on the link's URL rather than on
+    // bi-discord icons -- those also sit on login/OAuth/invite links that must stay
+    // in the browser. Links keep their real https:// href, so copy-link, middle-
+    // click and no-JS are unaffected; only a plain left click is enhanced.
+    var RDBDiscord = (function () {
+        var HOSTS = ['discord.com', 'ptb.discord.com', 'canary.discord.com', 'discordapp.com'];
+        var STORAGE_KEY = 'rdb.discordLinkOpen';
+        // The primary input, not the device: a page can't tell an iPad from a Mac.
+        // Excludes touch-only tablets; trackpad iPads and touch laptops count.
+        var DESKTOP_QUERY = '(min-width: 992px) and (hover: hover) and (pointer: fine)';
+        var toastLink = null;
+
+        // The only place the URL rules live. Exact hostname matching -- never a
+        // substring test -- since game links and markdown links are user-entered
+        // (rejects discord.com.evil.com and https://discord.com@evil.com/...).
+        // Invites, OAuth and profile links return null: Discord's invite page does
+        // its own app hand-off, and login must stay in the browser.
+        function appUrl(href) {
+            var u;
+            try { u = new URL(href); } catch (e) { return null; }
+            if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+            if (HOSTS.indexOf(u.hostname) === -1) return null;
+            if (u.pathname.indexOf('/channels/') !== 0) return null;
+            // Undocumented by Discord but widely used; change it here if it moves.
+            return 'discord://-' + u.pathname;
+        }
+        function getPref() {
+            try {
+                var value = localStorage.getItem(STORAGE_KEY);
+                return (value === 'app' || value === 'browser') ? value : null;
+            } catch (e) { return null; }
+        }
+        function setPref(value) {
+            try {
+                if (value) localStorage.setItem(STORAGE_KEY, value);
+                else localStorage.removeItem(STORAGE_KEY);
+            } catch (e) { /* storage blocked: just ask every time */ }
+        }
+        function isDesktop() {
+            return window.matchMedia(DESKTOP_QUERY).matches;
+        }
+        function openBrowser(href, target) {
+            if (target === '_blank') window.open(href, '_blank', 'noopener');
+            else window.location.href = href;
+        }
+        // A page can't tell whether the app actually opened, so every launch is
+        // followed by a "Didn't open?" toast offering the browser instead.
+        function launchApp(href, target) {
+            toastLink = {href: href, target: target};
+            window.location.href = appUrl(href);
+            var toastEl = document.getElementById('discordOpenToast');
+            if (toastEl) bootstrap.Toast.getOrCreateInstance(toastEl, {delay: 8000}).show();
+        }
+        function open(href, target, choice) {
+            if (choice === 'app') launchApp(href, target);
+            else openBrowser(href, target);
+        }
+        // Point a modal containing discord_open_choice.html at a link. The saved
+        // preference (else App) is styled as the default button.
+        function prepareChoice(modalEl, href, target) {
+            modalEl.dataset.pendingUrl = href;
+            modalEl.dataset.pendingTarget = target || '';
+            var preferred = getPref() || 'app';
+            modalEl.querySelectorAll('[data-discord-open]').forEach(function (btn) {
+                var primary = btn.dataset.discordOpen === preferred;
+                btn.classList.toggle('btn-primary', primary);
+                btn.classList.toggle('btn-outline-secondary', !primary);
+            });
+            var remember = modalEl.querySelector('[data-discord-remember]');
+            if (remember) remember.checked = true;
+        }
+        return {
+            appUrl: appUrl, getPref: getPref, setPref: setPref, isDesktop: isDesktop,
+            open: open, openBrowser: openBrowser, prepareChoice: prepareChoice,
+            toastLink: function () { return toastLink; },
+        };
+    })();
+
+    // Modals are opened from code here, so Bootstrap won't return focus to the
+    // link on close (and the global hide.bs.modal blur drops it to <body>).
+    var _discordReturnFocus = null;
+    ['discordLinkModal', 'externalLinkModal'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('hidden.bs.modal', function () {
+            if (_discordReturnFocus && document.contains(_discordReturnFocus)) _discordReturnFocus.focus();
+            _discordReturnFocus = null;
+        });
+    });
+
+    document.addEventListener('click', function (e) {
+        if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+        var link = e.target.closest ? e.target.closest('a[href]') : null;
+        // typeof check skips SVG <a>, whose .href isn't a string. Links with the
+        // external-link warning are handled by that modal instead (below).
+        if (!link || typeof link.href !== 'string' || link.hasAttribute('download')
+                || link.hasAttribute('data-external-link-warning')) return;
+        if (!RDBDiscord.appUrl(link.href)) return;
+
+        var pref = RDBDiscord.getPref();
+        // Browser: leave the click alone so the link's own target/rel apply exactly as before.
+        if (pref === 'browser') return;
+        var target = link.getAttribute('target') === '_blank' ? '_blank' : '';
+        // A saved App choice applies at any width, so narrowing the window keeps it.
+        if (pref === 'app') {
+            e.preventDefault();
+            RDBDiscord.open(link.href, target, 'app');
+            return;
+        }
+        // No choice yet: only ask on desktop; elsewhere the https link opens normally.
+        if (!RDBDiscord.isDesktop()) return;
+        e.preventDefault();
+        var tooltip = window.bootstrap && bootstrap.Tooltip.getInstance(link);
+        if (tooltip) tooltip.hide();  // its z-index would sit above the modal
+        var modalEl = document.getElementById('discordLinkModal');
+        RDBDiscord.prepareChoice(modalEl, link.href, target);
+        _discordReturnFocus = link;
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    });
+
+    // App / Browser buttons in either modal (discord_open_choice.html). Opens
+    // synchronously inside the click -- deferring to hidden.bs.modal risks losing
+    // the user-gesture window browsers require for popups and app launches.
+    document.addEventListener('click', function (e) {
+        var btn = e.target.closest('[data-discord-open]');
+        if (!btn) return;
+        var modalEl = btn.closest('.modal');
+        if (!modalEl || !modalEl.dataset.pendingUrl) return;
+        var choice = btn.dataset.discordOpen;
+        var remember = modalEl.querySelector('[data-discord-remember]');
+        if (remember && remember.checked) RDBDiscord.setPref(choice);
+        var href = modalEl.dataset.pendingUrl;
+        var target = modalEl.dataset.pendingTarget;
+        delete modalEl.dataset.pendingUrl;
+        var modal = bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
+        RDBDiscord.open(href, target, choice);
+    });
+
+    // "Didn't open?" toast actions.
+    document.addEventListener('click', function (e) {
+        var action = e.target.closest('[data-discord-toast]');
+        if (!action) return;
+        e.preventDefault();
+        var toast = bootstrap.Toast.getInstance(document.getElementById('discordOpenToast'));
+        if (toast) toast.hide();
+        var last = RDBDiscord.toastLink();
+        if (action.dataset.discordToast === 'browser' && last) {
+            RDBDiscord.openBrowser(last.href, last.target);
+        } else if (action.dataset.discordToast === 'forget') {
+            RDBDiscord.setPref(null);
+        }
+    });
+</script>
+<script>
     // Confirm before following links inside user-submitted markdown
     // (Tournament/Stage/Round/Survey descriptions) -- delegated at the
     // document level since this content is rendered across many pages/
@@ -181,6 +340,18 @@
         document.getElementById('externalLinkModalUrl').textContent = _externalLinkPendingUrl;
 
         var modalEl = document.getElementById('externalLinkModal');
+        // A Discord link on desktop: offer App / Browser here instead of Continue,
+        // rather than chaining the Discord chooser after this warning. The warning
+        // still always shows -- the link is untrusted. Not on mobile, so a phone
+        // can never save an "app" choice it may not be able to honour.
+        if (RDBDiscord.appUrl(link.href) && RDBDiscord.isDesktop()) {
+            modalEl.setAttribute('data-discord', '');
+            RDBDiscord.prepareChoice(modalEl, link.href, '_blank');
+        } else {
+            modalEl.removeAttribute('data-discord');
+            delete modalEl.dataset.pendingUrl;
+        }
+        _discordReturnFocus = link;
         bootstrap.Modal.getOrCreateInstance(modalEl).show();
     });
     document.getElementById('externalLinkModalContinue').addEventListener('click', function() {

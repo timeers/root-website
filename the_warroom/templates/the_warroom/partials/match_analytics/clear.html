@@ -1,0 +1,10 @@
+{% load i18n %}
+{% comment %} Always rendered so the out-of-band swap always has a target. With no
+filter active it is `invisible` (visibility: hidden) rather than `hidden`, so it keeps
+its space and showing it never pushes the Filter button onto another line. Invisible
+elements can't be focused or clicked; aria-hidden keeps screen readers off it too.
+The click is handled by a delegated listener in the page script; the href is the
+no-JS fallback. {% endcomment %}
+<span id="analytics-clear"{% if not has_filters %} class="invisible" aria-hidden="true"{% endif %}{% if oob %} hx-swap-oob="true"{% endif %}>
+    <a href="{{ clear_url }}" class="databot-btn databot-btn-outline avail-btn-compact" data-analytics-clear>{% trans 'Clear' %}</a>
+</span>

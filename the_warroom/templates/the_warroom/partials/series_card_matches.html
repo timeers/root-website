@@ -13,8 +13,7 @@
             {% if series.player_group.video_link %}
             <a href="{{ series.player_group.video_link }}" target="_blank" rel="noopener"
                class="btn btn-sm btn-outline-secondary p-0 px-1"
-               data-bs-toggle="tooltip" title="{% trans 'Watch Stream' %}"
-               onclick="event.stopPropagation()">
+               data-bs-toggle="tooltip" title="{% trans 'Watch Stream' %}">
                 {% if series.player_group.video_platform == 'twitch' %}
                 <i class="bi bi-twitch"></i>
                 {% else %}
@@ -26,8 +25,7 @@
             {% if can_manage or series.id in is_participant_series %}
             <a href="{{ series.player_group.discord_thread }}" target="_blank" rel="noopener"
                class="btn btn-sm btn-outline-secondary p-0 px-1"
-               data-bs-toggle="tooltip" title="{% trans 'View Discord Thread' %}"
-               onclick="event.stopPropagation()">
+               data-bs-toggle="tooltip" title="{% trans 'View Discord Thread' %}">
                 <i class="bi bi-discord"></i>
             </a>
             {% endif %}
@@ -35,8 +33,7 @@
             {% if can_manage or series.id in is_participant_series %}
             <a href="{% url 'availability-compare' %}?series={{ series.id }}"
                class="btn btn-sm btn-outline-secondary p-0 px-1"
-               data-bs-toggle="tooltip" title="{% trans 'Player Availability' %}"
-               onclick="event.stopPropagation()">
+               data-bs-toggle="tooltip" title="{% trans 'Player Availability' %}">
                 <i class="bi bi-calendar-week"></i>
             </a>
             {% endif %}

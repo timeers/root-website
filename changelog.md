@@ -4,6 +4,7 @@
 
 ### New Features
 - Series match analytics page for moderators to see an overview of the scheduled and completed games in the series
+- Choose where to open Discord links when not on mobile. Preference can be changed per browser on the settings page
 
 ### Improvements
 - Removed MatchSeries name field (unused)

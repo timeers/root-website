@@ -1,0 +1,193 @@
+{% load i18n static %}
+{% comment %}
+Match Analytics table + pagination: the contents of the permanent #analytics-results
+container (innerHTML swaps). Included by the full page and by match_analytics_htmx.html.
+
+Sort headers and pagination are hx-boost'ed (scoped to <thead> / the pagination
+<nav>) rather than <a hx-get>: htmx preventDefault()s a non-boosted hx-get link before
+anything else, which would break Ctrl/Cmd-click into a new tab. Boosting only these
+keeps the table's own links (players, games, threads, series) as normal links.
+Target, push-url, indicator and sync are inherited from #analytics-results.
+
+The header links have stable ids so htmx can restore keyboard focus after a swap.
+URLs come from the view (header_urls / page_links), so an empty filter set never
+yields "?&sort=". The caret only shows when a sort is explicitly chosen -- the
+default order is a compound one.
+{% endcomment %}
+<div class="table-responsive">
+    <table class="table table-sm align-middle mb-0 analytics-table">
+        <thead hx-boost="true" hx-swap="innerHTML show:none">
+            <tr>
+                <th>
+                    <a id="sort-name" class="text-reset text-decoration-none" href="{{ header_urls.name }}">{% trans 'Name' %}
+                    {% if params.sort == 'name' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
+                </th>
+                <th>
+                    <a id="sort-time" class="text-reset text-decoration-none" href="{{ header_urls.time }}">{% trans 'Schedule' %}
+                    {% if params.sort == 'time' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
+                </th>
+                <th>
+                    <a id="sort-moderator" class="text-reset text-decoration-none" href="{{ header_urls.moderator }}">{% trans 'Moderator' %}
+                    {% if params.sort == 'moderator' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
+                </th>
+                <th>{% trans 'Players' %}</th>
+                <th>
+                    <a id="sort-status" class="text-reset text-decoration-none" href="{{ header_urls.status }}">{% trans 'Status' %}
+                    {% if params.sort == 'status' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
+                </th>
+                <th class="text-center">
+                    <a id="sort-availability" class="text-reset text-decoration-none" href="{{ header_urls.availability }}"
+                       data-bs-toggle="tooltip" title="{% trans 'Players with availability' %}"><i class="bi bi-calendar2-week" aria-hidden="true"></i><span class="visually-hidden">{% trans 'Availability' %}</span>
+                    {% if params.sort == 'availability' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
+                </th>
+                <th class="text-center">{% trans 'Thread' %}</th>
+                {% if show_stage %}
+                <th>
+                    <a id="sort-stage" class="text-reset text-decoration-none" href="{{ header_urls.stage }}">{% trans 'Stage' %}
+                    {% if params.sort == 'stage' %}<i class="bi bi-caret-{% if params.dir == 'desc' %}down{% else %}up{% endif %}-fill"></i>{% endif %}</a>
+                </th>
+                {% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr>
+                <!-- Name -->
+                <td>
+                    {% if row.name_url %}
+                    <a href="{{ row.name_url }}" class="visible-link">{{ row.name }}</a>
+                    {% else %}
+                    {{ row.name }}
+                    {% endif %}
+                    {% if row.position %}<span class="text-muted">({% trans 'Game' %} {{ row.position }})</span>{% endif %}
+                </td>
+
+                <!-- Schedule: filled in the viewer's local time by the page script -->
+                <td>
+                    {% if row.time %}
+                    <span class="analytics-time" data-utc="{{ row.time|date:'c' }}"></span>
+                    {% endif %}
+                    {% if row.proposal_pending %}
+                    <div class="small text-muted">
+                        {% if row.proposal_url %}
+                        <a href="{{ row.proposal_url }}" class="visible-link" target="_blank" rel="noopener">{% trans 'Pending' %}</a>
+                        {% else %}
+                        {% trans 'Pending' %}
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                    {% if not row.time and not row.proposal_pending %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+
+                <!-- Moderator -->
+                <td>
+                    {% if row.moderator %}
+                    <div class="d-flex align-items-center gap-2">
+                        {% if row.moderator.image %}
+                        <img src="{{ row.moderator.image.url }}" alt="" class="avatar-icon">
+                        {% else %}
+                        <i class="bi bi-person-circle"></i>
+                        {% endif %}
+                        <a href="{{ row.moderator.get_absolute_url }}" class="visible-link">{{ row.moderator.name }}</a>
+                    </div>
+                    {% else %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+
+                <!-- Players (winner overlay matches series_card_matches.html) -->
+                <td>
+                    {% for player in row.players %}
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="parent">
+                            {% if player.profile.image %}
+                            <img src="{{ player.profile.image.url }}" alt="" class="avatar-icon image1">
+                            {% else %}
+                            <i class="bi bi-person-circle image1"></i>
+                            {% endif %}
+                            {% if player.winner %}
+                            <img class="image2" src="{% static 'images/winner.png' %}" alt="{% trans 'Winner' %}" style="max-height:30px;max-width:30px;top:1px;left:-5px;">
+                            {% endif %}
+                        </div>
+                        <a href="{{ player.profile.get_absolute_url }}" class="visible-link">
+                            {% if player.winner %}<strong>{{ player.profile.name }}</strong>{% else %}{{ player.profile.name }}{% endif %}
+                        </a>
+                    </div>
+                    {% empty %}
+                    <span class="text-muted">—</span>
+                    {% endfor %}
+                </td>
+
+                <!-- Status -->
+                <td{% if row.status_muted %} class="text-muted"{% endif %}>
+                    {% if row.game_url %}
+                    <a href="{{ row.game_url }}" class="visible-link">{{ row.status_label }}</a>
+                    {% else %}
+                    {{ row.status_label }}
+                    {% endif %}
+                </td>
+
+                <!-- Availability -->
+                <td class="text-center">
+                    {% if row.compare_url %}
+                    <a href="{{ row.compare_url }}" class="visible-link">{{ row.avail_count }}/{{ row.player_count }}</a>
+                    {% else %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+
+                <!-- Thread -->
+                <td class="text-center">
+                    {% if row.thread_url %}
+                    <a href="{{ row.thread_url }}" class="visible-link" target="_blank" rel="noopener"
+                       title="{% trans 'Discord thread' %}" aria-label="{% trans 'Discord thread' %}">
+                        <i class="bi bi-discord"></i>
+                    </a>
+                    {% else %}
+                    <span class="text-muted">—</span>
+                    {% endif %}
+                </td>
+
+                <!-- Stage -->
+                {% if show_stage %}
+                <td>{{ row.stage.name|default:"—" }}</td>
+                {% endif %}
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="{% if show_stage %}8{% else %}7{% endif %}" class="text-center text-muted py-4">
+                    {% trans 'No matches or games found.' %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Pagination -->
+{% if page_obj.has_previous or page_obj.has_next %}
+<nav aria-label="{% trans 'Match analytics pages' %}" class="analytics-pagination"
+     hx-boost="true" hx-swap="innerHTML show:#analytics-results:top">
+    <ul class="pagination pagination-sm justify-content-center flex-wrap mb-0">
+        <li class="page-item {% if not prev_url %}disabled{% endif %}">
+            {% if prev_url %}<a class="page-link" href="{{ prev_url }}">{% trans 'Previous' %}</a>
+            {% else %}<span class="page-link">{% trans 'Previous' %}</span>{% endif %}
+        </li>
+        {% for number, url in page_links %}
+        {% if url is None %}
+        <li class="page-item disabled"><span class="page-link">{{ number }}</span></li>
+        {% elif number == page_obj.number %}
+        <li class="page-item active" aria-current="page"><span class="page-link">{{ number }}</span></li>
+        {% else %}
+        <li class="page-item"><a class="page-link" href="{{ url }}">{{ number }}</a></li>
+        {% endif %}
+        {% endfor %}
+        <li class="page-item {% if not next_url %}disabled{% endif %}">
+            {% if next_url %}<a class="page-link" href="{{ next_url }}">{% trans 'Next' %}</a>
+            {% else %}<span class="page-link">{% trans 'Next' %}</span>{% endif %}
+        </li>
+    </ul>
+</nav>
+{% endif %}

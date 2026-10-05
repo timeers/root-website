@@ -26,6 +26,7 @@ from django.db import IntegrityError, models, transaction
 from django.db.models import Count, F, ExpressionWrapper, FloatField, IntegerField, Max, Min, Q, Case, When, Value, ProtectedError, Prefetch, OuterRef, Subquery, Exists, BooleanField, CharField
 from django.db.models.functions import Cast, Coalesce, Concat, Lower, NullIf
 from django.utils import timezone 
+from django.utils.cache import patch_vary_headers
 from django.utils.translation import get_language, gettext as _, gettext_lazy as _lazy
 from urllib.parse import quote, urlencode
 
@@ -6950,7 +6951,7 @@ def round_schedule_page(request, tournament_slug, round_slug, stage_slug=None):
 # identical shape, the halves are UNIONed, and only the visible page's objects
 # are then loaded in full (_analytics_rows).
 
-ANALYTICS_PAGE_SIZE = 50
+ANALYTICS_PAGE_SIZE = 100
 ANALYTICS_CSV_CHUNK = 500
 ANALYTICS_SORTS = ('name', 'stage', 'availability', 'moderator', 'time', 'status')
 # Filter value -> rank_key. Ranks double as the Status column's sort order.
@@ -7207,6 +7208,29 @@ def _analytics_halves(tournament, params):
     return matches, games
 
 
+def _analytics_totals(matches, games):
+    """(row total, whether the rows span 2+ stages) for the filtered halves, in
+    one aggregate per half -- replaces two COUNTs plus a separate distinct-stage
+    check. Neither half can fan out (see _analytics_halves), so Count('pk') is
+    exact; a .none() half costs no query."""
+    total, lo, hi = 0, None, None
+    for half in (matches, games):
+        agg = half.order_by().aggregate(
+            n=Count('pk'), lo=Min('round__stage_id'), hi=Max('round__stage_id'))
+        total += agg['n'] or 0
+        if agg['lo'] is not None:
+            lo = agg['lo'] if lo is None else min(lo, agg['lo'])
+            hi = agg['hi'] if hi is None else max(hi, agg['hi'])
+    return total, lo is not None and lo != hi
+
+
+def _analytics_show_stage(stage_options, params, spans_stages):
+    """The Stage column only earns its space when the filtered rows span 2+
+    stages: never for single-stage tournaments (no stage_options), never with a
+    stage filter applied (one stage by definition)."""
+    return bool(stage_options) and not params['stage'] and spans_stages
+
+
 def _analytics_keys(tournament, params):
     """(ordered UNION of row keys, match half, game half)."""
     matches, games = _analytics_halves(tournament, params)
@@ -7363,8 +7387,14 @@ def tournament_match_analytics_page(request, slug):
     stage_options = _analytics_stage_options(tournament)
     params = _analytics_params(request, {value for value, _label in stage_options})
     union, matches, games = _analytics_keys(tournament, params)
+    total, spans_stages = _analytics_totals(matches, games)
+    # HTMX swaps (filter/sort/page) get just the table plus out-of-band header
+    # bits. A history restore (Back/Forward; the page opts out of htmx's
+    # localStorage snapshots) needs the full page, which htmx extracts
+    # [hx-history-elt] from.
+    partial = bool(request.htmx) and not request.htmx.history_restore_request
 
-    paginator = _AnalyticsPaginator(union, ANALYTICS_PAGE_SIZE, total=matches.count() + games.count())
+    paginator = _AnalyticsPaginator(union, ANALYTICS_PAGE_SIZE, total=total)
     page_obj = paginator.get_page(request.GET.get('page'))
     rows = _analytics_rows(list(page_obj.object_list), tournament)
 
@@ -7397,19 +7427,29 @@ def tournament_match_analytics_page(request, slug):
         'clear_url': request.path,
         'export_url': reverse('tournament-match-analytics-export', kwargs={'slug': slug})
                       + _analytics_query(params),
-        'show_stage': tournament.use_stages,
+        'show_stage': _analytics_show_stage(stage_options, params, spans_stages),
         'stage_options': stage_options,
+        'has_filters': bool(params['q'] or params['player'] or params['stage'] or params['status']),
+    }
+    if not partial:
         # Suggestions for the Player filter. Profile.name's own fallback
         # (display_name, else discord) so a picked suggestion always matches the
-        # filter's display_name/discord icontains.
-        'player_suggestions': sorted({
+        # filter's display_name/discord icontains. Full page only: the datalist
+        # sits outside the swapped region, so a partial would never use it.
+        context['player_suggestions'] = sorted({
             display_name or discord
             for display_name, discord in TournamentPlayer.objects.filter(tournament=tournament)
             .values_list('profile__display_name', 'profile__discord')
             if display_name or discord
-        }, key=str.lower),
-    }
-    return render(request, 'the_warroom/tournament_match_analytics.html', context)
+        }, key=str.lower)
+
+    template = ('the_warroom/match_analytics_htmx.html' if partial
+                else 'the_warroom/tournament_match_analytics.html')
+    response = render(request, template, context)
+    # Same URL, different body for htmx vs full requests -- and a history-restore
+    # request also carries HX-Request, so it needs its own Vary entry.
+    patch_vary_headers(response, ['HX-Request', 'HX-History-Restore-Request'])
+    return response
 
 
 class _CsvEcho:
@@ -7435,39 +7475,38 @@ def tournament_match_analytics_export(request, slug):
     tournament = _get_managed_tournament(request, slug)
     stage_options = _analytics_stage_options(tournament)
     params = _analytics_params(request, {value for value, _label in stage_options})
-    union, _matches, _games = _analytics_keys(tournament, params)
+    union, matches, games = _analytics_keys(tournament, params)
     # All keys up front (a few small columns): re-running the sorted union per
     # OFFSET slice would redo every sort subquery once per chunk.
     keys = list(union)
-    show_stage = tournament.use_stages
+    show_stage = _analytics_show_stage(stage_options, params, _analytics_totals(matches, games)[1])
 
-    header = ['Name', 'Players', 'Winners', 'Moderator', 'Players With Availability',
-              'Total Players', 'Scheduled (UTC)', 'Schedule Pending', 'Schedule Message URL',
-              'Status']
+    # Mirrors the page's column order; CSV-only extras sit next to their column.
+    header = ['Name', 'Schedule (UTC)', 'Schedule Pending', 'Schedule Message URL',
+              'Moderator', 'Players', 'Winners', 'Status',
+              'Players With Availability', 'Total Players', 'Discord / Game Link']
     if show_stage:
         header.append('Stage')
-    header += ['Discord / Game Link', 'Game URL']
+    header.append('Game URL')
 
     def cells(row):
         name = row['name'] + (f" (Game {row['position']})" if row['position'] else '')
         out = [
             name,
-            '; '.join(p['profile'].name for p in row['players']),
-            '; '.join(p['profile'].name for p in row['players'] if p['winner']),
-            row['moderator'].name if row['moderator'] else '',
-            row['avail_count'],
-            row['player_count'],
             row['time'].astimezone(dt_timezone.utc).isoformat() if row['time'] else '',
             'Yes' if row['proposal_pending'] else '',
             row['proposal_url'],
+            row['moderator'].name if row['moderator'] else '',
+            '; '.join(p['profile'].name for p in row['players']),
+            '; '.join(p['profile'].name for p in row['players'] if p['winner']),
             row['status_label'],
+            row['avail_count'],
+            row['player_count'],
+            row['thread_url'],
         ]
         if show_stage:
             out.append(row['stage'].name if row['stage'] else '')
-        out += [
-            row['thread_url'],
-            build_absolute_uri(request, row['game_url']) if row['game_url'] else '',
-        ]
+        out.append(build_absolute_uri(request, row['game_url']) if row['game_url'] else '')
         return [_csv_safe(c) for c in out]
 
     writer = csv.writer(_CsvEcho())

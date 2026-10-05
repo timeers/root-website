@@ -1,0 +1,47 @@
+{% load i18n %}
+{% comment %} Desktop chooser for Discord channel/thread/message links: open in the
+Discord desktop app (discord://) or the browser, optionally remembered in
+localStorage. Wired up by the Discord-link script in template.html. Also holds the
+"Didn't open?" toast shown after every app launch -- a page can't tell whether the
+app actually opened, so this is the way back if it didn't. {% endcomment %}
+<div class="modal fade" id="discordLinkModal" tabindex="-1" aria-labelledby="discordLinkModalTitle">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="root-title" id="discordLinkModalTitle">{% trans 'Open Discord link' %}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-0">{% trans 'Where would you like to open this?' %}</p>
+      </div>
+      <div class="modal-footer">
+        {% include 'includes/discord_open_choice.html' %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% comment %} A class, not an id: stage_manage_players.html already uses id="toast-container". {% endcomment %}
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+  <div class="toast" id="discordOpenToast" role="status" aria-live="polite" aria-atomic="true">
+    <div class="toast-body">
+      <div class="d-flex align-items-start gap-2">
+        <i class="bi bi-discord fs-5"></i>
+        <div class="flex-grow-1">
+          <div class="fw-bold">{% trans 'Opening Discord…' %}</div>
+          <div class="small text-secondary">{% trans 'Your browser may ask for permission first.' %}</div>
+          <div class="small mt-1">
+            {% trans "Didn't open?" %}
+            <a href="#" class="visible-link" data-discord-toast="browser">{% trans 'Open in browser' %}</a>
+            ·
+            <a href="#" class="visible-link" data-discord-toast="forget">{% trans 'Forget my choice' %}</a>
+            {% if user.is_authenticated and user.profile.player %}
+            · <a href="{% url 'user-settings' %}" class="visible-link">{% trans 'Settings' %}</a>
+            {% endif %}
+          </div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="{% trans 'Close' %}"></button>
+      </div>
+    </div>
+  </div>
+</div>
