@@ -141,19 +141,26 @@ def _is_terminal_edit_error(exc):
     return response is not None and response.status_code in (403, 404)
 
 
-def create_message_thread(channel_id, message_id, name, auto_archive_duration=1440):
+def create_message_thread(channel_id, message_id, name, auto_archive_duration=None):
     """Create a thread hanging off an existing message. Returns the thread id
     (a snowflake string) on success, or None on failure. Never raises.
+
+    `auto_archive_duration` (minutes: 60, 1440, 4320 or 10080) is omitted by
+    default, so Discord applies the channel's own default_auto_archive_duration --
+    the server decides how long LFG threads stay active, as with forum posts.
 
     No DEBUG_VALUE guard: this is a public, user-initiated action in the channel
     where the /lfg command was used (like the /lfg message and its button edits,
     which also post live), not an unsolicited DM."""
     name = (name or "Game")[:100]  # Discord thread name cap
+    body = {"name": name}
+    if auto_archive_duration is not None:
+        body["auto_archive_duration"] = auto_archive_duration
     try:
         r = requests.post(
             f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}/threads",
             headers=_bot_headers(),
-            json={"name": name, "auto_archive_duration": auto_archive_duration},
+            json=body,
             timeout=5,
         )
         r.raise_for_status()
@@ -231,7 +238,10 @@ def create_forum_thread_result(forum_channel_id, name, content=None, embeds=None
         message["embeds"] = embeds
     if not message:
         message["content"] = "​"  # Discord requires a non-empty starter message
-    body = {"name": name, "auto_archive_duration": 1440, "message": message}
+    # No auto_archive_duration: Discord then applies the forum channel's own
+    # default_auto_archive_duration, so each server controls how long its match and
+    # LFG posts stay active. (Forcing 1440 hid multi-day match threads after 24h.)
+    body = {"name": name, "message": message}
     if tag_id:
         body["applied_tags"] = [str(tag_id)]
     try:
