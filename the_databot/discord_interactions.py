@@ -11910,7 +11910,8 @@ OWNER_LOCK_HINTS = {
 
 
 def _lfg_message_data(author, owner, description, players_value,
-                      content=None, title=LFG_DEFAULT_TITLE, ping_role=True):
+                      content=None, title=LFG_DEFAULT_TITLE, ping_role=True,
+                      beta=False):
     """Build the full join-message payload (embed + button row). Used ONLY for the
     initial post — never to re-render on Join/Notify (that would wipe the other
     field; those handlers mutate the echoed embed).
@@ -11920,7 +11921,11 @@ def _lfg_message_data(author, owner, description, players_value,
     `ping_role=False` renders the role mention WITHOUT notifying anyone — either
     inside a thread, where the ping is noise, or because the host passed
     `ping_role: No` to /lfg. Either way the mention must still be in the content
-    for ✔ Start to recover the tag from (see _handle_lfg_start)."""
+    for ✔ Start to recover the tag from (see _handle_lfg_start).
+
+    `beta=True` (a /lfg-beta post) marks the Edit button `lfg_edit:b:{owner}` so its
+    modal also offers a kick list (see _handle_lfg_edit). The marker sits BEFORE the
+    owner so the owner stays the last arg and the dispatcher lock still applies."""
     embed = {
         "author": author,
         "title": title,
@@ -11943,6 +11948,8 @@ def _lfg_message_data(author, owner, description, players_value,
     #   Edit      — the host ALONE (no moderator carve-out), so unlike its
     #               neighbors it ends in the bare owner snowflake and IS
     #               dispatcher-locked, the same way ✔ Start is.
+    #               A /lfg-beta post adds a "b" marker ahead of the owner,
+    #               which enables kicking in the modal (see the docstring).
     #
     # ✔ Start still ends in the owner snowflake and so is dispatcher-locked:
     # starting a game is the host's alone, and a moderator clearing an abandoned
@@ -11951,7 +11958,8 @@ def _lfg_message_data(author, owner, description, players_value,
         button("Join", encode_custom_id("lfg_join", owner, PICK_OPEN), style=STYLE_PRIMARY),
         button("", encode_custom_id("lfg_notify", owner, PICK_OPEN),
                style=STYLE_SECONDARY, emoji={"name": "🔔"}),
-        button("Edit", encode_custom_id("lfg_edit", owner), style=STYLE_SECONDARY),
+        button("Edit", encode_custom_id("lfg_edit", *(["b"] if beta else []), owner),
+               style=STYLE_SECONDARY),
         button("", encode_custom_id("lfg_cancel", owner, PICK_OPEN),
                style=STYLE_DANGER, emoji={"name": "✖"}),
         button("Start", encode_custom_id("lfg_start", owner), style=STYLE_SUCCESS,
@@ -12035,7 +12043,8 @@ def _handle_lfg_command(data):
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
             "data": _lfg_message_data(author, owner, description, players_value,
-                                      title=title_opt or LFG_DEFAULT_TITLE),
+                                      title=title_opt or LFG_DEFAULT_TITLE,
+                                      beta=data.get("_beta", False)),
         })
 
     # No tags configured. Post the plain call; if the invoker can manage the server,
@@ -12108,7 +12117,8 @@ def _handle_lfg_command(data):
                                   # here are already here), or the host asked for
                                   # no ping. The thread rule is not overridable --
                                   # ping_role:Yes in a thread still doesn't ping.
-                                  ping_role=not (in_thread or silent)),
+                                  ping_role=not (in_thread or silent),
+                                  beta=data.get("_beta", False)),
     })
 
 
@@ -12233,21 +12243,42 @@ def _handle_lfg_edit(payload):
 
     `max_length=4000`, not an arbitrary smaller cap: the /lfg description option
     itself has none, and Discord's embed description field caps at 4096 -- 4000
-    leaves headroom so a re-edit of an already-long description isn't blocked."""
+    leaves headroom so a re-edit of an already-long description isn't blocked.
+
+    A /lfg-beta post's button (`lfg_edit:b:{owner}`) also gets a "Kick players"
+    multi-select of everyone joined except the host. It's omitted when nobody else
+    has joined, since Discord rejects a select with no options."""
     message = payload.get("message", {})
     embed = (message.get("embeds") or [{}])[0]
     modal_id = encode_custom_id("lfg_edit_modal", message.get("id"), payload.get("channel_id"))
+    components = [
+        label_component(
+            "Description",
+            text_input("description", style=TEXT_INPUT_PARAGRAPH,
+                      value=embed.get("description", ""), required=False,
+                      max_length=4000),
+        ),
+    ]
+    _action, args = decode_custom_id((payload.get("data") or {}).get("custom_id") or "")
+    if args[:1] == ["b"]:
+        # The clicker IS the host -- the dispatcher lock already enforced it.
+        host = _interaction_user_id(payload)
+        # `or p["id"]`: the player-line regex can match an empty name, and Discord
+        # rejects an empty option label.
+        options = [select_option(p["name"] or p["id"], p["id"])
+                   for p in _lfg_player_lines(embed) if p["id"] != host]
+        if options:
+            components.append(label_component(
+                "Kick players",
+                # required=False: in a modal a select defaults to required, which
+                # would force a kick on every description-only edit.
+                string_select("kick", options, placeholder="Select players to remove",
+                              min_values=0, max_values=len(options), required=False),
+                description="Selected players are removed from the game",
+            ))
     return JsonResponse({
         "type": RESPONSE_MODAL,
-        "data": modal(
-            modal_id, "Edit description",
-            label_component(
-                "Description",
-                text_input("description", style=TEXT_INPUT_PARAGRAPH,
-                          value=embed.get("description", ""), required=False,
-                          max_length=4000),
-            ),
-        ),
+        "data": modal(modal_id, "Edit LFG", *components),
     })
 
 
@@ -12261,6 +12292,17 @@ def _modal_text_value(payload, custom_id):
         if comp.get("custom_id") == custom_id:
             return comp.get("value", "")
     return ""
+
+
+def _modal_select_values(payload, custom_id):
+    """The chosen values for one STRING_SELECT in a MODAL_SUBMIT payload, by its
+    custom_id -- same Label-wrapped shape as _modal_text_value, but a select submits
+    a `values` list. [] when the select is absent or nothing was picked."""
+    for label in (payload.get("data") or {}).get("components", []):
+        comp = label.get("component") or {}
+        if comp.get("custom_id") == custom_id:
+            return comp.get("values") or []
+    return []
 
 
 def _handle_lfg_edit_modal_submit(payload, args):
@@ -12280,6 +12322,20 @@ def _handle_lfg_edit_modal_submit(payload, args):
         return _ephemeral("Couldn't find that message to edit — try again.")
     embed = (message.get("embeds") or [{}])[0]
     embed["description"] = new_description or ""
+
+    # Kicks (only a /lfg-beta modal has the select). The submitter is the host --
+    # only they could open this modal -- so subtracting them means the host can
+    # never be removed. Filtered against the RE-FETCHED embed, so anyone who joined
+    # while the modal was open is kept.
+    kick_ids = set(_modal_select_values(payload, "kick")) - {_interaction_user_id(payload)}
+    # No button row left means ✔ Start or ✖ Cancel already ran. After Start the
+    # roster is persisted to an LFGThread, so changing Players here would make the
+    # post disagree with the real game. The description edit still applies.
+    field = _lfg_field(embed, LFG_PLAYERS_FIELD)
+    if kick_ids and message.get("components") and field is not None:
+        remaining = [p for p in _lfg_player_lines(embed) if p["id"] not in kick_ids]
+        field["value"] = "\n".join(_lfg_player_line(p["name"], p["id"]) for p in remaining) or "—"
+
     edit_channel_message(channel_id, message_id, embeds=[embed])
 
     return JsonResponse({"type": RESPONSE_DEFERRED_UPDATE_MESSAGE})
