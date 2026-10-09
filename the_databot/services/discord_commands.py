@@ -813,12 +813,14 @@ def lfg_command_for_roles(roles):
 # has so the beta variant can never silently drift from what the real command
 # would show that guild.
 #
-# Empty for now -- /lfg's beta-tested Edit button graduated into the base
-# command. Adding a future beta test for a different command is exactly one
-# entry here -- no dispatcher changes, no new model field, no new
+# Currently: /lfg-beta, whose posts' Edit modal can also kick joined players
+# (see _lfg_message_data's `beta` flag). Adding a beta test for another command
+# is exactly one entry here -- no dispatcher changes, no new model field, no new
 # COMMAND_HANDLERS wiring (the dispatcher strips BETA_SUFFIX generically; see
 # discord_interactions()).
-BETA_COMMAND_VARIANTS = {}
+BETA_COMMAND_VARIANTS = {
+    "lfg": lambda guild: lfg_command_for_roles(list(guild.lfg_roles.all())),
+}
 
 BETA_SUFFIX = "-beta"
 

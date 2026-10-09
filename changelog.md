@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.15] - 2026-10-8 Kick Players
+
+### New Features
+- Host can now kick players from their LFG post if they are unresponsive
+
 ## [1.13.14] - 2026-10-4 Hoot 4 Refinements
 
 ### New Features

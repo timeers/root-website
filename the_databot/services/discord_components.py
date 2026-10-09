@@ -39,9 +39,14 @@ def select_option(label, value, emoji=None, default=False):
     return opt
 
 
-def string_select(custom_id, options, placeholder="", min_values=0, max_values=1):
+def string_select(custom_id, options, placeholder="", min_values=0, max_values=1,
+                  required=None):
+    """`required` only matters inside a modal, where Discord defaults it to TRUE --
+    so a modal select that may be left empty must pass required=False (min_values=0
+    alone doesn't do it). Omitted from the payload unless passed, so message selects
+    are unchanged."""
     options = options[:25]  # Discord caps a select at 25 options
-    return {
+    comp = {
         "type": COMPONENT_STRING_SELECT, "custom_id": custom_id,
         "placeholder": placeholder, "min_values": min_values,
         # Discord requires 1 <= max_values <= number of options. Clamp against the
@@ -49,6 +54,9 @@ def string_select(custom_id, options, placeholder="", min_values=0, max_values=1
         # max_values that exceeds the options actually included (a 400).
         "max_values": max(1, min(max_values, len(options))), "options": options,
     }
+    if required is not None:
+        comp["required"] = required
+    return comp
 
 
 def text_input(custom_id, style=TEXT_INPUT_SHORT, value="", required=True,

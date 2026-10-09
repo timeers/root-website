@@ -3632,6 +3632,19 @@ class LFGEditButtonRowTests(TestCase):
                            if di.decode_custom_id(b["custom_id"])[0] == "lfg_edit")
         self.assertTrue(edit_button["custom_id"].endswith(f":{self.HOST}"))
 
+    def _edit_custom_id(self, **kwargs):
+        data = di._lfg_message_data(
+            None, self.HOST, "a game", "Tim", title="Looking for Game", **kwargs)
+        return next(b["custom_id"] for b in data["components"][0]["components"]
+                    if di.decode_custom_id(b["custom_id"])[0] == "lfg_edit")
+
+    def test_a_beta_post_marks_edit_and_keeps_the_owner_last(self):
+        """/lfg-beta's kick marker rides AHEAD of the owner, so the lock still fires."""
+        self.assertEqual(self._edit_custom_id(beta=True), f"lfg_edit:b:{self.HOST}")
+
+    def test_a_regular_post_has_no_beta_marker(self):
+        self.assertEqual(self._edit_custom_id(), f"lfg_edit:{self.HOST}")
+
 
 class LFGPresentationTests(TestCase):
     """The post's cosmetic surface: button labels and the recruiting-phase footer.
@@ -3801,6 +3814,139 @@ class LFGEditTests(TestCase):
                 *self._dispatch_args(self._submit_payload()))
         data = json.loads(response.content)
         self.assertIn("Couldn't find that message", data["data"]["content"])
+
+    # ── kicking (/lfg-beta posts only) ─────────────────────────────────────
+
+    P1 = "830000000000000066"
+    P2 = "830000000000000077"
+
+    def _roster(self, *ids):
+        names = {self.HOST: "Tim", self.P1: "Ann", self.P2: "Bob"}
+        return "\n".join(f"{names[i]} (<@{i}>)" for i in ids)
+
+    def _beta_click(self, *player_ids, beta=True):
+        payload = self._click_payload(self.HOST)
+        payload["message"]["embeds"][0]["fields"][0]["value"] = self._roster(
+            self.HOST, *player_ids)
+        if beta:
+            payload["data"]["custom_id"] = di.encode_custom_id("lfg_edit", "b", self.HOST)
+        return payload
+
+    def _modal_components(self, payload):
+        return json.loads(di._handle_lfg_edit(payload).content)["data"]["components"]
+
+    def test_the_modal_is_titled_edit_lfg(self):
+        response = di._handle_lfg_edit(self._click_payload(self.HOST))
+        self.assertEqual(json.loads(response.content)["data"]["title"], "Edit LFG")
+
+    def test_a_beta_modal_lists_the_non_host_players_to_kick(self):
+        components = self._modal_components(self._beta_click(self.P1, self.P2))
+        self.assertEqual(len(components), 2)
+        select = components[1]["component"]
+        self.assertEqual(select["custom_id"], "kick")
+        # Required in a modal unless told otherwise -- that would block
+        # description-only edits.
+        self.assertIs(select["required"], False)
+        self.assertEqual(select["min_values"], 0)
+        self.assertEqual(select["max_values"], 2)
+        self.assertEqual([(o["label"], o["value"]) for o in select["options"]],
+                         [("Ann", self.P1), ("Bob", self.P2)])
+
+    def test_the_beta_button_is_still_host_locked(self):
+        payload = self._beta_click(self.P1)
+        payload["member"]["user"]["id"] = self.OTHER
+        with mock.patch.object(di, "_verify_signature", return_value=True):
+            response = self.client.post(
+                reverse("discord-interactions"), data=json.dumps(payload),
+                content_type="application/json")
+        self.assertIn("Only the host", json.loads(response.content)["data"]["content"])
+
+    def test_a_beta_modal_with_only_the_host_has_no_select(self):
+        """Discord rejects a select with no options."""
+        self.assertEqual(len(self._modal_components(self._beta_click())), 1)
+
+    def test_a_regular_modal_never_offers_kicking(self):
+        components = self._modal_components(self._beta_click(self.P1, beta=False))
+        self.assertEqual(len(components), 1)
+
+    def _kick_submit(self, kick, value="New text"):
+        payload = self._submit_payload(value=value)
+        payload["member"] = {"user": {"id": self.HOST}}
+        payload["data"]["components"].append(
+            {"type": COMPONENT_LABEL, "id": 3,
+             "component": {"type": 3, "id": 4, "custom_id": "kick", "values": kick}})
+        return payload
+
+    def _submit_against(self, payload, roster, components=("row",)):
+        live = {
+            "embeds": [{"title": "Looking for Game", "description": "Old text",
+                        "fields": [
+                            {"name": di.LFG_PLAYERS_FIELD, "value": roster, "inline": False},
+                            {"name": di.LFG_NOTIFY_FIELD, "value": f"<@{self.P1}>",
+                             "inline": False}]}],
+            "components": list(components),
+        }
+        with mock.patch("the_databot.services.discordservice.get_channel_message",
+                        return_value=live), \
+                mock.patch("the_databot.services.discordservice.edit_channel_message") as edit:
+            di._handle_lfg_edit_modal_submit(*self._dispatch_args(payload))
+        return edit.call_args.kwargs["embeds"][0]
+
+    def test_submitting_kicks_the_selected_players(self):
+        embed = self._submit_against(self._kick_submit([self.P1]),
+                                     self._roster(self.HOST, self.P1, self.P2))
+        self.assertEqual(embed["fields"][0]["value"], self._roster(self.HOST, self.P2))
+        self.assertEqual(embed["description"], "New text")
+        # Notify is left alone.
+        self.assertEqual(embed["fields"][1]["value"], f"<@{self.P1}>")
+
+    def test_a_player_who_joined_while_the_modal_was_open_is_kept(self):
+        """Filtered against the RE-FETCHED roster, not the one the modal showed."""
+        embed = self._submit_against(self._kick_submit([self.P1]),
+                                     self._roster(self.HOST, self.P1, self.P2))
+        self.assertIn(self.P2, embed["fields"][0]["value"])
+
+    def test_nothing_selected_changes_only_the_description(self):
+        roster = self._roster(self.HOST, self.P1)
+        embed = self._submit_against(self._kick_submit([]), roster)
+        self.assertEqual(embed["fields"][0]["value"], roster)
+        self.assertEqual(embed["description"], "New text")
+
+    def test_the_host_can_never_be_kicked(self):
+        embed = self._submit_against(self._kick_submit([self.HOST, self.P1]),
+                                     self._roster(self.HOST, self.P1))
+        self.assertEqual(embed["fields"][0]["value"], self._roster(self.HOST))
+
+    def test_no_kicks_once_the_game_has_started_or_been_cancelled(self):
+        """No button row left: the roster may already be an LFGThread's."""
+        roster = self._roster(self.HOST, self.P1)
+        embed = self._submit_against(self._kick_submit([self.P1]), roster, components=())
+        self.assertEqual(embed["fields"][0]["value"], roster)
+        self.assertEqual(embed["description"], "New text")
+
+
+class LFGModalSelectValuesTests(TestCase):
+    def test_extracts_the_selected_values(self):
+        payload = {"data": {"components": [
+            {"type": 18, "component": {"type": 4, "custom_id": "description", "value": "x"}},
+            {"type": 18, "component": {"type": 3, "custom_id": "kick", "values": ["1", "2"]}},
+        ]}}
+        self.assertEqual(di._modal_select_values(payload, "kick"), ["1", "2"])
+
+    def test_an_absent_select_is_empty(self):
+        payload = {"data": {"components": [
+            {"type": 18, "component": {"type": 4, "custom_id": "description", "value": "x"}},
+        ]}}
+        self.assertEqual(di._modal_select_values(payload, "kick"), [])
+
+
+class StringSelectRequiredTests(TestCase):
+    def test_required_is_omitted_unless_passed(self):
+        """Message selects predate the param and must not change shape."""
+        from the_databot.services.discord_components import string_select, select_option
+        self.assertNotIn("required", string_select("x", [select_option("a", "a")]))
+        self.assertIs(string_select("x", [select_option("a", "a")], required=False)["required"],
+                      False)
 
 
 class LFGModalTextValueTests(TestCase):
@@ -5713,15 +5859,39 @@ class RegisterGuildCommandsBodyTests(TestCase):
 
     # ── beta-tester mechanism ──────────────────────────────────────────────
 
-    def test_a_beta_guild_with_no_variants_configured_gets_no_beta_commands(self):
-        """BETA_COMMAND_VARIANTS is currently empty (/lfg's Edit button graduated
-        into the base command), so is_beta_tester alone adds nothing to the body."""
+    def test_a_non_beta_guild_gets_no_beta_commands(self):
+        self.guild.enabled_commands = ["lfg"]
+        self.guild.is_beta_tester = False
+        self.guild.save()
+        self.assertNotIn("lfg-beta", self._body())
+
+    def test_a_beta_guild_gets_lfg_beta_alongside_lfg(self):
         self.guild.enabled_commands = ["lfg"]
         self.guild.is_beta_tester = True
         self.guild.save()
         body = self._body()
         self.assertIn("lfg", body)
-        self.assertNotIn("lfg-beta", body)
+        self.assertIn("lfg-beta", body)
+
+    def test_a_beta_guild_without_lfg_enabled_gets_no_lfg_beta(self):
+        """The beta variant is always an ADDITION alongside the real command,
+        never a replacement -- a guild can't get it without lfg itself."""
+        self.guild.enabled_commands = ["stats"]
+        self.guild.is_beta_tester = True
+        self.guild.save()
+        self.assertNotIn("lfg-beta", self._body())
+
+    def test_the_beta_variant_matches_the_reals_lfg_shape(self):
+        """lfg-beta reuses lfg_command_for_roles, so it can never silently drift
+        from what the real /lfg would show this guild."""
+        self.guild.enabled_commands = ["lfg"]
+        self.guild.is_beta_tester = True
+        self.guild.save()
+        for i in range(2):
+            GuildLFGRole.objects.create(guild=self.guild, name="Tag %d" % i,
+                                        role_id=str(100000000000000800 + i))
+        body = self._body()
+        self.assertEqual(self._opts(body["lfg"]), self._opts(body["lfg-beta"]))
 
 
 class ApplicationCommandBetaDispatchTests(TestCase):
@@ -5751,6 +5921,17 @@ class ApplicationCommandBetaDispatchTests(TestCase):
         buttons = data["components"][0]["components"]
         names = [di.decode_custom_id(b["custom_id"])[0] for b in buttons]
         self.assertIn("lfg_edit", names)
+
+    def _edit_custom_id(self, command_name):
+        buttons = self._post(command_name)["data"]["components"][0]["components"]
+        return next(b["custom_id"] for b in buttons
+                    if di.decode_custom_id(b["custom_id"])[0] == "lfg_edit")
+
+    def test_lfg_beta_posts_a_kick_enabled_edit_button(self):
+        self.assertEqual(self._edit_custom_id("lfg-beta"), "lfg_edit:b:901")
+
+    def test_lfg_posts_a_plain_edit_button(self):
+        self.assertEqual(self._edit_custom_id("lfg"), "lfg_edit:901")
 
     def test_an_unknown_suffixed_name_is_still_unknown(self):
         response = self._post("not-a-real-command-beta")
