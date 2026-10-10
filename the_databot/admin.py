@@ -100,10 +100,13 @@ class BoxScoreUploadTokenAdmin(admin.ModelAdmin):
         return False
 
 class ScheduleProposalAdmin(admin.ModelAdmin):
-    list_display = ['id', 'match', 'proposed_time', 'status', 'proposed_by', 'created_at']
+    list_display = ['id', 'match', 'proposed_time', 'status', 'proposed_by', 'poll_group',
+                    'created_at']
     list_filter = ['status']
-    search_fields = ['match__name', 'proposed_by__discord', 'channel_id', 'message_id']
-    readonly_fields = ['created_at', 'resolved_at', 'channel_id', 'message_id', 'guild_id']
+    search_fields = ['match__name', 'proposed_by__discord', 'channel_id', 'message_id',
+                     'poll_group']
+    readonly_fields = ['created_at', 'resolved_at', 'channel_id', 'message_id', 'guild_id',
+                       'poll_group']
     filter_horizontal = ['roster', 'confirmed_by']
 
 

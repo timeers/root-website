@@ -813,13 +813,23 @@ def lfg_command_for_roles(roles):
 # has so the beta variant can never silently drift from what the real command
 # would show that guild.
 #
-# Currently: /lfg-beta, whose posts' Edit modal can also kick joined players
-# (see _lfg_message_data's `beta` flag). Adding a beta test for another command
-# is exactly one entry here -- no dispatcher changes, no new model field, no new
-# COMMAND_HANDLERS wiring (the dispatcher strips BETA_SUFFIX generically; see
-# discord_interactions()).
+# Currently:
+#   * /lfg-beta, whose posts' Edit modal can also kick joined players (see
+#     _lfg_message_data's `beta` flag).
+#   * /schedule-beta, carrying ONLY the `poll` subcommand, whose prompt can add
+#     alternative times to vote on (see POLL_MULTI_MODE). Only when the guild has
+#     schedule_poll enabled: /schedule is registered whenever ANY of its
+#     subcommands is, so the presence check in register_guild_commands isn't
+#     enough on its own -- this returns None for a guild without poll, and that
+#     loop skips a None build.
+#
+# Adding a beta test for another command is exactly one entry here -- no
+# dispatcher changes, no new model field, no new COMMAND_HANDLERS wiring (the
+# dispatcher strips BETA_SUFFIX generically; see discord_interactions()).
 BETA_COMMAND_VARIANTS = {
     "lfg": lambda guild: lfg_command_for_roles(list(guild.lfg_roles.all())),
+    "schedule": lambda guild: parent_command_for_guild(
+        SCHEDULE_COMMAND_NAME, set(guild.enabled_commands or ()) & {"schedule_poll"}),
 }
 
 BETA_SUFFIX = "-beta"

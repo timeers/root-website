@@ -649,8 +649,9 @@ class ScheduleProposal(models.Model):
         CONFIRMED = "confirmed", "Confirmed"
         REJECTED = "rejected", "Rejected"
         SUPERSEDED = "superseded", "Superseded"   # another proposal won first
-        # Retired without a human rejecting it: the time was cleared or directly
-        # rewritten, the proposer lost permission, or the cleanup task expired it.
+        # Retired without a human rejecting it: the time was set directly (a
+        # clear leaves proposals open), the proposer lost permission, the poll was
+        # closed early, or the cleanup task expired it.
         CANCELLED = "cancelled", "Cancelled"
 
     # The statuses that still compete for a match: a proposal in either can still
@@ -697,6 +698,18 @@ class ScheduleProposal(models.Model):
         max_length=16, choices=Approval.choices, default=Approval.ROSTER,
         help_text="Whether every player must confirm this time, or one moderator.")
 
+    # Set when this row is ONE TIME of a multi-time poll (/schedule-beta poll):
+    # every time in that poll is its own row, sharing this uuid and the same public
+    # message. Null for every ordinary single-time proposal and moderator request.
+    #
+    # Grouped rows resolve TOGETHER -- the earliest time the whole roster said yes
+    # to wins and the rest are superseded -- so anything that retires or renders a
+    # proposal must treat the group as the unit, never one row of it. See
+    # siblings(), and the group handling in the strip and cleanup tasks.
+    poll_group = models.UUIDField(
+        null=True, blank=True, db_index=True,
+        help_text="Shared by every time in one multi-time poll; empty otherwise.")
+
     # Where the public message lives, so it can be edited later from a task or from
     # a DIFFERENT proposal's interaction (superseding).
     channel_id = models.CharField(max_length=32, blank=True, default="")
@@ -734,6 +747,14 @@ class ScheduleProposal(models.Model):
         user-supplied, so the roster handlers and the moderator handlers each refuse
         the other's rows on this flag."""
         return self.approval == self.Approval.MODERATOR
+
+    def siblings(self):
+        """Every row of this proposal's multi-time poll, itself included, earliest
+        time first. A single-time proposal is its own only sibling."""
+        if not self.poll_group:
+            return ScheduleProposal.objects.filter(pk=self.pk)
+        return ScheduleProposal.objects.filter(
+            poll_group=self.poll_group).order_by("proposed_time", "pk")
 
     def pending_profiles(self):
         """Roster players who have not ANSWERED yet — neither yes nor no.
