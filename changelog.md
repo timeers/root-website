@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.15] - 2026-10-8 Kick Players
+## [1.13.15] - 2026-10-8 Multi-Kick-Clear
 
 ### New Features
 - Host can now kick players from their LFG post if they are unresponsive
