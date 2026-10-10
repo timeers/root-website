@@ -2190,9 +2190,11 @@ def _schedule_retire_response(proposal, reason, actor=None):
 def _cancel_open_proposals(match, reason, exclude_pk=None):
     """Retire every OPEN proposal for this match and strip its buttons.
 
-    Called from EVERY path that writes or clears Match.scheduled_time, not just
+    Called from EVERY path that SETS or CHANGES Match.scheduled_time, not just
     finalize: a stale proposal is a live button that can overwrite a time someone
-    else just set. Returns the ids retired."""
+    else just set. A clear deliberately does NOT call this -- a poll started to
+    find the replacement time must survive the old time being removed. Returns
+    the ids retired."""
     qs = ScheduleProposal.objects.filter(
         match_id=match.pk, status__in=ScheduleProposal.LIVE_STATUSES)
     if exclude_pk is not None:
@@ -3117,7 +3119,7 @@ def _handle_mod_schedule_confirm(payload):
     ok, failure = _finalize_proposal(proposal, actor=clicker)
     if not ok:
         # Prose, not a reason key: _finalize_proposal reports its failures as
-        # sentences, and an unknown key would render as "changed or cleared".
+        # sentences, and an unknown key would render as the "cancelled" text.
         return JsonResponse({
             "type": RESPONSE_UPDATE_MESSAGE,
             "data": _mod_request_closed_data(
@@ -3608,9 +3610,11 @@ def _handle_schedule_clear_confirm(payload):
     # match_number derivation.
     match.save(update_fields=["scheduled_time"])
 
-    # Retire anything still awaiting confirmation: a stale Confirm would otherwise
-    # re-write the very time that was just cleared.
-    _cancel_open_proposals(match, "cancelled")
+    # Open polls are deliberately LEFT OPEN. Players often start a poll for a new
+    # time precisely because the old one no longer works, and clear it afterwards;
+    # retiring the poll here would make them start it over. Clearing writes no time,
+    # so there is nothing a poll could overwrite -- only setting or changing a time
+    # (finalize, /schedule set, the website) retires rival polls.
 
     # Supersede the announcement the set flow posted — otherwise the thread is left
     # showing a time that no longer exists. Guild-verified and pinged, same as

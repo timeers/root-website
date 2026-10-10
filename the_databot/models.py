@@ -649,8 +649,9 @@ class ScheduleProposal(models.Model):
         CONFIRMED = "confirmed", "Confirmed"
         REJECTED = "rejected", "Rejected"
         SUPERSEDED = "superseded", "Superseded"   # another proposal won first
-        # Retired without a human rejecting it: the time was cleared or directly
-        # rewritten, the proposer lost permission, or the cleanup task expired it.
+        # Retired without a human rejecting it: the time was set directly (a
+        # clear leaves proposals open), the proposer lost permission, the poll was
+        # closed early, or the cleanup task expired it.
         CANCELLED = "cancelled", "Cancelled"
 
     # The statuses that still compete for a match: a proposal in either can still

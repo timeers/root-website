@@ -6,6 +6,9 @@
 - Host can now kick players from their LFG post if they are unresponsive
 - Schedule Poll now has an option to vote between multiple times
 
+### Bug Fixes
+- Clearing a game's scheduled time no longer closes open polls. Scheduling or rescheduling a game still closes open polls as intended
+
 ## [1.13.14] - 2026-10-4 Hoot 4 Refinements
 
 ### New Features

@@ -9055,7 +9055,13 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
             # Retire any proposal still awaiting confirmation in Discord: its
             # Confirm button would otherwise overwrite the time just set here.
             # Same sweep every /schedule write path does -- this one was missing.
-            _cancel_open_proposals(match, 'website')
+            #
+            # Only when a time is SET or CHANGED. A clear leaves open polls alone,
+            # as /schedule clear does: players often poll for the replacement time
+            # before removing the old one, and a clear writes nothing a poll could
+            # overwrite.
+            if new_time is not None:
+                _cancel_open_proposals(match, 'website')
             # And announce it, exactly as the bot does: "scheduled" for a match
             # that gained a time, "rescheduled" for one that moved, "no longer
             # scheduled" for one that was cleared. Both the channel and the thread

@@ -2,6 +2,7 @@ import contextlib
 import copy
 import json
 import re
+import uuid
 from unittest import mock, skipUnless
 from django.contrib.auth.models import User
 from django.contrib.auth.signals import user_logged_in
@@ -11388,8 +11389,10 @@ class ScheduleModRequestButtonTests(ScheduleFixtureMixin, TestCase):
         self.assertNotIn("moderator must confirm", data["content"])
         self.assertIn("another time was confirmed for this match first",
                       data["content"])
-        # Prose is passed through, not misread as the "cancelled" key.
-        self.assertNotIn("changed or cleared", data["content"])
+        # Prose is passed through, not misread as the "cancelled" key. Compared
+        # against the live text so a rewording can't make this pass vacuously.
+        from the_databot.services.lfg_game import PROPOSAL_RETIRED_TEXT
+        self.assertNotIn(PROPOSAL_RETIRED_TEXT["cancelled"], data["content"])
         self.assertEqual(data["embeds"], [])
         self.assertEqual(data["components"], [])
         self.assertEqual(data["allowed_mentions"], {"parse": []})
@@ -12220,7 +12223,10 @@ class ScheduleProposalSupersedeTests(ScheduleFixtureMixin, TestCase):
 
 class ScheduleProposalInvalidationTests(_NoLoginSignalMixin, ScheduleFixtureMixin,
                                         TestCase):
-    """Every path that writes or clears scheduled_time must retire open proposals."""
+    """Every path that SETS or CHANGES scheduled_time must retire open proposals.
+
+    A clear must NOT: players poll for the replacement time before removing the
+    old one, so the poll has to survive the clear."""
 
     def setUp(self):
         super().setUp()
@@ -12247,10 +12253,12 @@ class ScheduleProposalInvalidationTests(_NoLoginSignalMixin, ScheduleFixtureMixi
         self.proposal.refresh_from_db()
         self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
 
-    def test_clearing_cancels_open_proposals(self):
-        self.match.scheduled_time = self.when
+    def _clear(self):
+        """/schedule clear's confirm button, with the strip task mocked."""
+        self.match.scheduled_time = self.when - timedelta(days=1)
         self.match.save(update_fields=["scheduled_time"])
-        with mock.patch.object(di.strip_schedule_proposal_messages_task, "delay"):
+        with mock.patch.object(di.strip_schedule_proposal_messages_task,
+                               "delay") as strip:
             with self.captureOnCommitCallbacks(execute=True):
                 di._handle_schedule_clear_confirm({
                     "data": {"custom_id": di.encode_custom_id(
@@ -12258,8 +12266,43 @@ class ScheduleProposalInvalidationTests(_NoLoginSignalMixin, ScheduleFixtureMixi
                         self.player.discord_id)},
                     "guild_id": self.guild.guild_id, "token": None,
                 })
+        return strip
+
+    def test_clearing_leaves_open_proposals_alone(self):
+        strip = self._clear()
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
         self.proposal.refresh_from_db()
-        self.assertEqual(self.proposal.status, ScheduleProposal.Status.CANCELLED)
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.OPEN)
+        strip.assert_not_called()
+
+    def test_a_poll_completing_after_a_clear_writes_its_time(self):
+        """The workflow a clear must not break: poll, clear the old time, finish."""
+        self._clear()
+        for discord_id, username in (("2", "player"), ("5", "teammate")):
+            di._handle_schedule_proposal_confirm({
+                "data": {"custom_id": di.encode_custom_id(
+                    "sched_poll_ok", self.proposal.pk, "g")},
+                "guild_id": self.guild.guild_id, "channel_id": "555000111",
+                "member": {"user": {"id": discord_id, "username": username}},
+                "token": None,
+            })
+        self.match.refresh_from_db()
+        self.assertEqual(self.match.scheduled_time, self.when)
+
+    def test_a_multi_time_poll_survives_a_clear(self):
+        group = uuid.uuid4()
+        rows = []
+        for days in (11, 12):
+            row = ScheduleProposal.objects.create(
+                match=self.match, proposed_by=self.player, poll_group=group,
+                proposed_time=timezone.now() + timedelta(days=days))
+            row.roster.set([self.player, self.teammate])
+            rows.append(row)
+        self._clear()
+        self.assertEqual(
+            {ScheduleProposal.objects.get(pk=r.pk).status for r in rows},
+            {ScheduleProposal.Status.OPEN})
 
     def _edit_series(self, body):
         """POST the bracket editor as an organizer. Returns (response, strip mock,
@@ -12375,6 +12418,18 @@ class ScheduleProposalInvalidationTests(_NoLoginSignalMixin, ScheduleFixtureMixi
         self.assertIn(f"<t:{int(self.when.timestamp())}:F>", content)
         self.match.refresh_from_db()
         self.assertIsNone(self.match.scheduled_time)
+
+    def test_clearing_a_time_on_the_website_leaves_proposals_alone(self):
+        """Same rule as /schedule clear: only setting or changing a time retires
+        polls -- but the clear is still announced."""
+        self.match.scheduled_time = self.when
+        self.match.save(update_fields=["scheduled_time"])
+        _response, strip, announce = self._edit_series({
+            "matches": [{"id": self.match.id, "scheduled_time": None}]})
+        self.proposal.refresh_from_db()
+        self.assertEqual(self.proposal.status, ScheduleProposal.Status.OPEN)
+        strip.assert_not_called()
+        announce.assert_called_once()
 
     def test_a_new_match_with_a_time_announces_scheduled(self):
         new_time = (timezone.now() + timedelta(days=25)).replace(microsecond=0)

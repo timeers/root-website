@@ -553,7 +553,7 @@ PROPOSAL_RETIRED_TEXT = {
     "superseded": "A different time was confirmed for this match. This proposal is "
                   "no longer active.",
     "cancelled": "This proposed time is no longer active — the match's scheduled "
-                 "time was changed or cleared.",
+                 "time was changed.",
     "expired": "This proposed time has passed without everyone confirming.\n"
                "Run `/schedule poll` to propose another time.",
     # Distinct from "cancelled" so players mid-confirmation learn WHERE the time
@@ -694,7 +694,7 @@ MULTI_POLL_RETIRED_TEXT = {
     "superseded": "A different time was confirmed for this match. This poll is no "
                   "longer active.",
     "cancelled": "This poll is no longer active — the match's scheduled time was "
-                 "changed or cleared.",
+                 "changed.",
     "expired": "These times passed before everyone answered.\n"
                "Run `/schedule poll` to propose another time.",
     "website": "The scheduled time for this match was set on the website. This "
@@ -953,7 +953,7 @@ def schedule_request_closed_content(proposal, reason, actor=None,
 
     `reason_text` is prose that overrides the reason key, for callers that only
     have a sentence -- _finalize_proposal reports its failures as prose, and
-    proposal_reason_line would read an unknown key as "changed or cleared".
+    proposal_reason_line would read an unknown key as the "cancelled" text.
 
     Mentions render but never notify: every caller pairs this with
     allowed_mentions={"parse": []}, and an edit never notifies anyway."""
