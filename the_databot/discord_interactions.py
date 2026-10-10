@@ -103,6 +103,7 @@ from the_databot.services.lfg_game import (
     poll_count_label, poll_response_fields,
     MULTI_POLL_MAX_TIMES, POLL_TIME_FIELD_PREFIX, proposal_entries,
     multi_poll_embed, proposal_group_options, proposal_group_closed_embed,
+    unused_time_fields, embed_length, EMBED_SOFT_MAX,
 )
 
 logger = logging.getLogger(__name__)
@@ -5338,7 +5339,14 @@ def _resolve_multi_match_poll(payload, lead_pk, match, me, notify_ids, author,
             agreed_ts=int(winner.proposed_time.timestamp()), scheduled=True,
             jump_url=jump_url)
     data = _schedule_finalized_data(winner, match)
-    data["embeds"][0]["description"] = f"Chosen from {len(rows)} proposed times."
+    embed = data["embeds"][0]
+    embed["description"] = f"Chosen from {len(rows)} proposed times."
+    # Keep every other time and its votes under the winner, so a later reschedule
+    # can start from who could make what instead of asking again. Re-read: the
+    # rows above predate finalize.
+    losers = [r for r in lead.siblings() if r.pk != winner.pk]
+    embed["fields"] = list(embed.get("fields") or []) + unused_time_fields(
+        proposal_group_options(losers), EMBED_SOFT_MAX - embed_length(embed))
     return JsonResponse({"type": RESPONSE_UPDATE_MESSAGE, "data": data})
 
 
