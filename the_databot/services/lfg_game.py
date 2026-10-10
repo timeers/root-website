@@ -17,6 +17,7 @@ the_gatehouse.models at module level, so a top-level import here is circular.
 """
 
 import re
+from datetime import datetime, timezone as dt_timezone
 
 from django.db.models import Q
 
@@ -669,6 +670,156 @@ def poll_response_fields(yes_value, no_value, pending_value=None, *, columns=Tru
             continue
         fields.append({"name": name, "value": value, "inline": columns})
     return fields
+
+
+# ── Multi-time polls (/schedule-beta poll) ──────────────────────────────────
+# One poll, several candidate times, each answered Yes or No. Rendered here rather
+# than in discord_interactions for the same reason as the rest of this section:
+# the Celery strip task has to draw a closed group too, and tasks.py cannot import
+# that module.
+#
+# A HARD cap, not a style choice: voters answer every time in one Discord modal,
+# which holds at most five components -- one Yes/No select per time.
+MULTI_POLL_MAX_TIMES = 5
+
+# Each time's header field is named "Time 1", "Time 2", ... and the Yes/No fields
+# after it belong to it. The numbering is what the Vote form's labels refer back
+# to, and the prefix is what the embed parser keys on -- a wire format, like the
+# response field names above.
+POLL_TIME_FIELD_PREFIX = "Time "
+
+# Why a multi-time poll closed, for the reasons no person decided. The same keys
+# as PROPOSAL_RETIRED_TEXT, worded for a poll of several times rather than one.
+MULTI_POLL_RETIRED_TEXT = {
+    "superseded": "A different time was confirmed for this match. This poll is no "
+                  "longer active.",
+    "cancelled": "This poll is no longer active — the match's scheduled time was "
+                 "changed or cleared.",
+    "expired": "These times passed before everyone answered.\n"
+               "Run `/schedule poll` to propose another time.",
+    "website": "The scheduled time for this match was set on the website. This "
+               "poll is no longer active.",
+    "unschedulable": "This match can no longer be scheduled — it may have been "
+                     "played or removed.",
+}
+
+
+def proposal_entries(profiles):
+    """Profiles as the poll renderer's [{"id","name"}] shape.
+
+    A player with no linked Discord has no snowflake to key on, so they get their
+    pk as a stable stand-in -- it never matches a real clicker id, which is
+    correct: they cannot click until they link, and _resolve_clicker tells them
+    so."""
+    return [{"id": str(p.discord_id or f"profile-{p.pk}"),
+             "name": p.display_name or p.discord or p.slug or "—"}
+            for p in profiles]
+
+
+def poll_entry_lines(entries):
+    """"Name (<@id>)" per entry -- /lfg's player-line shape, so the embed parser
+    reads them straight back. "—" for an empty column."""
+    return "\n".join(f"{e['name']} (<@{e['id']}>)" for e in entries) or "—"
+
+
+def multi_poll_embed(options, *, pending=None, notify_ids=(), label=None,
+                     author=None, unlinked_note=None, closed=False,
+                     closed_reason=None, closed_note=None, agreed_ts=None):
+    """The embed for a multi-time poll, open or closed, in every kind.
+
+    `options` are [{"ts", "yes", "no"}], with `yes`/`no` in the [{"id","name"}]
+    shape. They are rendered earliest first, so "Time 1" is always the earliest
+    and the numbering never shifts while votes come in.
+
+    `pending` follows the single-time poll's tri-state: a list of rendered names
+    for a poll with a roster, None for one without (a bare channel), where the
+    column is absent entirely rather than claiming we wait on someone.
+
+    `agreed_ts` is the time everyone said yes to, when one was. It titles the
+    closed poll and marks that time's header.
+
+    Closed polls drop Pending and Notify -- both only matter while answers are
+    still arriving -- and carry `closed_note` (already `-#`-formatted) instead."""
+    from the_databot.services.time_parsing import format_discord_timestamp
+
+    options = sorted(options, key=lambda o: o["ts"])
+
+    if closed:
+        if agreed_ts is not None:
+            title = "✅ Time Confirmed"
+        elif closed_reason in (None, "rejected"):
+            title = "🗓 Time not scheduled"
+        else:
+            title = "🗓 Poll closed"
+    else:
+        title = "🗓 Proposed times"
+
+    lines = []
+    if label:
+        lines.append(f"**{label}**")
+    if agreed_ts is not None:
+        agreed = datetime.fromtimestamp(int(agreed_ts), tz=dt_timezone.utc)
+        lines.append(f"Agreed time: {format_discord_timestamp(agreed)}")
+    if unlinked_note:
+        lines.append(unlinked_note)
+    if closed and closed_note:
+        if lines:
+            lines.append("")
+        lines.append(closed_note)
+
+    embed = {"title": title}
+    # Omitted rather than sent empty: a poll with no label and no note has no
+    # description, and Discord rejects a zero-length one.
+    if lines:
+        embed["description"] = "\n".join(lines)
+    if author:
+        embed["author"] = author
+
+    fields = []
+    for number, option in enumerate(options, 1):
+        when = datetime.fromtimestamp(int(option["ts"]), tz=dt_timezone.utc)
+        name = f"{POLL_TIME_FIELD_PREFIX}{number}"
+        if agreed_ts is not None and int(option["ts"]) == int(agreed_ts):
+            name += " ✅"
+        # The time sits in the VALUE: Discord renders <t:...> there, never in a
+        # field name.
+        fields.append({"name": name, "value": format_discord_timestamp(when),
+                       "inline": False})
+        fields.append({"name": poll_count_label(POLL_YES_FIELD, option["yes"]),
+                       "value": poll_entry_lines(option["yes"]), "inline": True})
+        fields.append({"name": poll_count_label(POLL_NO_FIELD, option["no"]),
+                       "value": poll_entry_lines(option["no"]), "inline": True})
+    if not closed:
+        if pending is not None:
+            fields.append({"name": poll_count_label(POLL_PENDING_FIELD, pending),
+                           "value": "\n".join(pending) or "—", "inline": False})
+        if notify_ids:
+            fields.append({"name": POLL_NOTIFY_FIELD,
+                           "value": " ".join(f"<@{i}>" for i in notify_ids),
+                           "inline": False})
+    embed["fields"] = fields
+    return embed
+
+
+def proposal_group_options(rows):
+    """A multi-time match poll's rows as multi_poll_embed `options`."""
+    return [{"ts": int(r.proposed_time.timestamp()),
+             "yes": proposal_entries(r.confirmed_by.all()),
+             "no": proposal_entries(r.rejected_by.all())}
+            for r in rows]
+
+
+def proposal_group_closed_embed(rows, reason, author=None):
+    """A retired multi-time match poll, for the reasons nobody decided (superseded,
+    website, expired, ...). Keeps every time and who answered what, so the thread
+    retains a record of the poll rather than just that it ended."""
+    rows = list(rows)
+    text = MULTI_POLL_RETIRED_TEXT.get(reason, MULTI_POLL_RETIRED_TEXT["cancelled"])
+    return multi_poll_embed(
+        proposal_group_options(rows),
+        label=match_label(rows[0].match) if rows else None,
+        author=author, closed=True, closed_reason=reason,
+        closed_note="\n".join(f"-# {line}" for line in text.splitlines()))
 
 
 def match_label(match):

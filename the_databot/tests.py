@@ -20097,3 +20097,536 @@ class LeaveModeratorTests(ScheduleFixtureMixin, TestCase):
         self.assertIn("has been removed as this game's moderator", body["content"])
         group.refresh_from_db()
         self.assertIsNone(group.group_moderator)
+
+
+# ── /schedule-beta poll: multi-time polls ────────────────────────────────────
+
+def _future_ts(days, hour=20):
+    """An epoch second `days` from now at a fixed hour -- distinct, sortable times."""
+    when = (timezone.now() + timedelta(days=days)).replace(
+        hour=hour, minute=0, second=0, microsecond=0)
+    return int(when.timestamp())
+
+
+class MultiPollBetaRegistrationTests(TestCase):
+    """/schedule-beta carries ONLY `poll`, and only where schedule_poll is on."""
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(guild_id="700510", name="Beta Guild",
+                                                 is_beta_tester=True)
+
+    def _body(self):
+        captured = {}
+
+        def fake_put(url, headers=None, json=None, timeout=None):
+            captured["body"] = json
+            return mock.Mock(raise_for_status=mock.Mock())
+
+        with mock.patch.object(ds.requests, "put", side_effect=fake_put), \
+             mock.patch.object(ds, "_bot_headers", return_value={}):
+            self.assertTrue(ds.register_guild_commands(self.guild))
+        return {c["name"]: c for c in captured["body"]}
+
+    def test_a_beta_guild_gets_schedule_beta_with_only_poll(self):
+        self.guild.enabled_commands = ["schedule_set", "schedule_poll", "schedule_clear"]
+        self.guild.save()
+        body = self._body()
+        self.assertEqual([o["name"] for o in body["schedule-beta"]["options"]], ["poll"])
+        # The real command is untouched.
+        self.assertEqual(len(body["schedule"]["options"]), 3)
+
+    def test_without_schedule_poll_there_is_no_schedule_beta(self):
+        """/schedule is registered (set is on), so only the builder's None stops
+        the variant -- and registration must skip it rather than crash."""
+        self.guild.enabled_commands = ["schedule_set"]
+        self.guild.save()
+        body = self._body()
+        self.assertIn("schedule", body)
+        self.assertNotIn("schedule-beta", body)
+
+    def test_a_non_beta_guild_gets_no_schedule_beta(self):
+        self.guild.is_beta_tester = False
+        self.guild.enabled_commands = ["schedule_poll"]
+        self.guild.save()
+        self.assertNotIn("schedule-beta", self._body())
+
+
+class MultiPollAutocompleteTests(TestCase):
+    def test_timezone_autocomplete_works_under_the_beta_name(self):
+        payload = {
+            "type": 4,  # APPLICATION_COMMAND_AUTOCOMPLETE
+            "data": {"name": "schedule-beta", "options": [
+                {"name": "poll", "type": 1, "options": [
+                    {"name": "time", "value": "8pm"},
+                    {"name": "timezone", "value": "new york", "focused": True}]}]},
+            "guild_id": "700520", "channel_id": "1",
+            "member": {"user": {"id": "901", "username": "u"}},
+        }
+        with mock.patch.object(di, "_verify_signature", return_value=True):
+            response = self.client.post(
+                reverse("discord-interactions"), data=json.dumps(payload),
+                content_type="application/json")
+        choices = json.loads(response.content)["data"]["choices"]
+        self.assertIn(TZ, [c["value"] for c in choices])
+
+
+class MultiPollTsCodecTests(TestCase):
+    def test_round_trip(self):
+        values = [_future_ts(1), _future_ts(2), _future_ts(3)]
+        self.assertEqual(di._decode_ts_list(di._encode_ts_list(values)), values)
+
+    def test_malformed_text_is_rejected(self):
+        self.assertIsNone(di._decode_ts_list("zz!.1"))
+        self.assertIsNone(di._decode_ts_list(""))
+
+    def test_the_worst_case_custom_id_fits(self):
+        times = di._encode_ts_list([_future_ts(d) for d in range(1, 6)])
+        custom_id = di.encode_custom_id(
+            "sched_mp_addm", "match", "1234567", times, "1" * 20)
+        self.assertLessEqual(len(custom_id), 100)
+
+
+class MultiPollPromptTests(ScheduleFixtureMixin, TestCase):
+    """The ephemeral prompt under /schedule-beta poll: collecting times."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.player.timezone = TZ
+        self.player.save(update_fields=["timezone"])
+
+    def _command(self, beta=True, time=SCHEDULE_TIME_TEXT):
+        data = {
+            "name": "schedule",
+            "options": [{"name": "poll", "type": 1, "options": [
+                {"name": "time", "value": time}]}],
+            "_guild_id": self.guild.guild_id, "_channel_id": "555000111",
+            "_channel_name": None, "_author_id": self.player.discord_id,
+            "_author_username": "player", "_beta": beta,
+        }
+        return json.loads(di._handle_schedule_command(data).content)["data"]
+
+    def _buttons(self, data):
+        return {di.decode_custom_id(b["custom_id"])[0]: b
+                for b in data["components"][0]["components"]}
+
+    def _add(self, prompt, text, user=None):
+        """Submit the Add Alternative Time modal opened from `prompt`."""
+        add_id = self._buttons(prompt)["sched_mp_add"]["custom_id"]
+        _action, args = di.decode_custom_id(add_id)
+        payload = {
+            "type": 5, "channel_id": "555000111", "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": user or self.player.discord_id,
+                                "username": "player"}},
+            "data": {"custom_id": di.encode_custom_id("sched_mp_addm", *args),
+                     "components": [{"type": COMPONENT_LABEL, "component": {
+                         "type": 4, "custom_id": "time", "value": text}}]},
+        }
+        return json.loads(di._handle_sched_mp_add_submit(payload, args).content)
+
+    def test_the_beta_prompt_offers_add_alternative_time(self):
+        button = self._buttons(self._command())["sched_mp_add"]
+        self.assertEqual(button["label"], "Add Alternative Time")
+        self.assertEqual(button["emoji"], {"name": "➕"})
+
+    def test_the_regular_prompt_has_no_add_button(self):
+        self.assertNotIn("sched_mp_add", self._buttons(self._command(beta=False)))
+
+    def test_one_time_suggest_is_todays_poll(self):
+        self.assertIn("sched_poll_open", self._buttons(self._command()))
+
+    def test_the_add_button_opens_a_modal(self):
+        prompt = self._command()
+        payload = {"data": {"custom_id": self._buttons(prompt)["sched_mp_add"]["custom_id"]},
+                   "member": {"user": {"id": self.player.discord_id}}}
+        body = json.loads(di._handle_sched_mp_add(payload).content)
+        self.assertEqual(body["type"], di.RESPONSE_MODAL)
+        self.assertEqual(di.decode_custom_id(body["data"]["custom_id"])[0], "sched_mp_addm")
+
+    def test_adding_a_time_redraws_the_list_in_place(self):
+        body = self._add(self._command(), "Sep 16 8pm")
+        self.assertEqual(body["type"], di.RESPONSE_UPDATE_MESSAGE)
+        content = body["data"]["content"]
+        self.assertIn("1. <t:", content)
+        self.assertIn("2. <t:", content)
+        buttons = self._buttons(body["data"])
+        _action, args = di.decode_custom_id(buttons["sched_mp_open"]["custom_id"])
+        self.assertEqual(len(di._decode_ts_list(args[2])), 2)
+        self.assertNotIn("schedule_tz_change", buttons)
+        self.assertIn("sched_mp_add", buttons)
+
+    def test_a_duplicate_time_is_refused_with_a_note(self):
+        body = self._add(self._command(), SCHEDULE_TIME_TEXT)
+        self.assertIn("already on the list", body["data"]["content"])
+        self.assertIn("sched_poll_open", self._buttons(body["data"]))
+
+    def test_a_past_time_is_refused_with_a_note(self):
+        body = self._add(self._command(), "Jan 1 2001 8pm")
+        self.assertIn("⚠️", body["data"]["content"])
+        self.assertNotIn("sched_mp_open", self._buttons(body["data"]))
+
+    def test_a_sixth_time_is_refused_and_add_disappears_at_five(self):
+        prompt = self._command()
+        for day in (16, 17, 18, 19):
+            prompt = self._add(prompt, f"Sep {day} 8pm")["data"]
+        self.assertNotIn("sched_mp_add", self._buttons(prompt))
+        self.assertIn("5. <t:", prompt["content"])
+
+    def test_only_the_owner_can_add(self):
+        body = self._add(self._command(), "Sep 16 8pm", user=self.teammate.discord_id)
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertIn("Only the person", body["data"]["content"])
+
+
+class MultiPollRenderTests(TestCase):
+    def _options(self, n):
+        return [{"ts": _future_ts(d), "yes": [{"id": "11", "name": "Ann"}],
+                 "no": [{"id": "22", "name": "Bob"}]} for d in range(1, n + 1)]
+
+    def test_round_trip_through_the_embed(self):
+        options = self._options(3)
+        embed = di._schedule_multi_poll_data(
+            options, "11", pending=["<@33>"], notify_ids=["44"], kind="lfg",
+            label="Game")["embeds"][0]
+        parsed, notify_ids, pending = di._multi_poll_state(embed)
+        self.assertEqual(parsed, options)
+        self.assertEqual(notify_ids, ["44"])
+        self.assertEqual(pending, [])
+        self.assertEqual(embed["title"], "🗓 Proposed times")
+
+    def test_five_times_stay_under_the_field_limit(self):
+        embed = di._schedule_multi_poll_data(
+            self._options(5), "11", pending=["<@33>"], notify_ids=["44"],
+            kind="lfg")["embeds"][0]
+        self.assertLessEqual(len(embed["fields"]), 25)
+
+    def test_a_bare_poll_has_no_pending_column(self):
+        embed = di._schedule_multi_poll_data(
+            self._options(2), "11", pending=None, kind="bare")["embeds"][0]
+        self.assertFalse(any(f["name"].startswith(di.POLL_PENDING_FIELD)
+                             for f in embed["fields"]))
+
+
+class MultiPollEmbedTests(ScheduleFixtureMixin, TestCase):
+    """LFG-thread and bare-channel multi-time polls (embed-backed)."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.times = [_future_ts(2), _future_ts(3)]
+
+    def _open(self, kind, channel):
+        payload = {
+            "channel_id": channel, "guild_id": self.guild.guild_id, "token": "tok",
+            "member": {"user": {"id": self.player.discord_id, "username": "player"}},
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_mp_open", kind, di.SCHEDULE_NO_MATCH,
+                di._encode_ts_list(self.times), self.player.discord_id)},
+            "message": {"id": "prompt", "components": []},
+        }
+        with mock.patch.object(di.post_interaction_followup_task,
+                               "apply_async") as enqueue:
+            di._handle_sched_mp_open(payload)
+        posted = enqueue.call_args.args[0][1]
+        return {"id": "msg1", "embeds": posted["embeds"],
+                "components": posted["components"]}
+
+    def _button(self, message, action, user, channel):
+        custom_id = next(b["custom_id"] for b in message["components"][0]["components"]
+                         if di.decode_custom_id(b["custom_id"])[0] == action)
+        return {"channel_id": channel, "guild_id": self.guild.guild_id,
+                "member": {"user": {"id": user.discord_id, "username": user.discord}},
+                "data": {"custom_id": custom_id}, "message": message}
+
+    def _vote(self, message, user, answers, channel):
+        """Open the Vote form as `user`, then submit `answers` ({ts: yes|no})."""
+        opened = json.loads(di._handle_sched_mp_button(
+            self._button(message, "sched_mp_vote", user, channel)).content)
+        self.assertEqual(opened["type"], di.RESPONSE_MODAL, opened)
+        _action, args = di.decode_custom_id(opened["data"]["custom_id"])
+        payload = {
+            "type": 5, "channel_id": channel, "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": user.discord_id, "username": user.discord}},
+            "data": {"custom_id": opened["data"]["custom_id"], "components": [
+                {"type": COMPONENT_LABEL, "component": {
+                    "type": 3, "custom_id": f"t{ts}", "values": [value]}}
+                for ts, value in answers.items()]},
+        }
+        with mock.patch("the_databot.services.discordservice.get_channel_message",
+                        return_value=message):
+            return json.loads(di._handle_sched_mp_vote_submit(payload, args).content)
+
+    def test_a_bare_poll_posts_every_time_with_the_proposer_on_yes(self):
+        message = self._open("bare", "999000111")
+        options, _notify, pending = di._multi_poll_state(message["embeds"][0])
+        self.assertEqual([o["ts"] for o in options], self.times)
+        for option in options:
+            self.assertEqual([e["id"] for e in option["yes"]], [self.player.discord_id])
+        self.assertIsNone(pending)
+        actions = [di.decode_custom_id(b["custom_id"])[0]
+                   for b in message["components"][0]["components"]]
+        self.assertEqual(actions, ["sched_mp_vote", "sched_mp_notify", "sched_mp_close"])
+
+    def test_the_vote_form_has_one_select_per_time_in_the_voters_zone(self):
+        message = self._open("bare", "999000111")
+        self.teammate.timezone = TZ
+        self.teammate.save(update_fields=["timezone"])
+        body = json.loads(di._handle_sched_mp_button(
+            self._button(message, "sched_mp_vote", self.teammate, "999000111")).content)
+        labels = body["data"]["components"]
+        self.assertEqual(len(labels), 2)
+        self.assertTrue(labels[0]["label"].startswith("Time 1 · "))
+        self.assertRegex(labels[0]["label"], r"E[SD]T$")
+        self.assertIs(labels[0]["component"]["required"], True)
+
+    def test_the_form_defaults_to_the_voters_current_answers(self):
+        message = self._open("bare", "999000111")
+        body = json.loads(di._handle_sched_mp_button(
+            self._button(message, "sched_mp_vote", self.player, "999000111")).content)
+        options = body["data"]["components"][0]["component"]["options"]
+        self.assertEqual([o["value"] for o in options if o["default"]], ["yes"])
+
+    def test_a_revote_replaces_earlier_answers(self):
+        message = self._open("bare", "999000111")
+        first = self._vote(message, self.teammate,
+                           {self.times[0]: "yes", self.times[1]: "no"}, "999000111")
+        message = {"id": "msg1", **first["data"]}
+        second = self._vote(message, self.teammate,
+                            {self.times[0]: "no", self.times[1]: "yes"}, "999000111")
+        options, _n, _p = di._multi_poll_state(second["data"]["embeds"][0])
+        teammate = self.teammate.discord_id
+        self.assertEqual([e["id"] for e in options[0]["no"]], [teammate])
+        self.assertNotIn(teammate, [e["id"] for e in options[0]["yes"]])
+        self.assertIn(teammate, [e["id"] for e in options[1]["yes"]])
+
+    def test_a_bare_poll_caps_distinct_voters(self):
+        message = self._open("bare", "999000111")
+        options, _n, _p = di._multi_poll_state(message["embeds"][0])
+        options[0]["yes"] = [{"id": str(100 + i), "name": f"P{i}"}
+                             for i in range(di.POLL_FREE_RESPONSE_MAX)]
+        message["embeds"] = di._schedule_multi_poll_data(
+            options, self.player.discord_id, pending=None, kind="bare")["embeds"]
+        body = json.loads(di._handle_sched_mp_button(
+            self._button(message, "sched_mp_vote", self.teammate, "999000111")).content)
+        self.assertIn("voters", body["data"]["content"])
+
+    def test_an_lfg_poll_refuses_a_non_player(self):
+        thread = LFGThread.objects.create(thread_id="777000210")
+        thread.players.set([self.player, self.teammate])
+        message = self._open("lfg", "777000210")
+        body = json.loads(di._handle_sched_mp_button(
+            self._button(message, "sched_mp_vote", self.outsider, "777000210")).content)
+        self.assertIn("Only the players", body["data"]["content"])
+
+    def test_an_lfg_poll_closes_on_the_earliest_unanimous_time(self):
+        thread = LFGThread.objects.create(thread_id="777000211")
+        thread.players.set([self.player, self.teammate])
+        message = self._open("lfg", "777000211")
+        body = self._vote(message, self.teammate,
+                          {self.times[0]: "no", self.times[1]: "yes"}, "777000211")
+        embed = body["data"]["embeds"][0]
+        self.assertEqual(embed["title"], "✅ Time Confirmed")
+        self.assertEqual(body["data"]["components"], [])
+        self.assertIn(f"<t:{self.times[1]}:F>", embed["description"])
+
+    def test_an_lfg_poll_with_no_unanimous_time_is_not_scheduled(self):
+        thread = LFGThread.objects.create(thread_id="777000212")
+        thread.players.set([self.player, self.teammate])
+        message = self._open("lfg", "777000212")
+        body = self._vote(message, self.teammate,
+                          {self.times[0]: "no", self.times[1]: "no"}, "777000212")
+        self.assertEqual(body["data"]["embeds"][0]["title"], "🗓 Time not scheduled")
+
+    def test_closing_a_bare_poll_shows_tallies_only(self):
+        message = self._open("bare", "999000111")
+        body = json.loads(di._handle_sched_mp_button(
+            self._button(message, "sched_mp_close", self.player, "999000111")).content)
+        embed = body["data"]["embeds"][0]
+        self.assertEqual(embed["title"], "🗓 Poll closed")
+        self.assertFalse(any("✅" in f["name"] for f in embed["fields"]
+                             if f["name"].startswith("Time ")))
+        self.assertEqual(body["data"]["components"], [])
+
+    def test_vote_closes_a_poll_whose_times_have_all_passed(self):
+        message = self._open("bare", "999000111")
+        options, _n, _p = di._multi_poll_state(message["embeds"][0])
+        for i, option in enumerate(options):
+            option["ts"] = int((timezone.now() - timedelta(hours=i + 1)).timestamp())
+        message["embeds"] = di._schedule_multi_poll_data(
+            options, self.player.discord_id, pending=None, kind="bare")["embeds"]
+        body = json.loads(di._handle_sched_mp_button(
+            self._button(message, "sched_mp_vote", self.player, "999000111")).content)
+        self.assertEqual(body["type"], di.RESPONSE_UPDATE_MESSAGE)
+        self.assertEqual(body["data"]["components"], [])
+
+
+class MultiPollMatchTests(ScheduleFixtureMixin, TestCase):
+    """Multi-time polls on a real match: one ScheduleProposal per time, grouped."""
+
+    def setUp(self):
+        self.build(populate_group=True)
+        self.times = [_future_ts(2), _future_ts(3), _future_ts(4)]
+
+    def _open(self):
+        payload = {
+            "channel_id": "555000111", "guild_id": self.guild.guild_id, "token": "tok",
+            "member": {"user": {"id": self.player.discord_id, "username": "player"}},
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_mp_open", "match", self.match.id,
+                di._encode_ts_list(self.times), self.player.discord_id)},
+        }
+        with mock.patch.object(di.post_schedule_proposal_task, "apply_async") as post:
+            di._handle_sched_mp_open(payload)
+        rows = list(ScheduleProposal.objects.order_by("proposed_time"))
+        data = post.call_args.args[0][1]
+        message = {"id": "msg1", "embeds": data["embeds"],
+                   "components": data["components"]}
+        return rows, message
+
+    def _vote(self, rows, message, user, answers):
+        lead = min(r.pk for r in rows)
+        payload = {
+            "type": 5, "channel_id": "555000111", "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": user.discord_id, "username": user.discord}},
+            "data": {"custom_id": di.encode_custom_id("sched_mp_votem", lead, "msg1"),
+                     "components": [
+                         {"type": COMPONENT_LABEL, "component": {
+                             "type": 3, "custom_id": f"t{ts}", "values": [value]}}
+                         for ts, value in answers.items()]},
+        }
+        _action, args = di.decode_custom_id(payload["data"]["custom_id"])
+        with mock.patch("the_databot.services.discordservice.get_channel_message",
+                        return_value=message):
+            return json.loads(di._handle_sched_mp_vote_submit(payload, args).content)
+
+    def test_opening_creates_one_grouped_row_per_time(self):
+        rows, _message = self._open()
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(len({r.poll_group for r in rows}), 1)
+        self.assertIsNotNone(rows[0].poll_group)
+        for row in rows:
+            self.assertIn(self.player.pk, row.confirmed_by.values_list("pk", flat=True))
+
+    def test_the_earliest_unanimous_time_is_written(self):
+        rows, message = self._open()
+        body = self._vote(rows, message, self.teammate, {
+            self.times[0]: "no", self.times[1]: "yes", self.times[2]: "yes"})
+        self.match.refresh_from_db()
+        self.assertEqual(int(self.match.scheduled_time.timestamp()), self.times[1])
+        statuses = {r.pk: r.status for r in ScheduleProposal.objects.all()}
+        self.assertEqual(statuses[rows[1].pk], ScheduleProposal.Status.CONFIRMED)
+        self.assertEqual(statuses[rows[0].pk], ScheduleProposal.Status.SUPERSEDED)
+        self.assertEqual(statuses[rows[2].pk], ScheduleProposal.Status.SUPERSEDED)
+        self.assertEqual(body["data"]["components"], [])
+
+    def test_the_siblings_are_not_handed_to_the_strip_task(self):
+        """The strip would overwrite the shared message we just rendered."""
+        rows, message = self._open()
+        with self.captureOnCommitCallbacks(execute=True), \
+                mock.patch.object(di.strip_schedule_proposal_messages_task,
+                                  "delay") as strip:
+            self._vote(rows, message, self.teammate, {
+                self.times[0]: "yes", self.times[1]: "yes", self.times[2]: "yes"})
+        strip.assert_not_called()
+
+    def test_no_unanimous_time_rejects_the_whole_group(self):
+        rows, message = self._open()
+        body = self._vote(rows, message, self.teammate, {t: "no" for t in self.times})
+        self.assertEqual(set(ScheduleProposal.objects.values_list("status", flat=True)),
+                         {ScheduleProposal.Status.REJECTED})
+        self.match.refresh_from_db()
+        self.assertIsNone(self.match.scheduled_time)
+        self.assertEqual(body["data"]["embeds"][0]["title"], "🗓 Time not scheduled")
+
+    def test_a_passed_time_neither_closes_the_group_nor_wins(self):
+        rows, message = self._open()
+        ScheduleProposal.objects.filter(pk=rows[0].pk).update(
+            proposed_time=timezone.now() - timedelta(hours=1))
+        self._vote(rows, message, self.teammate, {
+            self.times[0]: "yes", self.times[1]: "no", self.times[2]: "yes"})
+        self.match.refresh_from_db()
+        self.assertEqual(int(self.match.scheduled_time.timestamp()), self.times[2])
+
+    def test_a_permission_failure_cancels_every_time(self):
+        rows, message = self._open()
+        ScheduleProposal.objects.filter(pk__in=[r.pk for r in rows]).update(
+            proposed_by=self.outsider)
+        body = self._vote(rows, message, self.teammate, {t: "yes" for t in self.times})
+        self.assertEqual(set(ScheduleProposal.objects.values_list("status", flat=True)),
+                         {ScheduleProposal.Status.CANCELLED})
+        self.assertEqual(body["data"]["components"], [])
+
+    def test_a_lost_race_leaves_the_message_alone(self):
+        rows, message = self._open()
+        with mock.patch.object(di, "_finalize_proposal",
+                               return_value=(False, di.FINALIZE_LOST_RACE)):
+            body = self._vote(rows, message, self.teammate,
+                              {t: "yes" for t in self.times})
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+
+    def test_a_vote_on_a_closed_group_is_refused(self):
+        rows, message = self._open()
+        ScheduleProposal.objects.update(status=ScheduleProposal.Status.CANCELLED)
+        body = self._vote(rows, message, self.teammate, {t: "yes" for t in self.times})
+        self.assertIn("already closed", body["data"]["content"])
+
+    def test_a_non_roster_voter_is_refused(self):
+        rows, message = self._open()
+        body = self._vote(rows, message, self.outsider, {t: "yes" for t in self.times})
+        self.assertIn("not one of this game's players", body["data"]["content"])
+
+    def test_notify_subscribers_survive_a_vote(self):
+        rows, message = self._open()
+        message["embeds"][0]["fields"].append(
+            {"name": di.POLL_NOTIFY_FIELD, "value": "<@4444>", "inline": False})
+        # A third player keeps the poll open, so this vote re-renders it.
+        extra = Profile.objects.create(discord="extra", discord_id="6")
+        extra_tp = TournamentPlayer.objects.create(tournament=self.tournament,
+                                                   profile=extra)
+        for row in rows:
+            row.roster.add(extra)
+        self.group.tournament_players.add(extra_tp)
+        with mock.patch.object(di.notify_multi_poll_task, "delay"):
+            body = self._vote(rows, message, self.teammate,
+                              {t: "yes" for t in self.times})
+        _options, notify_ids, _pending = di._multi_poll_state(body["data"]["embeds"][0])
+        self.assertEqual(notify_ids, ["4444"])
+
+    def test_single_time_buttons_refuse_a_grouped_proposal(self):
+        rows, _message = self._open()
+        payload = {"guild_id": self.guild.guild_id,
+                   "member": {"user": {"id": self.teammate.discord_id}},
+                   "data": {"custom_id": di.encode_custom_id(
+                       "sched_poll_ok", rows[0].pk, "g")}}
+        body = json.loads(di._handle_schedule_proposal_confirm(payload).content)
+        self.assertIn("doesn't match this poll", body["data"]["content"])
+
+    def test_the_post_task_records_the_message_on_every_time(self):
+        rows, _message = self._open()
+        with mock.patch("the_databot.services.discordservice.post_channel_message_full",
+                        return_value=(ds.THREAD_OK, "msg9")):
+            tasks.post_schedule_proposal_task(rows[0].pk, {"content": "x"})
+        self.assertEqual(set(ScheduleProposal.objects.values_list("message_id", flat=True)),
+                         {"msg9"})
+
+    def test_the_strip_task_edits_a_grouped_message_once(self):
+        rows, _message = self._open()
+        ScheduleProposal.objects.update(message_id="msg9")
+        with mock.patch("the_databot.services.discordservice.edit_channel_message",
+                        return_value=ds.THREAD_OK) as edit:
+            tasks.strip_schedule_proposal_messages_task([r.pk for r in rows], "website")
+        edit.assert_called_once()
+        fields = edit.call_args.kwargs["embeds"][0]["fields"]
+        self.assertEqual(sum(f["name"].startswith("Time ") for f in fields), 3)
+
+    def test_cleanup_ignores_a_partly_passed_group(self):
+        rows, _message = self._open()
+        ScheduleProposal.objects.filter(pk=rows[0].pk).update(
+            proposed_time=timezone.now() - timedelta(hours=1))
+        with mock.patch.object(tasks.strip_schedule_proposal_messages_task, "delay"):
+            self.assertEqual(tasks.cleanup_stale_schedule_proposals(), 0)
+
+    def test_cleanup_retires_a_fully_passed_group_whole(self):
+        rows, _message = self._open()
+        ScheduleProposal.objects.update(
+            proposed_time=timezone.now() - timedelta(hours=1))
+        with mock.patch.object(tasks.strip_schedule_proposal_messages_task, "delay"):
+            self.assertEqual(tasks.cleanup_stale_schedule_proposals(), 3)

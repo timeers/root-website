@@ -25,6 +25,7 @@ import math
 import random
 import re
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone as dt_timezone
 
 import requests
@@ -52,7 +53,7 @@ from the_databot.models import (
 from the_databot.tasks import (
     record_bot_usage_task, ensure_profile_from_discord_task,
     ensure_profile_from_discord, notify_lfg_task, notify_lfg_cancelled_task,
-    notify_schedule_poll_task,
+    notify_schedule_poll_task, notify_multi_poll_task,
     create_lfg_thread_task, record_lfg_components_task, post_interaction_followup_task,
     post_channel_message_task, post_schedule_proposal_task,
     post_to_tournament_channel_task,
@@ -100,6 +101,8 @@ from the_databot.services.lfg_game import (
     schedule_closed_embed, name_join, schedule_request_closed_content,
     POLL_YES_FIELD, POLL_NO_FIELD, POLL_PENDING_FIELD, POLL_NOTIFY_FIELD,
     poll_count_label, poll_response_fields,
+    MULTI_POLL_MAX_TIMES, POLL_TIME_FIELD_PREFIX, proposal_entries,
+    multi_poll_embed, proposal_group_options, proposal_group_closed_embed,
 )
 
 logger = logging.getLogger(__name__)
@@ -1009,12 +1012,52 @@ SCHEDULE_NO_MATCH = "0"
 SCHEDULE_MODE = "s"   # /schedule set  -- writes a time, or asks a moderator to
 POLL_MODE = "p"       # /schedule poll -- puts a time to the roster, never writes
 TIMESTAMP_MODE = "t"  # /timestamp     -- formats a time and nothing else
+# /schedule-beta poll -- a poll whose prompt can also add alternative times, so the
+# group votes on several at once. A poll in every other respect: test it with
+# _is_poll_mode, never `== POLL_MODE`, or the beta prompt would silently lose
+# poll behavior wherever the comparison was missed.
+POLL_MULTI_MODE = "m"
 
 # Every mode a timezone-picker custom_id may legitimately carry. _tz_mode validates
 # against this rather than testing one value at a time, so a mode added here can
 # never be silently read back as SCHEDULE_MODE -- which, for POLL_MODE, would hand
 # the user a Set Time button on a prompt that must not have one.
-_SCHEDULE_MODES = (SCHEDULE_MODE, POLL_MODE, TIMESTAMP_MODE)
+_SCHEDULE_MODES = (SCHEDULE_MODE, POLL_MODE, TIMESTAMP_MODE, POLL_MULTI_MODE)
+
+
+def _is_poll_mode(mode):
+    """Whether a prompt mode puts its time(s) to the group rather than writing."""
+    return mode in (POLL_MODE, POLL_MULTI_MODE)
+
+
+# A multi-time poll's times ride in its prompt's custom_ids (there is no server
+# state until Suggest), so they are packed tight: base36 epoch seconds -- six
+# characters each until 2038 -- joined by ".". Five times cost 34 characters,
+# which keeps the longest custom_id (`sched_mp_addm:match:<id>:<times>:<owner>`)
+# comfortably under Discord's 100. "." is safe: the codec splits on ":".
+_TS36_DIGITS = "0123456789abcdefghijklmnopqrstuvwxyz"
+
+
+def _encode_ts_list(timestamps):
+    def b36(n):
+        n = int(n)
+        out = ""
+        while True:
+            n, r = divmod(n, 36)
+            out = _TS36_DIGITS[r] + out
+            if not n:
+                return out
+    return ".".join(b36(t) for t in timestamps)
+
+
+def _decode_ts_list(text):
+    """The epoch seconds packed by _encode_ts_list, or None when the text is
+    malformed -- a hand-built or truncated custom_id, never trusted further."""
+    try:
+        values = [int(part, 36) for part in (text or "").split(".")]
+    except ValueError:
+        return None
+    return values if values and all(v > 0 for v in values) else None
 
 
 def _is_no_match(match_id):
@@ -1395,7 +1438,7 @@ def _tz_zone_data(match_id, region_key, time_text, owner, current_tz=None,
 def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=None,
                            pending_confirmers=0, already_proposed=False,
                            needs_mod_approval=False, sibling_hint=None,
-                           unlinked_kind="bare", mode=SCHEDULE_MODE):
+                           unlinked_kind="bare", mode=SCHEDULE_MODE, all_ts=None):
     """The ephemeral confirm prompt: the time as Discord renders it in the clicker's
     own timezone, plus the action / Change timezone / Cancel. The owner snowflake
     rides LAST in each custom_id so the dispatcher's owner-lock applies without extra
@@ -1436,12 +1479,22 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
     POLL_MODE and TIMESTAMP_MODE now, since /schedule set refuses outright when no
     match resolves. The copy says so plainly so it can't be mistaken for a real
     schedule. `unlinked_kind` is "lfg" (the thread's players get asked to confirm)
-    or "bare"."""
+    or "bare".
+
+    POLL_MULTI_MODE (/schedule-beta poll) is POLL_MODE plus an "Add Alternative
+    Time" button. `all_ts` is every time collected so far, `when` included; with
+    two or more the prompt lists them all and Suggest posts a multi-time poll.
+    Change timezone is dropped then -- it re-reads the one typed time it carries,
+    and the others' text is long gone. With a single time the prompt and Suggest
+    are exactly POLL_MODE's, so a one-time beta poll is today's poll."""
     unlinked = match is None
     timestamp_mode = mode == TIMESTAMP_MODE
-    poll_mode = mode == POLL_MODE
+    poll_mode = _is_poll_mode(mode)
     match_id = SCHEDULE_NO_MATCH if unlinked else match.id
     ts = int(when.timestamp())
+    multi_mode = mode == POLL_MULTI_MODE
+    times = sorted({int(t) for t in (all_ts or ())} | {ts})
+    multi = multi_mode and len(times) > 1
     lines = []
     if note:
         lines.append(note)
@@ -1452,8 +1505,9 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
     elif unlinked:
         # "this thread" only when there actually is one -- the bare case covers a
         # plain channel too.
-        lines.append("Suggest this time for the game in this thread:" if unlinked_kind == "lfg"
-                     else "Suggest this time:")
+        noun = "these times" if multi else "this time"
+        lines.append(f"Suggest {noun} for the game in this thread:"
+                     if unlinked_kind == "lfg" else f"Suggest {noun}:")
     else:
         # Name the game, and in a multi-game series say WHICH game -- both commands
         # target the first still-unscheduled one, which the invoker can't otherwise
@@ -1463,12 +1517,22 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
         position = match.series_position
         if position:
             label = f"{label} (game {position})"
-        lines.append(f"{'Propose' if poll_mode else 'Schedule'} **{label}** for:")
-    lines.append(format_discord_timestamp(when))
-    # The raw markup, so the time can be copied out and pasted elsewhere. AFTER the
-    # rendered line, never before: _poll_embed_meta and friends read the FIRST
-    # `<t:` in a message, and this must not become that.
-    lines.append(format_discord_timestamp_code(when))
+        lines.append(f"Propose **{label}** for one of these times:" if multi
+                     else f"{'Propose' if poll_mode else 'Schedule'} **{label}** for:")
+    if multi:
+        # Numbered in the order the public poll will number them, so "Time 2" on
+        # the poll is the second line here. No copyable markup: there is no single
+        # time to copy.
+        for number, value in enumerate(times, 1):
+            lines.append(f"{number}. " + format_discord_timestamp(
+                datetime.fromtimestamp(value, tz=dt_timezone.utc)))
+        lines.append("Players will vote Yes or No on each time.")
+    else:
+        lines.append(format_discord_timestamp(when))
+        # The raw markup, so the time can be copied out and pasted elsewhere. AFTER
+        # the rendered line, never before: _poll_embed_meta and friends read the
+        # FIRST `<t:` in a message, and this must not become that.
+        lines.append(format_discord_timestamp_code(when))
     # The zone this was read in is reference information, not the subject of the
     # message, so it rides in the subtext block at the bottom (see the tz line
     # appended after the carrier below) rather than as a sentence competing with the
@@ -1532,12 +1596,27 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
         # the match at click time; the sentinel keeps the arg count identical
         # elsewhere, so one decode shape reads both.
         poll_kind = "match" if not unlinked else unlinked_kind
-        poll_id = encode_custom_id("sched_poll_open", poll_kind,
-                                   match_id if not unlinked else SCHEDULE_NO_MATCH,
-                                   ts, owner)
+        poll_match = match_id if not unlinked else SCHEDULE_NO_MATCH
+        if multi:
+            # Every collected time rides in the id: nothing is stored until this
+            # is pressed. Owner LAST, so the dispatcher's owner-lock still applies.
+            poll_id = encode_custom_id("sched_mp_open", poll_kind, poll_match,
+                                       _encode_ts_list(times), owner)
+        else:
+            poll_id = encode_custom_id("sched_poll_open", poll_kind, poll_match,
+                                       ts, owner)
         # Suggest = put the time to the group. In a plain channel that is a poll
         # with no roster, which closes only when the host does.
         buttons = [button("Suggest", poll_id, style=STYLE_SUCCESS)]
+        if multi_mode and len(times) < MULTI_POLL_MAX_TIMES:
+            # "Alternative", not "another": this adds a second OPTION to vote on
+            # beside the first -- it neither changes nor replaces it. Right of
+            # Suggest so the primary action stays where it always was.
+            buttons.append(button(
+                "Add Alternative Time",
+                encode_custom_id("sched_mp_add", poll_kind, poll_match,
+                                 _encode_ts_list(times), owner),
+                style=STYLE_SECONDARY, emoji={"name": "➕"}))
     else:
         # SCHEDULE_MODE. The only direct write on offer anywhere. `match` is never
         # None here -- /schedule set refuses when no match resolves -- so the
@@ -1549,9 +1628,11 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
             "Request Time" if needs_mod_approval else "Set Time",
             encode_custom_id("schedule_confirm", match_id, ts, owner),
             style=STYLE_SUCCESS)]
-    if tz_name:
+    if tz_name and not multi:
         # Carries the mode so the picker can hand it back on the way out -- this
-        # button is the entry point to the whole tz round-trip.
+        # button is the entry point to the whole tz round-trip. Not once a second
+        # time is listed: the picker re-reads the ONE typed time it carries, so it
+        # would quietly drop every alternative.
         buttons.append(button(
             "Change timezone",
             encode_custom_id("schedule_tz_change", match_id, mode, owner),
@@ -1577,16 +1658,28 @@ def _schedule_pick_label(match, tz_name):
     match_label() is deliberately not used: it returns the player GROUP's name,
     which is identical for every match in a series, so every row would read the
     same."""
+    number = match.match_number or "?"
+    return f"Game {number} — {_local_time_label(match.scheduled_time, tz_name, with_zone=False)}"
+
+
+def _local_time_label(when, tz_name, with_zone=True):
+    """A time as PLAIN TEXT in the user's zone: "Sat Mar 15, 8:00 PM EDT".
+
+    For places Discord shows verbatim -- select option labels, modal labels --
+    where `<t:...>` markup is not rendered. Falls back to UTC for a missing or
+    unknown zone rather than refusing to render. `with_zone` appends the zone
+    abbreviation, which is what makes the text unambiguous when it might be UTC."""
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-    when = match.scheduled_time
-    try:
-        when = when.astimezone(ZoneInfo(tz_name)) if tz_name else when
-    except (ZoneInfoNotFoundError, ValueError, KeyError, TypeError):
-        pass  # unknown zone: show UTC rather than refusing to render the row
-    number = match.match_number or "?"
+    zone = dt_timezone.utc
+    if tz_name:
+        try:
+            zone = ZoneInfo(tz_name)
+        except (ZoneInfoNotFoundError, ValueError, KeyError, TypeError):
+            pass  # unknown zone: show UTC rather than refusing to render the row
+    local = when.astimezone(zone)
     # %-d/%-I are POSIX; this project runs on Linux and macOS.
-    return f"Game {number} — {when.strftime('%a %b %-d, %-I:%M %p')}"
+    return local.strftime("%a %b %-d, %-I:%M %p" + (" %Z" if with_zone else ""))
 
 
 def _schedule_clear_pick_data(matches, owner, profile=None):
@@ -1701,7 +1794,7 @@ def _sibling_command_hint(guild_id, mode, direct_allowed=False):
             return ("-# Use `/schedule poll` instead to let the other players "
                     "confirm the time")
         return None
-    if mode == POLL_MODE:
+    if _is_poll_mode(mode):
         if guild_id and _guild_allows(guild_id, "schedule_set"):
             what = "set the time directly" if direct_allowed else "request the time"
             return f"-# Use `/schedule set` instead to {what}"
@@ -1858,16 +1951,9 @@ def _roster_ping_others(profiles, exclude_discord_id=None):
     return _roster_ping_content(others)
 
 
-def _proposal_entries(profiles):
-    """Profiles as the poll renderer's [{"id","name"}] shape.
-
-    A player with no linked Discord has no snowflake to key on, so they get their
-    pk as a stable stand-in -- it never matches a real clicker id, which is
-    correct: they cannot click until they link, and _resolve_clicker tells them
-    so."""
-    return [{"id": str(p.discord_id or f"profile-{p.pk}"),
-             "name": p.display_name or p.discord or p.slug or "—"}
-            for p in profiles]
+# In services.lfg_game so the strip task renders a closed multi-time poll's
+# entries the same way.
+_proposal_entries = proposal_entries
 
 
 def _schedule_proposal_data(proposal, match=None, mention=False, author=None,
@@ -2261,6 +2347,12 @@ def _announce_schedule_to_thread(match, old_time, new_time):
             thread_id, content, allowed_mentions={"parse": ["users"]}))
 
 
+# _finalize_proposal's failure when another proposal won the compare-and-swap. A
+# constant because the multi-time poll answers it differently from every other
+# failure: the winner already rendered the shared message, so it must be left alone.
+FINALIZE_LOST_RACE = "another time was confirmed for this match first"
+
+
 def _finalize_proposal(proposal, actor=None):
     """Write the agreed time and retire every other proposal for this match.
     Returns (ok, error).
@@ -2309,7 +2401,18 @@ def _finalize_proposal(proposal, actor=None):
             pk=proposal.pk, status__in=ScheduleProposal.LIVE_STATUSES,
         ).update(status=ScheduleProposal.Status.CONFIRMED, resolved_at=timezone.now())
         if not won:
-            return False, "another time was confirmed for this match first"
+            return False, FINALIZE_LOST_RACE
+
+        if proposal.poll_group:
+            # The other times of this multi-time poll lost. Retired HERE -- after
+            # the swap, so a refused finalize leaves them alone, and before the
+            # sweep below, which would otherwise strip the shared message this
+            # interaction is about to render as the result.
+            ScheduleProposal.objects.filter(
+                poll_group=proposal.poll_group,
+                status__in=ScheduleProposal.LIVE_STATUSES,
+            ).exclude(pk=proposal.pk).update(
+                status=ScheduleProposal.Status.SUPERSEDED, resolved_at=timezone.now())
 
         # Read before the write: the announcement's verb (scheduled vs rescheduled)
         # depends on whether this match already had a time.
@@ -2606,11 +2709,28 @@ def _handle_schedule_poll_command(data):
             "contact the series admin."
         )
 
+    # /schedule-beta poll can collect alternative times; everything else about
+    # the prompt is the plain poll's. The mode rides through the timezone picker.
+    mode = POLL_MULTI_MODE if data.get("_beta") else POLL_MODE
+
     when, tz_name, response = _schedule_when(
-        data, profile, time_text, match.id, POLL_MODE)
+        data, profile, time_text, match.id, mode)
     if response:
         return response
 
+    return JsonResponse({
+        "type": RESPONSE_CHANNEL_MESSAGE,
+        "data": _schedule_confirm_data(
+            match, when, author_id, tz_name, time_text,
+            mode=mode, **_poll_prompt_context(match, author_id, guild_id, profile, mode)),
+    })
+
+
+def _poll_prompt_context(match, author_id, guild_id, profile, mode):
+    """The match-specific copy for a poll prompt, as _schedule_confirm_data kwargs.
+
+    One place so the command and the multi-time prompt's redraw (after a time is
+    added) describe the same match the same way."""
     # Who still has to agree, and whether someone already proposed a time. Read off
     # the roster rather than _consensus_required: this command polls regardless of
     # the tournament flag, so the flag must not decide whether the copy appears.
@@ -2624,17 +2744,12 @@ def _handle_schedule_poll_command(data):
     # Whether /schedule set would WRITE for this user or merely request -- the hint
     # must not promise a direct write to someone who would get an approval message.
     direct_allowed, _needs_approval = _direct_set_allowed(match, profile)
-
-    return JsonResponse({
-        "type": RESPONSE_CHANNEL_MESSAGE,
-        "data": _schedule_confirm_data(
-            match, when, author_id, tz_name, time_text,
-            pending_confirmers=pending,
-            already_proposed=already_proposed,
-            sibling_hint=_sibling_command_hint(guild_id, POLL_MODE,
-                                               direct_allowed=direct_allowed),
-            mode=POLL_MODE),
-    })
+    return {
+        "pending_confirmers": pending,
+        "already_proposed": already_proposed,
+        "sibling_hint": _sibling_command_hint(guild_id, mode,
+                                              direct_allowed=direct_allowed),
+    }
 
 
 # `set` is not here: it stays the fallthrough in _handle_schedule_command so a
@@ -2685,9 +2800,11 @@ def _handle_schedule_unlinked(data, profile, time_text, clearing):
     # POLL_MODE, not the SCHEDULE_MODE default: with no Match there is nothing to
     # write, so the only honest action is Suggest. The picker carries the sentinel
     # for the match id, so the whole region/city flow works here and the timezone it
-    # saves is reused everywhere afterwards.
+    # saves is reused everywhere afterwards. /schedule-beta poll's multi-time
+    # variant works here too.
+    mode = POLL_MULTI_MODE if data.get("_beta") else POLL_MODE
     when, tz_name, response = _schedule_when(
-        data, profile, time_text, SCHEDULE_NO_MATCH, POLL_MODE)
+        data, profile, time_text, SCHEDULE_NO_MATCH, mode)
     if response:
         return response
 
@@ -2697,7 +2814,7 @@ def _handle_schedule_unlinked(data, profile, time_text, clearing):
     return JsonResponse({
         "type": RESPONSE_CHANNEL_MESSAGE,
         "data": _schedule_confirm_data(None, when, author_id, tz_name, time_text,
-                                       unlinked_kind=kind, mode=POLL_MODE),
+                                       unlinked_kind=kind, mode=mode),
     })
 
 
@@ -3098,6 +3215,13 @@ def _proposal_for_click(payload, allow_agreed=False, allow_passed=False,
     if not proposal:
         return None, None, _ephemeral(
             "That proposal is no longer available — run /schedule again.")
+    if proposal.poll_group:
+        # One time of a multi-time poll. Those resolve as a GROUP (see
+        # _resolve_multi_match_poll); confirming one row on its own would finalize
+        # a time the roster was still choosing between. Same pk-is-user-supplied
+        # reasoning as the kind check below.
+        return None, None, _ephemeral(
+            "That button doesn't match this poll — run /schedule again.")
     if proposal.is_mod_request != bool(expect_mod_request):
         # Not a user-facing situation: either a stale message from before the two
         # flows diverged, or a hand-built custom_id. Say so plainly rather than
@@ -4323,6 +4447,942 @@ def _handle_schedule_cancel(payload):
     return JsonResponse({
         "type": RESPONSE_UPDATE_MESSAGE,
         "data": {"content": "Cancelled — nothing was changed.", "components": []},
+    })
+
+
+# ── /schedule-beta poll: multi-time polls ─────────────────────────────────────
+# A poll of up to MULTI_POLL_MAX_TIMES candidate times. Everyone answers Yes or No
+# for EVERY time at once, through a modal opened by the poll's Vote button.
+#
+# Same two backends as the single-time poll:
+#   * match -- one ScheduleProposal per time, sharing a `poll_group` uuid. The
+#              rows resolve together: once the roster has answered, the earliest
+#              time they ALL said yes to is written and the rest are superseded.
+#   * lfg / bare -- stateless; every vote lives in the embed (see
+#              _multi_poll_state). An LFG poll closes when its thread's players
+#              have answered; a bare channel's only when someone presses Close.
+#
+# Until Suggest is pressed nothing is stored at all: the times collected so far
+# ride in the prompt's custom_ids (see _encode_ts_list).
+
+def _jump_url(guild_id, channel_id, message_id):
+    """A message link from its parts -- the modal-submit paths can't use
+    _lfg_jump_url, which reads the id off an echoed message that may be absent."""
+    if channel_id and message_id:
+        return f"https://discord.com/channels/{guild_id or '@me'}/{channel_id}/{message_id}"
+    return None
+
+
+def _handle_sched_mp_add(payload):
+    """➕ Add Alternative Time: open a one-field modal for the next time.
+
+    Owner-locked by the dispatcher (the owner rides last). The modal carries the
+    same args, so its submit can rebuild the prompt with the new time added."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    # [kind, match_id, times, owner]
+    if len(args) < 4 or _decode_ts_list(args[2]) is None:
+        return _ephemeral("That prompt is out of date — run /schedule again.")
+    profile = _schedule_profile(args[-1])
+    tz_name = profile.timezone if profile else None
+    # Says which zone a bare "8pm" will be read in, since the modal can't show the
+    # timezone line the prompt carries.
+    description = (f"Read in your timezone: {describe_timezone(tz_name)}"
+                   if tz_name else None)
+    return JsonResponse({
+        "type": RESPONSE_MODAL,
+        "data": modal(
+            encode_custom_id("sched_mp_addm", *args), "Add Alternative Time",
+            label_component(
+                "Time",
+                text_input("time", placeholder='e.g. "Sat 8pm" or "tomorrow 4pm"',
+                           max_length=100),
+                description=description),
+        ),
+    })
+
+
+def _handle_sched_mp_add_submit(payload, args):
+    """The Add Alternative Time modal: add the typed time and redraw the prompt.
+
+    Answers with type 7 -- a modal opened from a component may update that
+    component's message -- so the ephemeral prompt is redrawn in place with the
+    longer list. A time that can't be added redraws it too, with the reason as the
+    prompt's `note`, so the list is never lost to an error message.
+
+    The dispatcher's owner-lock guards message COMPONENTS only, never a modal
+    submit, so the owner check is made here."""
+    # [kind, match_id, times, owner]
+    if len(args) < 4:
+        return _ephemeral("That prompt is out of date — run /schedule again.")
+    kind, match_id, owner = args[0], args[1], args[-1]
+    times = _decode_ts_list(args[2])
+    if times is None:
+        return _ephemeral("That prompt is out of date — run /schedule again.")
+    if str(_interaction_user_id(payload)) != str(owner):
+        return _ephemeral("Only the person suggesting these times can add to them.")
+
+    match, profile, error = _schedule_tz_context(payload, [match_id, owner])
+    if error:
+        return error
+    tz_name = profile.timezone
+
+    text = _modal_text_value(payload, "time").strip()
+    note = None
+    if len(times) >= MULTI_POLL_MAX_TIMES:
+        note = f"⚠️ A poll can offer at most {MULTI_POLL_MAX_TIMES} times."
+    elif not text:
+        note = "⚠️ Type a time to add."
+    else:
+        when, parse_error = parse_user_datetime(text, tz_name)
+        if parse_error == NEED_TIMEZONE:
+            note = ("⚠️ I don't know your timezone, so I can't read that time. Paste a "
+                    "Discord timestamp (`<t:…>`) instead.")
+        elif parse_error:
+            note = f"⚠️ {parse_error}"
+        elif int(when.timestamp()) in times:
+            note = "⚠️ That time is already on the list."
+        else:
+            times = sorted(times + [int(when.timestamp())])
+
+    first = datetime.fromtimestamp(min(times), tz=dt_timezone.utc)
+    context = (_poll_prompt_context(match, owner, payload.get("guild_id"), profile,
+                                    POLL_MULTI_MODE) if match else {})
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _schedule_confirm_data(
+            match, first, owner, tz_name,
+            # The typed-text carrier only matters while Change timezone is still
+            # offered, i.e. while there is one time. Read back off the prompt when
+            # Discord echoed it; harmless to lose otherwise.
+            _schedule_input_text(payload) if len(times) == 1 else "",
+            note=f"{note}\n" if note else None,
+            unlinked_kind=kind if kind in ("lfg", "bare") else "bare",
+            mode=POLL_MULTI_MODE, all_ts=times, **context),
+    })
+
+
+def _handle_sched_mp_open(payload):
+    """Suggest with two or more times: post the multi-time poll.
+
+    Owner-locked by the dispatcher. Routes on `kind` exactly as the single-time
+    Suggest does: a match poll becomes a group of ScheduleProposal rows, every
+    other poll lives in its own embed."""
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    # [kind, match_id, times, owner]
+    times = _decode_ts_list(args[2]) if len(args) >= 4 else None
+    if not times or not 2 <= len(set(times)) <= MULTI_POLL_MAX_TIMES:
+        return _ephemeral("That prompt is out of date — run /schedule again.")
+    kind, owner = args[0], args[-1]
+    times = sorted(set(times))
+    # Refused rather than quietly dropped: the proposer chose these times as a set,
+    # and posting fewer than they listed would misrepresent the offer.
+    if any(t <= timezone.now().timestamp() for t in times):
+        return _ephemeral("One of those times has already passed — run "
+                          "/schedule poll again.")
+
+    author = _interaction_author(payload)
+    if kind == "match":
+        return _open_multi_match_poll(payload, args[1], times, owner, author)
+
+    token = payload.get("token")
+    if not token:
+        return _ephemeral("Couldn't post that — run /schedule again.")
+    kind = "lfg" if kind == "lfg" else "bare"
+    roster, _thread = _poll_lfg_roster(payload) if kind == "lfg" else ([], None)
+
+    # The proposer offered every one of these times, so they start as a Yes on all
+    # of them -- the same seed, and the same exceptions, as the single-time poll.
+    seed = _poll_proposer_seed(payload, owner, roster, kind)
+    options = [{"ts": t, "yes": [dict(e) for e in seed], "no": []} for t in times]
+    pending = _multi_pending_names(roster, options) if roster else None
+
+    data = _schedule_multi_poll_data(options, owner, pending=pending, notify_ids=[],
+                                     author=author, kind=kind)
+    ping = _roster_ping_others(roster, exclude_discord_id=owner)
+    if ping:
+        data["content"] = ping
+        data["allowed_mentions"] = {"parse": ["users"]}
+    try:
+        post_interaction_followup_task.apply_async((token, data), countdown=2)
+    except Exception:
+        logger.exception("Could not enqueue the multi-time poll")
+        return _ephemeral("Couldn't post that just now — try again in a moment.")
+
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": f"Posted your poll with {len(times)} times.",
+                 "components": [], "embeds": []},
+    })
+
+
+def _open_multi_match_poll(payload, match_id, times, owner, author):
+    """A multi-time poll on a real match: one ScheduleProposal per time, grouped.
+
+    Re-resolves the match and permission at click time, as _open_match_poll does.
+    Every row gets the same roster snapshot, and the proposer is seeded as a Yes on
+    each -- but only when they're on the roster, the rule _open_schedule_proposal
+    applies to a single time."""
+    match = (None if _is_no_match(match_id) else
+             _schedulable_matches(payload.get("guild_id")).filter(pk=match_id).first())
+    if not match:
+        return _ephemeral(
+            "That match can no longer be scheduled: it may have been played or "
+            "removed.")
+    profile = Profile.objects.filter(discord_id=str(owner)).first()
+    if not profile or not match.can_schedule(profile):
+        return _ephemeral("You can't set the time for this match.")
+    roster = _match_roster(match)
+    if not roster:
+        return _ephemeral(
+            "This game has no players on its roster yet, so there's nobody to "
+            "poll. A moderator can set the time directly instead.")
+
+    group = uuid.uuid4()
+    seed = any(p.pk == profile.pk for p in roster)
+    rows = []
+    with transaction.atomic():
+        for ts in times:
+            row = ScheduleProposal.objects.create(
+                match=match,
+                proposed_time=datetime.fromtimestamp(ts, tz=dt_timezone.utc),
+                proposed_by=profile,
+                poll_group=group,
+                channel_id=str(payload.get("channel_id") or ""),
+                guild_id=str(payload.get("guild_id") or ""),
+            )
+            row.roster.set(roster)
+            if seed:
+                row.confirmed_by.add(profile)
+            rows.append(row)
+
+    # Posted through the lead row; post_schedule_proposal_task copies the message
+    # id onto every sibling. countdown=2 sequences it after this response's ACK.
+    post_schedule_proposal_task.apply_async(
+        (rows[0].pk, _match_multi_poll_data(rows, match, mention=True, author=author)),
+        countdown=2,
+    )
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": (f"✔ Proposed {len(times)} times. The other players "
+                             "will vote on each one."),
+                 "components": []},
+    })
+
+
+def _schedule_multi_poll_data(options, proposer_id, *, pending, notify_ids=(),
+                              label=None, author=None, kind="bare", lead_pk=None,
+                              closed=False, closed_reason=None, closed_note=None,
+                              agreed_ts=None):
+    """The multi-time poll message, in every kind: multi_poll_embed plus the
+    buttons. Mentions render but never notify -- nothing here sets `content`."""
+    embed = multi_poll_embed(
+        options, pending=None if closed else pending, notify_ids=notify_ids,
+        label=label, author=author,
+        unlinked_note=SCHEDULE_UNLINKED_NOTE if kind != "match" else None,
+        closed=closed, closed_reason=closed_reason, closed_note=closed_note,
+        agreed_ts=agreed_ts)
+    return {
+        "embeds": [embed],
+        "allowed_mentions": {"parse": []},
+        "components": ([] if closed
+                       else [_multi_poll_buttons(lead_pk, kind, proposer_id)]),
+    }
+
+
+def _multi_poll_buttons(lead_pk, kind, proposer_id):
+    """Vote / 🔔 / Close.
+
+    Every custom_id ends in the non-snowflake "g" marker so the dispatcher's
+    owner-lock does NOT fire -- see _poll_buttons, whose shape this mirrors: a
+    match poll carries its lead proposal pk, an embed poll its kind and proposer
+    (non-last, for Close)."""
+    args = (lead_pk,) if lead_pk is not None else (kind, proposer_id or "0")
+    return action_row(
+        button("Vote", encode_custom_id("sched_mp_vote", *args, "g"),
+               style=STYLE_PRIMARY),
+        button("", encode_custom_id("sched_mp_notify", *args, "g"),
+               style=STYLE_SECONDARY, emoji={"name": "🔔"}),
+        button("Close", encode_custom_id("sched_mp_close", *args, "g"),
+               style=STYLE_SECONDARY),
+    )
+
+
+def _live_options(options, now=None):
+    """The options whose time hasn't passed yet -- the only ones still votable."""
+    now_ts = (now or timezone.now()).timestamp()
+    return [o for o in options if int(o["ts"]) > now_ts]
+
+
+def _multi_answered_ids(options):
+    """Ids that have answered EVERY live time (all of them, once none is live).
+
+    A vote answers every live time at once, so in practice this is everyone who
+    has voted; the intersection keeps it honest if a stray partial answer exists."""
+    considered = _live_options(options) or options
+    sets = [{e["id"] for e in o["yes"]} | {e["id"] for e in o["no"]}
+            for o in considered]
+    return set.intersection(*sets) if sets else set()
+
+
+def _multi_pending_names(roster, options):
+    """Roster members who still owe a vote, as rendered names."""
+    answered = _multi_answered_ids(options)
+    return [_roster_name(p) for p in roster
+            if str(p.discord_id or "") not in answered]
+
+
+def _multi_agreed_ts(options, voter_ids):
+    """The earliest live time every one of `voter_ids` said yes to, or None."""
+    if not voter_ids:
+        return None
+    for option in sorted(_live_options(options), key=lambda o: o["ts"]):
+        if set(voter_ids) <= {e["id"] for e in option["yes"]}:
+            return int(option["ts"])
+    return None
+
+
+def _multi_poll_state(embed):
+    """(options, notify_ids, pending) read out of a multi-time poll embed.
+
+    Walks the fields IN ORDER: a "Time N" field opens an option (its time parsed
+    from the `<t:...>` in its value), and the Yes / No fields after it belong to
+    it. `pending` keeps the single-time poll's tri-state -- [] when the column is
+    present, None when it is absent (no roster) -- and like there, only its
+    presence is used; the live roster is authoritative over the echoed names."""
+    options, current = [], None
+    notify_ids, pending = [], None
+
+    def is_field(name, base):
+        return name == base or name.startswith(f"{base} (")
+
+    for field in embed.get("fields", []):
+        name = field.get("name", "")
+        if name.startswith(POLL_TIME_FIELD_PREFIX):
+            ts_match = re.search(r"<t:(\d+):", field.get("value", ""))
+            current = ({"ts": int(ts_match.group(1)), "yes": [], "no": []}
+                       if ts_match else None)
+            if current:
+                options.append(current)
+        elif current is not None and is_field(name, POLL_YES_FIELD):
+            current["yes"] = _poll_entries(field)
+        elif current is not None and is_field(name, POLL_NO_FIELD):
+            current["no"] = _poll_entries(field)
+        elif is_field(name, POLL_PENDING_FIELD):
+            pending = []
+        elif name == POLL_NOTIFY_FIELD:
+            notify_ids = _LFG_MENTION_RE.findall(field.get("value", ""))
+    return options, notify_ids, pending
+
+
+def _multi_poll_meta(embed):
+    """(label, author) carried on a multi-time poll embed, for re-rendering it."""
+    label_match = re.match(r"\*\*(.+?)\*\*", embed.get("description", ""))
+    return (label_match.group(1) if label_match else None), embed.get("author")
+
+
+def _multi_vote_modal(custom_id, options, clicker_id, tz_name):
+    """The Vote form: one required Yes/No select per LIVE time, pre-set to the
+    clicker's current answer so pressing Vote again edits their votes.
+
+    Labels are plain text -- a modal never renders `<t:...>` -- so each time is
+    written out in the voter's own zone (UTC when unknown, and the zone is always
+    named). "Time N" matches the public poll's numbering, which counts passed times
+    too, so the two can be read side by side."""
+    components = []
+    for number, option in enumerate(sorted(options, key=lambda o: o["ts"]), 1):
+        if option not in _live_options([option]):
+            continue
+        current = ("yes" if any(e["id"] == clicker_id for e in option["yes"])
+                   else "no" if any(e["id"] == clicker_id for e in option["no"])
+                   else None)
+        when = datetime.fromtimestamp(int(option["ts"]), tz=dt_timezone.utc)
+        components.append(label_component(
+            f"Time {number} · {_local_time_label(when, tz_name)}",
+            string_select(
+                f"t{option['ts']}",
+                [select_option("Yes, I can make it", "yes", emoji={"name": "✅"},
+                               default=current == "yes"),
+                 select_option("No, I can't", "no", emoji={"name": "❌"},
+                               default=current == "no")],
+                placeholder="Can you make this time?",
+                min_values=1, max_values=1, required=True),
+        ))
+    return modal(custom_id, "Vote on times", *components)
+
+
+def _multi_vote_answers(payload):
+    """{ts: "yes"|"no"} from a submitted Vote form. Each select's custom_id is
+    "t<epoch>", so the answer is keyed by the time itself -- never by position,
+    which a time passing between open and submit would shift."""
+    answers = {}
+    for label in (payload.get("data") or {}).get("components", []):
+        comp = label.get("component") or {}
+        custom_id = comp.get("custom_id") or ""
+        values = comp.get("values") or []
+        if custom_id.startswith("t") and custom_id[1:].isdigit() and values:
+            if values[0] in ("yes", "no"):
+                answers[int(custom_id[1:])] = values[0]
+    return answers
+
+
+def _modal_source_message(payload, channel_id, message_id):
+    """The poll message a Vote form was opened from, for its submit.
+
+    Re-fetched first: a modal can sit open for minutes, and the live message holds
+    every vote cast meanwhile -- the LFG Edit modal reads it the same way. The
+    copy Discord may echo on the submit is the fallback. Which one was used is
+    logged: whether Discord echoes `message` on a modal submit is exactly what
+    this beta should settle."""
+    from the_databot.services.discordservice import get_channel_message
+
+    logger.info("Multi-time poll vote: modal submit carried message=%s",
+                bool(payload.get("message")))
+    message = (get_channel_message(channel_id, message_id)
+               if channel_id and message_id else None)
+    if message:
+        return message
+    if payload.get("message"):
+        logger.info("Multi-time poll vote: fetch failed, using the echoed message")
+        return payload["message"]
+    return None
+
+
+def _clicker_timezone(payload):
+    return (Profile.objects.filter(discord_id=str(_interaction_user_id(payload)))
+            .values_list("timezone", flat=True).first())
+
+
+def _notify_multi_voted(notify_ids, actor_id, actor_name, yes_ts, pending, jump_url):
+    """DM the 🔔 subscribers that someone voted. The voter is excluded."""
+    targets = [i for i in notify_ids if str(i) != str(actor_id)]
+    if targets:
+        notify_multi_poll_task.delay(
+            targets, "voted", actor_name=actor_name, yes_ts=sorted(yes_ts),
+            pending=pending or None, jump_url=jump_url)
+
+
+def _notify_multi_closed(notify_ids, closed_by, options, *, agreed_ts=None,
+                         scheduled=False, early=False, jump_url=None):
+    """DM the 🔔 subscribers the result. Whoever's click ended the poll is
+    excluded, as in _notify_poll_closed."""
+    targets = [i for i in notify_ids if str(i) != str(closed_by or "")]
+    if targets:
+        notify_multi_poll_task.delay(
+            targets, "closed", agreed_ts=agreed_ts, scheduled=scheduled,
+            early=early, jump_url=jump_url,
+            tallies=[(int(o["ts"]), len(o["yes"]))
+                     for o in sorted(options, key=lambda o: o["ts"])])
+
+
+def _handle_sched_mp_button(payload):
+    """Route Vote / 🔔 / Close to the store behind the poll -- a numeric first arg
+    is a match poll's lead proposal pk, anything else an embed poll's kind (the
+    same split _handle_schedule_poll_dispatch makes)."""
+    action, args = decode_custom_id((payload.get("data") or {}).get("custom_id") or "")
+    first = args[0] if args else ""
+    if first.isdigit():
+        handler = {"sched_mp_vote": _mp_match_vote,
+                   "sched_mp_notify": _mp_match_notify,
+                   "sched_mp_close": _mp_match_close}[action]
+        return handler(payload, int(first))
+    # [kind, proposer, "g"]
+    kind = "lfg" if first == "lfg" else "bare"
+    proposer_id = args[1] if len(args) >= 3 and args[1] != "0" else None
+    handler = {"sched_mp_vote": _mp_embed_vote,
+               "sched_mp_notify": _mp_embed_notify,
+               "sched_mp_close": _mp_embed_close}[action]
+    return handler(payload, kind, proposer_id)
+
+
+def _handle_sched_mp_vote_submit(payload, args):
+    """The Vote form's submit. `sched_mp_votem:<lead_pk>:<message_id>` for a match
+    poll, `sched_mp_votem:<kind>:<proposer>:<message_id>` for an embed poll."""
+    if len(args) == 2 and args[0].isdigit():
+        return _mp_match_vote_submit(payload, int(args[0]), args[1])
+    if len(args) == 3:
+        kind = "lfg" if args[0] == "lfg" else "bare"
+        proposer_id = args[1] if args[1] != "0" else None
+        return _mp_embed_vote_submit(payload, kind, proposer_id, args[2])
+    return _ephemeral("That poll is out of date — run /schedule again.")
+
+
+# ── embed-backed (LFG thread / plain channel) ──
+
+def _mp_embed_gate(payload, kind, options):
+    """(roster, display, error) -- may this clicker vote on an embed poll?
+
+    An LFG thread's poll belongs to its players. A bare channel's is open to
+    anyone, up to POLL_FREE_RESPONSE_MAX distinct voters -- someone already voting
+    may always change their answers. An LFG thread with no players (gone, or never
+    filled) behaves like a bare one, as the single-time poll does."""
+    display = _lfg_member_display_name(payload)
+    clicker_id = str(_interaction_user_id(payload))
+    roster = []
+    if kind == "lfg":
+        roster, _thread = _poll_lfg_roster(payload)
+        if roster:
+            me, status = _resolve_clicker(
+                roster, _interaction_user_id(payload), _clicker_username(payload))
+            if status == CLICKER_UNLINKED:
+                return roster, display, _ephemeral(
+                    "You're one of this game's players, but your Discord isn't "
+                    f"linked to your site account yet. Log in{_login_hint()} with "
+                    "Discord once, then click again.")
+            if status != CLICKER_MATCHED:
+                return roster, display, _ephemeral(
+                    "Only the players in this thread can vote on that.")
+            display = me.display_name or display
+    if not roster:
+        voters = {e["id"] for o in options for e in o["yes"] + o["no"]}
+        if clicker_id not in voters and len(voters) >= POLL_FREE_RESPONSE_MAX:
+            return roster, display, _ephemeral(
+                f"This poll already has {POLL_FREE_RESPONSE_MAX} voters.")
+    return roster, display, None
+
+
+def _mp_embed_vote(payload, kind, proposer_id):
+    """Vote on an embed poll: gate the clicker, then open the Vote form."""
+    message = payload.get("message") or {}
+    embed = dict((message.get("embeds") or [{}])[0])
+    options, notify_ids, _pending = _multi_poll_state(embed)
+    if not options:
+        return _ephemeral("That poll is out of date — run /schedule again.")
+    _roster, _display, error = _mp_embed_gate(payload, kind, options)
+    if error:
+        return error
+    if not _live_options(options):
+        # Every time has gone by: a form with nothing in it is something Discord
+        # rejects, and there is nothing left to decide anyway.
+        return _mp_embed_closed_response(
+            payload, kind, proposer_id, embed, options, notify_ids,
+            reason="expired", closed_by=None)
+    return JsonResponse({
+        "type": RESPONSE_MODAL,
+        "data": _multi_vote_modal(
+            encode_custom_id("sched_mp_votem", kind, proposer_id or "0",
+                             message.get("id")),
+            options, str(_interaction_user_id(payload)), _clicker_timezone(payload)),
+    })
+
+
+def _mp_embed_vote_submit(payload, kind, proposer_id, message_id):
+    """Apply a Vote form to an embed poll, closing it when an LFG roster is done.
+
+    Answers MOVE the voter between each time's columns rather than adding, so a
+    re-vote replaces the earlier one. Passed times are left as they were."""
+    channel_id = payload.get("channel_id")
+    message = _modal_source_message(payload, channel_id, message_id)
+    if not message:
+        return _ephemeral("Couldn't find that poll — try again.")
+    embed = dict((message.get("embeds") or [{}])[0])
+    options, notify_ids, _pending = _multi_poll_state(embed)
+    if not options or not message.get("components"):
+        return _ephemeral("That poll has already closed.")
+    roster, display, error = _mp_embed_gate(payload, kind, options)
+    if error:
+        return error
+
+    clicker_id = str(_interaction_user_id(payload))
+    answers = _multi_vote_answers(payload)
+    live = {int(o["ts"]) for o in _live_options(options)}
+    for option in options:
+        choice = answers.get(int(option["ts"]))
+        if choice is None or int(option["ts"]) not in live:
+            continue
+        option["yes"] = [e for e in option["yes"] if e["id"] != clicker_id]
+        option["no"] = [e for e in option["no"] if e["id"] != clicker_id]
+        option[choice].append({"id": clicker_id, "name": display})
+
+    jump_url = _jump_url(payload.get("guild_id"), channel_id, message_id)
+    pending = _multi_pending_names(roster, options) if roster else None
+    if notify_ids:
+        _notify_multi_voted(
+            notify_ids, clicker_id, display,
+            [o["ts"] for o in options if int(o["ts"]) in live
+             and any(e["id"] == clicker_id for e in o["yes"])],
+            pending, jump_url)
+
+    # Every player in the thread has answered -> close. A poll with no roster has
+    # no completion condition and closes only via Close.
+    if roster and not pending:
+        voter_ids = {str(p.discord_id) for p in roster if p.discord_id}
+        return _mp_embed_closed_response(
+            payload, kind, proposer_id, embed, options, notify_ids,
+            reason=None, closed_by=clicker_id,
+            agreed_ts=_multi_agreed_ts(options, voter_ids), jump_url=jump_url)
+
+    label, author = _multi_poll_meta(embed)
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _schedule_multi_poll_data(
+            options, proposer_id, pending=pending, notify_ids=notify_ids,
+            label=label, author=author, kind=kind),
+    })
+
+
+def _mp_embed_notify(payload, kind, proposer_id):
+    """🔔 on an embed poll: toggle the clicker's subscription. Anyone may."""
+    embed = dict((payload.get("message", {}).get("embeds") or [{}])[0])
+    options, notify_ids, _pending = _multi_poll_state(embed)
+    if not options:
+        return _ephemeral("That poll is out of date — run /schedule again.")
+    clicker_id = str(_interaction_user_id(payload))
+    if clicker_id in notify_ids:
+        notify_ids = [i for i in notify_ids if i != clicker_id]
+    else:
+        notify_ids.append(clicker_id)
+    roster, _thread = _poll_lfg_roster(payload) if kind == "lfg" else ([], None)
+    label, author = _multi_poll_meta(embed)
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _schedule_multi_poll_data(
+            options, proposer_id,
+            pending=_multi_pending_names(roster, options) if roster else None,
+            notify_ids=notify_ids, label=label, author=author, kind=kind),
+    })
+
+
+def _mp_embed_close(payload, kind, proposer_id):
+    """Close on an embed poll: the proposer or a guild moderator ends it. A bare
+    channel's poll only ever ends this way, and reports its tallies as they stand."""
+    clicker_id = str(_interaction_user_id(payload))
+    if proposer_id and clicker_id != proposer_id and not _clicker_is_guild_staff(payload):
+        return _ephemeral("Only the person who started this poll can close it.")
+    embed = dict((payload.get("message", {}).get("embeds") or [{}])[0])
+    options, notify_ids, _pending = _multi_poll_state(embed)
+    if not options:
+        return _ephemeral("That poll is out of date — run /schedule again.")
+    return _mp_embed_closed_response(
+        payload, kind, proposer_id, embed, options, notify_ids,
+        reason="closed", closed_by=clicker_id)
+
+
+def _mp_embed_closed_response(payload, kind, proposer_id, embed, options,
+                              notify_ids, *, reason, closed_by, agreed_ts=None,
+                              jump_url=None):
+    """Render an embed poll closed and DM its subscribers. Writes nothing.
+
+    `reason` is "closed" (the Close button), "expired" (every time passed) or None
+    (an LFG roster finished answering, with or without an agreed time)."""
+    if reason == "closed":
+        note = f"-# Closed by <@{closed_by}>." if closed_by else "-# Poll closed."
+    elif reason == "expired":
+        note = "-# These times passed before the poll was settled."
+    elif agreed_ts is not None:
+        note = "-# Everyone can make this time."
+    else:
+        note = "-# Everyone answered — no time worked for everyone."
+    if notify_ids:
+        _notify_multi_closed(
+            notify_ids, closed_by, options, agreed_ts=agreed_ts,
+            early=reason in ("closed", "expired"),
+            jump_url=jump_url or _lfg_jump_url(payload))
+    label, author = _multi_poll_meta(embed)
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _schedule_multi_poll_data(
+            options, proposer_id, pending=None, label=label, author=author,
+            kind=kind, closed=True, closed_reason=reason, closed_note=note,
+            agreed_ts=agreed_ts),
+    })
+
+
+# ── match (ScheduleProposal group) ──
+
+def _match_multi_poll_data(rows, match, *, author=None, notify_ids=(), mention=False,
+                           closed=False, closed_reason=None, closed_note=None,
+                           agreed_ts=None):
+    """A multi-time match poll, rendered from its rows.
+
+    `mention` marks the first post, the only one that pings -- as in
+    _schedule_proposal_data. `notify_ids` live in the embed even here (a
+    subscriber need not have a Profile), so callers re-read them off the message
+    and pass them back in."""
+    rows = sorted(rows, key=lambda r: (r.proposed_time, r.pk))
+    pending_profiles = _multi_pending_profiles(rows)
+    lead = rows[0]
+    data = _schedule_multi_poll_data(
+        proposal_group_options(rows),
+        lead.proposed_by.discord_id if lead.proposed_by_id else None,
+        pending=[_roster_name(p) for p in pending_profiles],
+        notify_ids=notify_ids, label=_match_label(match), author=author,
+        kind="match", lead_pk=min(r.pk for r in rows), closed=closed,
+        closed_reason=closed_reason, closed_note=closed_note, agreed_ts=agreed_ts)
+    if not closed and ScheduleProposal.objects.filter(
+            match_id=lead.match_id, status__in=ScheduleProposal.LIVE_STATUSES,
+    ).exclude(poll_group=lead.poll_group).exists():
+        data["embeds"][0]["description"] = (
+            data["embeds"][0].get("description", "")
+            + "\n-# Another time is also proposed for this match — whichever is "
+              "confirmed first wins.")
+    ping = (_roster_ping_content(pending_profiles)
+            if mention and SCHEDULE_ROSTER_PINGS else None)
+    if ping:
+        data["content"] = ping
+        data["allowed_mentions"] = {"parse": ["users"]}
+    return data
+
+
+def _multi_pending_profiles(rows):
+    """Roster players who haven't answered every LIVE time of a grouped poll."""
+    considered = [r for r in rows if r.proposed_time > timezone.now()] or list(rows)
+    answered = None
+    for row in considered:
+        ids = (set(row.confirmed_by.values_list("pk", flat=True))
+               | set(row.rejected_by.values_list("pk", flat=True)))
+        answered = ids if answered is None else answered & ids
+    answered = answered or set()
+    return [p for p in rows[0].roster.all() if p.pk not in answered]
+
+
+def _retire_group(rows, status):
+    """Move every still-live row of a grouped poll to `status`. LIVE-guarded, so a
+    row a concurrent request already resolved keeps its result."""
+    ScheduleProposal.objects.filter(
+        pk__in=[r.pk for r in rows], status__in=ScheduleProposal.LIVE_STATUSES,
+    ).update(status=status, resolved_at=timezone.now())
+
+
+def _group_closed_response(rows, reason, author=None):
+    """A grouped poll retired for a reason nobody decided (expired, unschedulable),
+    rendered the same way the strip task renders it."""
+    rows = list(rows[0].siblings())
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"embeds": [proposal_group_closed_embed(rows, reason, author=author)],
+                 "components": [], "allowed_mentions": {"parse": []}},
+    })
+
+
+def _mp_group_for_click(payload, lead_pk):
+    """(rows, match, error) -- shared guards for a multi-time match poll's buttons.
+
+    The group-aware counterpart of _proposal_for_click. Deliberately does NOT
+    retire the poll because one time has passed: the later times are still
+    votable. It retires only when the match itself can no longer be scheduled
+    (same guild-scope rule as _proposal_for_click), and callers retire it once
+    every time has passed."""
+    lead = ScheduleProposal.objects.filter(pk=lead_pk).first()
+    if not lead or not lead.poll_group:
+        return None, None, _ephemeral(
+            "That poll is no longer available — run /schedule again.")
+    rows = list(lead.siblings())
+    if not all(r.is_open for r in rows):
+        return None, None, _ephemeral("That poll has already closed.")
+    match = _schedulable_matches(payload.get("guild_id")).filter(
+        pk=lead.match_id).first()
+    if not match:
+        if lead.guild_id and str(lead.guild_id) == str(payload.get("guild_id") or ""):
+            _retire_group(rows, ScheduleProposal.Status.CANCELLED)
+            return None, None, _group_closed_response(
+                rows, "unschedulable",
+                author=_poll_author_from_payload(payload))
+        return None, None, _ephemeral(
+            "That match can no longer be scheduled: it may have been played or removed.")
+    return rows, match, None
+
+
+def _mp_match_clicker(payload, rows):
+    """(me, error) -- the clicker as one of the snapshot roster's players."""
+    roster = list(rows[0].roster.all())
+    me, status = _resolve_clicker(
+        roster, _interaction_user_id(payload), _clicker_username(payload))
+    if status == CLICKER_UNLINKED:
+        return None, _ephemeral(
+            "You're on this game's roster, but your Discord isn't linked to your "
+            f"site account yet. Log in{_login_hint()} with Discord once, then click "
+            "Vote again.")
+    if status != CLICKER_MATCHED:
+        return None, _ephemeral(
+            "You can't vote on this schedule — you're not one of this game's players.")
+    return me, None
+
+
+def _mp_match_vote(payload, lead_pk):
+    """Vote on a match poll: gate the clicker, then open the Vote form."""
+    rows, match, error = _mp_group_for_click(payload, lead_pk)
+    if error:
+        return error
+    me, error = _mp_match_clicker(payload, rows)
+    if error:
+        return error
+    if not any(r.proposed_time > timezone.now() for r in rows):
+        _retire_group(rows, ScheduleProposal.Status.CANCELLED)
+        return _group_closed_response(
+            rows, "expired", author=_poll_author_from_payload(payload))
+    message_id = (payload.get("message") or {}).get("id")
+    return JsonResponse({
+        "type": RESPONSE_MODAL,
+        "data": _multi_vote_modal(
+            encode_custom_id("sched_mp_votem", lead_pk, message_id),
+            proposal_group_options(rows), str(me.discord_id or ""),
+            me.timezone or _clicker_timezone(payload)),
+    })
+
+
+def _mp_match_vote_submit(payload, lead_pk, message_id):
+    """Apply a Vote form to a match poll: one confirmed_by / rejected_by change per
+    live time, then resolve the group."""
+    rows, match, error = _mp_group_for_click(payload, lead_pk)
+    if error:
+        return error
+    me, error = _mp_match_clicker(payload, rows)
+    if error:
+        return error
+
+    # The 🔔 list and author block exist only in the message, so it is read even
+    # for a match poll -- losing it would unsubscribe everyone on this render.
+    message = _modal_source_message(payload, payload.get("channel_id"), message_id) or {}
+    embed = (message.get("embeds") or [{}])[0]
+    _options, notify_ids, _pending = _multi_poll_state(embed)
+    author = embed.get("author")
+
+    answers = _multi_vote_answers(payload)
+    now = timezone.now()
+    yes_ts = []
+    for row in rows:
+        ts = int(row.proposed_time.timestamp())
+        choice = answers.get(ts)
+        if choice is None or row.proposed_time <= now:
+            continue
+        if choice == "yes":
+            row.confirmed_by.add(me)
+            row.rejected_by.remove(me)
+            yes_ts.append(ts)
+        else:
+            row.rejected_by.add(me)
+            row.confirmed_by.remove(me)
+
+    return _resolve_multi_match_poll(
+        payload, lead_pk, match, me, notify_ids, author, yes_ts,
+        _jump_url(payload.get("guild_id"), payload.get("channel_id"), message_id))
+
+
+def _resolve_multi_match_poll(payload, lead_pk, match, me, notify_ids, author,
+                              yes_ts, jump_url):
+    """Re-render a multi-time match poll after a vote, closing it once the roster
+    has answered every live time.
+
+      * still waiting       -> re-render
+      * a unanimous time    -> write the EARLIEST one; the rest are superseded
+      * none unanimous      -> close REJECTED, writing nothing
+
+    Re-reads the group first: a concurrent vote may have just finalized it, and
+    re-rendering "still waiting" over that result would put Vote buttons back on
+    a settled poll."""
+    lead = ScheduleProposal.objects.filter(pk=lead_pk).first()
+    rows = list(lead.siblings()) if lead else []
+    if not rows or not all(r.is_open for r in rows):
+        return _ephemeral("That poll was settled just now — your vote wasn't needed.")
+
+    live = [r for r in rows if r.proposed_time > timezone.now()]
+    if not live:
+        _retire_group(rows, ScheduleProposal.Status.CANCELLED)
+        return _group_closed_response(rows, "expired", author=author)
+
+    clicker_id = str(_interaction_user_id(payload))
+    pending = _multi_pending_profiles(rows)
+    if pending:
+        if notify_ids:
+            _notify_multi_voted(
+                notify_ids, clicker_id,
+                me.display_name or me.discord or me.slug or "—", yes_ts,
+                [p.display_name or p.discord or p.slug or "—" for p in pending],
+                jump_url)
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": _match_multi_poll_data(rows, match, author=author,
+                                           notify_ids=notify_ids),
+        })
+
+    winner = next((r for r in live if r.all_confirmed()), None)
+    if winner is None:
+        _retire_group(rows, ScheduleProposal.Status.REJECTED)
+        rows = list(lead.siblings())
+        options = proposal_group_options(rows)
+        if notify_ids:
+            _notify_multi_closed(notify_ids, clicker_id, options, jump_url=jump_url)
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": _match_multi_poll_data(
+                rows, match, author=author, closed=True, closed_reason="rejected",
+                closed_note=("-# No time worked for everyone.\n"
+                             "-# Run `/schedule poll` to propose more times.")),
+        })
+
+    ok, failure = _finalize_proposal(winner)
+    if not ok:
+        if failure == FINALIZE_LOST_RACE:
+            # Another poll for this match won first; its sweep already retired
+            # and redrew this one. Leave that message alone.
+            return _ephemeral("Another time was confirmed for this match first.")
+        # Finalize cancelled the winning row; the other times can't stay open
+        # behind a message that is about to lose its buttons.
+        _retire_group(rows, ScheduleProposal.Status.CANCELLED)
+        return JsonResponse({
+            "type": RESPONSE_UPDATE_MESSAGE,
+            "data": _match_multi_poll_data(
+                list(lead.siblings()), match, author=author, closed=True,
+                closed_reason="cancelled",
+                closed_note=f"-# The time can no longer be set for this match — {failure}."),
+        })
+
+    match.refresh_from_db()
+    if notify_ids:
+        _notify_multi_closed(
+            notify_ids, clicker_id, proposal_group_options(rows),
+            agreed_ts=int(winner.proposed_time.timestamp()), scheduled=True,
+            jump_url=jump_url)
+    data = _schedule_finalized_data(winner, match)
+    data["embeds"][0]["description"] = f"Chosen from {len(rows)} proposed times."
+    return JsonResponse({"type": RESPONSE_UPDATE_MESSAGE, "data": data})
+
+
+def _mp_match_notify(payload, lead_pk):
+    """🔔 on a match poll: toggle the clicker's subscription and re-render."""
+    rows, match, error = _mp_group_for_click(payload, lead_pk)
+    if error:
+        return error
+    clicker_id = str(_interaction_user_id(payload))
+    notify_ids = _poll_notify_ids_from_payload(payload)
+    if clicker_id in notify_ids:
+        notify_ids = [i for i in notify_ids if i != clicker_id]
+    else:
+        notify_ids.append(clicker_id)
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _match_multi_poll_data(rows, match,
+                                       author=_poll_author_from_payload(payload),
+                                       notify_ids=notify_ids),
+    })
+
+
+def _mp_match_close(payload, lead_pk):
+    """Close on a match poll: the proposer or a moderator ends it early. Every
+    time is retired CANCELLED -- nobody declined, the poll simply stopped."""
+    rows, match, error = _mp_group_for_click(payload, lead_pk)
+    if error:
+        return error
+    clicker = Profile.objects.filter(
+        discord_id=str(_interaction_user_id(payload) or "")).first()
+    is_proposer = clicker and clicker.pk == rows[0].proposed_by_id
+    if not is_proposer and not (clicker and match.can_schedule(clicker)):
+        return _ephemeral(
+            "Only the person who started this poll, or a moderator, can close it.")
+
+    notify_ids = _poll_notify_ids_from_payload(payload)
+    _retire_group(rows, ScheduleProposal.Status.CANCELLED)
+    rows = list(rows[0].siblings())
+    if notify_ids:
+        _notify_multi_closed(notify_ids, str(_interaction_user_id(payload)),
+                             proposal_group_options(rows), early=True,
+                             jump_url=_lfg_jump_url(payload))
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": _match_multi_poll_data(
+            rows, match, author=_poll_author_from_payload(payload), closed=True,
+            closed_reason="closed",
+            closed_note=f"-# Closed by {_roster_name(clicker, nudge=False)}."),
     })
 
 
@@ -12683,6 +13743,12 @@ COMPONENT_HANDLERS = {
     "sched_poll_no": _handle_schedule_poll_dispatch,
     "sched_poll_notify": _handle_schedule_poll_dispatch,
     "sched_poll_close": _handle_schedule_poll_dispatch,
+    # /schedule-beta poll: the multi-time prompt and poll.
+    "sched_mp_add": _handle_sched_mp_add,
+    "sched_mp_open": _handle_sched_mp_open,
+    "sched_mp_vote": _handle_sched_mp_button,
+    "sched_mp_notify": _handle_sched_mp_button,
+    "sched_mp_close": _handle_sched_mp_button,
     # /schedule set by someone who may not write the time themselves: one moderator
     # confirms or rejects. Also "g"-tailed -- the moderator answering is by
     # definition not the person who asked -- and gated so these can only ever act on
@@ -12720,6 +13786,8 @@ COMPONENT_HANDLERS = {
 # mirrors COMPONENT_HANDLERS' shape, dispatched from the MODAL_SUBMIT branch.
 MODAL_HANDLERS = {
     "lfg_edit_modal": _handle_lfg_edit_modal_submit,
+    "sched_mp_addm": _handle_sched_mp_add_submit,
+    "sched_mp_votem": _handle_sched_mp_vote_submit,
     "boxscore_paste_modal": _handle_boxscore_paste_modal_submit,
 }
 
@@ -13071,6 +14139,11 @@ def discord_interactions(request):
         # option (as _ac_card_name does) works the same under a subcommand.
         sub_name, sub_options = _subcommand(data)
         options = sub_options if sub_name else (data.get("options") or [])
+        # Strip a "-beta" suffix exactly as the APPLICATION_COMMAND branch does, or
+        # a beta variant's autocomplete (/schedule-beta poll's timezone) would look
+        # up "schedule-beta poll" and silently offer no choices.
+        if command_name and command_name.endswith(BETA_SUFFIX):
+            command_name = command_name[:-len(BETA_SUFFIX)]
         key_name = f"{command_name} {sub_name}" if sub_name else command_name
         ac_data = {**data, "name": sub_name, "options": sub_options} if sub_name else data
         # The channel/guild context, which the APPLICATION_COMMAND branch stashes but

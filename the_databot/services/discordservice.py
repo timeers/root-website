@@ -575,6 +575,10 @@ def register_guild_commands(guild):
         for name, build in BETA_COMMAND_VARIANTS.items():
             if any(c["name"] == name for c in body):
                 variant = build(guild)  # each entry already returns a fresh dict
+                if variant is None:
+                    # The builder decided this guild gets no beta variant (e.g.
+                    # /schedule-beta needs schedule_poll specifically).
+                    continue
                 variant["name"] = f"{name}{BETA_SUFFIX}"  # (e.g. lfg_command_for_roles
                 body.append(variant)  # already deep-copies) -- no copy needed here.
     try:

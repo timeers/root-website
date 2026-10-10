@@ -28,6 +28,7 @@ from .services.discordservice import (send_discord_dm, sync_bot_guilds,
 from .services.lfg_game import (
     schedule_closed_embed, PROPOSAL_RETIRED_TEXT, name_join,
     schedule_request_closed_content, schedule_request_announcement,
+    proposal_group_closed_embed,
 )
 # Lives in discord_commands, not discord_interactions: that module imports THIS one,
 # so importing it back would cycle.
@@ -427,6 +428,59 @@ def notify_schedule_poll_task(notify_ids, event, when_ts, actor_name=None,
             content = f"The poll for {when} closed — nobody could make it.{link}"
         else:
             content = f"The poll for {when} closed with {tally}.{link}"
+
+    for uid in notify_ids:
+        send_dm_by_id(uid, content=content)
+
+
+@shared_task
+def notify_multi_poll_task(notify_ids, event, actor_name=None, yes_ts=None,
+                           pending=None, agreed_ts=None, scheduled=False,
+                           early=False, tallies=None, jump_url=None):
+    """DM the 🔔 subscribers of a MULTI-time poll (/schedule-beta poll).
+
+    A sibling of notify_schedule_poll_task rather than more branches in it: that
+    task's whole vocabulary is one time ("confirmed for <t>"), while here a vote
+    answers several times at once and a close may settle on any one of them.
+
+    `event` is "voted" (someone answered: `yes_ts` are the times they said yes to,
+    `pending` who still owes an answer) or "closed":
+      * `agreed_ts` set   -- everyone could make that time; `scheduled` says it
+                             was also written to the match.
+      * `early`           -- someone pressed Close; nothing was settled.
+      * neither           -- everyone answered and no time worked for all.
+    `tallies` are [(ts, yes_count)] for the early/no-winner report.
+
+    The actor is excluded by the CALLER, as in notify_schedule_poll_task."""
+    from the_databot.services.discordservice import send_dm_by_id
+    from the_databot.services.time_parsing import format_discord_timestamp
+
+    def when(ts):
+        return format_discord_timestamp(
+            datetime.fromtimestamp(int(ts), tz=dt_timezone.utc))
+
+    link = f"\n{jump_url}" if jump_url else ""
+    if event == "voted":
+        who = f"**{actor_name}**" if actor_name else "Someone"
+        if yes_ts:
+            answer = "can make " + name_join([when(ts) for ts in yes_ts])
+        else:
+            answer = "can't make any of the proposed times"
+        waiting = f" Still waiting on {_summarize_names(pending)}." if pending else ""
+        content = f"{who} voted on the time poll — {answer}.{waiting}{link}"
+    elif agreed_ts is not None:
+        if scheduled:
+            content = (f"The time poll closed — the game is scheduled for "
+                       f"{when(agreed_ts)}. ✅{link}")
+        else:
+            content = (f"The time poll closed — everyone can make "
+                       f"{when(agreed_ts)}. ✅{link}")
+    else:
+        lead = ("The time poll was closed early. No time was scheduled."
+                if early else
+                "The time poll closed — no time worked for everyone.")
+        lines = [f"• {when(ts)} — {count} yes" for ts, count in (tallies or [])]
+        content = "\n".join([lead, *lines]) + link
 
     for uid in notify_ids:
         send_dm_by_id(uid, content=content)
@@ -1087,6 +1141,12 @@ def post_schedule_proposal_task(proposal_id, message_data):
         # .update() rather than .save(): never clobber a status another request
         # changed while this task was in flight.
         ScheduleProposal.objects.filter(pk=proposal_id).update(message_id=message_id)
+        if proposal.poll_group:
+            # Every time in a multi-time poll shares this one message, and each row
+            # must be able to find it: the strip task edits by whichever row it was
+            # handed, and the website links the first live row's message.
+            ScheduleProposal.objects.filter(
+                poll_group=proposal.poll_group).update(message_id=message_id)
         if proposal.is_mod_request:
             proposal.message_id = message_id
             _announce_schedule_request(proposal)
@@ -1155,9 +1215,31 @@ def strip_schedule_proposal_messages_task(proposal_ids, reason):
                  # than a termination. It is an M2M, so without it here the
                  # closed-poll render costs an extra query per proposal.
                  .prefetch_related("confirmed_by", "rejected_by"))
+    # A multi-time poll is several rows sharing ONE message, and a sweep usually
+    # hands over all of them. Edit that message once, rendering the whole group,
+    # rather than once per row with a single time each -- the last edit would win
+    # and the poll would read as if only one time had ever been proposed.
+    seen_groups = set()
     for proposal in proposals:
         if not proposal.channel_id or not proposal.message_id:
             continue  # never posted (or the id never landed) — nothing to strip
+        if proposal.poll_group:
+            if proposal.poll_group in seen_groups:
+                continue
+            seen_groups.add(proposal.poll_group)
+            siblings = (ScheduleProposal.objects
+                        .filter(poll_group=proposal.poll_group)
+                        .select_related("match", "match__series__player_group")
+                        .prefetch_related("confirmed_by", "rejected_by")
+                        .order_by("proposed_time", "pk"))
+            result = edit_channel_message(
+                proposal.channel_id, proposal.message_id,
+                embeds=[proposal_group_closed_embed(siblings, reason)],
+                components=[],
+            )
+            if result == THREAD_ERROR:
+                transient.append(proposal.pk)
+            continue
         # No actor: every reason reaching this task (superseded, website, expired,
         # cancelled) is a consequence rather than someone's decision about THIS
         # proposal, so none of them may name a person.
@@ -1197,13 +1279,26 @@ def cleanup_stale_schedule_proposals(max_age_days=14):
     from the_databot.models import ScheduleProposal
 
     now = timezone.now()
-    stale = ScheduleProposal.objects.filter(
-        status__in=ScheduleProposal.LIVE_STATUSES,
-    ).filter(
-        Q(proposed_time__lt=now)
-        | Q(created_at__lt=now - timedelta(days=max_age_days))
+    cutoff = now - timedelta(days=max_age_days)
+    live = ScheduleProposal.objects.filter(
+        status__in=ScheduleProposal.LIVE_STATUSES)
+    stale = live.filter(poll_group__isnull=True).filter(
+        Q(proposed_time__lt=now) | Q(created_at__lt=cutoff)
     )
     ids = list(stale.values_list("pk", flat=True))
+    # A multi-time poll is retired as a WHOLE, and only once none of its times can
+    # still be voted on: the earliest time passing must not kill a poll whose later
+    # times are still open. The age limit applies to the group as it does to a row.
+    # order_by(): the model's default ordering (-created_at) would otherwise join
+    # the SELECT DISTINCT and hand back one "group" per row.
+    groups = (live.filter(poll_group__isnull=False).order_by()
+              .values_list("poll_group", flat=True).distinct())
+    for group in groups:
+        rows = live.filter(poll_group=group)
+        if (rows.filter(proposed_time__gte=now).exists()
+                and not rows.filter(created_at__lt=cutoff).exists()):
+            continue
+        ids.extend(rows.values_list("pk", flat=True))
     if not ids:
         return 0
     ScheduleProposal.objects.filter(pk__in=ids).update(

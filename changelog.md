@@ -4,6 +4,7 @@
 
 ### New Features
 - Host can now kick players from their LFG post if they are unresponsive
+- Schedule Poll now has an option to vote between multiple times
 
 ## [1.13.14] - 2026-10-4 Hoot 4 Refinements
 
