@@ -13334,7 +13334,7 @@ def _handle_lfg_edit(payload):
                 # would force a kick on every description-only edit.
                 string_select("kick", options, placeholder="Select players to remove",
                               min_values=0, max_values=len(options), required=False),
-                description="Selected players are removed from the game",
+                description="Selected players are removed from the game. You should ping players before kicking them",
             ))
     return JsonResponse({
         "type": RESPONSE_MODAL,
