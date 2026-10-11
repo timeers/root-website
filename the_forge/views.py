@@ -2699,7 +2699,8 @@ def forgedfaction_components_pdf(request, pk):
 
 @login_required
 def forgedfaction_cards_pdf(request, pk):
-    """One uploaded card front per page, poker-card sized. Includes every
+    """Uploaded card fronts tiled edge-to-edge on landscape letter pages,
+    poker-card sized (see ForgedCardsLayoutEngine). Includes every
     ForgedCard across every ForgedDeckGroup attached to a card-type Piece."""
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
