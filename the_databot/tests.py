@@ -5026,6 +5026,8 @@ class ScheduleChannelAnnounceTests(ScheduleFixtureMixin, TestCase):
         self.assertIn("no longer scheduled", content)
         self.assertIn(self.group.name, content)
         self.assertIn(f"<t:{int(self.when.timestamp())}:F>", content)
+        # A removed time is a record: no live "(in 2 hours)" hint inside "(was ...)".
+        self.assertNotIn(":R>", content)
         # One line, no copyable markup: nobody quotes a time that was removed.
         self.assertEqual(len(content.split("\n")), 1)
         self.assertNotIn("`", content)
@@ -20480,7 +20482,13 @@ class MultiPollEmbedTests(ScheduleFixtureMixin, TestCase):
         embed = body["data"]["embeds"][0]
         self.assertEqual(embed["title"], "✅ Time Confirmed")
         self.assertEqual(body["data"]["components"], [])
-        self.assertIn(f"<t:{self.times[1]}:F>", embed["description"])
+        fields = embed["fields"]
+        # The agreed time leads; the other is kept, with its vote, beneath it.
+        self.assertEqual(fields[0]["name"], "Agreed time")
+        self.assertIn(f"<t:{self.times[1]}:F>", fields[0]["value"])
+        self.assertEqual(fields[2]["name"], "Unused times")
+        self.assertIn(f"<t:{self.times[0]}:F>", fields[2]["value"])
+        self.assertIn(f"<@{self.teammate.discord_id}>", fields[4]["value"])  # its No
 
     def test_an_lfg_poll_with_no_unanimous_time_is_not_scheduled(self):
         thread = LFGThread.objects.create(thread_id="777000212")
@@ -20571,6 +20579,17 @@ class MultiPollMatchTests(ScheduleFixtureMixin, TestCase):
         self.assertEqual(statuses[rows[0].pk], ScheduleProposal.Status.SUPERSEDED)
         self.assertEqual(statuses[rows[2].pk], ScheduleProposal.Status.SUPERSEDED)
         self.assertEqual(body["data"]["components"], [])
+
+        # The winner leads; every other time follows, in order, with its votes.
+        fields = body["data"]["embeds"][0]["fields"]
+        self.assertEqual(fields[0]["name"], "Scheduled")
+        unused = fields[2:]
+        self.assertEqual(unused[0]["name"], "Unused times")
+        self.assertIn(f"<t:{self.times[0]}:F>", unused[0]["value"])
+        self.assertIn(f"<@{self.teammate.discord_id}>", unused[2]["value"])  # No
+        self.assertEqual(unused[3]["name"], "\u200b")
+        self.assertIn(f"<t:{self.times[2]}:F>", unused[3]["value"])
+        self.assertIn(f"<@{self.teammate.discord_id}>", unused[4]["value"])  # Yes
 
     def test_the_siblings_are_not_handed_to_the_strip_task(self):
         """The strip would overwrite the shared message we just rendered."""
@@ -20685,3 +20704,64 @@ class MultiPollMatchTests(ScheduleFixtureMixin, TestCase):
             proposed_time=timezone.now() - timedelta(hours=1))
         with mock.patch.object(tasks.strip_schedule_proposal_messages_task, "delay"):
             self.assertEqual(tasks.cleanup_stale_schedule_proposals(), 3)
+
+
+class UnusedTimeFieldsTests(TestCase):
+    """The settled poll's record of the times that weren't chosen."""
+
+    def _option(self, days, voters=1, name="Player"):
+        return {"ts": _future_ts(days),
+                "yes": [{"id": str(10**17 + i), "name": f"{name} {i}"}
+                        for i in range(voters)],
+                "no": [{"id": str(2 * 10**17), "name": f"{name} no"}]}
+
+    def test_a_single_unused_time_has_one_header_and_no_blank_name(self):
+        from the_databot.services.lfg_game import unused_time_fields
+        fields = unused_time_fields([self._option(2)], budget=5000)
+        self.assertEqual([f["name"] for f in fields][0], "Unused times")
+        self.assertNotIn("\u200b", [f["name"] for f in fields])
+        self.assertEqual(len(fields), 3)
+
+    def test_an_empty_no_column_is_left_out(self):
+        from the_databot.services.lfg_game import unused_time_fields
+        option = self._option(2)
+        option["no"] = []
+        names = [f["name"] for f in unused_time_fields([option], budget=5000)]
+        self.assertEqual(names, ["Unused times", "✅ Yes (1)"])
+
+    def test_a_time_nobody_voted_on_says_so(self):
+        from the_databot.services.lfg_game import unused_time_fields
+        option = {"ts": _future_ts(2), "yes": [], "no": []}
+        fields = unused_time_fields([option], budget=5000)
+        self.assertEqual(len(fields), 1)
+        self.assertIn("No votes", fields[0]["value"])
+
+    def test_the_compact_form_leaves_out_an_empty_list(self):
+        from the_databot.services.lfg_game import unused_time_fields
+        option = self._option(2, voters=3)
+        option["no"] = []
+        field = unused_time_fields([option], budget=10)[0]
+        self.assertIn("✅", field["value"])
+        self.assertNotIn("❌", field["value"])
+
+    def test_a_closed_poll_leaves_out_empty_columns_but_an_open_one_keeps_them(self):
+        option = {"ts": _future_ts(2), "yes": [{"id": "11", "name": "Ann"}], "no": []}
+        def names(closed):
+            return [f["name"] for f in di._schedule_multi_poll_data(
+                [option], "11", pending=None, kind="bare", closed=closed,
+                closed_reason="closed")["embeds"][0]["fields"]]
+        self.assertNotIn(di.POLL_NO_FIELD, names(closed=True))
+        self.assertIn(di.POLL_NO_FIELD, names(closed=False))
+
+    def test_a_tight_budget_compacts_but_keeps_every_voter(self):
+        from the_databot.services.lfg_game import unused_time_fields
+        options = [self._option(d, voters=6, name="A Rather Long Display Name")
+                   for d in range(1, 6)]
+        full = unused_time_fields(options, budget=100000)
+        compact = unused_time_fields(options, budget=1500)
+        self.assertEqual(len(full), 15)
+        self.assertEqual(len(compact), 5)
+        for option, field in zip(options, compact):
+            for entry in option["yes"] + option["no"]:
+                self.assertIn(f"<@{entry['id']}>", field["value"])
+            self.assertLessEqual(len(field["value"]), 1024)

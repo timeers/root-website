@@ -8,6 +8,7 @@
 
 ### Bug Fixes
 - Clearing a game's scheduled time no longer closes open polls. Scheduling or rescheduling a game still closes open polls as intended
+- The cancelled schedule message no longer has the relative time to make the message easier to read
 
 ## [1.13.14] - 2026-10-4 Hoot 4 Refinements
 

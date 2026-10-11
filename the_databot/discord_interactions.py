@@ -103,6 +103,7 @@ from the_databot.services.lfg_game import (
     poll_count_label, poll_response_fields,
     MULTI_POLL_MAX_TIMES, POLL_TIME_FIELD_PREFIX, proposal_entries,
     multi_poll_embed, proposal_group_options, proposal_group_closed_embed,
+    unused_time_fields, embed_length, EMBED_SOFT_MAX,
 )
 
 logger = logging.getLogger(__name__)
@@ -1616,7 +1617,7 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
                 "Add Alternative Time",
                 encode_custom_id("sched_mp_add", poll_kind, poll_match,
                                  _encode_ts_list(times), owner),
-                style=STYLE_SECONDARY, emoji={"name": "➕"}))
+                style=STYLE_PRIMARY, emoji={"name": "➕"}))
     else:
         # SCHEDULE_MODE. The only direct write on offer anywhere. `match` is never
         # None here -- /schedule set refuses when no match resolves -- so the
@@ -2247,9 +2248,10 @@ def _announce_schedule_to_channel(match, old_time, new_time):
 
     if new_time is None:
         # One line: a removed time is a record, not something to quote, so it
-        # gets no copyable markup.
+        # gets no copyable markup -- and no relative hint, which would nest a
+        # second parenthetical inside "(was ...)".
         content = (f"{formatted_match_label} is no longer scheduled "
-                   f"(was {format_discord_timestamp(old_time)})")
+                   f"(was {format_discord_timestamp(old_time, relative=False)})")
     else:
         verb = "rescheduled" if old_time is not None else "scheduled"
         # Three lines, not one: the rendered time gets its own line to read
@@ -5338,7 +5340,14 @@ def _resolve_multi_match_poll(payload, lead_pk, match, me, notify_ids, author,
             agreed_ts=int(winner.proposed_time.timestamp()), scheduled=True,
             jump_url=jump_url)
     data = _schedule_finalized_data(winner, match)
-    data["embeds"][0]["description"] = f"Chosen from {len(rows)} proposed times."
+    embed = data["embeds"][0]
+    embed["description"] = f"Chosen from {len(rows)} proposed times."
+    # Keep every other time and its votes under the winner, so a later reschedule
+    # can start from who could make what instead of asking again. Re-read: the
+    # rows above predate finalize.
+    losers = [r for r in lead.siblings() if r.pk != winner.pk]
+    embed["fields"] = list(embed.get("fields") or []) + unused_time_fields(
+        proposal_group_options(losers), EMBED_SOFT_MAX - embed_length(embed))
     return JsonResponse({"type": RESPONSE_UPDATE_MESSAGE, "data": data})
 
 

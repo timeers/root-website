@@ -722,6 +722,119 @@ def poll_entry_lines(entries):
     return "\n".join(f"{e['name']} (<@{e['id']}>)" for e in entries) or "—"
 
 
+# Header for the losing times listed under a settled poll's winner. Named once, on
+# the first of them; each later one gets a zero-width space, because Discord
+# rejects an empty field name and a repeated header would read as a new section.
+UNUSED_TIMES_FIELD = "Unused times"
+_BLANK_FIELD_NAME = "\u200b"
+
+# Discord caps a whole embed at 6000 characters. The unused-times section is the
+# only part of a settled poll that grows with both the roster and the number of
+# times, so it is what gets compacted -- against this, leaving headroom for the
+# parts Discord also counts that are sized elsewhere.
+EMBED_SOFT_MAX = 5500
+
+
+def embed_length(embed):
+    """The characters Discord counts toward an embed's 6000 cap."""
+    total = len(embed.get("title") or "") + len(embed.get("description") or "")
+    total += len((embed.get("author") or {}).get("name") or "")
+    total += len((embed.get("footer") or {}).get("text") or "")
+    for field in embed.get("fields") or ():
+        total += len(field.get("name") or "") + len(field.get("value") or "")
+    return total
+
+
+def _capped(items, sep, limit=FIELD_VALUE_MAX, empty="—"):
+    """`items` joined by `sep`, kept under `limit` by dropping WHOLE items and
+    ending in "+N more" -- never slicing a mention or a line in half, which
+    Discord would render as literal text."""
+    items = list(items)
+    if not items:
+        return empty
+    out = []
+    for index, item in enumerate(items):
+        tail = f"{sep}+{len(items) - index} more"
+        candidate = sep.join(out + [item])
+        if len(candidate) + (len(tail) if index < len(items) - 1 else 0) > limit:
+            return sep.join(out) + tail if out else tail.lstrip(sep)
+        out.append(item)
+    return sep.join(out)
+
+
+def _time_option_fields(option, name, drop_empty=False):
+    """One time's fields: the time itself (it renders only in a VALUE -- Discord
+    never renders <t:...> in a field name), then its Yes and No columns side by
+    side.
+
+    `drop_empty` is for CLOSED polls: a column nobody is in is left out rather
+    than holding its slot with "—", which across five times is mostly blank
+    space. A time with no votes at all says so, so it doesn't read as having lost
+    them. Open polls keep both columns -- they are where votes are stored and read
+    back, and the empty one is where the next vote lands."""
+    from the_databot.services.time_parsing import format_discord_timestamp
+
+    when = datetime.fromtimestamp(int(option["ts"]), tz=dt_timezone.utc)
+    value = format_discord_timestamp(when)
+    if drop_empty and not option["yes"] and not option["no"]:
+        value += "\n-# No votes"
+    fields = [{"name": name, "value": value, "inline": False}]
+    for base, entries in ((POLL_YES_FIELD, option["yes"]),
+                          (POLL_NO_FIELD, option["no"])):
+        if drop_empty and not entries:
+            continue
+        fields.append({"name": poll_count_label(base, entries),
+                       "value": poll_entry_lines(entries), "inline": True})
+    return fields
+
+
+def unused_time_fields(options, budget):
+    """The "Unused times" section under a settled poll's winner, so the thread
+    keeps who could and couldn't make every other time -- the answer to "who can
+    make a reschedule?" without asking again.
+
+    Every voter is always named. The full form repeats each time's Yes / No
+    columns; when that would push the embed past `budget` characters, each time
+    collapses to one field of bare mentions (Discord renders them as names), about
+    a third of the size. Only a list that STILL won't fit is trimmed, and says so
+    with "+N more"."""
+    from the_databot.services.time_parsing import format_discord_timestamp
+
+    options = sorted(options, key=lambda o: o["ts"])
+    if not options:
+        return []
+
+    def header(index):
+        return UNUSED_TIMES_FIELD if index == 0 else _BLANK_FIELD_NAME
+
+    full = []
+    for index, option in enumerate(options):
+        fields = _time_option_fields(option, header(index), drop_empty=True)
+        for field in fields[1:]:
+            field["value"] = _capped(field["value"].split("\n"), "\n")
+        full.extend(fields)
+    if embed_length({"fields": full}) <= budget:
+        return full
+
+    compact = []
+    for index, option in enumerate(options):
+        when = datetime.fromtimestamp(int(option["ts"]), tz=dt_timezone.utc)
+        stamp = format_discord_timestamp(when)
+        # Split the per-field allowance between the two lists, after the time line.
+        room = (FIELD_VALUE_MAX - len(stamp) - 8) // 2
+        lines = [stamp]
+        for mark, entries in (("✅", option["yes"]), ("❌", option["no"])):
+            # Same rule as the full form: a list nobody is in is left out.
+            if entries:
+                lines.append(f"{mark} " + _capped(
+                    [f"<@{e['id']}>" for e in entries], " ", limit=room))
+        if len(lines) == 1:
+            lines.append("-# No votes")
+        compact.append({"name": header(index), "value": "\n".join(lines),
+                        "inline": False})
+    return compact
+
+
 def multi_poll_embed(options, *, pending=None, notify_ids=(), label=None,
                      author=None, unlinked_note=None, closed=False,
                      closed_reason=None, closed_note=None, agreed_ts=None):
@@ -735,8 +848,9 @@ def multi_poll_embed(options, *, pending=None, notify_ids=(), label=None,
     for a poll with a roster, None for one without (a bare channel), where the
     column is absent entirely rather than claiming we wait on someone.
 
-    `agreed_ts` is the time everyone said yes to, when one was. It titles the
-    closed poll and marks that time's header.
+    `agreed_ts` is the time everyone said yes to, when one was. A settled poll
+    leads with that time under "Agreed time", then lists the others under
+    "Unused times" with every vote kept (see unused_time_fields).
 
     Closed polls drop Pending and Notify -- both only matter while answers are
     still arriving -- and carry `closed_note` (already `-#`-formatted) instead."""
@@ -757,9 +871,6 @@ def multi_poll_embed(options, *, pending=None, notify_ids=(), label=None,
     lines = []
     if label:
         lines.append(f"**{label}**")
-    if agreed_ts is not None:
-        agreed = datetime.fromtimestamp(int(agreed_ts), tz=dt_timezone.utc)
-        lines.append(f"Agreed time: {format_discord_timestamp(agreed)}")
     if unlinked_note:
         lines.append(unlinked_note)
     if closed and closed_note:
@@ -775,20 +886,29 @@ def multi_poll_embed(options, *, pending=None, notify_ids=(), label=None,
     if author:
         embed["author"] = author
 
+    agreed = (next((o for o in options if int(o["ts"]) == int(agreed_ts)), None)
+              if closed and agreed_ts is not None else None)
+    if agreed is not None:
+        # Settled: the agreed time leads, the rest follow with their votes kept.
+        # No No column for it -- everyone said yes, which is why it won.
+        when = datetime.fromtimestamp(int(agreed["ts"]), tz=dt_timezone.utc)
+        fields = [
+            {"name": "Agreed time", "value": format_discord_timestamp(when),
+             "inline": False},
+            {"name": poll_count_label(POLL_YES_FIELD, agreed["yes"]),
+             "value": _capped(poll_entry_lines(agreed["yes"]).split("\n"), "\n"),
+             "inline": False},
+        ]
+        embed["fields"] = fields
+        fields.extend(unused_time_fields(
+            [o for o in options if o is not agreed],
+            EMBED_SOFT_MAX - embed_length(embed)))
+        return embed
+
     fields = []
     for number, option in enumerate(options, 1):
-        when = datetime.fromtimestamp(int(option["ts"]), tz=dt_timezone.utc)
-        name = f"{POLL_TIME_FIELD_PREFIX}{number}"
-        if agreed_ts is not None and int(option["ts"]) == int(agreed_ts):
-            name += " ✅"
-        # The time sits in the VALUE: Discord renders <t:...> there, never in a
-        # field name.
-        fields.append({"name": name, "value": format_discord_timestamp(when),
-                       "inline": False})
-        fields.append({"name": poll_count_label(POLL_YES_FIELD, option["yes"]),
-                       "value": poll_entry_lines(option["yes"]), "inline": True})
-        fields.append({"name": poll_count_label(POLL_NO_FIELD, option["no"]),
-                       "value": poll_entry_lines(option["no"]), "inline": True})
+        fields.extend(_time_option_fields(
+            option, f"{POLL_TIME_FIELD_PREFIX}{number}", drop_empty=closed))
     if not closed:
         if pending is not None:
             fields.append({"name": poll_count_label(POLL_PENDING_FIELD, pending),
