@@ -5026,6 +5026,8 @@ class ScheduleChannelAnnounceTests(ScheduleFixtureMixin, TestCase):
         self.assertIn("no longer scheduled", content)
         self.assertIn(self.group.name, content)
         self.assertIn(f"<t:{int(self.when.timestamp())}:F>", content)
+        # A removed time is a record: no live "(in 2 hours)" hint inside "(was ...)".
+        self.assertNotIn(":R>", content)
         # One line, no copyable markup: nobody quotes a time that was removed.
         self.assertEqual(len(content.split("\n")), 1)
         self.assertNotIn("`", content)

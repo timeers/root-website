@@ -2248,9 +2248,10 @@ def _announce_schedule_to_channel(match, old_time, new_time):
 
     if new_time is None:
         # One line: a removed time is a record, not something to quote, so it
-        # gets no copyable markup.
+        # gets no copyable markup -- and no relative hint, which would nest a
+        # second parenthetical inside "(was ...)".
         content = (f"{formatted_match_label} is no longer scheduled "
-                   f"(was {format_discord_timestamp(old_time)})")
+                   f"(was {format_discord_timestamp(old_time, relative=False)})")
     else:
         verb = "rescheduled" if old_time is not None else "scheduled"
         # Three lines, not one: the rendered time gets its own line to read

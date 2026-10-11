@@ -285,11 +285,18 @@ def search_timezones(query, limit=25):
     return ordered[:limit]
 
 
-def format_discord_timestamp(dt):
+def format_discord_timestamp(dt, relative=True):
     """`<t:unix:F> (<t:unix:R>)` — an absolute time plus a relative hint, each
     rendered by Discord in the viewer's own timezone. Matches the format already
-    used by build_upcoming_embed."""
+    used by build_upcoming_embed.
+
+    `relative=False` drops the "(in 2 hours)" hint, for a time that is a record
+    rather than something to plan around -- e.g. the time a match USED to have.
+    Discord keeps re-rendering the hint live, so on a historical time it only
+    reads as noise ("was ... (3 days ago)")."""
     ts = int(dt.timestamp())
+    if not relative:
+        return f"<t:{ts}:F>"
     return f"<t:{ts}:F> (<t:{ts}:R>)"
 
 
