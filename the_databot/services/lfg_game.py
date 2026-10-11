@@ -762,20 +762,30 @@ def _capped(items, sep, limit=FIELD_VALUE_MAX, empty="—"):
     return sep.join(out)
 
 
-def _time_option_fields(option, name):
-    """One time's three fields: the time itself (it renders only in a VALUE --
-    Discord never renders <t:...> in a field name), then its Yes and No columns
-    side by side."""
+def _time_option_fields(option, name, drop_empty=False):
+    """One time's fields: the time itself (it renders only in a VALUE -- Discord
+    never renders <t:...> in a field name), then its Yes and No columns side by
+    side.
+
+    `drop_empty` is for CLOSED polls: a column nobody is in is left out rather
+    than holding its slot with "—", which across five times is mostly blank
+    space. A time with no votes at all says so, so it doesn't read as having lost
+    them. Open polls keep both columns -- they are where votes are stored and read
+    back, and the empty one is where the next vote lands."""
     from the_databot.services.time_parsing import format_discord_timestamp
 
     when = datetime.fromtimestamp(int(option["ts"]), tz=dt_timezone.utc)
-    return [
-        {"name": name, "value": format_discord_timestamp(when), "inline": False},
-        {"name": poll_count_label(POLL_YES_FIELD, option["yes"]),
-         "value": poll_entry_lines(option["yes"]), "inline": True},
-        {"name": poll_count_label(POLL_NO_FIELD, option["no"]),
-         "value": poll_entry_lines(option["no"]), "inline": True},
-    ]
+    value = format_discord_timestamp(when)
+    if drop_empty and not option["yes"] and not option["no"]:
+        value += "\n-# No votes"
+    fields = [{"name": name, "value": value, "inline": False}]
+    for base, entries in ((POLL_YES_FIELD, option["yes"]),
+                          (POLL_NO_FIELD, option["no"])):
+        if drop_empty and not entries:
+            continue
+        fields.append({"name": poll_count_label(base, entries),
+                       "value": poll_entry_lines(entries), "inline": True})
+    return fields
 
 
 def unused_time_fields(options, budget):
@@ -799,10 +809,10 @@ def unused_time_fields(options, budget):
 
     full = []
     for index, option in enumerate(options):
-        three = _time_option_fields(option, header(index))
-        for field in three[1:]:
+        fields = _time_option_fields(option, header(index), drop_empty=True)
+        for field in fields[1:]:
             field["value"] = _capped(field["value"].split("\n"), "\n")
-        full.extend(three)
+        full.extend(fields)
     if embed_length({"fields": full}) <= budget:
         return full
 
@@ -812,10 +822,16 @@ def unused_time_fields(options, budget):
         stamp = format_discord_timestamp(when)
         # Split the per-field allowance between the two lists, after the time line.
         room = (FIELD_VALUE_MAX - len(stamp) - 8) // 2
-        yes = _capped([f"<@{e['id']}>" for e in option["yes"]], " ", limit=room)
-        no = _capped([f"<@{e['id']}>" for e in option["no"]], " ", limit=room)
-        compact.append({"name": header(index),
-                        "value": f"{stamp}\n✅ {yes}\n❌ {no}", "inline": False})
+        lines = [stamp]
+        for mark, entries in (("✅", option["yes"]), ("❌", option["no"])):
+            # Same rule as the full form: a list nobody is in is left out.
+            if entries:
+                lines.append(f"{mark} " + _capped(
+                    [f"<@{e['id']}>" for e in entries], " ", limit=room))
+        if len(lines) == 1:
+            lines.append("-# No votes")
+        compact.append({"name": header(index), "value": "\n".join(lines),
+                        "inline": False})
     return compact
 
 
@@ -891,7 +907,8 @@ def multi_poll_embed(options, *, pending=None, notify_ids=(), label=None,
 
     fields = []
     for number, option in enumerate(options, 1):
-        fields.extend(_time_option_fields(option, f"{POLL_TIME_FIELD_PREFIX}{number}"))
+        fields.extend(_time_option_fields(
+            option, f"{POLL_TIME_FIELD_PREFIX}{number}", drop_empty=closed))
     if not closed:
         if pending is not None:
             fields.append({"name": poll_count_label(POLL_PENDING_FIELD, pending),

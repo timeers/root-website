@@ -20720,6 +20720,37 @@ class UnusedTimeFieldsTests(TestCase):
         self.assertNotIn("\u200b", [f["name"] for f in fields])
         self.assertEqual(len(fields), 3)
 
+    def test_an_empty_no_column_is_left_out(self):
+        from the_databot.services.lfg_game import unused_time_fields
+        option = self._option(2)
+        option["no"] = []
+        names = [f["name"] for f in unused_time_fields([option], budget=5000)]
+        self.assertEqual(names, ["Unused times", "✅ Yes (1)"])
+
+    def test_a_time_nobody_voted_on_says_so(self):
+        from the_databot.services.lfg_game import unused_time_fields
+        option = {"ts": _future_ts(2), "yes": [], "no": []}
+        fields = unused_time_fields([option], budget=5000)
+        self.assertEqual(len(fields), 1)
+        self.assertIn("No votes", fields[0]["value"])
+
+    def test_the_compact_form_leaves_out_an_empty_list(self):
+        from the_databot.services.lfg_game import unused_time_fields
+        option = self._option(2, voters=3)
+        option["no"] = []
+        field = unused_time_fields([option], budget=10)[0]
+        self.assertIn("✅", field["value"])
+        self.assertNotIn("❌", field["value"])
+
+    def test_a_closed_poll_leaves_out_empty_columns_but_an_open_one_keeps_them(self):
+        option = {"ts": _future_ts(2), "yes": [{"id": "11", "name": "Ann"}], "no": []}
+        def names(closed):
+            return [f["name"] for f in di._schedule_multi_poll_data(
+                [option], "11", pending=None, kind="bare", closed=closed,
+                closed_reason="closed")["embeds"][0]["fields"]]
+        self.assertNotIn(di.POLL_NO_FIELD, names(closed=True))
+        self.assertIn(di.POLL_NO_FIELD, names(closed=False))
+
     def test_a_tight_budget_compacts_but_keeps_every_voter(self):
         from the_databot.services.lfg_game import unused_time_fields
         options = [self._option(d, voters=6, name="A Rather Long Display Name")

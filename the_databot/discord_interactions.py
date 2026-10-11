@@ -1617,7 +1617,7 @@ def _schedule_confirm_data(match, when, owner, tz_name=None, time_text="", note=
                 "Add Alternative Time",
                 encode_custom_id("sched_mp_add", poll_kind, poll_match,
                                  _encode_ts_list(times), owner),
-                style=STYLE_SECONDARY, emoji={"name": "➕"}))
+                style=STYLE_PRIMARY, emoji={"name": "➕"}))
     else:
         # SCHEDULE_MODE. The only direct write on offer anywhere. `match` is never
         # None here -- /schedule set refuses when no match resolves -- so the
