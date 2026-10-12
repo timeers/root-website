@@ -12874,7 +12874,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
         self.assertIn(f"channels/{self.guild.guild_id}/555000111/98765", content)
         self.assertIn(self.group.name, content)
         self.assertIn(f"<t:{int(request.proposed_time.timestamp())}:F>", content)
-        self.assertIn("awaiting a moderator", content)
+        self.assertIn("Needs moderator approval", content)
         self.assertEqual(announce.call_args.kwargs["allowed_mentions"],
                          {"parse": []})
 
@@ -13906,6 +13906,12 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
 
     def setUp(self):
         super().setUp()
+        # Never fetch the bot's emoji from the live Discord API: the result is
+        # cached process-wide, so whichever test fetched first decided every later
+        # summary's rendering. {} = no emoji, which is what these assertions expect.
+        _emoji = mock.patch('the_databot.services.discordservice._APP_EMOJI', {})
+        _emoji.start()
+        self.addCleanup(_emoji.stop)
 
         self.designer = Profile.objects.create(discord="bsdesigner", discord_id="900")
         self.map = Map.objects.create(title="Autumn Board", clearings=12,
@@ -18351,6 +18357,12 @@ class BoxScoreSummaryLayoutTests(_NoLoginSignalMixin, TestCase):
 
     def setUp(self):
         super().setUp()
+        # Never fetch the bot's emoji from the live Discord API: the result is
+        # cached process-wide, so whichever test fetched first decided every later
+        # summary's rendering. {} = no emoji, which is what these assertions expect.
+        _emoji = mock.patch('the_databot.services.discordservice._APP_EMOJI', {})
+        _emoji.start()
+        self.addCleanup(_emoji.stop)
         self.designer = Profile.objects.create(discord="layoutdesigner",
                                                discord_id="8000")
         self.map = Map.objects.create(title="Autumn Board", slug="autumn-board",

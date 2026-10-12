@@ -1019,12 +1019,15 @@ class CreateGameThreadsEndpointTests(TestCase):
         self.assertEqual(response.status_code, 403)
         delay.assert_not_called()
 
-    def test_get_is_not_allowed(self):
-        """No state change via GET, so a crafted link can't trigger it."""
+    def test_get_only_reads_the_count(self):
+        """No state change via GET, so a crafted link can't trigger it. GET is
+        allowed -- the confirm modal refetches the count with it -- but must
+        never queue the task."""
         self.client.force_login(self.host)
         with mock.patch.object(create_match_threads_task, 'delay') as delay:
             response = self.client.get(self._url())
-        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('count', response.json())
         delay.assert_not_called()
 
     def test_another_tournaments_round_is_not_reachable(self):
@@ -2811,6 +2814,12 @@ class BoxScoreUploadApiTests(TestCase):
     BOB_STEAM = '76561198000000002'
 
     def setUp(self):
+        # Never fetch the bot's emoji from the live Discord API: the result is
+        # cached process-wide, so whichever test fetched first decided every later
+        # summary's rendering. {} = no emoji, which is what these assertions expect.
+        _emoji = mock.patch('the_databot.services.discordservice._APP_EMOJI', {})
+        _emoji.start()
+        self.addCleanup(_emoji.stop)
         self.alice = Profile.objects.create(discord='ttsalice', discord_id='801',
                                             display_name='Alice',
                                             steam_id=self.ALICE_STEAM)
@@ -4799,15 +4808,18 @@ class AvailabilityCompareDSTTests(_AvailabilityFixtureMixin, TestCase):
         self.assertEqual(len(set(hows[:2])), 2) if hows else None
 
     def test_dst_spring_forward_week_renders_a_disabled_cell(self):
-        """Scans forward for a real spring-forward week within the page's own
-        navigable window, rather than a hardcoded date -- a fixed calendar
-        date eventually falls outside AVAILABILITY_WEEKS_FORWARD and gets
-        silently clamped to the current week, masking the very gap under
-        test (same trap the single-user grid's own
-        test_a_zero_offset_week_has_seven_columns_not_eight was written to
-        avoid). Australia/Sydney's spring-forward (Southern Hemisphere,
-        opposite calendar from the US) reliably lands within a 12-week
-        forward window regardless of which month "today" happens to be."""
+        """Scans forward for a real spring-forward week rather than a hardcoded
+        date -- a fixed calendar date eventually falls outside
+        AVAILABILITY_WEEKS_FORWARD and gets silently clamped to the current
+        week, masking the very gap under test (same trap the single-user
+        grid's own test_a_zero_offset_week_has_seven_columns_not_eight was
+        written to avoid).
+
+        The window is widened to a full year for the duration: a zone springs
+        forward once a year, so no 12-week window contains one year-round
+        (this failed every day from Sydney's early-October change until the
+        next July). The views read the constant at call time, so the patch
+        reaches the clamp."""
         from the_gatehouse.services.availability import local_week_cell_shape, week_start_for
 
         a = self._player("gap_a", hours=[9])
@@ -4816,9 +4828,10 @@ class AvailabilityCompareDSTTests(_AvailabilityFixtureMixin, TestCase):
         series = self._series_with(a)
         self._login(a)
 
+        weeks_forward = 53
         current_week = week_start_for(date.today())
         springfwd_week = None
-        for i in range(13):
+        for i in range(weeks_forward + 1):
             candidate = current_week + timedelta(weeks=i)
             shape = local_week_cell_shape(candidate, 'Australia/Sydney')
             if any(len(v) == 0 for v in shape.values()):
@@ -4826,7 +4839,8 @@ class AvailabilityCompareDSTTests(_AvailabilityFixtureMixin, TestCase):
                 break
         self.assertIsNotNone(springfwd_week, "No spring-forward week found in the forward window")
 
-        response = self.client.get(self.url, {'series': series.id, 'week': springfwd_week.isoformat()})
+        with mock.patch('the_gatehouse.views.AVAILABILITY_WEEKS_FORWARD', weeks_forward):
+            response = self.client.get(self.url, {'series': series.id, 'week': springfwd_week.isoformat()})
         self.assertContains(response, 'avail-cell--disabled')
 
     def test_split_cell_halves_show_independent_overlap(self):
