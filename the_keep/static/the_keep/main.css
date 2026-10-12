@@ -862,6 +862,7 @@ em, i {
   .captain-icon-discarded {
     position: relative;
     display: inline-block;
+    vertical-align: middle; /* match Bootstrap's img default used by the sibling icons */
   }
 
   .captain-icon-discarded .captain-icon {
