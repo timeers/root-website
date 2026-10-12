@@ -9733,14 +9733,12 @@ BOXSCORE_STRICT_PLAYERS = True
 # uploader becomes the recorder and the summary drops its "record the game" link,
 # because a recorded game already announces itself in the same thread.
 #
-# Scoped to BETA GUILDS (DiscordGuild.is_beta_tester) rather than a global
-# on/off, so it can be exercised against real uploads in one test server before
-# every guild gets it. Set BOXSCORE_AUTO_RECORD_ALL_GUILDS = True to ship it
-# everywhere once the beta guild has proved it out.
+# On for every guild. Set BOXSCORE_AUTO_RECORD_ALL_GUILDS = False to scope it
+# back to BETA GUILDS (DiscordGuild.is_beta_tester) only.
 #
 # Only plain LFG threads are eligible either way: a series thread records in
 # match mode, which needs bracket wiring attempt_autorecord does not do.
-BOXSCORE_AUTO_RECORD_ALL_GUILDS = False
+BOXSCORE_AUTO_RECORD_ALL_GUILDS = True
 
 # How long a pending /boxscore confirmation survives. The parsed file is parked in
 # the cache because a box score is a list and cannot ride in a custom_id (100-char
@@ -12137,12 +12135,13 @@ def _boxscore_owner_arg(payload):
 def _boxscore_autorecord_enabled(thread):
     """Is auto-record turned on for this thread's guild?
 
-    Beta guilds only until BOXSCORE_AUTO_RECORD_ALL_GUILDS flips, so the feature
-    can be exercised on a real server without touching anyone else's games.
+    Every guild while BOXSCORE_AUTO_RECORD_ALL_GUILDS is on; otherwise beta
+    guilds only.
 
-    A thread with NO guild is not eligible: `guild` is nullable (SET_NULL), and
-    "we don't know which server this is" must not silently mean "treat it as
-    beta". Recording a game is not something to do on a guess.
+    With the switch off, a thread with NO guild is not eligible: `guild` is
+    nullable (SET_NULL), and "we don't know which server this is" must not
+    silently mean "treat it as beta". Recording a game is not something to do
+    on a guess.
     """
     if BOXSCORE_AUTO_RECORD_ALL_GUILDS:
         return True

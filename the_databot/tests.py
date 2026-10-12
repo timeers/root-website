@@ -18966,10 +18966,10 @@ class BoxScoreAutoRecordWiringTests(_NoLoginSignalMixin, TestCase):
             return post.call_args[0][2]
         return json.loads(response.content)["data"].get("content", "")
 
-    def test_it_is_off_for_a_normal_guild(self):
-        """Scoped to beta guilds: a normal server is untouched."""
-        self.assertFalse(di.BOXSCORE_AUTO_RECORD_ALL_GUILDS)
-        content = self._run()
+    def test_it_is_off_for_a_normal_guild_when_scoped_to_beta(self):
+        """With the global switch off, a normal server is untouched."""
+        with mock.patch.object(di, "BOXSCORE_AUTO_RECORD_ALL_GUILDS", False):
+            content = self._run()
         self.assertEqual(Game.objects.count(), 0)
         self.assertIn("Review and record the game", content)
 
@@ -18978,15 +18978,16 @@ class BoxScoreAutoRecordWiringTests(_NoLoginSignalMixin, TestCase):
         recording a game is not something to do on a guess."""
         self.thread.guild = None
         self.thread.save(update_fields=["guild"])
-        content = self._run()
+        with mock.patch.object(di, "BOXSCORE_AUTO_RECORD_ALL_GUILDS", False):
+            content = self._run()
         self.assertEqual(Game.objects.count(), 0)
         self.assertIn("Review and record the game", content)
 
     def test_the_global_switch_enables_every_guild(self):
-        """The eventual ship-it path, with no beta flag set anywhere."""
+        """The shipped default: no beta flag set anywhere."""
+        self.assertTrue(di.BOXSCORE_AUTO_RECORD_ALL_GUILDS)
         self.assertFalse(self.guild.is_beta_tester)
-        with mock.patch.object(di, "BOXSCORE_AUTO_RECORD_ALL_GUILDS", True):
-            self._run()
+        self._run()
         self.assertEqual(Game.objects.count(), 1)
 
     def test_with_the_flag_on_the_game_is_recorded_to_the_invoker(self):
@@ -19019,7 +19020,8 @@ class BoxScoreAutoRecordWiringTests(_NoLoginSignalMixin, TestCase):
         fresh beta rollout. Without this line "not a beta guild" is
         indistinguishable from "auto-record never ran"."""
         with self.assertLogs("the_databot.discord_interactions",
-                             level="WARNING") as caught:
+                             level="WARNING") as caught, \
+                mock.patch.object(di, "BOXSCORE_AUTO_RECORD_ALL_GUILDS", False):
             self._run()
         output = "\n".join(caught.output)
         self.assertIn("auto-record declined", output)
