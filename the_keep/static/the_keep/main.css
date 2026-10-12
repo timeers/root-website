@@ -855,6 +855,33 @@ em, i {
     border-radius: 2px;
   }
 
+  /* Discarded (unselected) Knave captain: faded pawn with a red X overlay,
+     mirroring the undrafted faction treatment on the game detail page.
+     The img is block so the wrapper shrinks to the image rather than the
+     text line box, keeping the X centered on the icon. */
+  .captain-icon-discarded {
+    position: relative;
+    display: inline-block;
+  }
+
+  .captain-icon-discarded .captain-icon {
+    display: block;
+    opacity: 0.6;
+  }
+
+  .captain-icon-cross {
+    position: absolute;
+    inset: 0 0 2px -1px; /* offsets .captain-icon's margins */
+    background-color: red;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    pointer-events: none;
+  }
+
   /* Keep the whole "(captain icons)" group on one line so it wraps to the next
      line as a single unit rather than splitting a paren/icon off on its own. */
   .character-group {
