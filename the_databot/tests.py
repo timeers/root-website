@@ -18711,6 +18711,64 @@ class BoxScoreAutoRecordTests(_NoLoginSignalMixin, TestCase):
         from the_databot.services import boxscore_autorecord as ar
         self.assertIsNone(ar.attempt_autorecord(self.thread, outsider))
 
+    # ── tournament staff ──
+
+    def _link_tournament(self, open_roster=False):
+        """Point the thread at a MODERATORS-only tournament with an open round."""
+        guild = DiscordGuild.objects.create(guild_id="950100", name="AR Guild")
+        self.tdesigner = Profile.objects.create(
+            discord="artdesigner", discord_id="9520",
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+        self.tmod = Profile.objects.create(
+            discord="artmod", discord_id="9521",
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+        tournament = Tournament.objects.create(
+            name="AR Tournament", guild=guild, designer=self.tdesigner,
+            recording_access=Tournament.RecordingAccessTypes.MODERATORS,
+            open_roster=open_roster)
+        tournament.moderators.add(self.tmod)
+        stage = Stage.objects.create(tournament=tournament, name="Stage 1", order=1)
+        Round.objects.create(stage=stage, round_number=1)
+        self.thread.lfg_role = GuildLFGRole.objects.create(
+            guild=guild, name="AR LFG", tournament=tournament)
+        self.thread.save(update_fields=['lfg_role'])
+
+    def test_a_tournament_moderator_outside_the_thread_records(self):
+        """Tournament staff needn't have played: membership is asked of everyone
+        else, not of them."""
+        self._link_tournament()
+        game = self._run(recorder=self.tmod)
+        self.assertIsNotNone(game)
+        self.assertEqual(game.recorder, self.tmod)
+
+    def test_the_tournament_designer_outside_the_thread_records(self):
+        self._link_tournament()
+        game = self._run(recorder=self.tdesigner)
+        self.assertIsNotNone(game)
+        self.assertEqual(game.recorder, self.tdesigner)
+
+    def test_an_outsider_still_declines_on_a_tournament_thread(self):
+        self._link_tournament()
+        outsider = Profile.objects.create(
+            discord="artoutsider", discord_id="9522",
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+        self.assertIsNone(self._run(recorder=outsider))
+
+    def test_a_seated_player_declines_under_moderators_only(self):
+        """Letting staff skip membership must not loosen the tier for players."""
+        self._link_tournament()
+        self._assert_declined()
+
+    def test_an_open_roster_does_not_bypass_moderators_only(self):
+        """open_roster says who may be IN the game, not who may record it -- it
+        used to short-circuit ahead of the recording tier."""
+        self._link_tournament(open_roster=True)
+        self._assert_declined()
+
+    def test_a_moderator_still_records_on_an_open_roster(self):
+        self._link_tournament(open_roster=True)
+        self.assertIsNotNone(self._run(recorder=self.tmod))
+
     def test_no_established_seating_declines(self):
         """Without seating_set the thread knows WHO played but not in what order;
         placing players on rows positionally would invent a seating."""

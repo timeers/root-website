@@ -1140,26 +1140,30 @@ def _lfg_round_for(tournament):
 def _can_record_lfg(profile, thread, round_obj):
     """Can this profile record the game for an LFG thread?
 
-    Thread membership is required of everyone (admins are checked at the call
-    site). If the LFG role names a tournament, the profile must also be allowed
-    to record games for it."""
+    Thread membership is required of everyone except the tournament's staff
+    (admins are checked at the call site). If the LFG role names a tournament,
+    the profile must also be allowed to record games for it."""
+    tournament = getattr(thread.lfg_role, 'tournament', None)
+    # Staff first: a tournament's designer or moderator may record a game they
+    # didn't play in, so membership isn't asked of them.
+    if tournament is not None and tournament.has_permission(profile):  # admin/designer/moderator
+        return True
     if not thread.players.filter(pk=profile.pk).exists():
         return False
-    tournament = getattr(thread.lfg_role, 'tournament', None)
     if tournament is None:
         return True                      # unlinked role: membership is the gate
-    if tournament.has_permission(profile):           # admin/designer/moderator
-        return True
     if tournament.guild_members_can_record(profile):  # per-profile, GUILD tier
         return True
+    # The recording tier comes BEFORE open_roster: an open roster says who may be
+    # IN a game, not who may record it, so MODERATORS still means moderators.
+    if not tournament.players_can_record_matches():
+        return False
     if tournament.open_roster:
         # Roster is unrestricted, so the form itself would accept any player
         # (current_player_queryset returns everyone). Thread membership is the
         # real gate; without this the StageParticipant check below rejects
         # everyone on tournaments that have no stage participants at all.
         return True
-    if not tournament.players_can_record_matches():
-        return False
     if round_obj is None or round_obj.stage_id is None:
         return False                     # no stage to check participation against
     return StageParticipant.objects.filter(
