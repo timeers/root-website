@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.15] - 2026-10-8 Multi-Kick-Clear
+## [1.13.15] - 2026-10-22 Multi-Kick-Clear
 
 ### New Features
 - Host can now kick players from their LFG post if they are unresponsive
@@ -8,6 +8,7 @@
 
 ### Improvements
 - Unselected captain now shows on game detail page
+- Player's submissions tab is now private
 
 ### Bug Fixes
 - Clearing a game's scheduled time no longer closes open polls. Scheduling or rescheduling a game still closes open polls as intended

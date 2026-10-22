@@ -440,6 +440,78 @@ class PlayerRequiredInterstitialTests(_NoLoginSignalMixin, TestCase):
                              fetch_redirect_response=False)
 
 
+class SubmissionsTabPrivacyTests(_NoLoginSignalMixin, TestCase):
+    """A profile's Submissions tab (submitted + rejected posts) is private: only
+    the owner and admins see the tab or can load its content."""
+
+    def setUp(self):
+        super().setUp()
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.other = User.objects.create_user(username='other', password='pw')
+        self.admin = User.objects.create_user(username='admin', password='pw')
+        self.admin.profile.group = Profile.GroupChoices.ADMIN
+        self.admin.profile.save(update_fields=['group'])
+        self.player = self.owner.profile
+        self.profile_url = reverse('player-detail', args=[self.player.slug])
+        self.submitted_url = reverse('submitted-components', args=[self.player.slug])
+
+    def _submit(self, title, status):
+        return Faction.objects.create(title=title, animal="Fox", designer=self.player,
+                                      submitted_by=self.player, status=status)
+
+    def _tab_shown(self, user=None):
+        if user:
+            self.client.force_login(user)
+        content = self.client.get(self.profile_url).content.decode()
+        return 'submissions-tab' in content
+
+    def test_owner_sees_the_tab_with_a_lock(self):
+        self._submit("Pending Faction", StatusChoices.SUBMITTED)
+        self.client.force_login(self.owner)
+        content = self.client.get(self.profile_url).content.decode()
+        self.assertIn('submissions-tab', content)
+        self.assertIn('bi-lock-fill', content)
+
+    def test_admin_sees_the_tab_on_someone_elses_profile(self):
+        self._submit("Pending Faction", StatusChoices.SUBMITTED)
+        self.assertTrue(self._tab_shown(self.admin))
+
+    def test_other_user_does_not_see_the_tab(self):
+        self._submit("Pending Faction", StatusChoices.SUBMITTED)
+        self.assertFalse(self._tab_shown(self.other))
+
+    def test_logged_out_visitor_does_not_see_the_tab(self):
+        self._submit("Pending Faction", StatusChoices.SUBMITTED)
+        self.assertFalse(self._tab_shown())
+
+    def test_only_rejected_posts_still_show_the_tab(self):
+        self._submit("Rejected Faction", StatusChoices.REJECTED)
+        self.assertTrue(self._tab_shown(self.owner))
+
+    def test_no_submissions_means_no_tab(self):
+        self.assertFalse(self._tab_shown(self.owner))
+
+    def _load_submitted(self, user=None):
+        if user:
+            self.client.force_login(user)
+        return self.client.get(self.submitted_url, headers={'HX-Request': 'true'})
+
+    def test_owner_and_admin_can_load_the_content(self):
+        self._submit("Pending Faction", StatusChoices.SUBMITTED)
+        self._submit("Rejected Faction", StatusChoices.REJECTED)
+        for user in (self.owner, self.admin):
+            with self.subTest(user=user.username):
+                response = self._load_submitted(user)
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "Pending Faction")
+                self.assertContains(response, "Rejected Faction")
+
+    def test_other_user_and_visitor_get_404_from_the_content_endpoint(self):
+        self._submit("Pending Faction", StatusChoices.SUBMITTED)
+        self.assertEqual(self._load_submitted().status_code, 404)
+        self.assertEqual(self._load_submitted(self.other).status_code, 404)
+
+
 class GuildsRefreshStalenessTests(TestCase):
     """guilds_refresh_in_progress expires a flag nothing ever cleared.
 

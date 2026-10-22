@@ -2172,6 +2172,13 @@ def add_player(request):
 
 
 
+def _can_view_submissions(user, player):
+    """Submitted/rejected posts are private: the owner and admins only."""
+    # getattr, not user.profile: a User can exist without a Profile.
+    profile = getattr(user, 'profile', None) if user.is_authenticated else None
+    return profile is not None and (profile == player or profile.admin)
+
+
 def player_page_view(request, slug=None):
     if slug:
         player = get_object_or_404(Profile, slug=slug.lower())
@@ -2187,7 +2194,10 @@ def player_page_view(request, slug=None):
     components = Post.objects.filter(
         Q(designer=player) | Q(co_designers=player)
     ).filter(status__lte=view_status).distinct()
-    submissions = player.submissions.filter(status='9')
+    show_submissions = (
+        _can_view_submissions(request.user, player)
+        and player.submissions.filter(status__in=['9', '8']).exists()
+    )
     posts_count = components.count()
     # Feed-backed elo standings (systems with an api_url). Only these carry the
     # rank/tier/icon the badge needs; other ROOTELO systems are locally computed.
@@ -2202,7 +2212,7 @@ def player_page_view(request, slug=None):
         'player': player,
         'games_played': games_played,
         'posts_count': posts_count,
-        'submissions': submissions,
+        'show_submissions': show_submissions,
         'rootelo_participants': rootelo_participants,
         }
     return render(request, 'the_gatehouse/profile_detail.html', context=context)
@@ -2317,6 +2327,9 @@ def artist_component_view(request, slug):
 def submitted_component_view(request, slug):
     # Get the artist object using the slug from the URL path
     profile = get_object_or_404(Profile, slug=slug.lower())
+    # 404 rather than 403, so the response doesn't reveal that private submissions exist.
+    if not _can_view_submissions(request.user, profile):
+        raise Http404("Object not found")
 
     # Get the component from the query parameters
     component = request.GET.get('component')  # e.g., /artist/john-doe/component/?component=some_component
