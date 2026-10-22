@@ -900,3 +900,75 @@ class OtherTextPageRenderTests(_SurveyTestBase):
         body = page.content.decode()
         self.assertEqual(body.count(self.OTHER), 1)
         self.assertNotIn(f'Other: {self.OTHER}', body)
+
+
+class SeedTimezoneTemplateCommandTests(TestCase):
+    """seed_timezone_template: idempotent creation of the public Timezone template."""
+
+    def _run(self, *args):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('seed_timezone_template', *args, stdout=out)
+        return out.getvalue()
+
+    def _templates(self):
+        from the_tavern.models import QuestionTemplate
+        # The local seed migration may already have created one.
+        return QuestionTemplate.objects.filter(name='Timezone', is_public=True)
+
+    def test_creates_the_public_template(self):
+        from the_tavern.management.commands.seed_timezone_template import TIMEZONE_CHOICES
+        self._templates().delete()
+        self._run()
+        template = self._templates().get()
+        self.assertEqual(template.question_type, Question.QuestionType.MULTIPLE_CHOICE)
+        self.assertTrue(template.display_as_dropdown)
+        self.assertIsNone(template.created_by)
+        self.assertEqual(template.choices_data, TIMEZONE_CHOICES)
+
+    def test_rerunning_does_not_duplicate_or_overwrite(self):
+        self._templates().delete()
+        self._run()
+        self._templates().update(choices_data=['Custom (Europe/Berlin)'])
+        self._run()
+        self.assertEqual(self._templates().count(), 1)
+        self.assertEqual(self._templates().get().choices_data, ['Custom (Europe/Berlin)'])
+
+    def test_update_refreshes_an_existing_template(self):
+        from the_tavern.management.commands.seed_timezone_template import TIMEZONE_CHOICES
+        self._templates().delete()
+        self._run()
+        self._templates().update(choices_data=['Custom (Europe/Berlin)'], display_as_dropdown=False)
+        self._run('--update')
+        template = self._templates().get()
+        self.assertEqual(template.choices_data, TIMEZONE_CHOICES)
+        self.assertTrue(template.display_as_dropdown)
+
+    def test_every_choice_maps_back_to_a_valid_zone(self):
+        """Answering the seeded question with ANY choice records a timezone --
+        driven through the real _survey_timezone_answer, not a copy of its regex."""
+        from the_tavern.management.commands.seed_timezone_template import TIMEZONE_CHOICES
+        from the_tavern.views import _survey_timezone_answer
+        survey = Survey.objects.create(title='TZ survey')
+        question = Question.objects.create(
+            survey=survey, text='What is your timezone?',
+            question_type=Question.QuestionType.MULTIPLE_CHOICE, order=0)
+        for i, label in enumerate(TIMEZONE_CHOICES):
+            choice = Choice.objects.create(question=question, text=label, order=i)
+            response = SurveyResponse.objects.create(survey=survey)
+            Answer.objects.create(response=response, question=question, selected_choice=choice)
+            self.assertIsNotNone(_survey_timezone_answer(survey, response), label)
+
+    def test_the_utc_choice_records_plain_utc(self):
+        """Plain "UTC", not "Etc/UTC": it's what the app's timezone pickers offer."""
+        from the_tavern.views import _survey_timezone_answer
+        survey = Survey.objects.create(title='TZ survey')
+        question = Question.objects.create(
+            survey=survey, text='What is your timezone?',
+            question_type=Question.QuestionType.MULTIPLE_CHOICE, order=0)
+        choice = Choice.objects.create(
+            question=question, text='Coordinated Universal Time (UTC)', order=0)
+        response = SurveyResponse.objects.create(survey=survey)
+        Answer.objects.create(response=response, question=question, selected_choice=choice)
+        self.assertEqual(_survey_timezone_answer(survey, response), 'UTC')

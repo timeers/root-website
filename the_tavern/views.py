@@ -74,7 +74,8 @@ def _survey_timezone_answer(survey, survey_response):
     from a hotel should not have their profile rewritten to the hotel's zone.
     Timezone questions are ordinary multiple-choice questions whose choice text
     carries the zone in parentheses, e.g.
-    "US Pacific - PT (America/Los_Angeles)".
+    "US Pacific - PT (America/Los_Angeles)". A bare "(UTC)" counts too: plain
+    "UTC" is the zone the rest of the app stores and its pickers offer.
     """
     import re
     from the_databot.services.time_parsing import valid_timezone
@@ -84,7 +85,7 @@ def _survey_timezone_answer(survey, survey_response):
             continue
         if not answer.selected_choice:
             continue
-        match = re.search(r'\(([A-Za-z_]+/[A-Za-z_+\-/]+)\)', answer.selected_choice.text or '')
+        match = re.search(r'\(([A-Za-z_]+/[A-Za-z_+\-/]+|UTC)\)', answer.selected_choice.text or '')
         if match and valid_timezone(match.group(1)):
             return match.group(1)
     return None

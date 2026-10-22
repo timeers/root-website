@@ -3633,18 +3633,12 @@ class LFGEditButtonRowTests(TestCase):
                            if di.decode_custom_id(b["custom_id"])[0] == "lfg_edit")
         self.assertTrue(edit_button["custom_id"].endswith(f":{self.HOST}"))
 
-    def _edit_custom_id(self, **kwargs):
+    def test_edit_carries_only_the_owner(self):
         data = di._lfg_message_data(
-            None, self.HOST, "a game", "Tim", title="Looking for Game", **kwargs)
-        return next(b["custom_id"] for b in data["components"][0]["components"]
-                    if di.decode_custom_id(b["custom_id"])[0] == "lfg_edit")
-
-    def test_a_beta_post_marks_edit_and_keeps_the_owner_last(self):
-        """/lfg-beta's kick marker rides AHEAD of the owner, so the lock still fires."""
-        self.assertEqual(self._edit_custom_id(beta=True), f"lfg_edit:b:{self.HOST}")
-
-    def test_a_regular_post_has_no_beta_marker(self):
-        self.assertEqual(self._edit_custom_id(), f"lfg_edit:{self.HOST}")
+            None, self.HOST, "a game", "Tim", title="Looking for Game")
+        edit_id = next(b["custom_id"] for b in data["components"][0]["components"]
+                       if di.decode_custom_id(b["custom_id"])[0] == "lfg_edit")
+        self.assertEqual(edit_id, f"lfg_edit:{self.HOST}")
 
 
 class LFGPresentationTests(TestCase):
@@ -3816,7 +3810,7 @@ class LFGEditTests(TestCase):
         data = json.loads(response.content)
         self.assertIn("Couldn't find that message", data["data"]["content"])
 
-    # ── kicking (/lfg-beta posts only) ─────────────────────────────────────
+    # ── kicking ────────────────────────────────────────────────────────────
 
     P1 = "830000000000000066"
     P2 = "830000000000000077"
@@ -3825,12 +3819,10 @@ class LFGEditTests(TestCase):
         names = {self.HOST: "Tim", self.P1: "Ann", self.P2: "Bob"}
         return "\n".join(f"{names[i]} (<@{i}>)" for i in ids)
 
-    def _beta_click(self, *player_ids, beta=True):
+    def _roster_click(self, *player_ids):
         payload = self._click_payload(self.HOST)
         payload["message"]["embeds"][0]["fields"][0]["value"] = self._roster(
             self.HOST, *player_ids)
-        if beta:
-            payload["data"]["custom_id"] = di.encode_custom_id("lfg_edit", "b", self.HOST)
         return payload
 
     def _modal_components(self, payload):
@@ -3840,8 +3832,8 @@ class LFGEditTests(TestCase):
         response = di._handle_lfg_edit(self._click_payload(self.HOST))
         self.assertEqual(json.loads(response.content)["data"]["title"], "Edit LFG")
 
-    def test_a_beta_modal_lists_the_non_host_players_to_kick(self):
-        components = self._modal_components(self._beta_click(self.P1, self.P2))
+    def test_the_modal_lists_the_non_host_players_to_kick(self):
+        components = self._modal_components(self._roster_click(self.P1, self.P2))
         self.assertEqual(len(components), 2)
         select = components[1]["component"]
         self.assertEqual(select["custom_id"], "kick")
@@ -3853,8 +3845,8 @@ class LFGEditTests(TestCase):
         self.assertEqual([(o["label"], o["value"]) for o in select["options"]],
                          [("Ann", self.P1), ("Bob", self.P2)])
 
-    def test_the_beta_button_is_still_host_locked(self):
-        payload = self._beta_click(self.P1)
+    def test_kicking_is_still_host_locked(self):
+        payload = self._roster_click(self.P1)
         payload["member"]["user"]["id"] = self.OTHER
         with mock.patch.object(di, "_verify_signature", return_value=True):
             response = self.client.post(
@@ -3862,13 +3854,17 @@ class LFGEditTests(TestCase):
                 content_type="application/json")
         self.assertIn("Only the host", json.loads(response.content)["data"]["content"])
 
-    def test_a_beta_modal_with_only_the_host_has_no_select(self):
+    def test_a_modal_with_only_the_host_has_no_select(self):
         """Discord rejects a select with no options."""
-        self.assertEqual(len(self._modal_components(self._beta_click())), 1)
+        self.assertEqual(len(self._modal_components(self._roster_click())), 1)
 
-    def test_a_regular_modal_never_offers_kicking(self):
-        components = self._modal_components(self._beta_click(self.P1, beta=False))
-        self.assertEqual(len(components), 1)
+    def test_a_legacy_beta_button_still_offers_kicking(self):
+        """Posts made under the old /lfg-beta carry `lfg_edit:b:{owner}`."""
+        payload = self._roster_click(self.P1)
+        payload["data"]["custom_id"] = di.encode_custom_id("lfg_edit", "b", self.HOST)
+        components = self._modal_components(payload)
+        self.assertEqual(len(components), 2)
+        self.assertEqual(components[1]["component"]["custom_id"], "kick")
 
     def _kick_submit(self, kick, value="New text"):
         payload = self._submit_payload(value=value)
@@ -5862,45 +5858,20 @@ class RegisterGuildCommandsBodyTests(TestCase):
 
     # ── beta-tester mechanism ──────────────────────────────────────────────
 
-    def test_a_non_beta_guild_gets_no_beta_commands(self):
-        self.guild.enabled_commands = ["lfg"]
-        self.guild.is_beta_tester = False
-        self.guild.save()
-        self.assertNotIn("lfg-beta", self._body())
-
-    def test_a_beta_guild_gets_lfg_beta_alongside_lfg(self):
+    def test_a_beta_guild_no_longer_gets_lfg_beta(self):
+        """Kicking graduated into /lfg itself, so there's no beta variant left."""
         self.guild.enabled_commands = ["lfg"]
         self.guild.is_beta_tester = True
         self.guild.save()
         body = self._body()
         self.assertIn("lfg", body)
-        self.assertIn("lfg-beta", body)
-
-    def test_a_beta_guild_without_lfg_enabled_gets_no_lfg_beta(self):
-        """The beta variant is always an ADDITION alongside the real command,
-        never a replacement -- a guild can't get it without lfg itself."""
-        self.guild.enabled_commands = ["stats"]
-        self.guild.is_beta_tester = True
-        self.guild.save()
-        self.assertNotIn("lfg-beta", self._body())
-
-    def test_the_beta_variant_matches_the_reals_lfg_shape(self):
-        """lfg-beta reuses lfg_command_for_roles, so it can never silently drift
-        from what the real /lfg would show this guild."""
-        self.guild.enabled_commands = ["lfg"]
-        self.guild.is_beta_tester = True
-        self.guild.save()
-        for i in range(2):
-            GuildLFGRole.objects.create(guild=self.guild, name="Tag %d" % i,
-                                        role_id=str(100000000000000800 + i))
-        body = self._body()
-        self.assertEqual(self._opts(body["lfg"]), self._opts(body["lfg-beta"]))
+        self.assertNotIn("lfg-beta", body)
 
 
 class ApplicationCommandBetaDispatchTests(TestCase):
     """The dispatcher's generic "-beta" suffix stripping: a beta-suffixed command
-    name resolves to the SAME handler as its base name, with source unset for the
-    real command and set for the beta one."""
+    name resolves to the SAME handler as its base name, with data["_beta"] set
+    only for the beta one."""
 
     def _post(self, command_name):
         payload = {
@@ -5930,8 +5901,10 @@ class ApplicationCommandBetaDispatchTests(TestCase):
         return next(b["custom_id"] for b in buttons
                     if di.decode_custom_id(b["custom_id"])[0] == "lfg_edit")
 
-    def test_lfg_beta_posts_a_kick_enabled_edit_button(self):
-        self.assertEqual(self._edit_custom_id("lfg-beta"), "lfg_edit:b:901")
+    def test_a_stale_lfg_beta_invocation_still_posts_lfg(self):
+        """A beta guild not yet re-registered still has /lfg-beta in its picker;
+        the suffix is stripped and it posts an ordinary /lfg."""
+        self.assertEqual(self._edit_custom_id("lfg-beta"), "lfg_edit:901")
 
     def test_lfg_posts_a_plain_edit_button(self):
         self.assertEqual(self._edit_custom_id("lfg"), "lfg_edit:901")

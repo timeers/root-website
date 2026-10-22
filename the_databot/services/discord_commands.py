@@ -814,8 +814,6 @@ def lfg_command_for_roles(roles):
 # would show that guild.
 #
 # Currently:
-#   * /lfg-beta, whose posts' Edit modal can also kick joined players (see
-#     _lfg_message_data's `beta` flag).
 #   * /schedule-beta, carrying ONLY the `poll` subcommand, whose prompt can add
 #     alternative times to vote on (see POLL_MULTI_MODE). Only when the guild has
 #     schedule_poll enabled: /schedule is registered whenever ANY of its
@@ -827,7 +825,6 @@ def lfg_command_for_roles(roles):
 # dispatcher changes, no new model field, no new COMMAND_HANDLERS wiring (the
 # dispatcher strips BETA_SUFFIX generically; see discord_interactions()).
 BETA_COMMAND_VARIANTS = {
-    "lfg": lambda guild: lfg_command_for_roles(list(guild.lfg_roles.all())),
     "schedule": lambda guild: parent_command_for_guild(
         SCHEDULE_COMMAND_NAME, set(guild.enabled_commands or ()) & {"schedule_poll"}),
 }
