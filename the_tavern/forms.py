@@ -46,11 +46,20 @@ class SurveyResponseForm(forms.Form):
     Dynamic form for survey responses.
     Form fields are created based on the survey's questions.
     """
-    def __init__(self, *args, survey=None, existing_response=None, **kwargs):
+    def __init__(self, *args, survey=None, existing_response=None, profile=None, **kwargs):
         super().__init__(*args, **kwargs)
 
         if not survey:
             return
+
+        # The respondent, for questions that pre-fill from their profile (TZ)
+        # or their General Availability (WA).
+        if profile is None and existing_response is not None:
+            profile = existing_response.profile
+        # Only the FIRST General Availability grid is pre-filled: the save is a
+        # union of every WA grid, so pre-filling them all would make removing
+        # an hour mean clearing it in each one.
+        wa_prefilled = False
 
         # Create a field for each question in the survey (only non-hidden)
         for question in survey.questions.filter(is_hidden=False):
@@ -159,6 +168,28 @@ class SurveyResponseForm(forms.Form):
                 self.fields[f'{field_name}_timezone'] = forms.CharField(
                     required=False, widget=forms.HiddenInput
                 )
+                if not wa_prefilled:
+                    wa_prefilled = True
+                    self._prefill_general_availability(
+                        field_name, question, profile, existing_response)
+
+            # Timezone - confirms or changes the respondent's profile timezone.
+            # Same curated list as /availability; the page's script adds the
+            # browser-detected zone on top, which TimezoneChoiceField accepts.
+            elif question.question_type == 'TZ':
+                from the_databot.services.time_parsing import timezone_choice_groups
+                from the_gatehouse.forms import TimezoneChoiceField
+                initial_tz = self._initial_timezone(question, profile, existing_response)
+                current = self.data.get(field_name) if self.is_bound else initial_tz
+                self.fields[field_name] = TimezoneChoiceField(
+                    label=question.text,
+                    choices=[('', '---------')] + timezone_choice_groups(current=current),
+                    required=question.required,
+                    help_text=question.help_text,
+                    widget=forms.Select(attrs={'class': 'form-select', 'data-tz-question': '1'})
+                )
+                if initial_tz:
+                    self.initial[field_name] = initial_tz
 
             # Open Ended
             elif question.question_type == 'OE':
@@ -292,16 +323,6 @@ class SurveyResponseForm(forms.Form):
                         # Time/Day availability - multiple choices
                         self.initial[field_name] = list(answer.selected_choices.values_list('id', flat=True))
 
-                    elif question.question_type == 'WA':
-                        # Stored UTC, drawn locally: convert back so the grid
-                        # re-renders the cells the respondent actually painted.
-                        from the_gatehouse.services.availability import utc_to_local_hours
-                        tz_name = getattr(
-                            getattr(existing_response, 'profile', None), 'timezone', None)
-                        local = utc_to_local_hours(answer.availability_hours or [], tz_name)
-                        self.initial[field_name] = ','.join(str(h) for h in local)
-                        self.initial[f'{field_name}_timezone'] = tz_name or 'UTC'
-
                     elif question.question_type == 'OE':
                         # Open ended
                         self.initial[field_name] = answer.text_answer
@@ -342,3 +363,68 @@ class SurveyResponseForm(forms.Form):
 
                 except Answer.DoesNotExist:
                     pass
+
+    def _prefill_general_availability(self, field_name, question, profile,
+                                      existing_response):
+        """Start a General Availability (WA) grid on the respondent's CURRENT
+        General Availability -- the same schedule /availability edits and that
+        saving this survey writes back.
+
+        Sources, first NON-EMPTY wins:
+          1. the General row (week_start=None);
+          2. on edit, the hours saved on this response;
+          3. nothing.
+        An empty General row counts as unset: /availability creates one on a
+        bare visit, so it isn't availability the player actually chose -- the
+        saved answer, if any, is a better starting point.
+
+        Stored UTC, drawn locally. Converted in the profile's zone, the same
+        one the grid is labelled and posted in (_survey_grid_timezone). With no
+        profile zone the page would draw in the BROWSER's zone, which the
+        server can't know -- so pre-filled cells are drawn in UTC instead and
+        the posted zone pinned to UTC to match.
+        """
+        if profile is None:
+            return
+        from the_gatehouse.models import PlayerSchedule
+        from the_gatehouse.services.availability import utc_to_local_hours
+        from the_databot.services.time_parsing import valid_timezone
+
+        hours = (PlayerSchedule.objects
+                 .filter(profile=profile, week_start=None)
+                 .values_list('available_hours', flat=True).first())
+        if not hours and existing_response is not None:
+            from .models import Answer
+            hours = (Answer.objects
+                     .filter(response=existing_response, question=question)
+                     .values_list('availability_hours', flat=True).first())
+        if not hours:
+            return
+
+        tz_name = profile.timezone if valid_timezone(profile.timezone) else None
+        local = utc_to_local_hours(hours, tz_name or 'UTC')
+        self.initial[field_name] = ','.join(str(h) for h in local)
+        if tz_name is None:
+            self.initial[f'{field_name}_timezone'] = 'UTC'
+
+    @staticmethod
+    def _initial_timezone(question, profile, existing_response):
+        """What a TZ question starts on: the CURRENT profile zone, then the zone
+        saved on this response.
+
+        Profile first, even when editing: every save copies the answer to the
+        profile, so pre-filling a stale saved answer would quietly roll back a
+        zone the player changed since (on /availability or in the bot) the
+        moment they edit some unrelated answer.
+        """
+        from the_databot.services.time_parsing import valid_timezone
+        profile_tz = getattr(profile, 'timezone', None)
+        if valid_timezone(profile_tz):
+            return profile_tz
+        if existing_response is not None:
+            from .models import Answer
+            saved = (Answer.objects.filter(response=existing_response, question=question)
+                     .values_list('text_answer', flat=True).first())
+            if valid_timezone(saved):
+                return saved
+        return None

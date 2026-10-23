@@ -509,21 +509,14 @@ class Survey(models.Model):
             'response_count': stats['response_count'] or 0,
         }
 
-    def has_availability_questions(self):
-        """Whether this survey asks about availability at all.
-
-        Also decides whether a submission may WRITE a PlayerSchedule -- see
-        _save_response_availability. A survey with none of these must never
-        touch a player's schedule, or an unrelated tournament survey would
-        clear availability the player set on /availability.
-        """
+    def has_weekly_availability_question(self):
+        """True if a visible WEEKLY_AVAILABILITY question is on the take page.
+        A Timezone question uses it to warn that its grid is drawn in the zone
+        already on record, not the one being picked."""
         from .models import Question
         return self.questions.filter(
-            question_type__in=[
-                Question.QuestionType.TIME_AVAILABILITY,
-                Question.QuestionType.DAY_AVAILABILITY,
-                Question.QuestionType.WEEKLY_AVAILABILITY,
-            ]
+            is_hidden=False,
+            question_type=Question.QuestionType.WEEKLY_AVAILABILITY,
         ).exists()
 
 
@@ -634,8 +627,9 @@ class Question(models.Model):
         DATETIME = 'DT', 'Date & Time'
         TIME_AVAILABILITY = 'TA', 'Time Availability'
         DAY_AVAILABILITY = 'DY', 'Day Availability'
-        WEEKLY_AVAILABILITY = 'WA', 'Weekly Availability'
+        WEEKLY_AVAILABILITY = 'WA', 'General Availability'
         NUMERIC = 'NU', 'Numeric'
+        TIMEZONE = 'TZ', 'Timezone'
 
     survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='questions')
     section = models.ForeignKey(
@@ -1329,27 +1323,41 @@ class Answer(models.Model):
                 hours = []
             if not isinstance(hours, list):
                 raise ValidationError(
-                    "Weekly availability must be a list of hour-of-week integers.")
+                    "General availability must be a list of hour-of-week integers.")
             for value in hours:
                 # bool is a subclass of int, so JSON `true` would otherwise pass
                 # as hour 1. Reachable from a crafted POST, not just in theory.
                 if isinstance(value, bool) or not isinstance(value, int):
                     raise ValidationError(
-                        "Weekly availability hours must be integers.")
+                        "General availability hours must be integers.")
                 if not 0 <= value < 168:
                     raise ValidationError(
-                        "Weekly availability hours must be between 0 and 167.")
+                        "General availability hours must be between 0 and 167.")
             if len(set(hours)) != len(hours):
                 raise ValidationError(
-                    "Weekly availability hours must not contain duplicates.")
+                    "General availability hours must not contain duplicates.")
             if self.question.required and not hours:
                 raise ValidationError(
-                    "Weekly availability question requires at least one hour.")
+                    "General availability question requires at least one hour.")
             # selected_choices is deliberately NOT checked: like the MS/TA/DY
             # arms above, the M2M isn't populated yet at full_clean() time.
             if self.selected_choice or self.text_answer:
                 raise ValidationError(
-                    "Only availability hours are allowed for weekly availability.")
+                    "Only availability hours are allowed for general availability.")
+
+        # TIMEZONE - an IANA zone name in text_answer. Not limited to the
+        # curated picker list: the browser-detected option posts any real zone.
+        elif qtype == Question.QuestionType.TIMEZONE:
+            from the_databot.services.time_parsing import valid_timezone
+            if self.question.required and not self.text_answer:
+                raise ValidationError("Timezone question requires a timezone.")
+            if self.text_answer and not valid_timezone(self.text_answer):
+                raise ValidationError("That isn't a timezone we recognize.")
+            # selected_choices is deliberately NOT checked, as for WA above.
+            if (self.selected_choice or self.numeric_answer is not None
+                    or self.date_answer or self.time_answer
+                    or self.availability_hours is not None):
+                raise ValidationError("Only a timezone is allowed for timezone questions.")
 
         # OPEN ENDED
         elif qtype == Question.QuestionType.OPEN_ENDED:
@@ -1491,6 +1499,16 @@ class Answer(models.Model):
             return self.get_weekly_availability_display()
         elif qtype == Question.QuestionType.OPEN_ENDED:
             return self.text_answer or "No answer"
+        elif qtype == Question.QuestionType.TIMEZONE:
+            # Label plus the IANA name, but no UTC offset: this feeds the CSV
+            # export, and an offset would make the same zone read differently
+            # depending on whether it was exported in summer or winter.
+            from the_databot.services.time_parsing import timezone_label
+            zone = self.text_answer
+            if not zone:
+                return "No answer"
+            label = timezone_label(zone)
+            return f"{label} ({zone})" if label != zone else zone
         elif qtype == Question.QuestionType.BOOLEAN:
             return self.selected_choice.get_display_text() if self.selected_choice else "No answer"
         elif qtype == Question.QuestionType.SCALE:

@@ -1,14 +1,16 @@
 """
 Create the public 'Timezone' question template if it doesn't already exist.
 
-A Multiple Choice question rendered as a dropdown (display_as_dropdown=True),
-pre-filled with a curated list of the timezones players actually use. Labels
-include the IANA name (or a bare "UTC") in parentheses: _survey_timezone_answer
-(views.py) reads it back out of the chosen answer, so a label without one never
-sets the response's timezone.
+A Timezone (TZ) question: the same timezone picker as /availability, pre-filled
+with the respondent's profile timezone (or the one their browser reports), whose
+answer updates their profile. It carries no choices -- the list comes from
+the_databot.services.time_parsing.timezone_choice_groups at render time.
 
 Safe to re-run: an existing public 'Timezone' template is left untouched unless
---update is passed.
+--update is passed. --update also converts the older Multiple Choice version of
+this template (25 hard-coded zones) and clears its choices. Copies of that old
+MC question already on surveys no longer update profiles -- only TZ questions
+do -- so replace them with a Timezone question to restore that.
 
     python manage.py seed_timezone_template
 """
@@ -18,46 +20,18 @@ from the_tavern.models import Question, QuestionTemplate
 
 TEMPLATE_NAME = "Timezone"
 
-# Curated US + common gameplay zones. Label is what respondents see and what is
-# stored as the Choice text; the IANA name in parentheses keeps it unambiguous.
-TIMEZONE_CHOICES = [
-    # US
-    "US Pacific — PT (America/Los_Angeles)",
-    "US Mountain — MT (America/Denver)",
-    "US Arizona — MST, no DST (America/Phoenix)",
-    "US Central — CT (America/Chicago)",
-    "US Eastern — ET (America/New_York)",
-    "US Alaska — AKT (America/Anchorage)",
-    "US Hawaii — HST (Pacific/Honolulu)",
-    # Americas (other)
-    "Atlantic — AT (America/Halifax)",
-    "Mexico City (America/Mexico_City)",
-    "Brazil — São Paulo (America/Sao_Paulo)",
-    # Europe
-    "UK / Ireland — GMT/BST (Europe/London)",
-    "Central Europe — CET/CEST (Europe/Paris)",
-    "Eastern Europe — EET/EEST (Europe/Athens)",
-    "Moscow — MSK (Europe/Moscow)",
-    # Asia / Pacific
-    "India — IST (Asia/Kolkata)",
-    "Gulf — Dubai (Asia/Dubai)",
-    "China (Asia/Shanghai)",
-    "Japan — JST (Asia/Tokyo)",
-    "Korea — KST (Asia/Seoul)",
-    "Singapore / Hong Kong (Asia/Singapore)",
-    "Australia Western — AWST (Australia/Perth)",
-    "Australia Central — ACST/ACDT (Australia/Adelaide)",
-    "Australia Eastern — AEST/AEDT (Australia/Sydney)",
-    "New Zealand — NZST/NZDT (Pacific/Auckland)",
-    "Coordinated Universal Time (UTC)",
-]
-
 TEMPLATE_FIELDS = {
     "text": "What is your timezone?",
-    "question_type": Question.QuestionType.MULTIPLE_CHOICE,
+    "question_type": Question.QuestionType.TIMEZONE,
     "required": True,
-    "help_text": "Select the timezone you most commonly play in.",
-    "display_as_dropdown": True,
+    "help_text": "Confirm or update your timezone. This also updates your profile.",
+    "display_as_dropdown": False,
+    "allow_other": False,
+    # Explicitly empty so --update clears the old MC template's 25 zones.
+    "choices_data": [],
+    "correct_choice_index": None,
+    "correct_choice_indices": [],
+    "correct_ranking_indices": [],
 }
 
 
@@ -68,8 +42,8 @@ class Command(BaseCommand):
         parser.add_argument(
             '--update',
             action='store_true',
-            help=("Overwrite an existing public 'Timezone' template's text, "
-                  "settings and choices with the ones defined here.")
+            help=("Overwrite an existing public 'Timezone' template's text "
+                  "and settings with the ones defined here.")
         )
 
     def handle(self, *args, **options):
@@ -83,7 +57,6 @@ class Command(BaseCommand):
         if existing:
             for field, value in TEMPLATE_FIELDS.items():
                 setattr(existing, field, value)
-            existing.choices_data = list(TIMEZONE_CHOICES)
             existing.save()
             self.stdout.write(self.style.SUCCESS(
                 f"Updated public '{TEMPLATE_NAME}' template (id {existing.pk})."))
@@ -93,7 +66,6 @@ class Command(BaseCommand):
             name=TEMPLATE_NAME,
             is_public=True,
             created_by=None,
-            choices_data=list(TIMEZONE_CHOICES),
             **TEMPLATE_FIELDS,
         )
         self.stdout.write(self.style.SUCCESS(

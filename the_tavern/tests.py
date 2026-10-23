@@ -227,7 +227,11 @@ class WeeklyAvailabilityOverrideTests(_SurveyTestBase):
 
 
 class WeeklyAvailabilitySubmissionTests(_SurveyTestBase):
-    """The whole path: form -> view -> Answer -> PlayerSchedule.
+    """The whole path: form -> view -> Answer -> General Availability.
+
+    A General Availability (WA) answer writes the player's GENERAL schedule --
+    the one /availability edits -- on any survey, and on a Series survey also
+    clears their legacy tournament-specific rows for that series.
 
     These are the tests that matter most. A unit test that builds an Answer by
     hand passes whether or not the view creates one, so only a real POST proves
@@ -238,13 +242,19 @@ class WeeklyAvailabilitySubmissionTests(_SurveyTestBase):
         super().setUp()
         from the_warroom.models import Tournament
         self.tournament = Tournament.objects.create(name='WA Cup', designer=self.profile)
-        self.survey = self._survey(series=self.tournament)
+        self.survey = self._survey(series=self.tournament, allow_edit_responses=True)
         self.question = self._wa_question(self.survey)
         self.url = reverse('survey-take', kwargs={'slug': self.survey.slug})
         self.client.force_login(self.user)
 
-    def _post(self, hours, tz='UTC'):
-        return self.client.post(self.url, {
+    def _general(self, profile=None):
+        """The General row's hours, or None when there's no row."""
+        return (PlayerSchedule.objects
+                .filter(profile=profile or self.profile, week_start=None)
+                .values_list('available_hours', flat=True).first())
+
+    def _post(self, hours, tz='UTC', url=None):
+        return self.client.post(url or self.url, {
             f'question_{self.question.id}': ','.join(str(h) for h in hours),
             f'question_{self.question.id}_timezone': tz,
             'timezone_offset_hours': '0',
@@ -264,14 +274,25 @@ class WeeklyAvailabilitySubmissionTests(_SurveyTestBase):
         answer = Answer.objects.get(question=self.question)
         self.assertEqual(answer.availability_hours, [4])   # Monday 04:00 UTC
 
-    def test_a_submission_stores_hours_and_writes_the_schedule(self):
+    def test_a_submission_writes_general_availability(self):
         self._post([10, 11, 12])
 
         answer = Answer.objects.get(question=self.question)
         self.assertEqual(answer.availability_hours, [10, 11, 12])
-        schedule = PlayerSchedule.objects.get(
-            profile=self.profile, tournament=self.tournament)
-        self.assertEqual(schedule.available_hours, [10, 11, 12])
+        self.assertEqual(self._general(), [10, 11, 12])
+        self.assertEqual(PlayerSchedule.objects.filter(profile=self.profile).count(), 1)
+
+    def test_a_survey_without_a_series_writes_general_availability_too(self):
+        """Reverses the old "a one-off poll must not touch General" rule: the
+        grid is General Availability, pre-filled and labelled as such."""
+        survey = self._survey(title='No series')
+        question = self._wa_question(survey)
+        self.client.post(reverse('survey-take', kwargs={'slug': survey.slug}), {
+            f'question_{question.id}': '20,21',
+            f'question_{question.id}_timezone': 'UTC',
+            'timezone_offset_hours': '0',
+        })
+        self.assertEqual(self._general(), [20, 21])
 
     def test_local_hours_are_converted_to_utc(self):
         """The grid is painted locally; the server converts using ZoneInfo, so
@@ -282,44 +303,59 @@ class WeeklyAvailabilitySubmissionTests(_SurveyTestBase):
         # Monday 14:00 in New York (UTC-5 on the reference week) is 19:00 UTC.
         self.assertEqual(answer.availability_hours, [19])
 
-    def test_an_empty_grid_clears_the_schedule(self):
+    def test_an_empty_grid_clears_general_availability(self):
         """The case the `if answer_data:` guard used to swallow: with no Answer
-        row created, the override never fires and an emptied grid silently kept
-        the old schedule."""
-        PlayerSchedule.objects.create(
-            profile=self.profile, tournament=self.tournament,
-            available_hours=[1, 2, 3])
+        row created, an emptied grid silently kept the old schedule."""
+        general = PlayerSchedule.objects.create(profile=self.profile, available_hours=[1, 2, 3])
 
         self._post([])
 
         answer = Answer.objects.get(question=self.question)
         self.assertEqual(answer.availability_hours, [])
-        schedule = PlayerSchedule.objects.get(
-            profile=self.profile, tournament=self.tournament)
-        self.assertEqual(schedule.available_hours, [])
+        general.refresh_from_db()
+        self.assertEqual(general.available_hours, [])
 
-    def test_a_week_specific_row_does_not_break_the_lookup(self):
-        """A player who ALSO has a week-specific row for this tournament (set via
-        the /availability navigator) must not make the standing-row lookup match
-        two rows -- update_or_create pins week_start=None explicitly for exactly
-        this reason."""
+    def test_a_week_row_and_another_players_rows_are_untouched(self):
+        """The answer is General Availability only: Day by Day overrides and
+        other players' schedules are left exactly as they were."""
         from datetime import date
-        PlayerSchedule.objects.create(
-            profile=self.profile, tournament=self.tournament, week_start=None,
-            available_hours=[1, 2, 3])
-        PlayerSchedule.objects.create(
-            profile=self.profile, tournament=self.tournament, week_start=date(2026, 9, 14),
-            available_hours=[9, 9])
+        from django.contrib.auth.models import User
+        week = PlayerSchedule.objects.create(
+            profile=self.profile, week_start=date(2026, 9, 14), available_hours=[9])
+        other = User.objects.create_user(username='other', password='pw').profile
+        PlayerSchedule.objects.create(profile=other, available_hours=[5])
 
         response = self._post([14])
         self.assertEqual(response.status_code, 302)
 
-        standing = PlayerSchedule.objects.get(
-            profile=self.profile, tournament=self.tournament, week_start=None)
-        self.assertEqual(standing.available_hours, [14])  # default _post tz is UTC
-        week_row = PlayerSchedule.objects.get(
-            profile=self.profile, tournament=self.tournament, week_start=date(2026, 9, 14))
-        self.assertEqual(week_row.available_hours, [9, 9])  # untouched
+        self.assertEqual(self._general(), [14])
+        week.refresh_from_db()
+        self.assertEqual(week.available_hours, [9])
+        self.assertEqual(self._general(other), [5])
+
+    def test_editing_a_response_updates_general_availability(self):
+        self._post([10])
+        response = SurveyResponse.objects.get(survey=self.survey)
+
+        self._post([30, 31], url=reverse('survey-edit-response', kwargs={
+            'slug': self.survey.slug, 'response_id': response.pk}))
+
+        self.assertEqual(self._general(), [30, 31])
+
+    def test_a_time_and_day_only_survey_writes_nothing(self):
+        """TA/DY answers are too coarse to stand in for a painted grid -- they
+        stay survey data and no schedule changes."""
+        PlayerSchedule.objects.create(profile=self.profile, available_hours=[1, 2, 3])
+        survey = self._survey(title='Old style', series=self.tournament)
+        ta = self._ta_question(survey, order=1)
+        hour = ta.choices.get(text='14')
+
+        self.client.post(reverse('survey-take', kwargs={'slug': survey.slug}), {
+            f'question_{ta.id}': [str(hour.id)], 'timezone_offset_hours': '0'})
+
+        self.assertTrue(SurveyResponse.objects.filter(survey=survey).exists())
+        self.assertEqual(self._general(), [1, 2, 3])
+        self.assertEqual(PlayerSchedule.objects.filter(profile=self.profile).count(), 1)
 
     def test_an_invalid_timezone_falls_back_rather_than_erroring(self):
         response = self._post([10], tz='Not/AZone')
@@ -328,11 +364,9 @@ class WeeklyAvailabilitySubmissionTests(_SurveyTestBase):
                          [10])
 
     def test_a_survey_with_no_availability_questions_writes_nothing(self):
-        """Guards the other direction: this runs on every submission for a
-        series survey, so an unrelated poll must not clear a schedule."""
-        PlayerSchedule.objects.create(
-            profile=self.profile, tournament=self.tournament,
-            available_hours=[1, 2, 3])
+        """Guards the other direction: this runs on every submission, so an
+        unrelated poll must not clear a schedule."""
+        PlayerSchedule.objects.create(profile=self.profile, available_hours=[7])
         other = self._survey(title='Opinions', series=self.tournament)
         Question.objects.create(survey=other, text='Thoughts?',
                                 question_type=Question.QuestionType.OPEN_ENDED,
@@ -342,9 +376,7 @@ class WeeklyAvailabilitySubmissionTests(_SurveyTestBase):
                          {f'question_{other.questions.first().id}': 'hi',
                           'timezone_offset_hours': '0'})
 
-        schedule = PlayerSchedule.objects.get(
-            profile=self.profile, tournament=self.tournament)
-        self.assertEqual(schedule.available_hours, [1, 2, 3])
+        self.assertEqual(self._general(), [7])
 
     def test_the_grid_renders_on_the_take_page(self):
         response = self.client.get(self.url)
@@ -371,11 +403,6 @@ class WeeklyAvailabilityBuilderTests(_SurveyTestBase):
         question = self._wa_question(survey)
         question.save()
         self.assertEqual(question.choices.count(), 0)
-
-    def test_a_survey_with_wa_reports_having_availability_questions(self):
-        survey = self._survey()
-        self._wa_question(survey)
-        self.assertTrue(survey.has_availability_questions())
 
 
 class TimeAvailabilityConversionTests(_SurveyTestBase):
@@ -585,7 +612,8 @@ class SurveyTimezoneNameTests(_SurveyTestBase):
 class SurveyProfileTimezoneTests(_SurveyTestBase):
     """A survey submission seeds a BLANK profile timezone from the browser, so a
     player who never visits /availability still gets their hours shown in their
-    own time. An answered timezone question overwrites whatever is there."""
+    own time. An answered Timezone (TZ) question overwrites whatever is there;
+    the legacy multiple-choice timezone question no longer touches it."""
 
     def setUp(self):
         super().setUp()
@@ -596,9 +624,9 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
         self.url = reverse('survey-take', kwargs={'slug': self.survey.slug})
         self.client.force_login(self.user)
 
-    def _tz_question(self):
-        """A timezone question shaped like the live one: an MC whose choice text
-        carries the IANA name in parentheses."""
+    def _legacy_mc_tz_question(self):
+        """The OLD timezone question: an MC whose choice text carries the IANA
+        name in parentheses. Kept as a fixture to prove it is now ignored."""
         from the_tavern.models import Choice
         question = Question.objects.create(
             survey=self.survey, text='What is your timezone?',
@@ -623,14 +651,13 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.timezone, 'America/Denver')
 
-    def test_a_timezone_question_beats_the_browser(self):
-        """A deliberate answer outranks detection -- someone answering from a
-        hotel should not have their profile rewritten to the hotel's zone."""
-        question, choice = self._tz_question()
+    def test_a_legacy_mc_timezone_answer_does_not_set_the_profile(self):
+        """Only TZ questions write the profile now; the browser seeds it instead."""
+        question, choice = self._legacy_mc_tz_question()
         self._post({f'question_{question.id}': str(choice.id)})
 
         self.profile.refresh_from_db()
-        self.assertEqual(self.profile.timezone, 'America/Los_Angeles')
+        self.assertEqual(self.profile.timezone, 'America/Denver')
 
     def test_an_existing_profile_timezone_is_not_overwritten_by_the_browser(self):
         self.profile.timezone = 'Europe/Berlin'
@@ -641,23 +668,32 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.timezone, 'Europe/Berlin')
 
-    def test_a_timezone_answer_overwrites_an_existing_profile_timezone(self):
+    def test_a_legacy_mc_timezone_answer_leaves_an_existing_profile_alone(self):
         self.profile.timezone = 'Europe/Berlin'
         self.profile.save(update_fields=['timezone'])
-        question, choice = self._tz_question()
+        question, choice = self._legacy_mc_tz_question()
 
         self._post({f'question_{question.id}': str(choice.id)})
 
         self.profile.refresh_from_db()
-        self.assertEqual(self.profile.timezone, 'America/Los_Angeles')
+        self.assertEqual(self.profile.timezone, 'Europe/Berlin')
+
+    def test_a_legacy_mc_timezone_answer_does_not_set_the_response_zone(self):
+        question, choice = self._legacy_mc_tz_question()
+        self._post({f'question_{question.id}': str(choice.id)})
+
+        response = SurveyResponse.objects.get(survey=self.survey)
+        self.assertEqual(response.timezone_name, 'America/Denver')
 
     def test_re_saving_an_edit_with_the_answer_overwrites_again(self):
-        """Every save that carries a timezone answer restates it, even when the
+        """Every save that carries a TZ answer restates it, even when the
         answer itself didn't change."""
         self.survey.allow_edit_responses = True
         self.survey.save(update_fields=['allow_edit_responses'])
-        question, choice = self._tz_question()
-        answer = {f'question_{question.id}': str(choice.id)}
+        question = Question.objects.create(
+            survey=self.survey, text='What is your timezone?',
+            question_type=Question.QuestionType.TIMEZONE, order=5, required=False)
+        answer = {f'question_{question.id}': 'America/Los_Angeles'}
         self._post(answer)
         self.profile.timezone = 'Europe/Berlin'
         self.profile.save(update_fields=['timezone'])
@@ -674,6 +710,221 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
 
         response = SurveyResponse.objects.get(survey=self.survey)
         self.assertEqual(response.timezone_name, 'America/Denver')
+
+
+class TimezoneQuestionTests(_SurveyTestBase):
+    """The Timezone ('TZ') question: the /availability picker inside a survey,
+    pre-filled from the profile, whose answer is stored as an IANA name and
+    copied back to the profile. Any valid zone is accepted -- the page adds the
+    browser-detected zone, which the curated list often lacks."""
+
+    def setUp(self):
+        super().setUp()
+        self.profile.timezone = None
+        self.profile.save(update_fields=['timezone'])
+        self.survey = self._survey(created_by=self.profile, allow_edit_responses=True)
+        self.tz = Question.objects.create(
+            survey=self.survey, text='What is your timezone?',
+            question_type=Question.QuestionType.TIMEZONE, order=1, required=True)
+        self.field = f'question_{self.tz.id}'
+        self.url = reverse('survey-take', kwargs={'slug': self.survey.slug})
+        self.client.force_login(self.user)
+
+    def _post(self, zone, browser='America/Denver', url=None):
+        return self.client.post(url or self.url, {
+            self.field: zone,
+            'timezone_offset_hours': '-7',
+            'timezone_name': browser,
+        })
+
+    def _form(self, **kwargs):
+        from the_tavern.forms import SurveyResponseForm
+        return SurveyResponseForm(survey=self.survey, profile=self.profile, **kwargs)
+
+    def _options(self, form):
+        """Every option value in the TZ select, flattened across optgroups."""
+        values = []
+        for value, label in form.fields[self.field].choices:
+            if isinstance(label, (list, tuple)):
+                values.extend(v for v, _l in label)
+            else:
+                values.append(value)
+        return values
+
+    # ---- saving ------------------------------------------------------------
+
+    def test_an_uncurated_zone_is_saved_to_the_answer_and_the_profile(self):
+        """Darwin isn't in the curated list -- it reaches us through the
+        browser-detected option."""
+        self._post('Australia/Darwin')
+
+        answer = Answer.objects.get(question=self.tz)
+        self.assertEqual(answer.text_answer, 'Australia/Darwin')
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'Australia/Darwin')
+
+    def test_a_legacy_alias_is_stored_as_the_canonical_zone(self):
+        """Chrome reports Asia/Calcutta; the curated list (and labels) use Kolkata."""
+        self._post('Asia/Calcutta')
+
+        self.assertEqual(Answer.objects.get(question=self.tz).text_answer, 'Asia/Kolkata')
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'Asia/Kolkata')
+
+    def test_an_invalid_zone_is_rejected(self):
+        response = self._post('Not/AZone')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(SurveyResponse.objects.filter(survey=self.survey).exists())
+        self.profile.refresh_from_db()
+        self.assertIsNone(self.profile.timezone)
+
+    def test_the_answer_overwrites_an_existing_profile_timezone(self):
+        self.profile.timezone = 'Europe/Berlin'
+        self.profile.save(update_fields=['timezone'])
+
+        self._post('America/Los_Angeles')
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'America/Los_Angeles')
+
+    def test_the_response_keeps_the_browser_zone_for_ta_and_dy(self):
+        """The PROFILE takes the answer, but the response's timezone_name stays
+        the browser's: it interprets TA/DY answers, and the TA grid is drawn in
+        the browser's offset. A pre-filled TZ answer must not shift it."""
+        self._post('America/Los_Angeles', browser='America/Denver')
+
+        response = SurveyResponse.objects.get(survey=self.survey)
+        self.assertEqual(response.timezone_name, 'America/Denver')
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'America/Los_Angeles')
+
+    def test_the_answer_is_the_response_zone_when_the_browser_sent_none(self):
+        self._post('America/Los_Angeles', browser='')
+
+        response = SurveyResponse.objects.get(survey=self.survey)
+        self.assertEqual(response.timezone_name, 'America/Los_Angeles')
+
+    def test_editing_restates_the_answer(self):
+        self._post('America/Los_Angeles')
+        response = SurveyResponse.objects.get(survey=self.survey)
+
+        self._post('Asia/Tokyo', url=reverse('survey-edit-response', kwargs={
+            'slug': self.survey.slug, 'response_id': response.pk}))
+
+        self.assertEqual(Answer.objects.get(question=self.tz).text_answer, 'Asia/Tokyo')
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'Asia/Tokyo')
+
+    # ---- pre-fill and options ----------------------------------------------
+
+    def test_the_take_form_starts_on_the_profile_zone(self):
+        self.profile.timezone = 'Europe/Berlin'
+        self.profile.save(update_fields=['timezone'])
+
+        self.assertEqual(self._form().initial[self.field], 'Europe/Berlin')
+
+    def test_with_no_profile_zone_the_field_starts_blank(self):
+        """Blank is what tells the page's script to select the browser zone."""
+        self.assertNotIn(self.field, self._form().initial)
+
+    def test_editing_starts_on_the_current_profile_zone_not_the_saved_answer(self):
+        """The player changed their zone on /availability after answering. Pre-
+        filling the stale answer would roll that back on any unrelated edit."""
+        self._post('America/Los_Angeles')
+        self.profile.timezone = 'Europe/Berlin'
+        self.profile.save(update_fields=['timezone'])
+        response = SurveyResponse.objects.get(survey=self.survey)
+
+        form = self._form(existing_response=response)
+
+        self.assertEqual(form.initial[self.field], 'Europe/Berlin')
+
+    def test_editing_falls_back_to_the_saved_answer(self):
+        self._post('America/Los_Angeles')
+        self.profile.timezone = None
+        self.profile.save(update_fields=['timezone'])
+        response = SurveyResponse.objects.get(survey=self.survey)
+
+        form = self._form(existing_response=response)
+
+        self.assertEqual(form.initial[self.field], 'America/Los_Angeles')
+
+    def test_the_options_match_the_availability_picker(self):
+        from the_gatehouse.forms import PlayerScheduleForm
+        survey_options = self._options(self._form())
+        availability_options = [
+            v for _g, opts in PlayerScheduleForm().fields['timezone'].choices
+            for v, _l in opts]
+
+        self.assertEqual(survey_options[0], '')  # the "---------" placeholder
+        self.assertEqual(survey_options[1:], availability_options)
+
+    def test_an_uncurated_profile_zone_is_offered_and_selected(self):
+        """Otherwise the select can't show it, and saving would overwrite it."""
+        self.profile.timezone = 'Australia/Darwin'
+        self.profile.save(update_fields=['timezone'])
+
+        form = self._form()
+
+        self.assertIn('Australia/Darwin', self._options(form))
+        self.assertEqual(form.initial[self.field], 'Australia/Darwin')
+
+    def test_a_posted_uncurated_zone_stays_selectable_on_re_render(self):
+        from the_tavern.forms import SurveyResponseForm
+        form = SurveyResponseForm({self.field: 'Australia/Darwin'},
+                                  survey=self.survey, profile=self.profile)
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIn('Australia/Darwin', self._options(form))
+
+    def test_the_take_page_renders_the_picker(self):
+        page = self.client.get(self.url)
+
+        self.assertContains(page, 'data-tz-question')
+        self.assertContains(page, 'timezone_select.js')
+
+    # ---- display -------------------------------------------------------------
+
+    def test_display_value_has_no_offset(self):
+        """CSV/admin text must not change between summer and winter exports."""
+        response = self._response(self.survey)
+        curated = Answer.objects.create(response=response, question=self.tz,
+                                        text_answer='Asia/Tokyo')
+        self.assertEqual(curated.get_display_value(), 'Tokyo (Asia/Tokyo)')
+        curated.text_answer = 'Australia/Darwin'
+        self.assertEqual(curated.get_display_value(), 'Australia/Darwin')
+        curated.text_answer = None
+        self.assertEqual(curated.get_display_value(), 'No answer')
+
+    def test_csv_export_and_results_show_the_zone(self):
+        self._post('Asia/Tokyo')
+
+        csv_body = self.client.get(reverse(
+            'survey-export-csv', kwargs={'slug': self.survey.slug})).content.decode()
+        self.assertIn('Tokyo (Asia/Tokyo)', csv_body)
+
+        results = self.client.get(reverse('survey-results', kwargs={'slug': self.survey.slug}))
+        self.assertEqual(results.status_code, 200)
+        self.assertContains(results, 'Tokyo')
+
+    # ---- Answer.clean() ------------------------------------------------------
+
+    def test_full_clean_accepts_a_valid_zone(self):
+        answer = Answer(response=self._response(self.survey), question=self.tz,
+                        text_answer='Australia/Darwin')
+        answer.full_clean()
+
+    def test_full_clean_rejects_an_invalid_zone(self):
+        answer = Answer(response=self._response(self.survey), question=self.tz,
+                        text_answer='Not/AZone')
+        with self.assertRaises(ValidationError):
+            answer.full_clean()
+
+    def test_full_clean_rejects_a_missing_required_zone(self):
+        answer = Answer(response=self._response(self.survey), question=self.tz)
+        with self.assertRaises(ValidationError):
+            answer.full_clean()
 
 
 class WeeklyAvailabilityGridRenderTests(_SurveyTestBase):
@@ -735,6 +986,126 @@ class WeeklyAvailabilityGridRenderTests(_SurveyTestBase):
         ):
             self.assertEqual(len(page.context['days']), 7)
             self.assertEqual(len(page.context['hours']), 24)
+
+
+class GeneralAvailabilityPrefillTests(_SurveyTestBase):
+    """A General Availability (WA) grid starts on the player's CURRENT General
+    Availability -- on take and on edit -- not on a saved answer that goes stale
+    the moment they change /availability."""
+
+    def setUp(self):
+        super().setUp()
+        from the_warroom.models import Tournament
+        self.tournament = Tournament.objects.create(name='Prefill Cup', designer=self.profile)
+        self.survey = self._survey(series=self.tournament, allow_edit_responses=True)
+        self.question = self._wa_question(self.survey)
+        self.field = f'question_{self.question.id}'
+        self.take_url = reverse('survey-take', kwargs={'slug': self.survey.slug})
+        self.client.force_login(self.user)
+
+    def _form(self, **kwargs):
+        from the_tavern.forms import SurveyResponseForm
+        return SurveyResponseForm(survey=self.survey, profile=self.profile, **kwargs)
+
+    def _general(self, hours):
+        return PlayerSchedule.objects.create(profile=self.profile, available_hours=hours)
+
+    def _answered(self, hours):
+        response = SurveyResponse.objects.create(
+            survey=self.survey, profile=self.profile, timezone_name='UTC')
+        Answer.objects.create(response=response, question=self.question,
+                              availability_hours=hours)
+        return response
+
+    def test_the_take_form_starts_on_general_availability(self):
+        self._general([10, 11])
+        self.assertEqual(self._form().initial[self.field], '10,11')
+
+    def test_editing_starts_on_general_availability_not_the_saved_answer(self):
+        response = self._answered([10, 11])
+        self._general([30, 31])
+
+        self.assertEqual(self._form(existing_response=response).initial[self.field], '30,31')
+
+    def test_an_empty_general_row_falls_through_to_the_saved_answer(self):
+        """/availability creates an empty General row on a bare visit; that
+        isn't availability the player chose, so the saved answer wins."""
+        response = self._answered([40])
+        self._general([])
+        self.assertEqual(self._form(existing_response=response).initial[self.field], '40')
+
+    def test_an_empty_general_row_and_no_answer_start_blank(self):
+        self._general([])
+        self.assertNotIn(self.field, self._form().initial)
+
+    def test_with_no_general_availability_editing_falls_back_to_the_answer(self):
+        response = self._answered([10, 11])
+        self.assertEqual(self._form(existing_response=response).initial[self.field], '10,11')
+
+    def test_with_nothing_to_go_on_the_grid_starts_blank(self):
+        self.assertNotIn(self.field, self._form().initial)
+
+    def test_only_the_first_grid_is_prefilled(self):
+        """The save unions every grid, so pre-filling them all would mean
+        removing an hour from each one."""
+        second = self._wa_question(self.survey, order=2, text='Again?')
+        self._general([10])
+        form = self._form()
+        self.assertEqual(form.initial[self.field], '10')
+        self.assertNotIn(f'question_{second.id}', form.initial)
+
+    def test_prefilled_hours_are_drawn_in_the_profile_zone_and_round_trip(self):
+        """An untouched submit must leave General exactly as it was, in a :30
+        zone too -- utc_to_local_hours and local_to_utc_hours are inverses."""
+        self.profile.timezone = 'Asia/Kolkata'
+        self.profile.save(update_fields=['timezone'])
+        self._general([4, 100])  # Mon 04:00 UTC, Fri 04:00 UTC
+
+        initial = self._form().initial[self.field]
+        self.assertEqual(initial, '9,105')  # 9:30am local, shown as row 9
+
+        self.client.post(self.take_url, {
+            self.field: initial,
+            f'{self.field}_timezone': 'Asia/Kolkata',
+            'timezone_offset_hours': '5.5',
+        })
+        general = PlayerSchedule.objects.get(
+            profile=self.profile, week_start=None)
+        self.assertEqual(general.available_hours, [4, 100])
+
+    def test_without_a_profile_zone_prefilled_cells_are_pinned_to_utc(self):
+        """The page would otherwise draw in the browser's zone, which the server
+        couldn't have converted for -- shifting every cell on an untouched save."""
+        self.profile.timezone = None
+        self.profile.save(update_fields=['timezone'])
+        self._general([10])
+
+        form = self._form()
+        self.assertEqual(form.initial[self.field], '10')
+        self.assertEqual(form.initial[f'{self.field}_timezone'], 'UTC')
+
+        page = self.client.get(self.take_url)
+        self.assertContains(page, f'id="wa_tz_{self.question.id}" class="js-wa-timezone"\n'
+                                  f'                                   value="UTC"')
+        self.assertContains(page, "shown in UTC because you haven")
+
+    def test_the_note_says_whether_general_availability_is_set(self):
+        self.assertContains(self.client.get(self.take_url),
+                            'your selections here will set your availability')
+        self._general([10])
+        self.assertContains(self.client.get(self.take_url),
+                            'This is your General Availability')
+
+    def test_an_empty_general_row_counts_as_not_set(self):
+        self._general([])
+        self.assertContains(self.client.get(self.take_url), 'your selections here will set your availability')
+
+    def test_the_preview_renders(self):
+        self.survey.created_by = self.profile
+        self.survey.save(update_fields=['created_by'])
+        page = self.client.get(reverse('survey-preview', kwargs={'slug': self.survey.slug}))
+        self.assertEqual(page.status_code, 200)
+        self.assertNotContains(page, 'This is your General Availability')
 
 
 class OtherTextDisplayTests(_SurveyTestBase):
@@ -947,60 +1318,39 @@ class SeedTimezoneTemplateCommandTests(TestCase):
         return QuestionTemplate.objects.filter(name='Timezone', is_public=True)
 
     def test_creates_the_public_template(self):
-        from the_tavern.management.commands.seed_timezone_template import TIMEZONE_CHOICES
         self._templates().delete()
         self._run()
         template = self._templates().get()
-        self.assertEqual(template.question_type, Question.QuestionType.MULTIPLE_CHOICE)
-        self.assertTrue(template.display_as_dropdown)
+        self.assertEqual(template.question_type, Question.QuestionType.TIMEZONE)
         self.assertIsNone(template.created_by)
-        self.assertEqual(template.choices_data, TIMEZONE_CHOICES)
+        self.assertEqual(template.choices_data, [])
+        self.assertFalse(template.display_as_dropdown)
 
     def test_rerunning_does_not_duplicate_or_overwrite(self):
         self._templates().delete()
         self._run()
-        self._templates().update(choices_data=['Custom (Europe/Berlin)'])
+        self._templates().update(help_text='Custom help')
         self._run()
         self.assertEqual(self._templates().count(), 1)
-        self.assertEqual(self._templates().get().choices_data, ['Custom (Europe/Berlin)'])
+        self.assertEqual(self._templates().get().help_text, 'Custom help')
 
-    def test_update_refreshes_an_existing_template(self):
-        from the_tavern.management.commands.seed_timezone_template import TIMEZONE_CHOICES
+    def test_update_converts_the_old_multiple_choice_template(self):
+        """--update turns the old 25-zone MC dropdown into a TZ question and
+        clears its choices -- leaving them would carry the stale list along."""
+        from the_tavern.models import QuestionTemplate
         self._templates().delete()
-        self._run()
-        self._templates().update(choices_data=['Custom (Europe/Berlin)'], display_as_dropdown=False)
+        QuestionTemplate.objects.create(
+            name='Timezone', is_public=True, text='What is your timezone?',
+            question_type=Question.QuestionType.MULTIPLE_CHOICE,
+            display_as_dropdown=True,
+            choices_data=['US Pacific — PT (America/Los_Angeles)'],
+            correct_choice_index=0)
         self._run('--update')
         template = self._templates().get()
-        self.assertEqual(template.choices_data, TIMEZONE_CHOICES)
-        self.assertTrue(template.display_as_dropdown)
-
-    def test_every_choice_maps_back_to_a_valid_zone(self):
-        """Answering the seeded question with ANY choice records a timezone --
-        driven through the real _survey_timezone_answer, not a copy of its regex."""
-        from the_tavern.management.commands.seed_timezone_template import TIMEZONE_CHOICES
-        from the_tavern.views import _survey_timezone_answer
-        survey = Survey.objects.create(title='TZ survey')
-        question = Question.objects.create(
-            survey=survey, text='What is your timezone?',
-            question_type=Question.QuestionType.MULTIPLE_CHOICE, order=0)
-        for i, label in enumerate(TIMEZONE_CHOICES):
-            choice = Choice.objects.create(question=question, text=label, order=i)
-            response = SurveyResponse.objects.create(survey=survey)
-            Answer.objects.create(response=response, question=question, selected_choice=choice)
-            self.assertIsNotNone(_survey_timezone_answer(survey, response), label)
-
-    def test_the_utc_choice_records_plain_utc(self):
-        """Plain "UTC", not "Etc/UTC": it's what the app's timezone pickers offer."""
-        from the_tavern.views import _survey_timezone_answer
-        survey = Survey.objects.create(title='TZ survey')
-        question = Question.objects.create(
-            survey=survey, text='What is your timezone?',
-            question_type=Question.QuestionType.MULTIPLE_CHOICE, order=0)
-        choice = Choice.objects.create(
-            question=question, text='Coordinated Universal Time (UTC)', order=0)
-        response = SurveyResponse.objects.create(survey=survey)
-        Answer.objects.create(response=response, question=question, selected_choice=choice)
-        self.assertEqual(_survey_timezone_answer(survey, response), 'UTC')
+        self.assertEqual(template.question_type, Question.QuestionType.TIMEZONE)
+        self.assertEqual(template.choices_data, [])
+        self.assertFalse(template.display_as_dropdown)
+        self.assertIsNone(template.correct_choice_index)
 
 
 class SurveyEditPermissionTests(_SurveyTestBase):

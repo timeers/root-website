@@ -31,7 +31,7 @@ from the_warroom.models import (Tournament, Round, Effort, Game, EloSystem,
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
 from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm, TournamentGuildAutomationForm, PlayerScheduleForm, make_reminder_formset
-from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, PlayerSchedule, general_schedule_for, schedule_for, schedules_for
+from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, PlayerSchedule, general_schedule_for, schedules_for
 from the_databot.models import GuildLFGRole
 from the_databot.services.discordservice import (get_guild_roles, get_guild_forum_channels,
                                       get_forum_channel_info,
@@ -103,14 +103,12 @@ def user_settings(request):
         # u_form = UserUpdateForm(instance=request.user)
         p_form = ProfileUpdateForm(instance=request.user.profile)
 
-    # profile.schedules is a reverse MANAGER (a player can have tournament- and
-    # week-scoped schedules too), so the template can't reach the standing
-    # general one on its own. week_start=None is required, not just tournament=
-    # None -- otherwise this could just as easily match a week-specific general
-    # row instead of the actual standing default.
+    # profile.schedules is a reverse MANAGER (a player can have Day by Day
+    # week rows too), so the template can't reach General Availability on its
+    # own. week_start=None is what picks the standing General row.
     from the_databot.services.time_parsing import describe_timezone
     general_schedule = PlayerSchedule.objects.filter(
-        profile=request.user.profile, tournament=None, week_start=None
+        profile=request.user.profile, week_start=None
     ).first()
 
     context = {
@@ -214,52 +212,6 @@ def _parse_week_param(request, today):
     return week_start, is_week_specific
 
 
-def _resolve_availability_target(request, profile):
-    """Which PlayerSchedule row this request is about: the tournament axis
-    (`?tournament=`/`schedule_target`) and the week axis (`?week=`/`week_start`),
-    both re-validated server-side regardless of which UI state the client claims.
-
-    Returns (tournament, tournament_schedules, schedule_target, week_start,
-    is_week_specific). Raises Http404 for a tournament the player has no
-    standing schedule for -- a row exists only because that tournament asked
-    for availability, so this never offers the option where it means nothing.
-    """
-    # Tournament schedules the player actually has -- standing (week_start=None)
-    # rows only; this selector switches TOURNAMENTS, not weeks.
-    tournament_schedules = list(
-        PlayerSchedule.objects.filter(profile=profile, week_start=None)
-        .exclude(tournament=None)
-        .select_related('tournament')
-        .order_by('tournament__name')
-    )
-
-    # The tournament target rides in the form as well as the query string: the
-    # "show times in this zone" round-trip is a POST, and must not silently
-    # switch which row is being edited.
-    requested = (request.POST.get('schedule_target')
-                 or request.GET.get('tournament') or '').strip()
-    tournament = None
-    if requested:
-        for candidate in tournament_schedules:
-            # Slug is unique but nullable, so fall back to the pk rather than
-            # locking a player out of their own data.
-            if requested in (candidate.tournament.slug, str(candidate.pk)):
-                tournament = candidate.tournament
-                break
-        if tournament is None:
-            # Not a tournament this player has availability for.
-            raise Http404("No availability for that tournament.")
-
-    schedule_target = (tournament.slug or str(
-        PlayerSchedule.objects.filter(profile=profile, tournament=tournament, week_start=None)
-        .values_list('pk', flat=True).first())) if tournament else ''
-
-    today = timezone.now().date()
-    week_start, is_week_specific = _parse_week_param(request, today)
-
-    return tournament, tournament_schedules, schedule_target, week_start, is_week_specific
-
-
 def _grid_hour_labels(tz_name, week_start, is_week_specific):
     """hour_labels() for a grid drawn in `tz_name`: rows start at the zone's real
     minute offset ("9:30am" in a :30 zone), measured at the shown week, or at the
@@ -335,7 +287,7 @@ def _week_grid_template_context(week_start, grid_columns, tz_name, general_hours
 
 
 def _resolve_availability_view(request, profile):
-    """Full read-side state for one (tournament, week) target: the schedule
+    """Full read-side state for one week target (General or a Day by Day week): the schedule
     row, its hours, the grid's column/cell layout, the navigator's bounds, and
     the "Copy from general" seed. Used for both the full-page render and the
     JSON endpoints, so there is exactly one implementation of "what does this
@@ -358,23 +310,14 @@ def _resolve_availability_view(request, profile):
                                         week_start_for)
     from the_databot.services.time_parsing import describe_timezone, valid_timezone
 
-    tournament, tournament_schedules, schedule_target, week_start, is_week_specific = (
-        _resolve_availability_target(request, profile))
+    week_start, is_week_specific = _parse_week_param(request, timezone.now().date())
 
     if is_week_specific:
         schedule = PlayerSchedule.objects.filter(
-            profile=profile, tournament=tournament, week_start=week_start
+            profile=profile, week_start=week_start
         ).first()
     else:
-        schedule = (PlayerSchedule.objects.filter(
-                        profile=profile, tournament=tournament, week_start=None
-                    ).first()
-                    if tournament else general_schedule_for(profile))
-        if schedule is None:
-            # A tournament target always has a standing row (that's how it got
-            # into tournament_schedules); this only happens for the general case
-            # on a fresh profile, so create it.
-            schedule = general_schedule_for(profile)
+        schedule = general_schedule_for(profile)
 
     # No profile timezone yet -> the grid renders in UTC and the template's JS
     # pre-selects the browser's zone in the picker. The first save persists it.
@@ -396,22 +339,19 @@ def _resolve_availability_view(request, profile):
     current_week = week_start_for(today)
 
     # For the "Copy from general" seed button: which of THIS real week's UTC
-    # hours the player's general/standing pattern (for this same tournament
-    # target) implies -- see copy_from_general_utc_hours for the local-slot
-    # cross-reference this involves.
+    # hours the player's General Availability implies -- see
+    # copy_from_general_utc_hours for the local-slot cross-reference this
+    # involves.
     copy_from_general_hours = []
     if is_week_specific:
         standing = PlayerSchedule.objects.filter(
-            profile=profile, tournament=tournament, week_start=None
+            profile=profile, week_start=None
         ).first()
         if standing is not None:
             copy_from_general_hours = copy_from_general_utc_hours(
                 standing.available_hours, week_start, tz_name)
 
     return {
-        'tournament': tournament,
-        'tournament_schedules': tournament_schedules,
-        'schedule_target': schedule_target,
         'week_start': week_start,
         'is_week_specific': is_week_specific,
         'schedule': schedule,
@@ -434,7 +374,7 @@ def _resolve_availability_view(request, profile):
 
 def _apply_availability_action(profile, resolved, form):
     """The write side: interprets `action`/the submitted form against the
-    (tournament, week) target already resolved by _resolve_availability_view,
+    week target already resolved by _resolve_availability_view,
     and persists it. Extracted so it is not duplicated between the
     redirect-based and JSON-based callers.
 
@@ -442,7 +382,6 @@ def _apply_availability_action(profile, resolved, form):
     """
     from .services.availability import local_to_utc_hours
 
-    tournament = resolved['tournament']
     week_start = resolved['week_start']
     is_week_specific = resolved['is_week_specific']
     schedule = resolved['schedule']
@@ -470,7 +409,7 @@ def _apply_availability_action(profile, resolved, form):
             # display) -- no conversion, and always exactly one row, never a
             # split across neighboring weeks.
             PlayerSchedule.objects.update_or_create(
-                profile=profile, tournament=tournament, week_start=week_start,
+                profile=profile, week_start=week_start,
                 defaults={'available_hours': local_hours},
             )
         else:
@@ -507,11 +446,8 @@ def availability_settings(request):
     service. Nothing here does offset arithmetic; see services/availability.py for
     why that distinction matters.
 
-    Edits the player's GENERAL standing schedule (tournament=None, week_start=None)
-    by default. `?tournament=` switches to a tournament-specific standing schedule,
-    but only for tournaments the player already has one for -- a row exists only
-    because that tournament asked for availability, so this never offers the
-    option where it means nothing. `?week=<iso-date>` (or 'general') switches
+    Edits the player's General Availability (week_start=None) by default.
+    `?week=<iso-date>` (or 'general') switches
     between the standing template and a specific real calendar week, navigated via
     [General] [<] [Week of X] [>] and clamped to [this week, +12 weeks].
 
@@ -533,10 +469,8 @@ def availability_settings(request):
 
     profile = request.user.profile
     resolved = _resolve_availability_view(request, profile)
-    tournament = resolved['tournament']
     week_start = resolved['week_start']
     is_week_specific = resolved['is_week_specific']
-    schedule_target = resolved['schedule_target']
     tz_name = resolved['tz_name']
     selected = resolved['selected_hours']
     grid_columns = resolved['grid_columns']
@@ -551,11 +485,9 @@ def availability_settings(request):
                 getattr(messages, tag)(request, message)
 
             if not only_changing_timezone:
-                # Stay on whichever schedule they were editing.
+                # Stay on whichever week they were editing.
                 url = reverse('availability')
                 params = {}
-                if schedule_target:
-                    params['tournament'] = schedule_target
                 if is_week_specific:
                     params['week'] = week_start.isoformat()
                 return redirect(f'{url}?{urlencode(params)}' if params else url)
@@ -577,7 +509,7 @@ def availability_settings(request):
                 # sensitive), so it must be recomputed here too or the
                 # preview cells below would be wrong for the new zone.
                 standing = PlayerSchedule.objects.filter(
-                    profile=profile, tournament=tournament, week_start=None
+                    profile=profile, week_start=None
                 ).first()
                 copy_from_general_hours = (
                     copy_from_general_utc_hours(standing.available_hours, week_start, tz_name)
@@ -591,7 +523,6 @@ def availability_settings(request):
             'timezone': tz_name or 'UTC',
             'display_timezone': profile.display_timezone,
             'week_start': week_start.isoformat() if week_start else '',
-            'schedule_target': schedule_target,
         })
 
     # Only preview general's pattern when this week has no saved row of its
@@ -608,10 +539,6 @@ def availability_settings(request):
         'timezone_name': tz_name,
         'timezone_display': resolved['timezone_display'],
         'days': DAY_LABELS,
-        # The selector: only rendered when the player has a tournament schedule.
-        'tournament_schedules': resolved['tournament_schedules'],
-        'schedule_target': schedule_target,
-        'editing_tournament': tournament,
         # (hour, '9am', '9:00 AM') per row -- see services.availability.hour_labels.
         # From the zone the grid is DRAWN in (tz_name, which change_timezone may
         # just have replaced), so a :30 zone's rows read "9:30am".
@@ -634,7 +561,7 @@ def availability_settings(request):
 
 
 def _render_grid_html(resolved):
-    """The grid partial's rendered HTML for the current (tournament, week)
+    """The grid partial's rendered HTML for the current week
     target -- reused by the JSON endpoints so a week-switch/save can swap
     #grid-container's innerHTML wholesale instead of JS reconstructing the
     grid's DOM (column count, split/disabled cells) from raw data. One
@@ -696,13 +623,12 @@ def _availability_state_json(resolved):
         'selected_hours': resolved['selected_hours'],
         'grid_html': _render_grid_html(resolved),
         'copy_from_general_hours': resolved['copy_from_general_hours'],
-        'schedule_target': resolved['schedule_target'],
     }
 
 
 @login_required
 def availability_week_data(request):
-    """GET JSON: the read-only state for a (tournament, week) target, used by
+    """GET JSON: the read-only state for a week target, used by
     the week navigator's arrows/General button to repaint the grid without a
     full page reload. Never writes -- see availability_save for the POST side.
     """
@@ -959,24 +885,17 @@ def _resolve_compare_roster(request):
     )
 
 
-def _week_anchored_and_dateless_hours(profile_ids, tournament, week_start, tz_name):
+def _week_anchored_and_dateless_hours(profile_ids, week_start, tz_name):
     """{profile_id: [utc hour-of-week ints]} for ONE real week (`week_start`),
     correctly distinguishing which precedence level each profile resolved at
-    -- unlike schedules_for(profile_ids, tournament, week_start), which walks
-    the full 4-level precedence `(tournament, week_start) -> (None,
-    week_start) -> (tournament, None) -> (None, None)` but returns one flat
-    dict with no way to tell which level a profile landed on. That
-    distinction matters here: the first two (week-anchored) levels' hours
-    are already real UTC hours for THIS week, used as-is; the last two
-    (dateless standing/template rows -- tournament-specific or fully
-    general) are stored against the fixed dateless reference Monday and
-    must be reinterpreted via copy_from_general_utc_hours before they mean
-    anything for a REAL week, or they drift by the DST offset between
-    whenever they were saved and whichever real week is being viewed.
-
-    Confirmed a tournament-scoped comparison is a real, reachable path
-    (compare's ?series= branch sets tournament from the match), so all four
-    levels are live, not just the two General-mode ones.
+    -- unlike schedules_for(profile_ids, week_start=week_start), which walks
+    `(week) -> (General)` but returns one flat dict with no way to tell which
+    level a profile landed on. That distinction matters here: a Day by Day
+    week row's hours are already real UTC hours for THIS week, used as-is; a
+    General row is stored against the fixed dateless reference Monday and must
+    be reinterpreted via copy_from_general_utc_hours before it means anything
+    for a REAL week, or it drifts by the DST offset between whenever it was
+    saved and whichever real week is being viewed.
     """
     from .services.availability import copy_from_general_utc_hours
 
@@ -984,25 +903,14 @@ def _week_anchored_and_dateless_hours(profile_ids, tournament, week_start, tz_na
     if not profile_ids:
         return {}
 
-    resolved = {}
-    # Levels 1-2: week-anchored, real hours for THIS week, no conversion --
-    # walked manually since schedules_for has no way to stop after level 2.
-    week_lookups = [{'tournament': tournament, 'week_start': week_start}] if tournament else []
-    week_lookups.append({'tournament': None, 'week_start': week_start})
-    for lookup in week_lookups:
-        remaining = [pid for pid in profile_ids if pid not in resolved]
-        if not remaining:
-            break
-        for pid, hours in PlayerSchedule.objects.filter(
-                profile_id__in=remaining, **lookup
-        ).values_list('profile_id', 'available_hours'):
-            resolved[pid] = hours
+    # Day by Day rows for THIS week: real hours, no conversion.
+    resolved = dict(PlayerSchedule.objects.filter(
+        profile_id__in=profile_ids, week_start=week_start,
+    ).values_list('profile_id', 'available_hours'))
 
-    # Levels 3-4: dateless standing/template rows (tournament-specific, then
-    # fully general) -- schedules_for's own week_start=None form walks
-    # exactly these two levels with correct row-exists-wins precedence.
+    # Everyone else: General Availability, converted onto this real week.
     remaining = [pid for pid in profile_ids if pid not in resolved]
-    dateless = schedules_for(remaining, tournament, week_start=None)
+    dateless = schedules_for(remaining)
     # Distinct patterns share the same conversion -- memoize so a roster of
     # many players on the same general pattern computes the DST math once.
     converted_cache = {}
@@ -1026,9 +934,8 @@ def _compare_hours_by_profile(resolved, week_start, is_week_specific):
     stitching window (week_start and its neighbors), resolve each profile's
     hours via _week_anchored_and_dateless_hours -- which is DST-correct at
     every precedence level, unlike a blind schedules_for(..., week_start)
-    call (see that function's own docstring for the two distinct bugs this
-    fixes: naive UTC-hour reuse for a dateless standing row, and the same
-    problem at the tournament-standing level, not just the general one).
+    call (see that function's own docstring for the bug this fixes: naive
+    UTC-hour reuse for the dateless General row).
     Then keep, per profile, only the tokens that actually appear in
     local_week_cell_shape's output -- the exact set of real instants the
     grid can display this week. utc_instant_token pairs each hour with its
@@ -1045,7 +952,6 @@ def _compare_hours_by_profile(resolved, week_start, is_week_specific):
 
     can_view = resolved['can_view']
     profiles = resolved['profiles']
-    tournament = resolved['tournament']
     tz_name = resolved['tz_name']
     profile_ids = [p.id for p in profiles]
 
@@ -1053,15 +959,15 @@ def _compare_hours_by_profile(resolved, week_start, is_week_specific):
         return {}
 
     if not is_week_specific:
-        schedules = schedules_for(profile_ids, tournament)
+        schedules = schedules_for(profile_ids)
         return {pid: utc_to_local_hours(hours, tz_name)
                 for pid, hours in schedules.items()}
 
     prev_week = week_start - timedelta(weeks=1)
     next_week = week_start + timedelta(weeks=1)
-    target_hours = _week_anchored_and_dateless_hours(profile_ids, tournament, week_start, tz_name)
-    prev_hours = _week_anchored_and_dateless_hours(profile_ids, tournament, prev_week, tz_name)
-    next_hours = _week_anchored_and_dateless_hours(profile_ids, tournament, next_week, tz_name)
+    target_hours = _week_anchored_and_dateless_hours(profile_ids, week_start, tz_name)
+    prev_hours = _week_anchored_and_dateless_hours(profile_ids, prev_week, tz_name)
+    next_hours = _week_anchored_and_dateless_hours(profile_ids, next_week, tz_name)
 
     cell_shape = local_week_cell_shape(week_start, tz_name)
     displayable_tokens = {
@@ -1234,11 +1140,10 @@ def _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profi
 
     viewer = resolved['viewer']
     profiles = resolved['profiles']
-    tournament = resolved['tournament']
     can_view = resolved['can_view']
 
-    # When each player last saved ANY availability row (general, tournament or
-    # a week) -- and, by being present at all, that they have one. A profile
+    # When each player last saved ANY availability row (General or a Day by
+    # Day week) -- and, by being present at all, that they have one. A profile
     # with any PlayerSchedule row (even one whose available_hours is []) counts
     # as having availability, so a week with nothing shown just means they
     # haven't filled in that particular week; only a profile with zero rows
@@ -1281,10 +1186,6 @@ def _compare_grid_context(resolved, week_start, is_week_specific, hours_by_profi
         # (is_week_specific is always True here), so week_start is always a
         # real week to hand off.
         edit_params = {}
-        if tournament and PlayerSchedule.objects.filter(
-            profile=viewer, tournament=tournament
-        ).exists():
-            edit_params['tournament'] = tournament.slug
         if week_start:
             edit_params['week'] = week_start.isoformat()
         edit_url = reverse('availability')
@@ -2017,7 +1918,7 @@ def _resolve_tournament_roster(request, tournament):
     )
     return _compare_resolved(
         viewer, tz_name, profiles,
-        # Tournament-specific schedules take precedence over general ones.
+        # The roster and the match overlay's tournament -- not a schedule axis.
         tournament=tournament,
         title=_('%(tournament)s Availability') % {'tournament': tournament.name},
         back_url=reverse('tournament-settings', kwargs={'slug': tournament.slug}),

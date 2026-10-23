@@ -562,10 +562,10 @@ class GroupingService:
             return
 
         # Build availability map. Resolved in bulk: a player's week-specific row
-        # for this round's own week if they set one, else their tournament row,
-        # else their general one (see schedules_for's precedence chain).
+        # for this round's own week if they set one, else their General
+        # Availability (see schedules_for's precedence chain).
         schedules = schedules_for(
-            [tp.profile_id for tp in active_players], stage.tournament,
+            [tp.profile_id for tp in active_players],
             week_start=week_start_for(round.start_date) if round.start_date else None,
         )
 
@@ -989,7 +989,7 @@ class GroupingService:
         # Resolve every candidate's availability once, outside the group loop --
         # otherwise this re-queries per group.
         schedules = schedules_for(
-            [tp.profile_id for tp in ungrouped], stage.tournament,
+            [tp.profile_id for tp in ungrouped],
             week_start=week_start_for(round.start_date) if round.start_date else None,
         )
 
@@ -1170,7 +1170,7 @@ class GroupingService:
 
         # Build availability map from ungrouped players
         schedules = schedules_for(
-            [tp.profile_id for tp in ungrouped], stage.tournament,
+            [tp.profile_id for tp in ungrouped],
             week_start=week_start_for(round.start_date) if round.start_date else None,
         )
 

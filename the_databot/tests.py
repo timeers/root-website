@@ -54,6 +54,7 @@ from the_databot.services.time_parsing import (
     search_timezones, valid_timezone,
     TIMEZONE_REGIONS, timezone_regions, zones_for_region, timezone_label,
     region_for_timezone, describe_timezone, format_utc_offset,
+    timezone_choice_groups, canonical_timezone,
 )
 from the_databot.services.discordservice import (build_upcoming_embed,
                                                    build_lfg_help_embed, _LFG_LINK_RE)
@@ -293,6 +294,44 @@ class TimezoneRegionTests(TestCase):
     def test_no_region_exceeds_the_select_cap(self):
         for region in TIMEZONE_REGIONS:
             self.assertLessEqual(len(region["zones"]), 25, region["key"])
+
+    def test_choice_groups_cover_every_curated_zone_in_order(self):
+        groups = timezone_choice_groups()
+        self.assertEqual([label for label, _opts in groups],
+                         [r["label"] for r in TIMEZONE_REGIONS])
+        self.assertEqual([z for _l, opts in groups for z, _label in opts],
+                         [z for r in TIMEZONE_REGIONS for z, _label in r["zones"]])
+
+    def test_choice_groups_only_ever_return_groups(self):
+        """/availability unpacks every entry as (label, options)."""
+        for current in (None, "", "UTC", "Australia/Darwin", "Not/AZone"):
+            for _label, options in timezone_choice_groups(current=current):
+                self.assertIsInstance(options, list)
+
+    def test_an_uncurated_current_zone_gets_its_own_first_group(self):
+        groups = timezone_choice_groups(current="Australia/Darwin")
+        label, options = groups[0]
+        self.assertEqual(label, "Your current timezone")
+        self.assertEqual([z for z, _l in options], ["Australia/Darwin"])
+        self.assertEqual(len(groups), len(TIMEZONE_REGIONS) + 1)
+
+    def test_a_curated_or_invalid_current_zone_adds_nothing(self):
+        for current in ("Europe/Berlin", "Asia/Calcutta", "Not/AZone"):
+            self.assertEqual(len(timezone_choice_groups(current=current)),
+                             len(TIMEZONE_REGIONS), current)
+
+    def test_canonical_timezone(self):
+        self.assertEqual(canonical_timezone("Asia/Calcutta"), "Asia/Kolkata")
+        self.assertEqual(canonical_timezone("Europe/Kiev"), "Europe/Kyiv")
+        self.assertEqual(canonical_timezone("Etc/UTC"), "UTC")
+        self.assertEqual(canonical_timezone(" Europe/Berlin "), "Europe/Berlin")
+        self.assertEqual(canonical_timezone("Not/AZone"), "Not/AZone")
+        self.assertIsNone(canonical_timezone(None))
+
+    def test_every_alias_target_is_a_real_zone(self):
+        from the_databot.services.time_parsing import _TIMEZONE_ALIASES
+        for alias, target in _TIMEZONE_ALIASES.items():
+            self.assertTrue(valid_timezone(target), f"{alias} -> {target}")
 
     def test_no_duplicate_zones_within_or_across_regions(self):
         zones = [z for r in TIMEZONE_REGIONS for z, _l in r["zones"]]
@@ -13291,24 +13330,24 @@ class PlayerScheduleCleanupTaskTests(TestCase):
 
     def test_a_row_older_than_the_retention_window_is_deleted(self):
         from the_databot import tasks
-        self._week_row(weeks_ago=10, tournament=None)
+        self._week_row(weeks_ago=10)
         self.assertEqual(tasks.cleanup_expired_player_schedules(retain_weeks=3), 1)
         self.assertFalse(PlayerSchedule.objects.filter(week_start__isnull=False).exists())
 
     def test_a_row_inside_the_retention_window_survives(self):
         from the_databot import tasks
-        self._week_row(weeks_ago=1, tournament=None)
+        self._week_row(weeks_ago=1)
         self.assertEqual(tasks.cleanup_expired_player_schedules(retain_weeks=3), 0)
         self.assertEqual(PlayerSchedule.objects.filter(week_start__isnull=False).count(), 1)
 
     def test_a_standing_row_is_never_touched_regardless_of_age(self):
         from the_databot import tasks
         standing = PlayerSchedule.objects.create(
-            profile=self.profile, tournament=None, week_start=None,
+            profile=self.profile, week_start=None,
             available_hours=[1, 2, 3])
         standing.updated_at = timezone.now() - timedelta(days=1000)
         standing.save(update_fields=["updated_at"])
-        self._week_row(weeks_ago=10, tournament=None)
+        self._week_row(weeks_ago=10)
 
         tasks.cleanup_expired_player_schedules(retain_weeks=3)
 
@@ -13316,16 +13355,16 @@ class PlayerScheduleCleanupTaskTests(TestCase):
 
     def test_dry_run_reports_without_deleting(self):
         from the_databot import tasks
-        self._week_row(weeks_ago=10, tournament=None)
+        self._week_row(weeks_ago=10)
         self.assertEqual(
             tasks.cleanup_expired_player_schedules(retain_weeks=3, dry_run=True), 1)
         self.assertEqual(PlayerSchedule.objects.filter(week_start__isnull=False).count(), 1)
 
     def test_limit_caps_a_run_oldest_first(self):
         from the_databot import tasks
-        oldest = self._week_row(weeks_ago=20, tournament=None)
-        self._week_row(weeks_ago=15, tournament=None)
-        self._week_row(weeks_ago=10, tournament=None)
+        oldest = self._week_row(weeks_ago=20)
+        self._week_row(weeks_ago=15)
+        self._week_row(weeks_ago=10)
         self.assertEqual(
             tasks.cleanup_expired_player_schedules(retain_weeks=3, limit=1), 1)
         self.assertFalse(PlayerSchedule.objects.filter(pk=oldest.pk).exists())
@@ -13342,13 +13381,13 @@ class PlayerScheduleCleanupTaskTests(TestCase):
         # week_start 28 days ago: the week's own 7 days + exactly 3 retained
         # weeks after it (21 days) = 28 days -- still within the window.
         still_in_window = PlayerSchedule.objects.create(
-            profile=self.profile, tournament=None,
+            profile=self.profile,
             week_start=timezone.now().date() - timedelta(days=28),
             available_hours=[1],
         )
         # One day further -> past the window.
         past_window = PlayerSchedule.objects.create(
-            profile=self.profile, tournament=None,
+            profile=self.profile,
             week_start=timezone.now().date() - timedelta(days=29),
             available_hours=[1],
         )

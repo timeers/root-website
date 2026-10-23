@@ -60,34 +60,33 @@ def _get_survey_status_note(survey):
 
 
 def _posted_timezone_name(request):
-    """The IANA zone the browser reported, or None if it sent nothing usable."""
-    from the_databot.services.time_parsing import valid_timezone
+    """The IANA zone the browser reported, or None if it sent nothing usable.
+    Legacy aliases (Asia/Calcutta) come back canonical (Asia/Kolkata)."""
+    from the_databot.services.time_parsing import canonical_timezone, valid_timezone
 
-    posted = (request.POST.get('timezone_name') or '').strip()
+    posted = canonical_timezone((request.POST.get('timezone_name') or '').strip())
     return posted if valid_timezone(posted) else None
 
 
 def _survey_timezone_answer(survey, survey_response):
-    """An IANA zone taken from a timezone QUESTION the respondent answered.
+    """An IANA zone taken from a Timezone (TZ) question the respondent answered.
 
     A deliberate answer outranks browser detection: someone filling the survey
     from a hotel should not have their profile rewritten to the hotel's zone.
-    Timezone questions are ordinary multiple-choice questions whose choice text
-    carries the zone in parentheses, e.g.
-    "US Pacific - PT (America/Los_Angeles)". A bare "(UTC)" counts too: plain
-    "UTC" is the zone the rest of the app stores and its pickers offer.
+
+    Only TZ questions count. Older surveys carry a multiple-choice "timezone"
+    question whose choice text holds the zone in parentheses; those are
+    deliberately ignored now and behave like any other MC question -- swap
+    them for a TZ question to have answers update profiles again.
     """
-    import re
     from the_databot.services.time_parsing import valid_timezone
 
-    for answer in survey_response.answers.select_related('question', 'selected_choice'):
-        if answer.question.question_type != Question.QuestionType.MULTIPLE_CHOICE:
-            continue
-        if not answer.selected_choice:
-            continue
-        match = re.search(r'\(([A-Za-z_]+/[A-Za-z_+\-/]+|UTC)\)', answer.selected_choice.text or '')
-        if match and valid_timezone(match.group(1)):
-            return match.group(1)
+    zones = survey_response.answers.filter(
+        question__question_type=Question.QuestionType.TIMEZONE,
+    ).values_list('text_answer', flat=True)
+    for zone in zones:
+        if valid_timezone(zone):
+            return zone
     return None
 
 
@@ -99,11 +98,17 @@ def _adopt_response_timezone(survey, survey_response, request):
     edits included. The browser-detected zone only seeds a profile that has
     none: a survey taken while travelling must not silently rewrite a zone the
     player chose.
+
+    The RESPONSE's timezone_name is the other way round: browser first.
+    timezone_name is what TA/DY answers are interpreted in, and the TA grid is
+    drawn with the browser's offset -- a TZ question pre-fills from the
+    profile, so every respondent "answers" it, and letting it win would shift
+    a traveller's TA hours.
     """
     from the_databot.services.time_parsing import valid_timezone
 
     answered_tz = _survey_timezone_answer(survey, survey_response)
-    tz_name = answered_tz or _posted_timezone_name(request)
+    tz_name = _posted_timezone_name(request) or answered_tz
     if not tz_name:
         return
 
@@ -119,7 +124,7 @@ def _adopt_response_timezone(survey, survey_response, request):
     else:
         should_write = not valid_timezone(profile.timezone)
     if should_write:
-        profile.timezone = tz_name
+        profile.timezone = answered_tz or tz_name
         # update_fields is required, not an optimisation: a bare save()
         # re-derives display_name and runs Profile.save()'s avatar branch.
         profile.save(update_fields=['timezone'])
@@ -140,7 +145,8 @@ def _survey_grid_timezone(request):
 def _availability_grid_labels(request):
     """Row/column labels the shared availability grid partial loops over, plus
     the zone they are drawn in (`wa_timezone`, rendered into each grid's
-    timezone input).
+    timezone input, and `profile_timezone_display` for a Timezone question),
+    and whether the respondent has General Availability to pre-fill from.
 
     Supplied on every path that renders take_survey.html -- without `days` and
     `hours` the grid's loops produce no cells at all, and a WEEKLY_AVAILABILITY
@@ -151,10 +157,22 @@ def _availability_grid_labels(request):
     """
     from the_gatehouse.services.availability import (DAY_LABELS, hour_labels,
                                                      zone_minute_offset)
+    from the_databot.services.time_parsing import describe_timezone
     tz_name = _survey_grid_timezone(request)
+    profile = getattr(request.user, 'profile', None) if request.user.is_authenticated else None
+    # Non-empty only: /availability creates an empty General row on a bare
+    # visit, which isn't availability the player has actually set.
+    has_general = bool(profile) and bool(PlayerSchedule.objects.filter(
+        profile=profile, week_start=None,
+    ).values_list('available_hours', flat=True).first())
     return {'days': DAY_LABELS,
             'hours': hour_labels(zone_minute_offset(tz_name)),
-            'wa_timezone': tz_name or ''}
+            'wa_timezone': tz_name or '',
+            # The same zone, for a Timezone question's "currently X" note.
+            'profile_timezone_display': describe_timezone(tz_name) if tz_name else '',
+            # Picks the General Availability grid's note ("this is yours" vs
+            # "you haven't set one yet").
+            'has_general_availability': has_general}
 
 
 def _weekly_availability_utc(request, question, answer_data, profile):
@@ -195,42 +213,41 @@ def _weekly_availability_utc(request, question, answer_data, profile):
 
 
 def _save_response_availability(survey, survey_response):
-    """Store this respondent's availability as their schedule for the tournament.
+    """Copy this respondent's General Availability (WA) answer to their General
+    Availability -- the same (week_start=None) schedule the /availability page
+    edits.
+
+    The grid is pre-filled from General Availability and says so, so answering
+    it IS editing General Availability: that is why this writes on any survey,
+    Series or not. There is one availability per player, read the same way by
+    grouping, overlap and compare -- no survey keeps a schedule of its own.
+
+    Only a WA answer writes. Time/Day Availability answers are too coarse to
+    stand in for a painted grid, so a TA/DY-only survey keeps them as survey data
+    and leaves every schedule alone. An answered-but-empty grid ([]) is a real
+    answer -- "free at no hour" -- and clears General.
 
     Scoped to ONE profile on purpose. The grouping sync runs over every accepted
     response on every call, so writing availability there meant one player's
-    submission rewrote everybody else's hours from their older responses --
-    silently discarding edits players had made themselves. Writing here, from the
-    submission that produced the answers, makes that impossible.
-
-    A survey with no linked tournament writes nothing: those answers have no
-    tournament to belong to, and a one-off poll must not overwrite the player's
-    standing general availability.
-
-    The guard is on the survey ASKING about availability, not on the answer being
-    non-empty. An empty WEEKLY_AVAILABILITY grid means "free at no hour" and has
-    to be recordable, so it must be able to clear the schedule -- but this runs on
-    every submission for a series survey, so a survey that never asked must not
-    be able to wipe what the player set on /availability.
+    submission rewrote everybody else's hours from their older responses.
     """
-    if not survey.series_id or not survey_response.profile_id:
+    from the_gatehouse.models import general_schedule_for
+
+    profile = survey_response.profile
+    if profile is None:
         return
     try:
-        if not survey.has_availability_questions():
+        answered_wa = survey_response.answers.filter(
+            question__question_type=Question.QuestionType.WEEKLY_AVAILABILITY,
+            availability_hours__isnull=False,
+        ).exists()
+        if not answered_wa:
             return
+        # With a WA answer present this is exactly the WA union (TA/DY ignored).
         hours = sorted(survey_response.get_combined_availability_hours())
-        # week_start=None is explicit and load-bearing: a survey response is
-        # always the player's STANDING availability for the tournament, never a
-        # specific calendar week (see the module docstring). Without it, a player
-        # who also has a week-specific row for this tournament (set via the
-        # /availability navigator) would make this lookup match two rows and
-        # raise MultipleObjectsReturned.
-        PlayerSchedule.objects.update_or_create(
-            profile_id=survey_response.profile_id,
-            tournament_id=survey.series_id,
-            week_start=None,
-            defaults={'available_hours': hours},
-        )
+        schedule = general_schedule_for(profile)
+        schedule.available_hours = hours
+        schedule.save(update_fields=['available_hours', 'updated_at'])
     except Exception:
         # Never block a submission over this, same as the enrollment block below.
         logger.exception(
@@ -861,7 +878,7 @@ def survey_take_view(request, slug):
 
 
     if request.method == 'POST':
-        form = SurveyResponseForm(request.POST, survey=survey)
+        form = SurveyResponseForm(request.POST, survey=survey, profile=request.user.profile)
 
         if form.is_valid():
             # Get only visible questions for processing
@@ -1035,6 +1052,13 @@ def survey_take_view(request, slug):
                             getattr(request.user, 'profile', None))
                         answer.save()
 
+                    elif question.question_type == 'TZ':
+                        # Timezone - an IANA name, already validated and
+                        # canonicalised by TimezoneChoiceField. Copied to the
+                        # profile by _adopt_response_timezone.
+                        answer.text_answer = answer_data
+                        answer.save()
+
                     elif question.question_type == 'OE':
                         # Open ended
                         answer.text_answer = answer_data
@@ -1145,7 +1169,7 @@ def survey_take_view(request, slug):
 
             return redirect('survey-detail', survey.slug)
     else:
-        form = SurveyResponseForm(survey=survey, existing_response=None)
+        form = SurveyResponseForm(survey=survey, existing_response=None, profile=request.user.profile)
 
     # Get only visible (non-hidden) questions for display
     visible_questions = survey.questions.filter(is_hidden=False)
@@ -1238,7 +1262,8 @@ def survey_user_response_edit_view(request, slug, response_id):
         return redirect('survey-user-response', slug=slug, response_id=user_response.id)
 
     if request.method == 'POST':
-        form = SurveyResponseForm(request.POST, survey=survey, existing_response=user_response)
+        form = SurveyResponseForm(request.POST, survey=survey, existing_response=user_response,
+                                  profile=request.user.profile)
 
         if form.is_valid():
             # Additional validation for required multiple selection questions
@@ -1410,6 +1435,13 @@ def survey_user_response_edit_view(request, slug, response_id):
                             getattr(request.user, 'profile', None))
                         answer.save()
 
+                    elif question.question_type == 'TZ':
+                        # Timezone - an IANA name, already validated and
+                        # canonicalised by TimezoneChoiceField. Copied to the
+                        # profile by _adopt_response_timezone.
+                        answer.text_answer = answer_data
+                        answer.save()
+
                     elif question.question_type == 'OE':
                         # Open ended
                         answer.text_answer = answer_data
@@ -1491,7 +1523,8 @@ def survey_user_response_edit_view(request, slug, response_id):
 
             return redirect('survey-user-response', slug=slug, response_id=user_response.id)
     else:
-        form = SurveyResponseForm(survey=survey, existing_response=user_response if is_editing else None)
+        form = SurveyResponseForm(survey=survey, existing_response=user_response if is_editing else None,
+                                  profile=request.user.profile)
 
     visible_questions = survey.questions.filter(is_hidden=False)
 
@@ -1683,6 +1716,23 @@ def survey_results_view(request, slug, from_settings=False):
                 }
                 for hour, short_label, long_label in hour_labels()
             ]
+
+        elif question.question_type == 'TZ':
+            # Not choice-backed either: the zone is in text_answer. Shaped like
+            # the MC results_list so the template's bar chart renders it as-is.
+            from the_databot.services.time_parsing import describe_timezone
+            zone_counts = (question.answer_set
+                           .filter(response__survey=survey)
+                           .exclude(text_answer__isnull=True).exclude(text_answer='')
+                           .values('text_answer').annotate(count=Count('id')))
+            total = question_data['total_responses']
+            question_data['results'] = sorted(
+                [{
+                    'choice': describe_timezone(row['text_answer']) or row['text_answer'],
+                    'count': row['count'],
+                    'percentage': round(row['count'] / total * 100, 1) if total else 0,
+                } for row in zone_counts],
+                key=lambda x: x['count'], reverse=True)
 
         elif question.question_type in ['MC', 'YN', 'MS', 'TA', 'DY']:
             # Choice-based questions (including Time Availability)

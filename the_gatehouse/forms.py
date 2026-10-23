@@ -751,6 +751,25 @@ class TournamentGuildAutomationForm(forms.ModelForm):
         return cleaned
 
 
+class TimezoneChoiceField(forms.ChoiceField):
+    """A timezone <select> that also accepts any valid IANA zone, not just the
+    curated options it renders.
+
+    The pickers offer the curated regions plus, client-side, the zone detected
+    from the browser (timezone_select.js) -- which is exactly the case the
+    curated list misses (Darwin, Kabul, Nuuk...). ZoneInfo still has the final
+    say, so anything posted must be a real zone; legacy aliases are normalised
+    so Asia/Calcutta is stored as the curated Asia/Kolkata.
+    """
+    def valid_value(self, value):
+        from the_databot.services.time_parsing import valid_timezone
+        return super().valid_value(value) or valid_timezone(value)
+
+    def clean(self, value):
+        from the_databot.services.time_parsing import canonical_timezone
+        return canonical_timezone(super().clean(value))
+
+
 class PlayerScheduleForm(forms.Form):
     """The /availability page: a weekly grid plus the timezone it was drawn in.
 
@@ -770,19 +789,14 @@ class PlayerScheduleForm(forms.Form):
     # instead of just relabelling it.
     drawn_timezone = forms.CharField(required=False, widget=forms.HiddenInput)
 
-    # Which schedule is being edited: '' for the general one, otherwise a
-    # tournament slug. Carried through the timezone round-trip so re-rendering
-    # can't silently move the edit to a different row. The view validates it
-    # against the schedules this player actually has.
-    schedule_target = forms.CharField(required=False, widget=forms.HiddenInput)
-
     # ISO date (Monday) of the week being edited, or '' for the standing/general
-    # template. Same round-trip-through-POST role as schedule_target, just for the
-    # other axis. The view resolves and re-validates it against the navigation
-    # bounds server-side -- never trusts this beyond "which row did the arrows say."
+    # template. Carried through the timezone round-trip so re-rendering can't
+    # silently move the edit to a different row. The view resolves and
+    # re-validates it against the navigation bounds server-side -- never trusts
+    # this beyond "which row did the arrows say."
     week_start = forms.CharField(required=False, widget=forms.HiddenInput)
 
-    timezone = forms.ChoiceField(
+    timezone = TimezoneChoiceField(
         label=_('Timezone'),
         help_text=_("Times on this page are shown in this timezone. Saving also "
                     "updates the timezone used by the Discord bot."))
@@ -794,14 +808,13 @@ class PlayerScheduleForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Grouped <optgroup> choices, built from the same curated region list the
-        # Discord /schedule picker uses so the two can't drift apart.
-        from the_databot.services.time_parsing import timezone_regions, describe_timezone
-        groups = []
-        for region in timezone_regions():
-            options = [(zone, describe_timezone(zone) or label)
-                       for zone, label in region['zones']]
-            groups.append((region['label'], options))
-        self.fields['timezone'].choices = groups
+        # Discord /schedule picker uses so the two can't drift apart. The zone on
+        # record (or just posted) is passed so an uncurated one stays selectable
+        # instead of the picker falling back to its first option.
+        from the_databot.services.time_parsing import timezone_choice_groups
+        current = (self.data.get('timezone') if self.is_bound
+                   else self.initial.get('timezone'))
+        self.fields['timezone'].choices = timezone_choice_groups(current=current)
 
     def clean_timezone(self):
         """Reject anything that isn't a real IANA zone.

@@ -453,11 +453,12 @@ const questionTypes = {
     'RK': 'Ranking',
     'TA': 'Time Availability',
     'DY': 'Day Availability',
-    'WA': 'Weekly Availability',
+    'WA': 'General Availability',
     'DA': 'Date',
     'TI': 'Time',
     'DT': 'Date & Time',
-    'NU': 'Numeric'
+    'NU': 'Numeric',
+    'TZ': 'Timezone'
 };
 
 // Component types for Post-based choices
@@ -1133,14 +1134,21 @@ function handleTypeChange(questionId, existingData = null) {
             </div>
         `;
     } else if (type === 'WA') {
-        // Weekly Availability - a 7x24 grid, no per-question config to collect
+        // General Availability - a 7x24 grid, no per-question config to collect
         optionsContainer.innerHTML = `
             <div class="alert alert-info">
-                <i class="bi bi-calendar-week"></i> <strong>Weekly Availability Question</strong><br>
+                <i class="bi bi-calendar-week"></i> <strong>General Availability Question</strong><br>
                 <small>Respondents mark every hour of a standard week they are free, on a
-                7&times;24 grid shown in their own timezone. On a Series survey this sets the
-                player's schedule directly, and replaces any Time or Day Availability
-                questions in the same survey.</small>
+                7&times;24 grid shown in their own timezone. Pre-filled with the respondent's
+                General Availability from the Availability page; their answer updates it.</small>
+            </div>
+        `;
+    } else if (type === 'TZ') {
+        // Timezone - the shared timezone picker, no per-question config to collect
+        optionsContainer.innerHTML = `
+            <div class="alert alert-info">
+                <i class="bi bi-globe"></i> <strong>Timezone Question</strong><br>
+                <small>Asks the user to set or update their timezone.</small>
             </div>
         `;
     } else if (type === 'YN') {

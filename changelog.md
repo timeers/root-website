@@ -1,21 +1,28 @@
 # Changelog
 
-## [1.13.15] - 2026-10-22 Multi-Kick-Clear
+## [1.13.16] - 2026-10-23 Survey Improvements
+
+### New Features
+- Generate personal box score tokens to record standalone games that aren't linked to a Tournament or Series
+- New Timezone type survey question that asks a user to update/confirm their timezone
+- Improved General Availability question asks users to update/set their General Availability
+
+### Improvements
+- Tournament mods can now edit tournament surveys
+
+## [1.13.15] - 2026-10-8 Multi-Kick-Clear
 
 ### New Features
 - Host can now kick players from their LFG post if they are unresponsive
 - Schedule Poll now has an option to vote between multiple times
-- Generate personal box score tokens to record standalone games that aren't linked to a Tournament or Series
 
 ### Improvements
 - Unselected captain now shows on game detail page
 - Player's submissions tab is now private
-- Tournament mods can now edit tournament surveys
 
 ### Bug Fixes
 - Clearing a game's scheduled time no longer closes open polls. Scheduling or rescheduling a game still closes open polls as intended
 - The cancelled schedule message no longer has the relative time to make the message easier to read
-- Timezone questions in surveys always update a user's timezone
 
 ## [1.13.14] - 2026-10-4 Hoot 4 Refinements
 
