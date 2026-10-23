@@ -908,7 +908,7 @@ def survey_take_view(request, slug):
                 })
 
             # Validate rules agreement for registration surveys
-            if survey.is_registration and survey.series and survey.series.rules:
+            if survey.is_registration and survey.series and (survey.series.rules or survey.series.rules_link):
                 if request.POST.get('rules_agreement') != 'on':
                     messages.error(request, _('You must agree to the tournament rules to submit this survey.'))
                     sections_data = survey.get_sections_with_questions()
@@ -1282,7 +1282,7 @@ def survey_user_response_edit_view(request, slug, response_id):
                 })
 
             # Validate rules agreement for registration surveys
-            if survey.is_registration and survey.series and survey.series.rules:
+            if survey.is_registration and survey.series and (survey.series.rules or survey.series.rules_link):
                 if request.POST.get('rules_agreement') != 'on':
                     messages.error(request, _('You must agree to the tournament rules to submit this survey.'))
                     edit_sections = survey.get_sections_with_questions()

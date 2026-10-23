@@ -54,7 +54,7 @@
                 {% endif %}
             {% endif %}
 
-            {% if forloop.first and survey.is_registration and survey.series and survey.series.rules or survey.series.rules_link %}
+            {% if forloop.first and survey.is_registration and survey.series %}{% if survey.series.rules or survey.series.rules_link %}
             <div class="card mb-4 border-warning">
                 <div class="card-header bg-warning bg-opacity-25">
                     <h5 class="mb-0">
@@ -90,7 +90,7 @@
                     </div>
                 </div>
             </div>
-            {% endif %}
+            {% endif %}{% endif %}
 
             {% for question in section_data.questions %}
             <div class="card mb-4">
