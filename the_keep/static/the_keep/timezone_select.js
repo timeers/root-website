@@ -90,5 +90,56 @@
     return null;
   }
 
+  // ---- Reference-week offsets ------------------------------------------------
+  // The General Availability grid is stored in UTC against a fixed reference
+  // Monday (services.availability._REFERENCE_MONDAY, 2024-01-01) and drawn
+  // with the zone's offset AT THAT DATE -- not today's -- so these measure
+  // there too. No zone changes offset during that week (pinned by a test), so
+  // one offset converts the whole week.
+  var REFERENCE_MONDAY_UTC = Date.UTC(2024, 0, 1);
+
+  // Full UTC offset in minutes at the reference Monday ("GMT+5:30" -> 330), or
+  // 0 for an unknown zone, matching the server's fall back to UTC.
+  function zoneOffsetMinutes(zone) {
+    try {
+      var parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: zone, timeZoneName: 'shortOffset'
+      }).formatToParts(new Date(REFERENCE_MONDAY_UTC));
+      for (var i = 0; i < parts.length; i++) {
+        if (parts[i].type !== 'timeZoneName') { continue; }
+        var m = /^GMT(?:([+-])(\d{1,2})(?::(\d{2}))?)?$/.exec(parts[i].value);
+        if (!m || !m[1]) { return 0; }
+        var minutes = parseInt(m[2], 10) * 60 + (m[3] ? parseInt(m[3], 10) : 0);
+        return m[1] === '-' ? -minutes : minutes;
+      }
+    } catch (err) { /* unknown zone or no shortOffset support */ }
+    return 0;
+  }
+
+  // The minute past the hour the zone's rows start at: 0, 30 or 45. Mirrors
+  // services.availability.zone_minute_offset (St. John's -210 -> 30).
+  function zoneMinuteOffset(zone) {
+    var off = zoneOffsetMinutes(zone);
+    return ((off % 60) + 60) % 60;
+  }
+
+  // UTC hour-of-week ints -> the zone's local hour-of-week ints, exactly as
+  // services.availability.utc_to_local_hours does (a test checks the formula
+  // against it for every zone). JS % keeps the dividend's sign, hence the
+  // double modulo.
+  function utcToLocalHours(hours, zone) {
+    var off = zoneOffsetMinutes(zone);
+    var seen = {};
+    hours.forEach(function (h) {
+      var local = ((Math.floor((h * 60 + off) / 60) % 168) + 168) % 168;
+      seen[local] = true;
+    });
+    return Object.keys(seen).map(Number).sort(function (a, b) { return a - b; });
+  }
+
   window.enhanceTimezoneSelect = enhanceTimezoneSelect;
+  window.detectedTimezone = detectedTimezone;
+  window.zoneOffsetMinutes = zoneOffsetMinutes;
+  window.zoneMinuteOffset = zoneMinuteOffset;
+  window.utcToLocalHours = utcToLocalHours;
 })();

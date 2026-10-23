@@ -543,7 +543,12 @@ on the fresh DOM, rather than trying to reconstruct the grid client-side.
   // match (relabelGridMinute, in availability_grid.js).
   function labelPartialHourZone(serverMinute) {
     var minute = browserMinute || serverMinute;
-    if (browserMinute) { window.relabelGridMinute(gridContainer, browserMinute); }
+    // The grid element itself, not #grid-container: it is replaced on every
+    // week switch and carries the minute the server labelled it at.
+    if (browserMinute) {
+      window.relabelGridMinute(
+        gridContainer.querySelector('.js-availability-grid'), browserMinute);
+    }
     var note = document.getElementById('halfhour-note');
     if (!note) { return; }
     note.classList.toggle('d-none', !minute);

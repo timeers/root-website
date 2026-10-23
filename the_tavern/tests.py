@@ -4,6 +4,7 @@ WEEKLY_AVAILABILITY ('WA') is the focus here. It replaces the TIME_AVAILABILITY 
 DAY_AVAILABILITY pair with one 7x24 grid, stores UTC hour-of-week ints in a JSON
 field rather than Choice rows, and OVERRIDES TA/DY when both are present.
 """
+import re
 from unittest import mock
 
 from django.contrib.auth.models import User
@@ -1085,9 +1086,11 @@ class GeneralAvailabilityPrefillTests(_SurveyTestBase):
         self.assertEqual(form.initial[f'{self.field}_timezone'], 'UTC')
 
         page = self.client.get(self.take_url)
-        self.assertContains(page, f'id="wa_tz_{self.question.id}" class="js-wa-timezone"\n'
-                                  f'                                   value="UTC"')
-        self.assertContains(page, "shown in UTC because you haven")
+        body = page.content.decode()
+        tz_input = re.search(r'<input[^>]*id="wa_tz_%d"[^>]*>' % self.question.id, body).group(0)
+        self.assertIn('value="UTC"', tz_input)
+        self.assertIn('data-wa-pinned="1"', tz_input)
+        self.assertIn('<span class="js-wa-zone-label">UTC</span>', body)
 
     def test_the_note_says_whether_general_availability_is_set(self):
         self.assertContains(self.client.get(self.take_url),
@@ -1106,6 +1109,141 @@ class GeneralAvailabilityPrefillTests(_SurveyTestBase):
         page = self.client.get(reverse('survey-preview', kwargs={'slug': self.survey.slug}))
         self.assertEqual(page.status_code, 200)
         self.assertNotContains(page, 'This is your General Availability')
+
+
+class GeneralAvailabilityFollowsTimezoneTests(_SurveyTestBase):
+    """A Timezone question and a General Availability grid on one page: the
+    grid is saved in the zone the player picks. The browser keeps the grid's
+    posted zone in step with the Timezone question (take_survey.html); these
+    pin the server-side half of that contract -- which question counts, the
+    markup the script reads, and that the server converts with the POSTED zone."""
+
+    def setUp(self):
+        super().setUp()
+        self.profile.timezone = 'America/New_York'
+        self.profile.save(update_fields=['timezone'])
+        self.survey = self._survey(allow_edit_responses=True)
+        self.client.force_login(self.user)
+
+    def _tz(self, order, section=None, required=False):
+        return Question.objects.create(
+            survey=self.survey, text='Timezone?', order=order, section=section,
+            question_type=Question.QuestionType.TIMEZONE, required=required)
+
+    def _page(self, data=None):
+        url = reverse('survey-take', kwargs={'slug': self.survey.slug})
+        return (self.client.post(url, data) if data is not None
+                else self.client.get(url)).content.decode()
+
+    # ---- which Timezone question counts -------------------------------------
+
+    def test_an_unsectioned_question_comes_first_like_the_page_renders_it(self):
+        """Question.Meta.ordering puts unsectioned questions LAST on Postgres;
+        the page renders them first, so page order must not use it."""
+        from the_tavern.models import SurveySection
+        section = SurveySection.objects.create(survey=self.survey, order=0)
+        sectioned = self._tz(order=0, section=section)
+        unsectioned = self._tz(order=5)
+        self.assertEqual(self.survey.timezone_questions_in_page_order(),
+                         [unsectioned, sectioned])
+
+    def test_section_order_beats_question_order(self):
+        from the_tavern.models import SurveySection
+        first = SurveySection.objects.create(survey=self.survey, order=1)
+        second = SurveySection.objects.create(survey=self.survey, order=2)
+        late = self._tz(order=9, section=first)
+        early = self._tz(order=0, section=second)
+        self.assertEqual(self.survey.timezone_questions_in_page_order(), [late, early])
+
+    def test_a_blank_first_answer_is_skipped(self):
+        from the_tavern.views import _survey_timezone_answer
+        blank = self._tz(order=1)
+        answered = self._tz(order=2)
+        response = self._response(self.survey)
+        Answer.objects.create(response=response, question=blank, text_answer='')
+        Answer.objects.create(response=response, question=answered,
+                              text_answer='Europe/London')
+        self.assertEqual(_survey_timezone_answer(self.survey, response), 'Europe/London')
+
+    # ---- the markup the script reads -----------------------------------------
+
+    def test_a_fresh_page_carries_what_the_script_needs(self):
+        self._tz(order=1)
+        wa = self._wa_question(self.survey, order=2)
+        body = self._page()
+        tz_input = re.search(r'<input[^>]*id="wa_tz_%d"[^>]*>' % wa.id, body).group(0)
+        self.assertIn('data-fallback-zone="America/New_York"', tz_input)
+        self.assertIn(f'data-grid-id="{wa.wa_grid_id}"', tz_input)
+        self.assertNotIn('data-wa-pinned', tz_input)
+        self.assertIn('data-tz-preselect="1"', body)
+
+    def test_a_re_render_after_a_failed_post_never_pins_or_preselects(self):
+        """After an invalid POST the cells are the posted ones, painted in the
+        posted zone -- converting or re-pointing them would move them."""
+        self.profile.timezone = None
+        self.profile.save(update_fields=['timezone'])
+        PlayerSchedule.objects.create(profile=self.profile, available_hours=[10])
+        self._tz(order=1)
+        wa = self._wa_question(self.survey, order=2)
+        required = Question.objects.create(
+            survey=self.survey, text='Required?', order=3, required=True,
+            question_type=Question.QuestionType.OPEN_ENDED)
+
+        body = self._page({f'question_{wa.id}': '10', f'question_{wa.id}_timezone': 'UTC',
+                           f'question_{required.id}': '', 'timezone_offset_hours': '0'})
+
+        self.assertFalse(SurveyResponse.objects.filter(survey=self.survey).exists())
+        self.assertNotIn('data-wa-pinned', body)
+        self.assertNotIn('data-tz-preselect', body)
+
+    def test_a_half_hour_profile_labels_the_grid_minute(self):
+        self.profile.timezone = 'Asia/Kolkata'
+        self.profile.save(update_fields=['timezone'])
+        self._wa_question(self.survey)
+        self.assertIn('data-label-minute="30"', self._page())
+
+    # ---- the server converts with the posted zone -------------------------------
+
+    def test_the_posted_grid_zone_is_what_converts(self):
+        """No server override from the Timezone answer: with the script running
+        the two are equal, and if it fails the posted zone is the one the
+        player actually painted in."""
+        from the_gatehouse.services.availability import local_to_utc_hours
+        tz = self._tz(order=1)
+        wa = self._wa_question(self.survey, order=2)
+        self.client.post(reverse('survey-take', kwargs={'slug': self.survey.slug}), {
+            f'question_{tz.id}': 'Europe/London',
+            f'question_{wa.id}': '14',
+            f'question_{wa.id}_timezone': 'Europe/London',
+            'timezone_offset_hours': '0',
+        })
+        expected = local_to_utc_hours([14], 'Europe/London')
+        self.assertEqual(Answer.objects.get(question=wa).availability_hours, expected)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'Europe/London')
+        general = PlayerSchedule.objects.get(profile=self.profile, week_start=None)
+        self.assertEqual(general.available_hours, expected)
+
+    # ---- parity with the page's pinned conversion ------------------------------
+
+    def test_the_scripts_utc_to_local_formula_matches_the_server(self):
+        """timezone_select.js converts pinned cells with one offset taken at the
+        reference Monday: floor((h*60 + off)/60) mod 168. That is only valid if
+        no zone changes offset during the reference week, and only right if it
+        equals utc_to_local_hours -- both checked here for every zone."""
+        from datetime import timedelta, timezone as dt_tz
+        from zoneinfo import ZoneInfo, available_timezones
+        from the_gatehouse.services.availability import _REFERENCE_MONDAY, utc_to_local_hours
+        start = _REFERENCE_MONDAY.replace(tzinfo=dt_tz.utc)
+        for zone in sorted(available_timezones()):
+            tzinfo = ZoneInfo(zone)
+            offsets = {(start + timedelta(hours=h)).astimezone(tzinfo).utcoffset()
+                       for h in range(169)}
+            self.assertEqual(len(offsets), 1, zone)
+            off = int(offsets.pop().total_seconds() // 60)
+            for h in (0, 1, 23, 100, 166, 167):
+                self.assertEqual([((h * 60 + off) // 60) % 168],
+                                 utc_to_local_hours([h], zone), (zone, h))
 
 
 class OtherTextDisplayTests(_SurveyTestBase):

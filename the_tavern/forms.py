@@ -181,12 +181,19 @@ class SurveyResponseForm(forms.Form):
                 from the_gatehouse.forms import TimezoneChoiceField
                 initial_tz = self._initial_timezone(question, profile, existing_response)
                 current = self.data.get(field_name) if self.is_bound else initial_tz
+                tz_attrs = {'class': 'form-select', 'data-tz-question': '1'}
+                if not self.is_bound:
+                    # Lets the page pre-select the browser's zone when the field
+                    # starts empty. Never on a re-render after a failed POST: an
+                    # optional TZ the player cleared must stay cleared, or the
+                    # General Availability grid would switch zones under them.
+                    tz_attrs['data-tz-preselect'] = '1'
                 self.fields[field_name] = TimezoneChoiceField(
                     label=question.text,
                     choices=[('', '---------')] + timezone_choice_groups(current=current),
                     required=question.required,
                     help_text=question.help_text,
-                    widget=forms.Select(attrs={'class': 'form-select', 'data-tz-question': '1'})
+                    widget=forms.Select(attrs=tz_attrs)
                 )
                 if initial_tz:
                     self.initial[field_name] = initial_tz
