@@ -509,15 +509,21 @@ class Survey(models.Model):
             'response_count': stats['response_count'] or 0,
         }
 
-    def has_weekly_availability_question(self):
-        """True if a visible WEEKLY_AVAILABILITY question is on the take page.
-        A Timezone question uses it to warn that its grid is drawn in the zone
-        already on record, not the one being picked."""
+    def timezone_questions_in_page_order(self):
+        """Visible Timezone (TZ) questions in the order the take page renders
+        them -- unsectioned first, then section by section (see
+        get_sections_with_questions). NOT Question.Meta.ordering: that sorts by
+        section__order, which puts unsectioned questions LAST on Postgres
+        (NULLs last). The profile is set from the first answered one, and the
+        page's script follows the first non-empty one, so both must agree on
+        which comes first."""
         from .models import Question
-        return self.questions.filter(
-            is_hidden=False,
-            question_type=Question.QuestionType.WEEKLY_AVAILABILITY,
-        ).exists()
+        return [
+            question
+            for section_data in self.get_sections_with_questions()
+            for question in section_data['questions']
+            if question.question_type == Question.QuestionType.TIMEZONE
+        ]
 
 
 class LikertScale(models.Model):

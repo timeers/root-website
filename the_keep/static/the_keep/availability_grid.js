@@ -343,14 +343,21 @@
     } catch (err) { return 0; }
   }
 
-  // Rewrite a whole-hour-labelled grid's row labels, cell times, titles and
-  // aria-labels to start at `minute`. A no-op for 0.
+  // Rewrite a grid's row labels, cell times, titles and aria-labels so its
+  // rows start at `minute` (0, 30 or 45). Works from whatever minute the grid
+  // is labelled at now -- the server's, rendered as data-label-minute, or the
+  // last one applied here -- so a page that follows a timezone picker can move
+  // between :00, :30 and :45 in any order. Only the LABELS change: cells keep
+  // their place and selection. A no-op when the minute is unchanged.
   function relabelGridMinute(container, minute) {
-    if (!container || !minute) { return; }
+    if (!container) { return; }
+    minute = minute || 0;
+    var current = parseInt(container.dataset.labelMinute || '0', 10) || 0;
+    if (current === minute) { return; }
     container.querySelectorAll('[data-hour]').forEach(function (el) {
       var hour = parseInt(el.dataset.hour, 10);
-      var oldShort = formatHourMinute(hour, 0, true);
-      var oldLong = formatHourMinute(hour, 0, false);
+      var oldShort = formatHourMinute(hour, current, true);
+      var oldLong = formatHourMinute(hour, current, false);
       var newShort = formatHourMinute(hour, minute, true);
       var newLong = formatHourMinute(hour, minute, false);
       el.querySelectorAll('.hour-text, .cell-time').forEach(function (span) {
@@ -365,6 +372,7 @@
         el.setAttribute(attr, value);
       });
     });
+    container.dataset.labelMinute = String(minute);
   }
 
   window.formatHourMinute = formatHourMinute;

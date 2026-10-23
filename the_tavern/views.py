@@ -78,13 +78,18 @@ def _survey_timezone_answer(survey, survey_response):
     question whose choice text holds the zone in parentheses; those are
     deliberately ignored now and behave like any other MC question -- swap
     them for a TZ question to have answers update profiles again.
+
+    The first VALID answer in page order wins (an optional TZ left blank is
+    skipped) -- the same rule the take page's script uses to decide which zone
+    the General Availability grid is saved in, so the two always agree.
     """
     from the_databot.services.time_parsing import valid_timezone
 
-    zones = survey_response.answers.filter(
+    answers = dict(survey_response.answers.filter(
         question__question_type=Question.QuestionType.TIMEZONE,
-    ).values_list('text_answer', flat=True)
-    for zone in zones:
+    ).values_list('question_id', 'text_answer'))
+    for question in survey.timezone_questions_in_page_order():
+        zone = answers.get(question.id)
         if valid_timezone(zone):
             return zone
     return None
@@ -159,6 +164,7 @@ def _availability_grid_labels(request):
                                                      zone_minute_offset)
     from the_databot.services.time_parsing import describe_timezone
     tz_name = _survey_grid_timezone(request)
+    grid_minute = zone_minute_offset(tz_name)
     profile = getattr(request.user, 'profile', None) if request.user.is_authenticated else None
     # Non-empty only: /availability creates an empty General row on a bare
     # visit, which isn't availability the player has actually set.
@@ -166,7 +172,10 @@ def _availability_grid_labels(request):
         profile=profile, week_start=None,
     ).values_list('available_hours', flat=True).first())
     return {'days': DAY_LABELS,
-            'hours': hour_labels(zone_minute_offset(tz_name)),
+            'hours': hour_labels(grid_minute),
+            # The minute the rows above are labelled at, so the page's script
+            # knows what to relabel FROM when the zone changes (:30/:45 zones).
+            'wa_grid_minute': grid_minute,
             'wa_timezone': tz_name or '',
             # The same zone, for a Timezone question's "currently X" note.
             'profile_timezone_display': describe_timezone(tz_name) if tz_name else '',

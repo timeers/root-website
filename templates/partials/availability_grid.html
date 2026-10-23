@@ -14,6 +14,9 @@ Parameters:
   field_id       id of the hidden input the selection serializes into
   count_id       optional id of a badge showing how many hours are selected
   clear_id       optional id of a "clear all" button
+  label_minute   the minute the hour rows below are labelled at (0, 30 or 45);
+                 rendered as data-label-minute so relabelGridMinute knows what
+                 to rewrite FROM when a page changes zone. Default 0.
   days           DAY_LABELS from the_gatehouse.services.availability -- used
                  when `hour_rows` is absent (the dateless 7-day case: the
                  general row, and every WEEKLY_AVAILABILITY survey grid).
@@ -57,7 +60,8 @@ any other empty cell.
        id="{{ grid_id|default:'availability-grid' }}"
        {% if field_id %}data-field-id="{{ field_id }}"{% endif %}
        {% if count_id %}data-count-id="{{ count_id }}"{% endif %}
-       {% if clear_id %}data-clear-id="{{ clear_id }}"{% endif %}>
+       {% if clear_id %}data-clear-id="{{ clear_id }}"{% endif %}
+       data-label-minute="{{ label_minute|default:0 }}">
     <div class="avail-corner"></div>
     {% if columns %}
       {% for column in columns %}

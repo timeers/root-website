@@ -210,11 +210,17 @@
                         <div class="mt-3">
                             <p class="text-muted small mb-2">
                                 <i class="bi bi-check2-square"></i>
+                                {% comment %} The zone label starts as the server's best guess; the
+                                script below replaces it with the zone the grid is actually saved
+                                in, and keeps it in step with any Timezone question on the page. {% endcomment %}
                                 {% if pinned_tz %}
-                                    {% trans "Click or drag to mark every hour you are free. Times are shown in UTC because you haven't set a timezone." %}
+                                    {% trans 'UTC' as wa_zone_label %}
+                                {% elif profile_timezone_display %}
+                                    {% firstof profile_timezone_display as wa_zone_label %}
                                 {% else %}
-                                    {% trans 'Click or drag to mark every hour you are free. Times are shown in your own timezone.' %}
+                                    {% trans "your browser's timezone" as wa_zone_label %}
                                 {% endif %}
+                                {% blocktrans %}Click or drag to mark every hour you are free. Times are shown in <span class="js-wa-zone-label">{{ wa_zone_label }}</span>.{% endblocktrans %}
                             </p>
                             {% url 'availability' as availability_url %}
                             <p class="text-muted small mb-2">
@@ -235,14 +241,20 @@
                             </div>
                             {% comment %} The hidden inputs the grid JS writes into. The
                             timezone one tells the server what the painted LOCAL hours
-                            mean: the zone the grid's labels were drawn in (the profile's),
-                            or -- with none saved -- the browser's, filled in by the
-                            script below. {% endcomment %}
+                            mean -- the respondent's zone, kept up to date by the script
+                            below (the first answered Timezone question, else
+                            data-fallback-zone, else the browser's). data-wa-pinned marks
+                            pre-filled cells the server drew in UTC for want of a zone,
+                            which the script converts once on load. {% endcomment %}
                             {{ form|get_question_field:question.id }}
                             <input type="hidden" name="question_{{ question.id }}_timezone"
                                    id="wa_tz_{{ question.id }}" class="js-wa-timezone"
+                                   data-field-id="{{ question.wa_field_id }}"
+                                   data-grid-id="{{ question.wa_grid_id }}"
+                                   data-fallback-zone="{{ wa_timezone }}"
+                                   {% if pinned_tz %}data-wa-pinned="1"{% endif %}
                                    value="{{ pinned_tz|default:wa_timezone }}">
-                            {% include 'partials/availability_grid.html' with grid_id=question.wa_grid_id field_id=question.wa_field_id count_id=question.wa_count_id clear_id=question.wa_clear_id editable=True %}
+                            {% include 'partials/availability_grid.html' with grid_id=question.wa_grid_id field_id=question.wa_field_id count_id=question.wa_count_id clear_id=question.wa_clear_id editable=True label_minute=wa_grid_minute %}
                             {% if question.required %}
                                 <div class="invalid-feedback" id="wa_error_{{ question.id }}" style="display: none;">
                                     {% trans 'Please select at least one hour.' %}
@@ -467,11 +479,6 @@
                                         {% trans "You haven't set a timezone yet, so the one your browser reports is selected. Your answer is saved to your profile." %}
                                     {% endif %}
                                 </p>
-                                {% if survey.has_weekly_availability_question %}
-                                    <p class="text-muted small mt-1 mb-0">
-                                        {% trans 'The General Availability grid on this page stays in the timezone it loaded in. A change here applies to the grid from your next visit.' %}
-                                    </p>
-                                {% endif %}
                             </div>
                         {% endwith %}
 
@@ -595,36 +602,100 @@ questions on one page each get their own independent grid. {% endcomment %}
 <script src="{% static 'the_keep/timezone_select.js' %}"></script>
 {% trans 'Detected from your browser' as detected_tz_label %}
 <script>
-// Timezone questions: offer the browser's zone at the top, and select it when
-// the profile has none (the field renders blank in that case).
-document.querySelectorAll('select[data-tz-question]').forEach(function (select) {
-  select.dataset.detectedLabel = '{{ detected_tz_label|escapejs }}';
-  window.enhanceTimezoneSelect(select, {preselect: select.value === ''});
-});
-</script>
-<script>
-// Tell the server which timezone each WA grid was PAINTED in. The local hours it
-// posts are meaningless without this, and the server (not the browser) does the
-// local->UTC conversion because that needs ZoneInfo's DST rules.
-document.addEventListener('DOMContentLoaded', function () {
-    var zone = 'UTC';
-    try {
-        zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-    } catch (err) { /* server falls back to the profile zone, then UTC */ }
-    var minute = window.browserMinuteOffset ? window.browserMinuteOffset() : 0;
-    document.querySelectorAll('.js-wa-timezone').forEach(function (field) {
-        if (!field.value) {
-            field.value = zone;
-            // The server drew this grid in UTC (no saved zone), so in a :30/:45
-            // browser zone its rows must be relabelled to start at that minute,
-            // or "9am" would be saved as 9:30.
-            if (window.relabelGridMinute) {
-                window.relabelGridMinute(
-                    field.parentElement.querySelector('.js-availability-grid'), minute);
-            }
-        }
+// Timezone questions and General Availability grids.
+//
+// Runs while the page is still parsing -- after availability_grid.js has
+// defined its helpers but BEFORE its DOMContentLoaded init reads each grid's
+// hidden field -- so a pinned prefill can be rewritten in place first.
+//
+// The rule: a grid's cells are local wall-clock times in the RESPONDENT'S
+// zone, and the hidden .js-wa-timezone input (what the server converts with)
+// always holds that zone. Changing the Timezone question changes only that
+// input, the zone label and -- for :30/:45 zones -- the row labels. Cells never
+// move: "3pm" stays 3pm, now meaning 3pm in the newly picked zone.
+(function () {
+  var tzSelects = Array.prototype.slice.call(
+    document.querySelectorAll('select[data-tz-question]'));
+  tzSelects.forEach(function (select) {
+    select.dataset.detectedLabel = '{{ detected_tz_label|escapejs }}';
+    // Only a fresh form, and only an empty field: never override a saved
+    // profile zone, and never re-fill an optional one the player cleared
+    // before a failed submit.
+    window.enhanceTimezoneSelect(select, {
+      preselect: select.dataset.tzPreselect === '1' && select.value === ''
     });
-});
+  });
+
+  var browserZone = (window.detectedTimezone && window.detectedTimezone()) || 'UTC';
+
+  // The first answered Timezone question in page order -- the same one the
+  // server sets the profile from (Survey.timezone_questions_in_page_order).
+  function answeredSelect() {
+    for (var i = 0; i < tzSelects.length; i++) {
+      if (tzSelects[i].value) { return tzSelects[i]; }
+    }
+    return null;
+  }
+
+  // Mirrors the server's chain for the profile: the answer, else the zone
+  // already on record, else the browser's.
+  function respondentZone(field) {
+    var select = answeredSelect();
+    if (select) { return select.value; }
+    return field.dataset.fallbackZone || browserZone || 'UTC';
+  }
+
+  function zoneLabel(field, zone, serverLabel) {
+    var select = answeredSelect();
+    if (select && select.value === zone && select.selectedIndex >= 0) {
+      return select.options[select.selectedIndex].textContent.trim();
+    }
+    // Back on the zone already on record: the server's friendlier
+    // "New York (US Eastern) — UTC-4" rather than the bare IANA name.
+    if (serverLabel && zone === field.dataset.fallbackZone) { return serverLabel; }
+    return zone;
+  }
+
+  function applyZone(field, zone) {
+    field.value = zone;
+    var grid = document.getElementById(field.dataset.gridId);
+    if (grid && window.relabelGridMinute && window.zoneMinuteOffset) {
+      window.relabelGridMinute(grid, window.zoneMinuteOffset(zone));
+    }
+    var container = field.closest('.mt-3');
+    var label = container && container.querySelector('.js-wa-zone-label');
+    if (label) {
+      if (label.dataset.serverLabel === undefined) {
+        label.dataset.serverLabel = field.dataset.fallbackZone ? label.textContent.trim() : '';
+      }
+      label.textContent = zoneLabel(field, zone, label.dataset.serverLabel);
+    }
+  }
+
+  var fields = Array.prototype.slice.call(document.querySelectorAll('.js-wa-timezone'));
+  fields.forEach(function (field) {
+    var zone = respondentZone(field);
+    // Pre-filled cells the server drew in UTC (no profile zone to draw them
+    // in): place them at their real local times in the respondent's zone,
+    // once, before the grid reads them. Keeps their instants unchanged.
+    if (field.dataset.waPinned === '1' && zone !== 'UTC' && window.utcToLocalHours) {
+      var hidden = document.getElementById(field.dataset.fieldId);
+      if (hidden && hidden.value) {
+        var hours = hidden.value.split(',').map(function (h) { return parseInt(h, 10); })
+          .filter(function (h) { return !isNaN(h); });
+        hidden.value = window.utcToLocalHours(hours, zone).join(',');
+      }
+    }
+    applyZone(field, zone);
+  });
+
+  // A changed answer re-points every grid; the cells stay where they are.
+  tzSelects.forEach(function (select) {
+    select.addEventListener('change', function () {
+      fields.forEach(function (field) { applyZone(field, respondentZone(field)); });
+    });
+  });
+})();
 </script>
 <script>
 // ============================================
