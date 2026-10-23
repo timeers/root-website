@@ -13330,24 +13330,24 @@ class PlayerScheduleCleanupTaskTests(TestCase):
 
     def test_a_row_older_than_the_retention_window_is_deleted(self):
         from the_databot import tasks
-        self._week_row(weeks_ago=10, tournament=None)
+        self._week_row(weeks_ago=10)
         self.assertEqual(tasks.cleanup_expired_player_schedules(retain_weeks=3), 1)
         self.assertFalse(PlayerSchedule.objects.filter(week_start__isnull=False).exists())
 
     def test_a_row_inside_the_retention_window_survives(self):
         from the_databot import tasks
-        self._week_row(weeks_ago=1, tournament=None)
+        self._week_row(weeks_ago=1)
         self.assertEqual(tasks.cleanup_expired_player_schedules(retain_weeks=3), 0)
         self.assertEqual(PlayerSchedule.objects.filter(week_start__isnull=False).count(), 1)
 
     def test_a_standing_row_is_never_touched_regardless_of_age(self):
         from the_databot import tasks
         standing = PlayerSchedule.objects.create(
-            profile=self.profile, tournament=None, week_start=None,
+            profile=self.profile, week_start=None,
             available_hours=[1, 2, 3])
         standing.updated_at = timezone.now() - timedelta(days=1000)
         standing.save(update_fields=["updated_at"])
-        self._week_row(weeks_ago=10, tournament=None)
+        self._week_row(weeks_ago=10)
 
         tasks.cleanup_expired_player_schedules(retain_weeks=3)
 
@@ -13355,16 +13355,16 @@ class PlayerScheduleCleanupTaskTests(TestCase):
 
     def test_dry_run_reports_without_deleting(self):
         from the_databot import tasks
-        self._week_row(weeks_ago=10, tournament=None)
+        self._week_row(weeks_ago=10)
         self.assertEqual(
             tasks.cleanup_expired_player_schedules(retain_weeks=3, dry_run=True), 1)
         self.assertEqual(PlayerSchedule.objects.filter(week_start__isnull=False).count(), 1)
 
     def test_limit_caps_a_run_oldest_first(self):
         from the_databot import tasks
-        oldest = self._week_row(weeks_ago=20, tournament=None)
-        self._week_row(weeks_ago=15, tournament=None)
-        self._week_row(weeks_ago=10, tournament=None)
+        oldest = self._week_row(weeks_ago=20)
+        self._week_row(weeks_ago=15)
+        self._week_row(weeks_ago=10)
         self.assertEqual(
             tasks.cleanup_expired_player_schedules(retain_weeks=3, limit=1), 1)
         self.assertFalse(PlayerSchedule.objects.filter(pk=oldest.pk).exists())
@@ -13381,13 +13381,13 @@ class PlayerScheduleCleanupTaskTests(TestCase):
         # week_start 28 days ago: the week's own 7 days + exactly 3 retained
         # weeks after it (21 days) = 28 days -- still within the window.
         still_in_window = PlayerSchedule.objects.create(
-            profile=self.profile, tournament=None,
+            profile=self.profile,
             week_start=timezone.now().date() - timedelta(days=28),
             available_hours=[1],
         )
         # One day further -> past the window.
         past_window = PlayerSchedule.objects.create(
-            profile=self.profile, tournament=None,
+            profile=self.profile,
             week_start=timezone.now().date() - timedelta(days=29),
             available_hours=[1],
         )

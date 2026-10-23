@@ -21,37 +21,8 @@
           <p class="text-secondary mb-0">
             {% trans 'Mark the hours you are usually free to start a game (remember that TTS games can often take 4 hours to play). Click a cell to toggle it, or use the day and hour labels to toggle a whole column or row.' %}
           </p>
-
-          {# Only shown when the player has tournament-specific availability, which only happens when a tournament asked them for it. #}
-          {% if tournament_schedules %}
-            <hr>
-            <h6 class="fw-bold">{% trans 'Which schedule' %}</h6>
-            <p class="text-secondary small">
-              {% trans 'Your general availability applies everywhere. A tournament with its own schedule uses that instead.' %}
-            </p>
-            <div class="d-flex flex-wrap gap-2">
-              <a href="{% url 'availability' %}"
-                 class="databot-btn {% if not editing_tournament %}databot-btn-primary{% else %}databot-btn-outline{% endif %} avail-btn-compact">
-                {% trans 'General' %}
-              </a>
-              {% for ps in tournament_schedules %}
-                <a href="{% url 'availability' %}?tournament={{ ps.tournament.slug|default:ps.pk }}"
-                   class="databot-btn {% if editing_tournament and editing_tournament.pk == ps.tournament.pk %}databot-btn-primary{% else %}databot-btn-outline{% endif %} avail-btn-compact">
-                  {{ ps.tournament.name }}
-                </a>
-              {% endfor %}
-            </div>
-          {% endif %}
         </div>
       </div>
-
-      {% if editing_tournament %}
-        <div class="alert alert-secondary">
-          <i class="bi bi-info-circle me-1"></i>
-          {% blocktrans with name=editing_tournament.name %}You are editing your availability for {{ name }}. It overrides your general availability for that tournament only.{% endblocktrans %}
-        </div>
-      {% endif %}
-
 
       <form method="POST" id="availability-form">
         {% csrf_token %}
@@ -64,9 +35,6 @@
         {# The zone those hours are expressed in. Switching the picker changes `timezone` but NOT this, which is how the server knows to re-label the same instants instead of moving them. #}
         <input type="hidden" name="drawn_timezone" id="id_drawn_timezone"
                value="{{ timezone_name|default_if_none:'' }}">
-        {# Which schedule this grid edits ('' = general). Rides through the timezone round-trip so the re-render can't switch rows underneath the user. #}
-        <input type="hidden" name="schedule_target" id="id_schedule_target"
-               value="{{ schedule_target }}">
         {# Which week this grid edits ('' = the standing/general template). #}
         <input type="hidden" name="week_start" id="id_week_start"
                value="{% if is_week_specific %}{{ week_start|date:'Y-m-d' }}{% endif %}">
@@ -150,7 +118,7 @@
             <p class="text-secondary small mb-2 mt-3">
               {% trans "Mark when you can start a game. General Availability is used as your default availability for all weeks. Override your defaults for a specific date with Day by Day Availability." %}
             </p>
-            <div class="avail-week-row mb-3" id="week-navigator" data-tournament="{{ schedule_target }}">
+            <div class="avail-week-row mb-3" id="week-navigator">
               <div class="avail-week-arrow avail-week-arrow--prev">
                 <button type="button" id="nav-prev" data-week="{{ prev_week|date:'Y-m-d' }}"
                         class="databot-btn databot-btn-outline avail-btn-compact"
@@ -273,7 +241,7 @@ on the fresh DOM, rather than trying to reconstruct the grid client-side.
   var saveBtn = document.getElementById('save-availability-btn');
 
   // In-memory only after the first load: refreshed on every week-switch and
-  // save, since the seed hours differ per (tournament, week).
+  // save, since the seed hours differ per week.
   var copyFromGeneralHours = JSON.parse(
     document.getElementById('copy-from-general-hours').textContent) || [];
 
@@ -365,7 +333,6 @@ on the fresh DOM, rather than trying to reconstruct the grid client-side.
     labelPartialHourZone(data.grid_minute || 0);
 
     weekField.value = data.week_start || '';
-    document.getElementById('id_schedule_target').value = data.schedule_target || '';
     copyFromGeneralHours = data.copy_from_general_hours || [];
 
     document.getElementById('week-label').textContent = data.week_label;
@@ -449,16 +416,9 @@ on the fresh DOM, rather than trying to reconstruct the grid client-side.
   }
 
   // ---- Week navigation, via fetch --------------------------------------------
-  // Set once at load: switching TOURNAMENTS is a plain <a href> full-page
-  // reload elsewhere on this page (the "Which schedule" selector), never part
-  // of the AJAX week-switch/save flow -- so this never goes stale mid-session,
-  // and both #mode-tabs and #week-navigator (separate components, each with
-  // their own click delegate below) can share it without a DOM attribute.
-  var tournamentTarget = "{{ schedule_target }}";
 
   function pushUrl(data) {
     var params = new URLSearchParams();
-    if (tournamentTarget) { params.set('tournament', tournamentTarget); }
     if (data.week_start) { params.set('week', data.week_start); }
     var qs = params.toString();
     var url = window.location.pathname + (qs ? '?' + qs : '');
@@ -511,7 +471,6 @@ on the fresh DOM, rather than trying to reconstruct the grid client-side.
       // confirm()'s OK path.
     }
     var params = new URLSearchParams();
-    if (tournamentTarget) { params.set('tournament', tournamentTarget); }
     if (weekValue && weekValue !== 'general') { params.set('week', weekValue); }
 
     var response;

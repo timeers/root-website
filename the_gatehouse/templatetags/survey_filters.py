@@ -39,6 +39,16 @@ def get_question_field(form, question_id):
         return None
 
 @register.filter
+def get_question_field_timezone(form, question_id):
+    """The zone a General Availability (WA) grid's PRE-FILLED cells were drawn
+    in, when the form pinned one ('UTC' for a profile with no timezone) -- else
+    ''. Unbound forms only: on a re-render after a failed POST the grid shows
+    what was posted, in the zone the page itself chose."""
+    if not hasattr(form, 'initial') or getattr(form, 'is_bound', False):
+        return ''
+    return form.initial.get(f'question_{question_id}_timezone', '') or ''
+
+@register.filter
 def get_question_field_other(form, question_id):
     """Get the 'other_text' form field for a specific question ID"""
     field_name = f'question_{question_id}_other_text'

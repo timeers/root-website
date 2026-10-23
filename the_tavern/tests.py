@@ -227,7 +227,11 @@ class WeeklyAvailabilityOverrideTests(_SurveyTestBase):
 
 
 class WeeklyAvailabilitySubmissionTests(_SurveyTestBase):
-    """The whole path: form -> view -> Answer -> PlayerSchedule.
+    """The whole path: form -> view -> Answer -> General Availability.
+
+    A General Availability (WA) answer writes the player's GENERAL schedule --
+    the one /availability edits -- on any survey, and on a Series survey also
+    clears their legacy tournament-specific rows for that series.
 
     These are the tests that matter most. A unit test that builds an Answer by
     hand passes whether or not the view creates one, so only a real POST proves
@@ -238,13 +242,19 @@ class WeeklyAvailabilitySubmissionTests(_SurveyTestBase):
         super().setUp()
         from the_warroom.models import Tournament
         self.tournament = Tournament.objects.create(name='WA Cup', designer=self.profile)
-        self.survey = self._survey(series=self.tournament)
+        self.survey = self._survey(series=self.tournament, allow_edit_responses=True)
         self.question = self._wa_question(self.survey)
         self.url = reverse('survey-take', kwargs={'slug': self.survey.slug})
         self.client.force_login(self.user)
 
-    def _post(self, hours, tz='UTC'):
-        return self.client.post(self.url, {
+    def _general(self, profile=None):
+        """The General row's hours, or None when there's no row."""
+        return (PlayerSchedule.objects
+                .filter(profile=profile or self.profile, week_start=None)
+                .values_list('available_hours', flat=True).first())
+
+    def _post(self, hours, tz='UTC', url=None):
+        return self.client.post(url or self.url, {
             f'question_{self.question.id}': ','.join(str(h) for h in hours),
             f'question_{self.question.id}_timezone': tz,
             'timezone_offset_hours': '0',
@@ -264,14 +274,25 @@ class WeeklyAvailabilitySubmissionTests(_SurveyTestBase):
         answer = Answer.objects.get(question=self.question)
         self.assertEqual(answer.availability_hours, [4])   # Monday 04:00 UTC
 
-    def test_a_submission_stores_hours_and_writes_the_schedule(self):
+    def test_a_submission_writes_general_availability(self):
         self._post([10, 11, 12])
 
         answer = Answer.objects.get(question=self.question)
         self.assertEqual(answer.availability_hours, [10, 11, 12])
-        schedule = PlayerSchedule.objects.get(
-            profile=self.profile, tournament=self.tournament)
-        self.assertEqual(schedule.available_hours, [10, 11, 12])
+        self.assertEqual(self._general(), [10, 11, 12])
+        self.assertEqual(PlayerSchedule.objects.filter(profile=self.profile).count(), 1)
+
+    def test_a_survey_without_a_series_writes_general_availability_too(self):
+        """Reverses the old "a one-off poll must not touch General" rule: the
+        grid is General Availability, pre-filled and labelled as such."""
+        survey = self._survey(title='No series')
+        question = self._wa_question(survey)
+        self.client.post(reverse('survey-take', kwargs={'slug': survey.slug}), {
+            f'question_{question.id}': '20,21',
+            f'question_{question.id}_timezone': 'UTC',
+            'timezone_offset_hours': '0',
+        })
+        self.assertEqual(self._general(), [20, 21])
 
     def test_local_hours_are_converted_to_utc(self):
         """The grid is painted locally; the server converts using ZoneInfo, so
@@ -282,44 +303,59 @@ class WeeklyAvailabilitySubmissionTests(_SurveyTestBase):
         # Monday 14:00 in New York (UTC-5 on the reference week) is 19:00 UTC.
         self.assertEqual(answer.availability_hours, [19])
 
-    def test_an_empty_grid_clears_the_schedule(self):
+    def test_an_empty_grid_clears_general_availability(self):
         """The case the `if answer_data:` guard used to swallow: with no Answer
-        row created, the override never fires and an emptied grid silently kept
-        the old schedule."""
-        PlayerSchedule.objects.create(
-            profile=self.profile, tournament=self.tournament,
-            available_hours=[1, 2, 3])
+        row created, an emptied grid silently kept the old schedule."""
+        general = PlayerSchedule.objects.create(profile=self.profile, available_hours=[1, 2, 3])
 
         self._post([])
 
         answer = Answer.objects.get(question=self.question)
         self.assertEqual(answer.availability_hours, [])
-        schedule = PlayerSchedule.objects.get(
-            profile=self.profile, tournament=self.tournament)
-        self.assertEqual(schedule.available_hours, [])
+        general.refresh_from_db()
+        self.assertEqual(general.available_hours, [])
 
-    def test_a_week_specific_row_does_not_break_the_lookup(self):
-        """A player who ALSO has a week-specific row for this tournament (set via
-        the /availability navigator) must not make the standing-row lookup match
-        two rows -- update_or_create pins week_start=None explicitly for exactly
-        this reason."""
+    def test_a_week_row_and_another_players_rows_are_untouched(self):
+        """The answer is General Availability only: Day by Day overrides and
+        other players' schedules are left exactly as they were."""
         from datetime import date
-        PlayerSchedule.objects.create(
-            profile=self.profile, tournament=self.tournament, week_start=None,
-            available_hours=[1, 2, 3])
-        PlayerSchedule.objects.create(
-            profile=self.profile, tournament=self.tournament, week_start=date(2026, 9, 14),
-            available_hours=[9, 9])
+        from django.contrib.auth.models import User
+        week = PlayerSchedule.objects.create(
+            profile=self.profile, week_start=date(2026, 9, 14), available_hours=[9])
+        other = User.objects.create_user(username='other', password='pw').profile
+        PlayerSchedule.objects.create(profile=other, available_hours=[5])
 
         response = self._post([14])
         self.assertEqual(response.status_code, 302)
 
-        standing = PlayerSchedule.objects.get(
-            profile=self.profile, tournament=self.tournament, week_start=None)
-        self.assertEqual(standing.available_hours, [14])  # default _post tz is UTC
-        week_row = PlayerSchedule.objects.get(
-            profile=self.profile, tournament=self.tournament, week_start=date(2026, 9, 14))
-        self.assertEqual(week_row.available_hours, [9, 9])  # untouched
+        self.assertEqual(self._general(), [14])
+        week.refresh_from_db()
+        self.assertEqual(week.available_hours, [9])
+        self.assertEqual(self._general(other), [5])
+
+    def test_editing_a_response_updates_general_availability(self):
+        self._post([10])
+        response = SurveyResponse.objects.get(survey=self.survey)
+
+        self._post([30, 31], url=reverse('survey-edit-response', kwargs={
+            'slug': self.survey.slug, 'response_id': response.pk}))
+
+        self.assertEqual(self._general(), [30, 31])
+
+    def test_a_time_and_day_only_survey_writes_nothing(self):
+        """TA/DY answers are too coarse to stand in for a painted grid -- they
+        stay survey data and no schedule changes."""
+        PlayerSchedule.objects.create(profile=self.profile, available_hours=[1, 2, 3])
+        survey = self._survey(title='Old style', series=self.tournament)
+        ta = self._ta_question(survey, order=1)
+        hour = ta.choices.get(text='14')
+
+        self.client.post(reverse('survey-take', kwargs={'slug': survey.slug}), {
+            f'question_{ta.id}': [str(hour.id)], 'timezone_offset_hours': '0'})
+
+        self.assertTrue(SurveyResponse.objects.filter(survey=survey).exists())
+        self.assertEqual(self._general(), [1, 2, 3])
+        self.assertEqual(PlayerSchedule.objects.filter(profile=self.profile).count(), 1)
 
     def test_an_invalid_timezone_falls_back_rather_than_erroring(self):
         response = self._post([10], tz='Not/AZone')
@@ -328,11 +364,9 @@ class WeeklyAvailabilitySubmissionTests(_SurveyTestBase):
                          [10])
 
     def test_a_survey_with_no_availability_questions_writes_nothing(self):
-        """Guards the other direction: this runs on every submission for a
-        series survey, so an unrelated poll must not clear a schedule."""
-        PlayerSchedule.objects.create(
-            profile=self.profile, tournament=self.tournament,
-            available_hours=[1, 2, 3])
+        """Guards the other direction: this runs on every submission, so an
+        unrelated poll must not clear a schedule."""
+        PlayerSchedule.objects.create(profile=self.profile, available_hours=[7])
         other = self._survey(title='Opinions', series=self.tournament)
         Question.objects.create(survey=other, text='Thoughts?',
                                 question_type=Question.QuestionType.OPEN_ENDED,
@@ -342,9 +376,7 @@ class WeeklyAvailabilitySubmissionTests(_SurveyTestBase):
                          {f'question_{other.questions.first().id}': 'hi',
                           'timezone_offset_hours': '0'})
 
-        schedule = PlayerSchedule.objects.get(
-            profile=self.profile, tournament=self.tournament)
-        self.assertEqual(schedule.available_hours, [1, 2, 3])
+        self.assertEqual(self._general(), [7])
 
     def test_the_grid_renders_on_the_take_page(self):
         response = self.client.get(self.url)
@@ -371,11 +403,6 @@ class WeeklyAvailabilityBuilderTests(_SurveyTestBase):
         question = self._wa_question(survey)
         question.save()
         self.assertEqual(question.choices.count(), 0)
-
-    def test_a_survey_with_wa_reports_having_availability_questions(self):
-        survey = self._survey()
-        self._wa_question(survey)
-        self.assertTrue(survey.has_availability_questions())
 
 
 class TimeAvailabilityConversionTests(_SurveyTestBase):
@@ -959,6 +986,126 @@ class WeeklyAvailabilityGridRenderTests(_SurveyTestBase):
         ):
             self.assertEqual(len(page.context['days']), 7)
             self.assertEqual(len(page.context['hours']), 24)
+
+
+class GeneralAvailabilityPrefillTests(_SurveyTestBase):
+    """A General Availability (WA) grid starts on the player's CURRENT General
+    Availability -- on take and on edit -- not on a saved answer that goes stale
+    the moment they change /availability."""
+
+    def setUp(self):
+        super().setUp()
+        from the_warroom.models import Tournament
+        self.tournament = Tournament.objects.create(name='Prefill Cup', designer=self.profile)
+        self.survey = self._survey(series=self.tournament, allow_edit_responses=True)
+        self.question = self._wa_question(self.survey)
+        self.field = f'question_{self.question.id}'
+        self.take_url = reverse('survey-take', kwargs={'slug': self.survey.slug})
+        self.client.force_login(self.user)
+
+    def _form(self, **kwargs):
+        from the_tavern.forms import SurveyResponseForm
+        return SurveyResponseForm(survey=self.survey, profile=self.profile, **kwargs)
+
+    def _general(self, hours):
+        return PlayerSchedule.objects.create(profile=self.profile, available_hours=hours)
+
+    def _answered(self, hours):
+        response = SurveyResponse.objects.create(
+            survey=self.survey, profile=self.profile, timezone_name='UTC')
+        Answer.objects.create(response=response, question=self.question,
+                              availability_hours=hours)
+        return response
+
+    def test_the_take_form_starts_on_general_availability(self):
+        self._general([10, 11])
+        self.assertEqual(self._form().initial[self.field], '10,11')
+
+    def test_editing_starts_on_general_availability_not_the_saved_answer(self):
+        response = self._answered([10, 11])
+        self._general([30, 31])
+
+        self.assertEqual(self._form(existing_response=response).initial[self.field], '30,31')
+
+    def test_an_empty_general_row_falls_through_to_the_saved_answer(self):
+        """/availability creates an empty General row on a bare visit; that
+        isn't availability the player chose, so the saved answer wins."""
+        response = self._answered([40])
+        self._general([])
+        self.assertEqual(self._form(existing_response=response).initial[self.field], '40')
+
+    def test_an_empty_general_row_and_no_answer_start_blank(self):
+        self._general([])
+        self.assertNotIn(self.field, self._form().initial)
+
+    def test_with_no_general_availability_editing_falls_back_to_the_answer(self):
+        response = self._answered([10, 11])
+        self.assertEqual(self._form(existing_response=response).initial[self.field], '10,11')
+
+    def test_with_nothing_to_go_on_the_grid_starts_blank(self):
+        self.assertNotIn(self.field, self._form().initial)
+
+    def test_only_the_first_grid_is_prefilled(self):
+        """The save unions every grid, so pre-filling them all would mean
+        removing an hour from each one."""
+        second = self._wa_question(self.survey, order=2, text='Again?')
+        self._general([10])
+        form = self._form()
+        self.assertEqual(form.initial[self.field], '10')
+        self.assertNotIn(f'question_{second.id}', form.initial)
+
+    def test_prefilled_hours_are_drawn_in_the_profile_zone_and_round_trip(self):
+        """An untouched submit must leave General exactly as it was, in a :30
+        zone too -- utc_to_local_hours and local_to_utc_hours are inverses."""
+        self.profile.timezone = 'Asia/Kolkata'
+        self.profile.save(update_fields=['timezone'])
+        self._general([4, 100])  # Mon 04:00 UTC, Fri 04:00 UTC
+
+        initial = self._form().initial[self.field]
+        self.assertEqual(initial, '9,105')  # 9:30am local, shown as row 9
+
+        self.client.post(self.take_url, {
+            self.field: initial,
+            f'{self.field}_timezone': 'Asia/Kolkata',
+            'timezone_offset_hours': '5.5',
+        })
+        general = PlayerSchedule.objects.get(
+            profile=self.profile, week_start=None)
+        self.assertEqual(general.available_hours, [4, 100])
+
+    def test_without_a_profile_zone_prefilled_cells_are_pinned_to_utc(self):
+        """The page would otherwise draw in the browser's zone, which the server
+        couldn't have converted for -- shifting every cell on an untouched save."""
+        self.profile.timezone = None
+        self.profile.save(update_fields=['timezone'])
+        self._general([10])
+
+        form = self._form()
+        self.assertEqual(form.initial[self.field], '10')
+        self.assertEqual(form.initial[f'{self.field}_timezone'], 'UTC')
+
+        page = self.client.get(self.take_url)
+        self.assertContains(page, f'id="wa_tz_{self.question.id}" class="js-wa-timezone"\n'
+                                  f'                                   value="UTC"')
+        self.assertContains(page, "shown in UTC because you haven")
+
+    def test_the_note_says_whether_general_availability_is_set(self):
+        self.assertContains(self.client.get(self.take_url),
+                            'your selections here will set your availability')
+        self._general([10])
+        self.assertContains(self.client.get(self.take_url),
+                            'This is your General Availability')
+
+    def test_an_empty_general_row_counts_as_not_set(self):
+        self._general([])
+        self.assertContains(self.client.get(self.take_url), 'your selections here will set your availability')
+
+    def test_the_preview_renders(self):
+        self.survey.created_by = self.profile
+        self.survey.save(update_fields=['created_by'])
+        page = self.client.get(reverse('survey-preview', kwargs={'slug': self.survey.slug}))
+        self.assertEqual(page.status_code, 200)
+        self.assertNotContains(page, 'This is your General Availability')
 
 
 class OtherTextDisplayTests(_SurveyTestBase):

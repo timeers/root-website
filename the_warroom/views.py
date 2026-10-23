@@ -6451,7 +6451,7 @@ def _stage_matches_context(request, tournament, stage):
         for series in match_series:
             _attach_series_effort_grid(series)
 
-        _attach_series_availability(match_series, tournament)
+        _attach_series_availability(match_series)
 
         recordable_match_ids, is_participant_series = _recordable_match_ids(
             round, request.user, tournament, view_as=get_view_as(request, tournament)
@@ -6716,7 +6716,7 @@ def round_details_page(request, tournament_slug, round_slug, stage_slug=None):
     return render(request, 'the_warroom/round_details.html', context)
 
 
-def _attach_series_availability(match_series, tournament):
+def _attach_series_availability(match_series):
     """Flag each series whose seated players have any availability between them.
 
     Drives the card's availability button: without this it would offer a link to
@@ -6736,7 +6736,7 @@ def _attach_series_availability(match_series, tournament):
         seats_by_series[series.id] = ids
         profile_ids.update(ids)
 
-    schedules = schedules_for(profile_ids, tournament) if profile_ids else {}
+    schedules = schedules_for(profile_ids) if profile_ids else {}
 
     for series in match_series:
         series.has_availability = any(
@@ -6828,7 +6828,7 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
     for series in match_series:
         _attach_series_effort_grid(series)
 
-    _attach_series_availability(match_series, tournament)
+    _attach_series_availability(match_series)
 
     recordable_match_ids, is_participant_series = _recordable_match_ids(
         round, request.user, tournament, view_as=get_view_as(request, tournament)
@@ -7015,35 +7015,34 @@ class _AnalyticsPaginator(Paginator):
         self.__dict__['count'] = total  # pre-fill the cached_property
 
 
-def _analytics_schedule_rows(tournament):
+def _analytics_schedule_rows():
     """Schedule rows that count as 'has availability' for the X/Y column:
-    non-empty, general or this tournament's, and either a standing pattern or
-    Day by Day for the current week onward (past weeks don't count).
+    non-empty, and either General Availability or Day by Day for the current
+    week onward (past weeks don't count).
 
     Deliberately no schedules_for precedence: any qualifying row counts, so an
     empty row never cancels a non-empty one. The single source for both the
     Availability sort (_analytics_available_expr) and the displayed X."""
     this_week = week_start_for(timezone.now().date())
     return (PlayerSchedule.objects
-            .filter(Q(tournament=tournament) | Q(tournament__isnull=True))
             .filter(Q(week_start__isnull=True) | Q(week_start__gte=this_week))
             .exclude(available_hours=[]))
 
 
-def _analytics_available_expr(profile_ref, tournament):
+def _analytics_available_expr(profile_ref):
     """True when the referenced profile has a qualifying schedule row (see
     _analytics_schedule_rows), so the Availability sort agrees with the X shown."""
-    return Q(Exists(_analytics_schedule_rows(tournament).filter(profile=profile_ref)))
+    return Q(Exists(_analytics_schedule_rows().filter(profile=profile_ref)))
 
 
-def _analytics_seat_count(tournament, available=False):
+def _analytics_seat_count(available=False):
     """Correlated count of the outer Match's seats (optionally only those with
     availability). A Subquery rather than Count('series__matchseat'), which would
     join and GROUP BY the half and break the count-by-halves total."""
     seats = MatchSeat.objects.filter(series=OuterRef('series'))
     if available:
         seats = seats.filter(_analytics_available_expr(
-            OuterRef('stage_participant__tournament_player__profile'), tournament))
+            OuterRef('stage_participant__tournament_player__profile')))
     counted = seats.order_by().values('series').annotate(c=Count('pk')).values('c')
     return Coalesce(Subquery(counted, output_field=IntegerField()), Value(0))
 
@@ -7097,7 +7096,7 @@ def _analytics_rank_expr(kind):
     return Case(When(final=True, then=Value(3)), default=Value(2), output_field=IntegerField())
 
 
-def _analytics_sort_expr(kind, sort, tournament):
+def _analytics_sort_expr(kind, sort):
     """The expression behind `sort_key` -- only the active sort is computed, so
     the per-row subqueries run only when sorting by availability."""
     is_match = kind == 'match'
@@ -7108,8 +7107,8 @@ def _analytics_sort_expr(kind, sort, tournament):
     if sort == 'availability':
         if not is_match:
             return Value(None, output_field=FloatField())
-        players = Cast(_analytics_seat_count(tournament), FloatField())
-        available = Cast(_analytics_seat_count(tournament, available=True), FloatField())
+        players = Cast(_analytics_seat_count(), FloatField())
+        available = Cast(_analytics_seat_count(available=True), FloatField())
         return Coalesce(available / NullIf(players, Value(0.0)), Value(0.0),
                         output_field=FloatField())
     if sort == 'moderator':
@@ -7144,7 +7143,7 @@ def _analytics_sort2_expr(kind, sort):
     return Value(0, output_field=IntegerField())
 
 
-def _analytics_cols(kind, sort, tournament):
+def _analytics_cols(kind, sort):
     """The ordered column dict for one UNION half. Both halves MUST produce the
     same columns in the same order with compatible types; every entry is an
     expression so Django can't hoist plain field names ahead of them."""
@@ -7152,7 +7151,7 @@ def _analytics_cols(kind, sort, tournament):
     return {
         'kind': Value(kind, output_field=CharField()),
         'obj_id': F('pk'),
-        'sort_key': _analytics_sort_expr(kind, sort, tournament),
+        'sort_key': _analytics_sort_expr(kind, sort),
         'sort_key2': _analytics_sort2_expr(kind, sort),
         'stage_key': F('round__stage__order'),
         'rank_key': _analytics_rank_expr(kind),
@@ -7279,8 +7278,8 @@ def _analytics_keys(tournament, params):
     sort = params['sort']
     # order_by() clears Meta.ordering: SQLite rejects ORDER BY inside a compound statement.
     union = (
-        matches.order_by().values(**_analytics_cols('match', sort, tournament))
-        .union(games.order_by().values(**_analytics_cols('game', sort, tournament)), all=True)
+        matches.order_by().values(**_analytics_cols('match', sort))
+        .union(games.order_by().values(**_analytics_cols('game', sort)), all=True)
         .order_by(*_analytics_ordering(sort, params['dir']))
     )
     return union, matches, games
@@ -7293,7 +7292,7 @@ def _proposal_jump_url(proposal):
     return None
 
 
-def _analytics_rows(keys, tournament):
+def _analytics_rows(keys):
     """Hydrate UNION key dicts into display rows, preserving their order, in a
     fixed number of queries however many keys there are."""
     match_ids = [k['obj_id'] for k in keys if k['kind'] == 'match']
@@ -7325,7 +7324,7 @@ def _analytics_rows(keys, tournament):
         for m in matches.values() for seat in m.series.matchseat_set.all()
     }
     available_ids = set(
-        _analytics_schedule_rows(tournament).filter(profile_id__in=seat_profile_ids)
+        _analytics_schedule_rows().filter(profile_id__in=seat_profile_ids)
         .values_list('profile_id', flat=True)
     ) if seat_profile_ids else set()
     compare_base = reverse('availability-compare')
@@ -7438,7 +7437,7 @@ def tournament_match_analytics_page(request, slug):
 
     paginator = _AnalyticsPaginator(union, ANALYTICS_PAGE_SIZE, total=total)
     page_obj = paginator.get_page(request.GET.get('page'))
-    rows = _analytics_rows(list(page_obj.object_list), tournament)
+    rows = _analytics_rows(list(page_obj.object_list))
 
     # Header links: clicking the active column flips its direction; any other
     # column starts ascending. Changing the sort returns to page 1.
@@ -7557,7 +7556,7 @@ def tournament_match_analytics_export(request, slug):
         yield '\ufeff'  # BOM: Excel otherwise reads UTF-8 as ANSI and garbles names
         yield writer.writerow(header)
         for start in range(0, len(keys), ANALYTICS_CSV_CHUNK):
-            for row in _analytics_rows(keys[start:start + ANALYTICS_CSV_CHUNK], tournament):
+            for row in _analytics_rows(keys[start:start + ANALYTICS_CSV_CHUNK]):
                 yield writer.writerow(cells(row))
 
     response = StreamingHttpResponse(stream(), content_type='text/csv; charset=utf-8')
@@ -7993,7 +7992,7 @@ def round_grouping_setup_view(request, tournament_slug, round_slug, stage_slug=N
     # schedules, so a player who set availability on their profile counts even if
     # they never answered a survey.
     _active_profile_ids = list(active_players_qs.values_list('profile_id', flat=True))
-    has_availability = bool(schedules_for(_active_profile_ids, tournament))
+    has_availability = bool(schedules_for(_active_profile_ids))
 
     # Calculate stats
     total_players = active_players_qs.count()
@@ -8136,14 +8135,14 @@ def round_grouping_setup_view(request, tournament_slug, round_slug, stage_slug=N
         )
 
         # Annotate every player the page renders with their resolved hours, in one
-        # bulk lookup. The templates can't call schedule_for() themselves, and doing
+        # bulk lookup. The templates can't call schedules_for() themselves, and doing
         # it per player would be N+1 across the whole roster.
         _rendered = list(ungrouped_players)
         for _group in groups:
             _group.members = list(_group.tournament_players.select_related('profile').all())
             _rendered.extend(_group.members)
 
-        _schedules = schedules_for([tp.profile_id for tp in _rendered], tournament)
+        _schedules = schedules_for([tp.profile_id for tp in _rendered])
         for tp in _rendered:
             tp.resolved_hours = _schedules.get(tp.profile_id, [])
 
@@ -8305,7 +8304,7 @@ def round_grouping_move_player(request, tournament_slug, stage_slug, round_slug,
         return JsonResponse({'error': str(e)}, status=400)
 
 
-def _player_rows(tournament_players, tournament):
+def _player_rows(tournament_players):
     """Roster JSON for the grouping UI.
 
     The `availability_hours` key is kept even though the model field is gone: the
@@ -8313,9 +8312,7 @@ def _player_rows(tournament_players, tournament):
     player's schedule instead.
     """
     tournament_players = list(tournament_players)
-    schedules = schedules_for(
-        [tp.profile_id for tp in tournament_players], tournament
-    )
+    schedules = schedules_for([tp.profile_id for tp in tournament_players])
     return [
         {
             'id': tp.id,
@@ -8675,7 +8672,6 @@ def round_grouping_edit_group(request, tournament_slug, stage_slug, round_slug, 
                         ag_data = _get_group_data(ag, history)
                         ag_data['members'] = _player_rows(
                             ag.tournament_players.select_related('profile').all(),
-                            tournament,
                         )
                         affected_groups.append(ag_data)
                     except PlayerGroup.DoesNotExist:
@@ -8685,7 +8681,7 @@ def round_grouping_edit_group(request, tournament_slug, stage_slug, round_slug, 
         group.refresh_from_db()
         group_data = _get_group_data(group, history)
         group_data['members'] = _player_rows(
-            group.tournament_players.select_related('profile').all(), tournament
+            group.tournament_players.select_related('profile').all()
         )
 
         result = {
@@ -8699,7 +8695,7 @@ def round_grouping_edit_group(request, tournament_slug, stage_slug, round_slug, 
         if participants_changed:
             # Return full ungrouped players list for DOM rebuild
             ungrouped_qs = _get_ungrouped_players(stage, round)
-            result['ungrouped_players'] = _player_rows(ungrouped_qs, tournament)
+            result['ungrouped_players'] = _player_rows(ungrouped_qs)
             result['ungrouped_count'] = len(result['ungrouped_players'])
         else:
             result['ungrouped_count'] = _get_ungrouped_count(stage, round)
@@ -8986,7 +8982,7 @@ def _render_series_matches_card(request, series, round, tournament, series_index
     _attach_series_effort_grid(series_fresh)
     # Without this the availability button vanishes from the swapped-in card:
     # has_availability would be undefined and the template's {% if %} fails closed.
-    _attach_series_availability([series_fresh], tournament)
+    _attach_series_availability([series_fresh])
 
     # view_as is passed so the swapped-in card agrees with what a full page load
     # would render for this viewer.

@@ -789,16 +789,11 @@ class PlayerScheduleForm(forms.Form):
     # instead of just relabelling it.
     drawn_timezone = forms.CharField(required=False, widget=forms.HiddenInput)
 
-    # Which schedule is being edited: '' for the general one, otherwise a
-    # tournament slug. Carried through the timezone round-trip so re-rendering
-    # can't silently move the edit to a different row. The view validates it
-    # against the schedules this player actually has.
-    schedule_target = forms.CharField(required=False, widget=forms.HiddenInput)
-
     # ISO date (Monday) of the week being edited, or '' for the standing/general
-    # template. Same round-trip-through-POST role as schedule_target, just for the
-    # other axis. The view resolves and re-validates it against the navigation
-    # bounds server-side -- never trusts this beyond "which row did the arrows say."
+    # template. Carried through the timezone round-trip so re-rendering can't
+    # silently move the edit to a different row. The view resolves and
+    # re-validates it against the navigation bounds server-side -- never trusts
+    # this beyond "which row did the arrows say."
     week_start = forms.CharField(required=False, widget=forms.HiddenInput)
 
     timezone = TimezoneChoiceField(

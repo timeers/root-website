@@ -5,6 +5,7 @@
 ### New Features
 - Generate personal box score tokens to record standalone games that aren't linked to a Tournament or Series
 - New Timezone type survey question that asks a user to update/confirm their timezone
+- Improved General Availability question asks users to update/set their General Availability
 
 ### Improvements
 - Tournament mods can now edit tournament surveys

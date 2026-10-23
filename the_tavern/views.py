@@ -145,7 +145,8 @@ def _survey_grid_timezone(request):
 def _availability_grid_labels(request):
     """Row/column labels the shared availability grid partial loops over, plus
     the zone they are drawn in (`wa_timezone`, rendered into each grid's
-    timezone input, and `profile_timezone_display` for a Timezone question).
+    timezone input, and `profile_timezone_display` for a Timezone question),
+    and whether the respondent has General Availability to pre-fill from.
 
     Supplied on every path that renders take_survey.html -- without `days` and
     `hours` the grid's loops produce no cells at all, and a WEEKLY_AVAILABILITY
@@ -158,11 +159,20 @@ def _availability_grid_labels(request):
                                                      zone_minute_offset)
     from the_databot.services.time_parsing import describe_timezone
     tz_name = _survey_grid_timezone(request)
+    profile = getattr(request.user, 'profile', None) if request.user.is_authenticated else None
+    # Non-empty only: /availability creates an empty General row on a bare
+    # visit, which isn't availability the player has actually set.
+    has_general = bool(profile) and bool(PlayerSchedule.objects.filter(
+        profile=profile, week_start=None,
+    ).values_list('available_hours', flat=True).first())
     return {'days': DAY_LABELS,
             'hours': hour_labels(zone_minute_offset(tz_name)),
             'wa_timezone': tz_name or '',
             # The same zone, for a Timezone question's "currently X" note.
-            'profile_timezone_display': describe_timezone(tz_name) if tz_name else ''}
+            'profile_timezone_display': describe_timezone(tz_name) if tz_name else '',
+            # Picks the General Availability grid's note ("this is yours" vs
+            # "you haven't set one yet").
+            'has_general_availability': has_general}
 
 
 def _weekly_availability_utc(request, question, answer_data, profile):
@@ -203,42 +213,41 @@ def _weekly_availability_utc(request, question, answer_data, profile):
 
 
 def _save_response_availability(survey, survey_response):
-    """Store this respondent's availability as their schedule for the tournament.
+    """Copy this respondent's General Availability (WA) answer to their General
+    Availability -- the same (week_start=None) schedule the /availability page
+    edits.
+
+    The grid is pre-filled from General Availability and says so, so answering
+    it IS editing General Availability: that is why this writes on any survey,
+    Series or not. There is one availability per player, read the same way by
+    grouping, overlap and compare -- no survey keeps a schedule of its own.
+
+    Only a WA answer writes. Time/Day Availability answers are too coarse to
+    stand in for a painted grid, so a TA/DY-only survey keeps them as survey data
+    and leaves every schedule alone. An answered-but-empty grid ([]) is a real
+    answer -- "free at no hour" -- and clears General.
 
     Scoped to ONE profile on purpose. The grouping sync runs over every accepted
     response on every call, so writing availability there meant one player's
-    submission rewrote everybody else's hours from their older responses --
-    silently discarding edits players had made themselves. Writing here, from the
-    submission that produced the answers, makes that impossible.
-
-    A survey with no linked tournament writes nothing: those answers have no
-    tournament to belong to, and a one-off poll must not overwrite the player's
-    standing general availability.
-
-    The guard is on the survey ASKING about availability, not on the answer being
-    non-empty. An empty WEEKLY_AVAILABILITY grid means "free at no hour" and has
-    to be recordable, so it must be able to clear the schedule -- but this runs on
-    every submission for a series survey, so a survey that never asked must not
-    be able to wipe what the player set on /availability.
+    submission rewrote everybody else's hours from their older responses.
     """
-    if not survey.series_id or not survey_response.profile_id:
+    from the_gatehouse.models import general_schedule_for
+
+    profile = survey_response.profile
+    if profile is None:
         return
     try:
-        if not survey.has_availability_questions():
+        answered_wa = survey_response.answers.filter(
+            question__question_type=Question.QuestionType.WEEKLY_AVAILABILITY,
+            availability_hours__isnull=False,
+        ).exists()
+        if not answered_wa:
             return
+        # With a WA answer present this is exactly the WA union (TA/DY ignored).
         hours = sorted(survey_response.get_combined_availability_hours())
-        # week_start=None is explicit and load-bearing: a survey response is
-        # always the player's STANDING availability for the tournament, never a
-        # specific calendar week (see the module docstring). Without it, a player
-        # who also has a week-specific row for this tournament (set via the
-        # /availability navigator) would make this lookup match two rows and
-        # raise MultipleObjectsReturned.
-        PlayerSchedule.objects.update_or_create(
-            profile_id=survey_response.profile_id,
-            tournament_id=survey.series_id,
-            week_start=None,
-            defaults={'available_hours': hours},
-        )
+        schedule = general_schedule_for(profile)
+        schedule.available_hours = hours
+        schedule.save(update_fields=['available_hours', 'updated_at'])
     except Exception:
         # Never block a submission over this, same as the enrollment block below.
         logger.exception(

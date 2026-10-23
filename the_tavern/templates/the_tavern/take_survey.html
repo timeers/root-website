@@ -205,11 +205,25 @@
                         </div>
 
                     {% elif question.question_type == 'WA' %}
-                    {# Weekly Availability: the same 7x24 grid as /availability #}
+                    {# General Availability: the same 7x24 grid as /availability, pre-filled from it #}
+                    {% with pinned_tz=form|get_question_field_timezone:question.id %}
                         <div class="mt-3">
                             <p class="text-muted small mb-2">
                                 <i class="bi bi-check2-square"></i>
-                                {% trans 'Click or drag to mark every hour you are free. Times are shown in your own timezone.' %}
+                                {% if pinned_tz %}
+                                    {% trans "Click or drag to mark every hour you are free. Times are shown in UTC because you haven't set a timezone." %}
+                                {% else %}
+                                    {% trans 'Click or drag to mark every hour you are free. Times are shown in your own timezone.' %}
+                                {% endif %}
+                            </p>
+                            {% url 'availability' as availability_url %}
+                            <p class="text-muted small mb-2">
+                                <i class="bi bi-calendar-check me-1"></i>
+                                {% if has_general_availability %}
+                                    {% blocktrans %}This is your General Availability. This should reflect when you are typically available to start a game. It can be updated at any time from the <a href="{{ availability_url }}">Availability page</a> where you can also specify Day-to-Day Availability.{% endblocktrans %}
+                                {% else %}
+                                    {% blocktrans %}You haven't set your <a href="{{ availability_url }}">General Availability</a> yet — your selections here will set your availability.{% endblocktrans %}
+                                {% endif %}
                             </p>
                             <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
                                 <span class="badge text-bg-secondary" id="wa_count_{{ question.id }}"
@@ -227,7 +241,7 @@
                             {{ form|get_question_field:question.id }}
                             <input type="hidden" name="question_{{ question.id }}_timezone"
                                    id="wa_tz_{{ question.id }}" class="js-wa-timezone"
-                                   value="{{ wa_timezone }}">
+                                   value="{{ pinned_tz|default:wa_timezone }}">
                             {% include 'partials/availability_grid.html' with grid_id=question.wa_grid_id field_id=question.wa_field_id count_id=question.wa_count_id clear_id=question.wa_clear_id editable=True %}
                             {% if question.required %}
                                 <div class="invalid-feedback" id="wa_error_{{ question.id }}" style="display: none;">
@@ -235,6 +249,7 @@
                                 </div>
                             {% endif %}
                         </div>
+                    {% endwith %}
 
                     {# Multiple Choice with Post icons #}
                     {% elif question.question_type == 'MC' %}
@@ -447,14 +462,14 @@
                                 <p class="text-muted small mt-2 mb-0">
                                     <i class="bi bi-globe me-1"></i>
                                     {% if profile_timezone_display %}
-                                        {% blocktrans %}Your profile timezone is currently <strong>{{ profile_timezone_display }}</strong>. Pick a different one to update your profile.{% endblocktrans %}
+                                        {% blocktrans %}Your timezone is currently <strong>{{ profile_timezone_display }}</strong>. Pick a different one to update your profile.{% endblocktrans %}
                                     {% else %}
                                         {% trans "You haven't set a timezone yet, so the one your browser reports is selected. Your answer is saved to your profile." %}
                                     {% endif %}
                                 </p>
                                 {% if survey.has_weekly_availability_question %}
                                     <p class="text-muted small mt-1 mb-0">
-                                        {% trans 'The weekly availability grid on this page stays in the timezone it loaded in. A change here applies to the grid from your next visit.' %}
+                                        {% trans 'The General Availability grid on this page stays in the timezone it loaded in. A change here applies to the grid from your next visit.' %}
                                     </p>
                                 {% endif %}
                             </div>

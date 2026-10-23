@@ -3182,9 +3182,9 @@ class PlayerGroup(models.Model):
             return
 
         if schedules is None:
-            # Prefer a player's week-specific row for the round's own week when
-            # they have one; falls through to their tournament/general standing
-            # row otherwise (see schedules_for's precedence chain) -- a no-op for
+            # Prefer a player's Day by Day row for the round's own week when
+            # they have one; falls through to their General Availability
+            # otherwise (see schedules_for's precedence chain) -- a no-op for
             # every player who has never set week-specific availability.
             #
             # NOTE: a fallback player's standing row is encoded against the fixed
@@ -3197,8 +3197,7 @@ class PlayerGroup(models.Model):
             week_start = (week_start_for(self.round.start_date)
                           if self.round.start_date else None)
             schedules = schedules_for(
-                [p.profile_id for p in grouped_players], self.round.stage.tournament,
-                week_start=week_start,
+                [p.profile_id for p in grouped_players], week_start=week_start,
             )
 
         # Collect availability for each member. Read live from the schedule, so an
@@ -3300,8 +3299,8 @@ class TournamentPlayer(models.Model):
         default=StatusChoices.REGISTERED
     )
     # Availability is NOT stored here. It lives on the_gatehouse.PlayerSchedule,
-    # resolved per player as "their schedule for this tournament, else their general
-    # one" -- see schedules_for(). That way a player who sets availability on their
+    # resolved per player as "their Day by Day row for the week, else their General
+    # Availability" -- see schedules_for(). That way a player who sets availability on their
     # profile counts even if they never answered a survey, and an edit takes effect
     # without any re-sync.
 

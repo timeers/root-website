@@ -1393,22 +1393,26 @@ class PlayerSchedule(models.Model):
     grouping overlap math use, so schedules set-intersect directly with no
     conversion step. This is the single source of truth for player availability.
 
-    Two independent axes, both nullable, both NULL meaning "the standing/general
-    case":
+    One axis, `week_start`, NULL meaning "the standing/general case":
 
-      * `tournament` NULL means this row isn't specific to one event. A row WITH a
-        tournament is that player's availability for that event specifically.
-      * `week_start` NULL means this row is a recurring, dateless TEMPLATE -- the
-        eternal weekly pattern the /availability page has always edited, encoded
-        through services.availability's fixed reference Monday. A row WITH a
-        week_start is that player's availability for one real, specific ISO
-        calendar week (always a Monday, always UTC-week-anchored, not the
-        player's own local week -- see services.availability.week_grid_cells,
-        which maps this row's 168 real UTC hours onto the player's local-time
-        grid for display, rather than re-anchoring storage to their local week).
+      * `week_start` NULL is the player's General Availability: a recurring,
+        dateless TEMPLATE -- the eternal weekly pattern the /availability page
+        edits, encoded through services.availability's fixed reference Monday.
+        At most one per player (see Meta).
+      * A row WITH a week_start is that player's Day by Day availability for one
+        real, specific ISO calendar week (always a Monday, always
+        UTC-week-anchored, not the player's own local week -- see
+        services.availability.week_grid_cells, which maps this row's 168 real UTC
+        hours onto the player's local-time grid for display, rather than
+        re-anchoring storage to their local week). It overrides General for
+        that week only.
+
+    There is deliberately no per-tournament axis: every feature (grouping,
+    overlap, compare, surveys, the bot) reads the same availability. Surveys
+    write General Availability rather than a schedule of their own.
 
     A row that EXISTS wins at its level even when available_hours is [] -- see
-    schedule_for's precedence chain. "No row" and "a row with no hours" are
+    schedules_for's precedence chain. "No row" and "a row with no hours" are
     different, meaningful answers, not the same thing spelled two ways.
 
     UTC is the storage contract: two players in different zones are only comparable
@@ -1417,14 +1421,6 @@ class PlayerSchedule(models.Model):
     and keep it correct across a DST change -- a stored numeric offset cannot.
     """
     profile = models.ForeignKey(Profile, on_delete=models.CASCADE, related_name='schedules')
-    # Lazy string reference: this module must never import the_warroom at module
-    # level. the_warroom.models imports Profile from here at import time, so a
-    # concrete import would close the loop and break startup.
-    tournament = models.ForeignKey(
-        'the_warroom.Tournament', on_delete=models.CASCADE,
-        null=True, blank=True, related_name='player_schedules',
-        help_text="NULL = not specific to one tournament."
-    )
     week_start = models.DateField(
         null=True, blank=True,
         help_text="The Monday (UTC) of the ISO week this availability applies to. "
@@ -1438,21 +1434,24 @@ class PlayerSchedule(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        # NOTE: this does NOT enforce one general schedule per profile -- SQLite and
-        # Postgres both treat NULLs as distinct in a unique index, so
-        # (profile, NULL, NULL) can be inserted twice. general_schedule_for() is the
-        # enforcement point; never create a tournament=None, week_start=None row any
-        # other way.
-        unique_together = ('profile', 'tournament', 'week_start')
-        ordering = ['profile', 'tournament', 'week_start']
+        # unique_together alone does NOT stop a second General row: unique
+        # indexes treat NULLs as distinct, so (profile, NULL) could be inserted
+        # twice. The partial constraint closes that gap at the database level;
+        # general_schedule_for() is still the one sanctioned way to create it.
+        unique_together = ('profile', 'week_start')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['profile'], condition=models.Q(week_start__isnull=True),
+                name='one_general_schedule_per_profile',
+            ),
+        ]
+        ordering = ['profile', 'week_start']
         verbose_name = 'Player Schedule'
         verbose_name_plural = 'Player Schedules'
 
     def __str__(self):
-        # tournament_id, not tournament: testing the FK object would fetch the row.
-        scope = self.tournament.name if self.tournament_id else 'General'
-        when = f"week of {self.week_start}" if self.week_start else 'standing'
-        return f"{self.profile.name} - {scope} - {when} - {len(self.available_hours)} hours"
+        when = f"week of {self.week_start}" if self.week_start else 'General'
+        return f"{self.profile.name} - {when} - {len(self.available_hours)} hours"
 
     def as_bitmask(self):
         """This schedule as a 168-bit int, for fast overlap math.
@@ -1467,49 +1466,31 @@ class PlayerSchedule(models.Model):
 
 
 def general_schedule_for(profile):
-    """The player's general standing schedule (tournament=None, week_start=None),
-    created on first use.
+    """The player's General Availability row (week_start=None), created on
+    first use.
 
-    The ONLY sanctioned way to make a (None, None) row -- unique_together cannot
-    enforce that uniqueness because the columns are NULL (see PlayerSchedule.Meta).
+    The ONLY sanctioned way to make one. The one_general_schedule_per_profile
+    constraint backs that up, and lets get_or_create recover from a concurrent
+    create instead of leaving a duplicate.
     """
     schedule, _created = PlayerSchedule.objects.get_or_create(
-        profile=profile, tournament=None, week_start=None
+        profile=profile, week_start=None
     )
     return schedule
 
 
-def schedule_for(profile, tournament=None, week_start=None):
-    """The most specific schedule this player has, in precedence order:
-    (tournament, week) -> (None, week) -> (tournament, None) -> (None, None).
+def schedules_for(profile_ids, *, week_start=None):
+    """{profile_id: [utc hours]} for many players, in precedence order:
+    (week) -> (General). One query without week_start, two with it.
 
-    A row that EXISTS wins at its level even if available_hours is [] -- an
-    explicit "no availability" is a real answer, not the absence of one. Only an
-    ABSENT row falls through to the next level. Returns None when no row exists at
-    any level.
-    """
-    candidates = []
-    if week_start is not None:
-        if tournament is not None:
-            candidates.append({'tournament': tournament, 'week_start': week_start})
-        candidates.append({'tournament': None, 'week_start': week_start})
-    if tournament is not None:
-        candidates.append({'tournament': tournament, 'week_start': None})
-    candidates.append({'tournament': None, 'week_start': None})
+    A row that EXISTS wins at its level, including an empty [] row -- an
+    explicit "no availability" is a real answer, not the absence of one -- which
+    is why this tracks *resolved* profile ids rather than filtering on truthy
+    hours. Only an ABSENT row falls through to the next level.
 
-    for lookup in candidates:
-        row = PlayerSchedule.objects.filter(profile=profile, **lookup).first()
-        if row is not None:
-            return row
-    return None
-
-
-def schedules_for(profile_ids, tournament=None, week_start=None):
-    """{profile_id: [utc hours]} for many players, in a fixed, small number of
-    queries -- one per precedence level actually in play (2 without week_start,
-    up to 4 with it). Same precedence as schedule_for(): a row EXISTS -> it wins at
-    its level, including an empty [] row, which is why this tracks *resolved*
-    profile ids rather than filtering on truthy hours.
+    `week_start` is keyword-only on purpose: this used to take a tournament as
+    its second positional argument, and a stale positional call must fail
+    loudly rather than bind a Tournament to week_start.
 
     The bulk form exists because every consumer (grouping, overlap, the roster
     JSON) loops over a whole roster, where per-profile lookups are N+1.
@@ -1526,12 +1507,8 @@ def schedules_for(profile_ids, tournament=None, week_start=None):
 
     levels = []
     if week_start is not None:
-        if tournament is not None:
-            levels.append({'tournament': tournament, 'week_start': week_start})
-        levels.append({'tournament': None, 'week_start': week_start})
-    if tournament is not None:
-        levels.append({'tournament': tournament, 'week_start': None})
-    levels.append({'tournament': None, 'week_start': None})
+        levels.append({'week_start': week_start})
+    levels.append({'week_start': None})
 
     resolved = {}
     for lookup in levels:
