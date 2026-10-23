@@ -69,34 +69,24 @@ def _posted_timezone_name(request):
 
 
 def _survey_timezone_answer(survey, survey_response):
-    """An IANA zone taken from a timezone QUESTION the respondent answered.
+    """An IANA zone taken from a Timezone (TZ) question the respondent answered.
 
     A deliberate answer outranks browser detection: someone filling the survey
     from a hotel should not have their profile rewritten to the hotel's zone.
 
-    Two shapes count. A Timezone (TZ) question stores the zone itself in
-    text_answer, and wins. Older surveys use ordinary multiple-choice questions
-    whose choice text carries the zone in parentheses, e.g.
-    "US Pacific - PT (America/Los_Angeles)". A bare "(UTC)" counts too: plain
-    "UTC" is the zone the rest of the app stores and its pickers offer.
+    Only TZ questions count. Older surveys carry a multiple-choice "timezone"
+    question whose choice text holds the zone in parentheses; those are
+    deliberately ignored now and behave like any other MC question -- swap
+    them for a TZ question to have answers update profiles again.
     """
-    import re
     from the_databot.services.time_parsing import valid_timezone
 
-    answers = list(survey_response.answers.select_related('question', 'selected_choice'))
-    for answer in answers:
-        if (answer.question.question_type == Question.QuestionType.TIMEZONE
-                and valid_timezone(answer.text_answer)):
-            return answer.text_answer
-
-    for answer in answers:
-        if answer.question.question_type != Question.QuestionType.MULTIPLE_CHOICE:
-            continue
-        if not answer.selected_choice:
-            continue
-        match = re.search(r'\(([A-Za-z_]+/[A-Za-z_+\-/]+|UTC)\)', answer.selected_choice.text or '')
-        if match and valid_timezone(match.group(1)):
-            return match.group(1)
+    zones = survey_response.answers.filter(
+        question__question_type=Question.QuestionType.TIMEZONE,
+    ).values_list('text_answer', flat=True)
+    for zone in zones:
+        if valid_timezone(zone):
+            return zone
     return None
 
 
@@ -109,24 +99,16 @@ def _adopt_response_timezone(survey, survey_response, request):
     none: a survey taken while travelling must not silently rewrite a zone the
     player chose.
 
-    The RESPONSE's timezone_name is the other way round for a TZ question:
-    browser first. timezone_name is what TA/DY answers are interpreted in, and
-    the TA grid is drawn with the browser's offset -- a TZ question pre-fills
-    from the profile, so every respondent "answers" it, and letting it win
-    would shift a traveller's TA hours. (The legacy MC timezone question keeps
-    its old precedence: it is never pre-filled, so an answer there is a
-    deliberate statement about the zone the respondent is answering in.)
+    The RESPONSE's timezone_name is the other way round: browser first.
+    timezone_name is what TA/DY answers are interpreted in, and the TA grid is
+    drawn with the browser's offset -- a TZ question pre-fills from the
+    profile, so every respondent "answers" it, and letting it win would shift
+    a traveller's TA hours.
     """
     from the_databot.services.time_parsing import valid_timezone
 
     answered_tz = _survey_timezone_answer(survey, survey_response)
-    posted_tz = _posted_timezone_name(request)
-    has_tz_question = survey_response.answers.filter(
-        question__question_type=Question.QuestionType.TIMEZONE).exists()
-    if has_tz_question:
-        tz_name = posted_tz or answered_tz
-    else:
-        tz_name = answered_tz or posted_tz
+    tz_name = _posted_timezone_name(request) or answered_tz
     if not tz_name:
         return
 

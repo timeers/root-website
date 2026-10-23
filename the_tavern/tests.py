@@ -585,7 +585,8 @@ class SurveyTimezoneNameTests(_SurveyTestBase):
 class SurveyProfileTimezoneTests(_SurveyTestBase):
     """A survey submission seeds a BLANK profile timezone from the browser, so a
     player who never visits /availability still gets their hours shown in their
-    own time. An answered timezone question overwrites whatever is there."""
+    own time. An answered Timezone (TZ) question overwrites whatever is there;
+    the legacy multiple-choice timezone question no longer touches it."""
 
     def setUp(self):
         super().setUp()
@@ -596,9 +597,9 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
         self.url = reverse('survey-take', kwargs={'slug': self.survey.slug})
         self.client.force_login(self.user)
 
-    def _tz_question(self):
-        """A timezone question shaped like the live one: an MC whose choice text
-        carries the IANA name in parentheses."""
+    def _legacy_mc_tz_question(self):
+        """The OLD timezone question: an MC whose choice text carries the IANA
+        name in parentheses. Kept as a fixture to prove it is now ignored."""
         from the_tavern.models import Choice
         question = Question.objects.create(
             survey=self.survey, text='What is your timezone?',
@@ -623,14 +624,13 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.timezone, 'America/Denver')
 
-    def test_a_timezone_question_beats_the_browser(self):
-        """A deliberate answer outranks detection -- someone answering from a
-        hotel should not have their profile rewritten to the hotel's zone."""
-        question, choice = self._tz_question()
+    def test_a_legacy_mc_timezone_answer_does_not_set_the_profile(self):
+        """Only TZ questions write the profile now; the browser seeds it instead."""
+        question, choice = self._legacy_mc_tz_question()
         self._post({f'question_{question.id}': str(choice.id)})
 
         self.profile.refresh_from_db()
-        self.assertEqual(self.profile.timezone, 'America/Los_Angeles')
+        self.assertEqual(self.profile.timezone, 'America/Denver')
 
     def test_an_existing_profile_timezone_is_not_overwritten_by_the_browser(self):
         self.profile.timezone = 'Europe/Berlin'
@@ -641,23 +641,32 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.timezone, 'Europe/Berlin')
 
-    def test_a_timezone_answer_overwrites_an_existing_profile_timezone(self):
+    def test_a_legacy_mc_timezone_answer_leaves_an_existing_profile_alone(self):
         self.profile.timezone = 'Europe/Berlin'
         self.profile.save(update_fields=['timezone'])
-        question, choice = self._tz_question()
+        question, choice = self._legacy_mc_tz_question()
 
         self._post({f'question_{question.id}': str(choice.id)})
 
         self.profile.refresh_from_db()
-        self.assertEqual(self.profile.timezone, 'America/Los_Angeles')
+        self.assertEqual(self.profile.timezone, 'Europe/Berlin')
+
+    def test_a_legacy_mc_timezone_answer_does_not_set_the_response_zone(self):
+        question, choice = self._legacy_mc_tz_question()
+        self._post({f'question_{question.id}': str(choice.id)})
+
+        response = SurveyResponse.objects.get(survey=self.survey)
+        self.assertEqual(response.timezone_name, 'America/Denver')
 
     def test_re_saving_an_edit_with_the_answer_overwrites_again(self):
-        """Every save that carries a timezone answer restates it, even when the
+        """Every save that carries a TZ answer restates it, even when the
         answer itself didn't change."""
         self.survey.allow_edit_responses = True
         self.survey.save(update_fields=['allow_edit_responses'])
-        question, choice = self._tz_question()
-        answer = {f'question_{question.id}': str(choice.id)}
+        question = Question.objects.create(
+            survey=self.survey, text='What is your timezone?',
+            question_type=Question.QuestionType.TIMEZONE, order=5, required=False)
+        answer = {f'question_{question.id}': 'America/Los_Angeles'}
         self._post(answer)
         self.profile.timezone = 'Europe/Berlin'
         self.profile.save(update_fields=['timezone'])
@@ -1195,19 +1204,6 @@ class SeedTimezoneTemplateCommandTests(TestCase):
         self.assertEqual(template.choices_data, [])
         self.assertFalse(template.display_as_dropdown)
         self.assertIsNone(template.correct_choice_index)
-
-    def test_the_utc_choice_records_plain_utc(self):
-        """Plain "UTC", not "Etc/UTC": it's what the app's timezone pickers offer."""
-        from the_tavern.views import _survey_timezone_answer
-        survey = Survey.objects.create(title='TZ survey')
-        question = Question.objects.create(
-            survey=survey, text='What is your timezone?',
-            question_type=Question.QuestionType.MULTIPLE_CHOICE, order=0)
-        choice = Choice.objects.create(
-            question=question, text='Coordinated Universal Time (UTC)', order=0)
-        response = SurveyResponse.objects.create(survey=survey)
-        Answer.objects.create(response=response, question=question, selected_choice=choice)
-        self.assertEqual(_survey_timezone_answer(survey, response), 'UTC')
 
 
 class SurveyEditPermissionTests(_SurveyTestBase):

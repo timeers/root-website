@@ -8,7 +8,9 @@ the_databot.services.time_parsing.timezone_choice_groups at render time.
 
 Safe to re-run: an existing public 'Timezone' template is left untouched unless
 --update is passed. --update also converts the older Multiple Choice version of
-this template (25 hard-coded zones) and clears its choices.
+this template (25 hard-coded zones) and clears its choices. Copies of that old
+MC question already on surveys no longer update profiles -- only TZ questions
+do -- so replace them with a Timezone question to restore that.
 
     python manage.py seed_timezone_template
 """
