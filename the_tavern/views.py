@@ -423,9 +423,8 @@ def get_question_data(request, question_id):
     except Question.DoesNotExist:
         return JsonResponse({'error': 'Question not found'}, status=404)
 
-    # Check permissions - user must be admin or survey creator
     profile = request.user.profile
-    if not profile.admin and question.survey.created_by != profile:
+    if not question.survey.can_edit_survey(profile):
         return JsonResponse({'error': 'Permission denied'}, status=403)
 
     # Get choices with response info
@@ -1621,7 +1620,7 @@ def survey_results_view(request, slug, from_settings=False):
     profile = request.user.profile
 
     # Check permissions
-    if not request.user.profile.admin and not request.user.profile == survey.created_by:
+    if not survey.can_edit_survey(profile):
         if not survey.can_see_results(profile):
             raise PermissionDenied
         if not survey.show_results_on_close and not survey.has_user_responded(request.user.profile):
@@ -2086,7 +2085,7 @@ def survey_duplicate_view(request, slug):
     original_survey = get_object_or_404(Survey, slug=slug)
 
     profile = request.user.profile
-    if not profile.admin and not original_survey.created_by == profile:
+    if not original_survey.can_edit_survey(profile):
         raise PermissionDenied
 
     try:
@@ -2103,6 +2102,14 @@ def survey_duplicate_view(request, slug):
         original_survey.start_date = None
         original_survey.end_date = None
         original_survey.created_by = request.user.profile
+        # A copy is a new link, so it is held to the same rule as create: only
+        # keep the tournament if this profile staffs it. Registration and
+        # auto-enroll mean nothing without one.
+        if original_survey.series and not original_survey.series.has_permission(profile):
+            original_survey.series = None
+            original_survey.stage = None
+            original_survey.is_registration = False
+            original_survey.auto_enroll = False
         original_survey.save()
 
         new_survey = original_survey
@@ -2472,6 +2479,47 @@ def survey_response_delete(request, slug, response_id):
     return JsonResponse({'success': True})
 
 
+def _validated_survey_links(profile, series_id, stage_id, survey=None):
+    """(series_id, stage_id, error) for the tournament/stage a create or edit
+    POST asks to link.
+
+    The form's dropdown only lists tournaments the profile staffs, but the POST
+    is not bound to it, and a link matters: auto_enroll and send-availability
+    add respondents to that tournament's roster, and its staff can edit the
+    survey. So only tournaments the profile staffs (Tournament.has_permission)
+    may be linked. On edit the survey's CURRENT tournament may also be kept as
+    is, so a creator who isn't on its staff can still save a survey someone
+    else linked. The stage must belong to the chosen tournament.
+    """
+    try:
+        series_id = int(series_id) if series_id else None
+        stage_id = int(stage_id) if stage_id else None
+    except (TypeError, ValueError):
+        return None, None, _('That tournament or stage could not be found.')
+
+    # An unchanged pair always saves, even legacy data that wouldn't pass now.
+    if survey is not None and (series_id, stage_id) == (survey.series_id, survey.stage_id):
+        return series_id, stage_id, None
+
+    if series_id is None:
+        if stage_id is not None:
+            return None, None, _('A stage can only be linked along with its tournament.')
+        return None, None, None
+
+    tournament = Tournament.objects.filter(pk=series_id).first()
+    if tournament is None:
+        return None, None, _('That tournament or stage could not be found.')
+    keeping_current = survey is not None and series_id == survey.series_id
+    if not keeping_current and not tournament.has_permission(profile):
+        return None, None, _('You can only link a survey to a tournament you host or moderate.')
+
+    if stage_id is not None and not Stage.objects.filter(
+            pk=stage_id, tournament_id=series_id).exists():
+        return None, None, _("That stage isn't part of the selected tournament.")
+
+    return series_id, stage_id, None
+
+
 @player_onboard_required
 def survey_edit_view(request, slug):
     """Edit an existing survey."""
@@ -2505,7 +2553,7 @@ def survey_edit_view(request, slug):
     survey = get_object_or_404(Survey, slug=slug)
 
     profile = request.user.profile
-    if not profile.admin and not survey.created_by == profile:
+    if not survey.can_edit_survey(profile):
         raise PermissionDenied
 
     if request.method == 'POST':
@@ -2548,9 +2596,12 @@ def survey_edit_view(request, slug):
 
             # Get associations
             guild_id = request.POST.get('guild') or None
-            series_id = request.POST.get('series') or None
-            stage_id = request.POST.get('stage') or None
             post_id = request.POST.get('post') or None
+            series_id, stage_id, link_error = _validated_survey_links(
+                profile, request.POST.get('series'), request.POST.get('stage'), survey=survey)
+            if link_error:
+                messages.error(request, link_error)
+                return redirect('survey-settings-edit', slug=slug)
 
             # Registration only makes sense with a tournament
             if is_registration and not series_id:
@@ -2877,8 +2928,11 @@ def survey_edit_view(request, slug):
     if profile.admin:
         user_tournaments = Tournament.objects.all()
     else:
+        # The survey's own tournament stays listed even if this editor isn't on
+        # its staff -- otherwise the select has no matching option and saving
+        # silently unlinks it.
         user_tournaments = Tournament.objects.filter(
-            Q(designer=profile) | Q(moderators=profile)
+            Q(designer=profile) | Q(moderators=profile) | Q(pk=survey.series_id)
         ).distinct()
     user_tournaments = user_tournaments.annotate(
         open_sort=Case(
@@ -3015,7 +3069,7 @@ def survey_delete_view(request, slug):
     survey = get_object_or_404(Survey, slug=slug)
 
     profile = request.user.profile
-    if not profile.admin and not survey.created_by == profile:
+    if not survey.can_edit_survey(profile):
         raise PermissionDenied
 
     if request.method == 'POST':
@@ -3092,9 +3146,12 @@ def survey_create_view(request):
 
             # Get optional association fields
             guild_id = request.POST.get('guild') or None
-            series_id = request.POST.get('series') or None
-            stage_id = request.POST.get('stage') or None
             post_id = request.POST.get('post') or None
+            series_id, stage_id, link_error = _validated_survey_links(
+                profile, request.POST.get('series'), request.POST.get('stage'))
+            if link_error:
+                messages.error(request, link_error)
+                return redirect('survey-create')
             is_private = request.POST.get('is_private') == 'on'
             is_public = not is_private
 
@@ -3389,8 +3446,7 @@ def survey_quiz_settings_view(request, slug):
     survey = get_object_or_404(Survey, slug=slug)
     profile = request.user.profile
 
-    # Only the creator or admin can edit quiz settings
-    if not profile.admin and survey.created_by != profile:
+    if not survey.can_edit_survey(profile):
         raise PermissionDenied
 
     # Survey must have quiz mode enabled
@@ -3551,7 +3607,7 @@ def survey_send_availability(request, slug):
     survey = get_object_or_404(Survey, slug=slug)
     profile = request.user.profile
 
-    if not profile.admin and survey.created_by != profile:
+    if not survey.can_edit_survey(profile):
         raise PermissionDenied
 
     if not survey.series:

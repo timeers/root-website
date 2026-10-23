@@ -9,6 +9,7 @@
 ### Improvements
 - Unselected captain now shows on game detail page
 - Player's submissions tab is now private
+- Tournament mods can now edit tournament surveys
 
 ### Bug Fixes
 - Clearing a game's scheduled time no longer closes open polls. Scheduling or rescheduling a game still closes open polls as intended

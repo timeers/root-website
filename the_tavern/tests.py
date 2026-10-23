@@ -1001,3 +1001,167 @@ class SeedTimezoneTemplateCommandTests(TestCase):
         response = SurveyResponse.objects.create(survey=survey)
         Answer.objects.create(response=response, question=question, selected_choice=choice)
         self.assertEqual(_survey_timezone_answer(survey, response), 'UTC')
+
+
+class SurveyEditPermissionTests(_SurveyTestBase):
+    """Every survey-management view gates on Survey.can_edit_survey: an admin,
+    the survey's creator, or the owner/a moderator of its tournament gets in,
+    anyone else gets a 403. Everyone who can edit can also view the private
+    survey and its individual responses."""
+
+    def setUp(self):
+        super().setUp()
+        from the_warroom.models import Tournament
+        owner = User.objects.create_user(username='surveyowner', password='pw')
+        tournament_owner = User.objects.create_user(username='cupowner', password='pw')
+        self.tournament = Tournament.objects.create(
+            name='Survey Cup', designer=tournament_owner.profile)
+        self.survey = self._survey(created_by=owner.profile, is_public=False,
+                                   series=self.tournament)
+        self.question = Question.objects.create(
+            survey=self.survey, text='Pick one',
+            question_type=Question.QuestionType.MULTIPLE_CHOICE, order=1)
+        self.response = SurveyResponse.objects.create(survey=self.survey, profile=owner.profile)
+        self.client.force_login(self.user)
+
+    def _guarded_urls(self):
+        slug = {'slug': self.survey.slug}
+        return [
+            reverse('survey-settings-edit', kwargs=slug),
+            reverse('survey-delete', kwargs=slug),
+            reverse('survey-duplicate', kwargs=slug),
+            reverse('survey-settings-quiz', kwargs=slug),
+            reverse('survey-settings-send-availability', kwargs=slug),
+            reverse('get-question-data', kwargs={'question_id': self.question.id}),
+        ]
+
+    def _view_urls(self):
+        return [
+            reverse('survey-preview', kwargs={'slug': self.survey.slug}),
+            reverse('survey-user-response', kwargs={
+                'slug': self.survey.slug, 'response_id': self.response.pk}),
+        ]
+
+    def _assert_let_in(self):
+        # Results is only checked here: a stranger's refusal there also depends
+        # on can_see_results, the respondent branch.
+        urls = self._guarded_urls() + [
+            reverse('survey-settings-results', kwargs={'slug': self.survey.slug})]
+        for url in urls:
+            with self.subTest(url=url):
+                # Not 403 rather than 200: some views redirect for their own
+                # reasons (quiz mode off).
+                self.assertNotEqual(self.client.get(url).status_code, 403)
+        # 200 here, not just "not 403": preview refuses with a redirect.
+        for url in self._view_urls():
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
+    def _assert_refused(self):
+        for url in self._guarded_urls():
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 403)
+        preview, response = self._view_urls()
+        self.assertEqual(self.client.get(preview).status_code, 302)
+        self.assertEqual(self.client.get(response).status_code, 403)
+
+    def test_a_stranger_is_refused(self):
+        self._assert_refused()
+
+    def test_a_moderator_of_another_tournament_is_refused(self):
+        from the_warroom.models import Tournament
+        other = Tournament.objects.create(name='Other Cup')
+        other.moderators.add(self.profile)
+        self._assert_refused()
+
+    def test_the_creator_is_let_in(self):
+        self.survey.created_by = self.profile
+        self.survey.save(update_fields=['created_by'])
+        self._assert_let_in()
+
+    def test_an_admin_is_let_in(self):
+        self.profile.group = 'A'
+        self.profile.save(update_fields=['group'])
+        self._assert_let_in()
+
+    def test_a_tournament_moderator_is_let_in(self):
+        self.tournament.moderators.add(self.profile)
+        self._assert_let_in()
+
+    def test_the_tournament_owner_is_let_in(self):
+        self.tournament.designer = self.profile
+        self.tournament.save(update_fields=['designer'])
+        self._assert_let_in()
+
+
+class SurveyLinkValidationTests(_SurveyTestBase):
+    """A create/edit POST may only link a tournament the profile staffs (or, on
+    edit, keep the one already linked), and a stage only of that tournament.
+    The form's dropdown is no guard: the POST isn't bound to it."""
+
+    def setUp(self):
+        super().setUp()
+        from the_warroom.models import Stage, Tournament
+        stranger = User.objects.create_user(username='cupowner', password='pw')
+        self.mine = Tournament.objects.create(name='My Cup')
+        self.mine.moderators.add(self.profile)
+        self.theirs = Tournament.objects.create(name='Their Cup', designer=stranger.profile)
+        self.their_stage = Stage.objects.create(tournament=self.theirs, name='Their Stage', order=1)
+        self.client.force_login(self.user)
+
+    def _create(self, **links):
+        return self.client.post(reverse('survey-create'), {'title': 'Linked', **links})
+
+    def _edit(self, survey, **links):
+        return self.client.post(
+            reverse('survey-settings-edit', kwargs={'slug': survey.slug}),
+            {'title': survey.title, **links})
+
+    def test_create_refuses_a_tournament_you_dont_staff(self):
+        self._create(series=self.theirs.pk)
+        self.assertFalse(Survey.objects.filter(title='Linked').exists())
+
+    def test_create_links_a_tournament_you_moderate(self):
+        self._create(series=self.mine.pk)
+        self.assertEqual(Survey.objects.get(title='Linked').series, self.mine)
+
+    def test_create_refuses_a_stage_from_another_tournament(self):
+        self._create(series=self.mine.pk, stage=self.their_stage.pk)
+        self.assertFalse(Survey.objects.filter(title='Linked').exists())
+
+    def test_edit_refuses_a_tournament_you_dont_staff(self):
+        survey = self._survey(created_by=self.profile, series=self.mine)
+        self._edit(survey, series=self.theirs.pk)
+        survey.refresh_from_db()
+        self.assertEqual(survey.series, self.mine)
+
+    def test_edit_keeps_a_current_link_you_dont_staff(self):
+        survey = self._survey(created_by=self.profile, series=self.theirs,
+                              title='Before')
+        self._edit(survey, series=self.theirs.pk, title='After')
+        survey.refresh_from_db()
+        self.assertEqual((survey.title, survey.series), ('After', self.theirs))
+
+    def test_edit_page_lists_the_current_tournament(self):
+        """Otherwise the select has no matching option and saving unlinks it."""
+        survey = self._survey(created_by=self.profile, series=self.theirs)
+        page = self.client.get(reverse('survey-settings-edit', kwargs={'slug': survey.slug}))
+        self.assertIn(self.theirs, page.context['user_tournaments'])
+
+    def test_duplicate_drops_a_tournament_you_dont_staff(self):
+        survey = self._survey(created_by=self.profile, series=self.theirs,
+                              stage=self.their_stage, auto_enroll=True,
+                              is_registration=True)
+        self.client.get(reverse('survey-duplicate', kwargs={'slug': survey.slug}))
+        copy = Survey.objects.exclude(pk=survey.pk).get()
+        self.assertIsNone(copy.series)
+        self.assertIsNone(copy.stage)
+        self.assertFalse(copy.auto_enroll)
+        self.assertFalse(copy.is_registration)
+
+    def test_duplicate_keeps_a_tournament_you_moderate(self):
+        survey = self._survey(created_by=self.profile, series=self.mine, auto_enroll=True)
+        self.client.get(reverse('survey-duplicate', kwargs={'slug': survey.slug}))
+        copy = Survey.objects.exclude(pk=survey.pk).get()
+        self.assertEqual(copy.series, self.mine)
+        self.assertTrue(copy.auto_enroll)

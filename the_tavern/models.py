@@ -311,10 +311,13 @@ class Survey(models.Model):
         return self.has_user_responded(user_profile)
 
     def can_edit_survey(self, user_profile):
-        """Check if a user can edit the survey"""
+        """Admins, the survey's creator, and -- for a survey linked to a
+        tournament -- that tournament's owner and moderators."""
         if not user_profile:
             return False
-        return user_profile.admin or user_profile == self.created_by
+        if user_profile.admin or user_profile == self.created_by:
+            return True
+        return bool(self.series) and self.series.has_permission(user_profile)
 
     def can_view_survey(self, user_profile):
         """Check if a user can view the survey details"""
@@ -329,8 +332,8 @@ class Survey(models.Model):
         if self.is_public:
             return True
 
-        # Owner of the survey and admin can view
-        if self.created_by == user_profile or user_profile.admin:
+        # Anyone who can edit it can view it
+        if self.can_edit_survey(user_profile):
             return True
 
         # Explicit invite
@@ -414,8 +417,8 @@ class Survey(models.Model):
         if not user_profile:
             return False
         
-        # Admin and creator can see results
-        if user_profile.admin or user_profile == self.created_by:
+        # Anyone who can edit the survey can see its results
+        if self.can_edit_survey(user_profile):
             return True
         
         # If show results is true and the user has responded
@@ -1013,10 +1016,8 @@ class SurveyResponse(models.Model):
     def can_view_response(self, user_profile):
         if not user_profile:
             return False
-        # Admin, survey owner or respondent can view
-        if user_profile == self.profile or user_profile.admin or user_profile == self.survey.created_by:
-            return True
-        return False
+        # The respondent, or anyone who can edit the survey
+        return user_profile == self.profile or self.survey.can_edit_survey(user_profile)
 
     def calculate_score(self):
         """Calculate the score for this response"""
