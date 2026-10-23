@@ -58,7 +58,7 @@ from the_databot.tasks import (
     post_channel_message_task, post_schedule_proposal_task,
     post_to_tournament_channel_task,
     strip_schedule_proposal_messages_task, post_boxscore_prompt_task,
-    post_boxscore_result_task,
+    post_boxscore_result_task, lfg_fk_values,
 )
 from the_databot.tasks import _retire_boxscore_message
 from the_databot.services.discordservice import (
@@ -10578,6 +10578,18 @@ def _boxscore_apply(thread, pending, channel_id, match_roster=None):
     # file has none of its own, or a corrected file with fewer components than
     # the last one would leave the old ones stuck prefilling the record form.
     undrafted = pending.get("undrafted")
+
+    # map/deck NOW, not only via the capture task below: auto-record reads them
+    # off this thread straight after we return, long before the worker runs, and
+    # a final game with no map/deck fails validation. The task sets the same
+    # values again, harmlessly. Only overwrites what the file actually names, so
+    # a /map roll survives a box score that omits it.
+    fk_values = lfg_fk_values(items)
+    if fk_values:
+        for field, obj in fk_values.items():
+            setattr(thread, field, obj)
+        thread.save(update_fields=list(fk_values))
+
     _capture_lfg_components(channel_id, items, source="boxscore",
                             undrafted=undrafted)
 
@@ -10652,6 +10664,9 @@ def boxscore_upload_from_api(thread, raw, token):
         "component_lines": component_lines, "undrafted": undrafted,
     }
     pending["fingerprint"] = _boxscore_seat_fingerprint(thread)
+
+    if thread.personal:
+        return _boxscore_apply_personal(thread, pending, token, payload, entries)
 
     def post_gate(body, ask="confirm some details for", client_message=(
             "Box score uploaded, but it doesn't match this game's players or "
@@ -10744,6 +10759,69 @@ def boxscore_upload_from_api(thread, raw, token):
         "message": (f"Box score uploaded — {len(entries)} seats, "
                     f"{turn_count} turns."),
         "seats": len(entries), "turns": turn_count,
+    }
+
+
+def _boxscore_apply_personal(thread, pending, token, payload, entries):
+    """The personal-token tail of boxscore_upload_from_api: apply, maybe record.
+
+    No gates and no Discord. A personal thread has no prior roster or seating,
+    so Gates 2/3 have nothing to disagree with; Gates 0/1 exist only because
+    Discord can't offer a real player picker, and the site's record form is
+    one. An unresolved seat is applied as a BLANK seat in its position, and the
+    owner fills it in on the record form.
+
+    Auto-record is attempted only when every seat resolved; anything that stops
+    it (a blank seat, no map/deck, a validation error) leaves the box score
+    staged and points at the Box Score Token page, where the record link is.
+
+    The token's payload is KEPT on APPLIED -- it is the only record of who the
+    file said an unresolved seat was. Any unexpected failure cancels the token
+    with its payload cleared, so nothing is left stuck in PENDING (which the
+    sweep only handles for posted prompts) or looking restorable.
+    """
+    from the_databot.models import BoxScoreUploadToken
+    from the_warroom.services.box_score_import import BoxScoreImportError
+
+    try:
+        lines, applied_notes = _boxscore_apply(thread, pending, thread.thread_id)
+        if lines is None:
+            raise BoxScoreImportError(_boxscore_apply_error(applied_notes))
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.APPLIED, payload=pending)
+
+        unresolved = sum(1 for s in pending["seats"] if not s["profile_pk"])
+        recorded = (not unresolved and _boxscore_try_autorecord(
+            thread, token.issued_by, payload=payload))
+    except Exception:
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.CANCELLED, payload=None)
+        raise
+
+    turn_count = max((len(e.get("turns") or []) for e in entries), default=0)
+    if recorded:
+        return {
+            "ok": True, "status": "applied",
+            "message": (f"Box score uploaded and recorded — {len(entries)} "
+                        f"seats, {turn_count} turns."),
+            "seats": len(entries), "turns": turn_count,
+        }
+
+    from django.urls import reverse
+    site = (config.get("SITE_URL") or "").rstrip("/")
+    where = (f"{site}{reverse('boxscore-tokens')}" if site
+             else "your Box Score Token page")
+    if unresolved:
+        why = (f"{unresolved} player{'s' if unresolved != 1 else ''} "
+               "couldn't be matched to a profile")
+    else:
+        why = "it couldn't be recorded automatically"
+    # "pending_confirmation", not a new status: the TTS client is written against
+    # the documented contract, where anything but "applied" means a person still
+    # has to finish it.
+    return {
+        "ok": True, "status": "pending_confirmation",
+        "message": f"Box score uploaded, but {why}. Finish recording it at {where}.",
     }
 
 
@@ -11799,7 +11877,9 @@ def _boxscore_restorable(thread, profile, group=None):
     """
     from the_databot.models import BoxScoreUploadToken
 
-    if profile is None:
+    # A personal (site-only) thread has no Discord surface to restore into, and
+    # its APPLIED payload is kept on purpose -- never offer it here.
+    if profile is None or thread.personal:
         return None
     token = BoxScoreUploadToken.objects.filter(
         thread=thread,
@@ -12143,7 +12223,9 @@ def _boxscore_autorecord_enabled(thread):
     silently mean "treat it as beta". Recording a game is not something to do
     on a guess.
     """
-    if BOXSCORE_AUTO_RECORD_ALL_GUILDS:
+    # A personal thread has no guild by construction, so the guild rule below
+    # would always refuse it; auto-recording is the whole point of one.
+    if BOXSCORE_AUTO_RECORD_ALL_GUILDS or thread.personal:
         return True
     return bool(thread.guild_id and thread.guild.is_beta_tester)
 

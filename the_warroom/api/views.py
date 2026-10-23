@@ -436,17 +436,23 @@ class BoxScoreUploadView(APIView):
             return _upload_error(
                 'invalid_token',
                 'That upload token isn\'t valid. Run /boxscore token in your '
-                'game thread for a new one.', status.HTTP_401_UNAUTHORIZED)
+                'game thread, or generate one on your Box Score Token page, '
+                'for a new one.', status.HTTP_401_UNAUTHORIZED)
+        # Where to get another: a personal token came from the site page, not
+        # a Discord thread.
+        get_new = ('Generate a new one on your Box Score Token page.'
+                   if token.thread.personal else
+                   'Run /boxscore token for a new one.')
         if token.status != BoxScoreUploadToken.Status.ISSUED:
             return _upload_error(
                 'token_used',
-                'That upload token has already been used. Run /boxscore token '
-                'for a new one.', status.HTTP_401_UNAUTHORIZED)
+                f'That upload token has already been used. {get_new}',
+                status.HTTP_401_UNAUTHORIZED)
         if token.is_expired:
             return _upload_error(
                 'token_expired',
-                'That upload token has expired. Run /boxscore token for a new '
-                'one.', status.HTTP_401_UNAUTHORIZED)
+                f'That upload token has expired. {get_new}',
+                status.HTTP_401_UNAUTHORIZED)
 
         thread = token.thread
         if thread.game_id:
@@ -470,8 +476,8 @@ class BoxScoreUploadView(APIView):
         if not claimed:
             return _upload_error(
                 'token_used',
-                'That upload token has already been used. Run /boxscore '
-                'token for a new one.', status.HTTP_401_UNAUTHORIZED)
+                f'That upload token has already been used. {get_new}',
+                status.HTTP_401_UNAUTHORIZED)
 
         try:
             result = di.boxscore_upload_from_api(thread, body, token)

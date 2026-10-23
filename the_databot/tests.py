@@ -17091,6 +17091,61 @@ class BoxScoreUploadSweepTests(TestCase):
         self.assertFalse(BoxScoreUploadToken.objects.filter(pk=old.pk).exists())
         self.assertTrue(BoxScoreUploadToken.objects.filter(pk=live.pk).exists())
 
+    # ── personal (site-only) tokens ──
+
+    def _sweep(self):
+        with mock.patch("the_databot.services.discordservice.post_channel_message_full"), \
+                mock.patch("the_databot.services.discordservice.edit_channel_message"):
+            sweep_boxscore_upload_tokens()
+
+    def _old_personal(self, status, **kw):
+        token, _raw = BoxScoreUploadToken.issue_personal(self.issuer)
+        long_ago = timezone.now() - timedelta(days=30)
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=status, created_at=long_ago, expires_at=long_ago, **kw)
+        LFGThread.objects.filter(pk=token.thread_id).update(created_at=long_ago)
+        return BoxScoreUploadToken.objects.get(pk=token.pk)
+
+    def test_a_personal_upload_awaiting_review_keeps_its_token(self):
+        """Its payload is the only record of who the unmatched seats were."""
+        token = self._old_personal(BoxScoreUploadToken.Status.APPLIED,
+                                   payload={"seats": []})
+        LFGSeat.objects.create(thread=token.thread, seat_number=1)
+        self._sweep()
+        self.assertTrue(BoxScoreUploadToken.objects.filter(pk=token.pk).exists())
+        self.assertTrue(LFGThread.objects.filter(pk=token.thread_id).exists())
+
+    def test_a_recorded_personal_upload_is_pruned_like_any_other(self):
+        token = self._old_personal(BoxScoreUploadToken.Status.APPLIED,
+                                   payload={"seats": []})
+        LFGThread.objects.filter(pk=token.thread_id).update(
+            status=LFGThread.Status.RECORDED)
+        self._sweep()
+        self.assertFalse(BoxScoreUploadToken.objects.filter(pk=token.pk).exists())
+
+    def test_an_unused_personal_thread_is_deleted_with_its_token(self):
+        token = self._old_personal(BoxScoreUploadToken.Status.ISSUED)
+        self._sweep()
+        self.assertFalse(LFGThread.objects.filter(pk=token.thread_id).exists())
+
+    def test_a_revoked_personal_thread_is_deleted(self):
+        token = self._old_personal(BoxScoreUploadToken.Status.CANCELLED)
+        self._sweep()
+        self.assertFalse(LFGThread.objects.filter(pk=token.thread_id).exists())
+
+    def test_a_fresh_personal_token_is_left_alone(self):
+        token, _raw = BoxScoreUploadToken.issue_personal(self.issuer)
+        self._sweep()
+        self.assertTrue(LFGThread.objects.filter(pk=token.thread_id).exists())
+
+    def test_a_discord_thread_with_no_tokens_is_never_swept_here(self):
+        """Only personal threads: a Discord thread's lifecycle is
+        cleanup_stale_lfg_threads'."""
+        LFGThread.objects.filter(pk=self.thread.pk).update(
+            created_at=timezone.now() - timedelta(days=60))
+        self._sweep()
+        self.assertTrue(LFGThread.objects.filter(pk=self.thread.pk).exists())
+
 
 class BoxScoreMatchRosterTests(TestCase):
     """A match game is exactly its match roster.
@@ -18760,6 +18815,15 @@ class BoxScoreAutoRecordTests(_NoLoginSignalMixin, TestCase):
         self.thread.seating_set = False
         self.thread.save(update_fields=['seating_set'])
         self._assert_declined()
+
+    def test_no_map_or_deck_declines_before_trying(self):
+        """A box score that names neither goes to the record link, where a person
+        fills them in -- and the log says so, not a generic validation error."""
+        self.thread.deck = None
+        self.thread.save(update_fields=['deck'])
+        with self.assertLogs(self.LOGGER, level="WARNING") as caught:
+            self._assert_declined()
+        self.assertIn("no map/deck", "\n".join(caught.output))
 
     def test_a_game_with_no_winner_declines(self):
         """The rule the draft branch would have skipped."""

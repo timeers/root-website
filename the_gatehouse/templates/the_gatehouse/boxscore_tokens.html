@@ -1,0 +1,192 @@
+{% extends 'the_keep/base.html' %}
+{% load static i18n %}
+{% block title %}Box Score Token | {% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-9">
+
+      <!-- Header -->
+      <div class="discord-hero discord-hero-row mb-4">
+        <div class="discord-hero-icon"><i class="bi bi-upload"></i></div>
+        <div>
+          <h1 class="discord-hero-title mb-1">{% trans 'Box Score Token' %}</h1>
+          <p class="discord-hero-tagline mb-0">
+            {% trans 'Upload a Tabletop Simulator game to the Database.' %}
+          </p>
+        </div>
+      </div>
+
+      <!-- How it works -->
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <h2 class="info-card-title"><i class="bi bi-list-ol text-primary me-2"></i>{% trans 'How it works' %}</h2>
+          <div class="databot-lfg-steps">
+            <div class="databot-lfg-step">
+              <span class="databot-lfg-num">1</span>
+              <div>
+                <h5>{% trans 'Play a Game of Root' %}</h5>
+                <p>{% blocktrans %}In Tabletop Simulator, use the Root Tabletop Tournaments mod to play a game of Root. If you are using the Ultimate Mod you will not be able to use this feature.{% endblocktrans %}</p>
+              </div>
+            </div>
+            <div class="databot-lfg-step">
+              <span class="databot-lfg-num">2</span>
+              <div>
+                <h5>{% trans 'Generate a Token' %}</h5>
+                <p>{% blocktrans with hours=token_hours %}Each token records one game and expires after {{ hours }} hours if it isn’t used.{% endblocktrans %}</p>
+              </div>
+            </div>
+            <div class="databot-lfg-step">
+              <span class="databot-lfg-num">3</span>
+              <div>
+                <h5>{% trans 'Upload the Boxscore' %}</h5>
+                <p>{% trans 'When the game is over, paste the token into the uploader in Tabletop Simulator and export the box score.' %}</p>
+              </div>
+            </div>
+            <div class="databot-lfg-step">
+              <span class="databot-lfg-num">4</span>
+              <div>
+                <h5>{% trans 'Review and Upload' %}</h5>
+                <p>{% trans 'If every player is matched to a profile by their Steam ID, the game is recorded automatically. Otherwise, it waits below for you to pick the missing players and finish recording it.' %}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Your token -->
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <h2 class="info-card-title"><i class="bi bi-key text-primary me-2"></i>{% trans 'Your token' %}</h2>
+
+          {% if new_token %}
+          <div class="databot-chip boxscore-token-chip mb-3">
+            <code class="boxscore-token-code" id="boxscore-token">{{ new_token }}</code>
+            <button type="button" class="databot-btn databot-btn-outline btn-sm" id="boxscore-token-copy">
+              <i class="bi bi-clipboard me-2"></i>{% trans 'Copy' %}
+            </button>
+          </div>
+          <p class="databot-notify-note databot-notify-warn mb-3">
+            <i class="bi bi-exclamation-triangle-fill me-1"></i>
+            {% blocktrans with hours=token_hours %}Copy it now. It won’t be shown again. It works for one game and expires in {{ hours }} hours. Anyone who has it can upload a game under your name, so don’t share it.{% endblocktrans %}
+          </p>
+          {% else %}
+          <p class="databot-card-intro">
+            {% trans 'Generate a token, then paste it into the Tabletop Simulator uploader. It works for one game, with any players. You record it, even if you didn’t play.' %}
+          </p>
+          {% endif %}
+
+          <form method="post" action="{% url 'boxscore-token-generate' %}" class="text-center">
+            {% csrf_token %}
+            <button type="submit" class="databot-btn databot-btn-primary">
+              <i class="bi bi-plus-circle me-2"></i>{% if new_token %}{% trans 'Generate Another Token' %}{% else %}{% trans 'Generate Token' %}{% endif %}
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Recent uploads -->
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="info-card-title mb-0"><i class="bi bi-clock-history text-primary me-2"></i>{% trans 'Recent uploads' %}</h2>
+            <a href="{% url 'boxscore-tokens' %}" class="databot-btn databot-btn-outline btn-sm">
+              <i class="bi bi-arrow-clockwise me-2"></i>{% trans 'Refresh' %}
+            </a>
+          </div>
+
+          {% if rows %}
+          <div>
+            {% for row in rows %}
+            <div class="boxscore-upload">
+              <div>
+                {% if row.state == 'waiting' %}
+                  <span class="boxscore-state boxscore-state-active">{% trans 'Waiting for upload' %}</span>
+                  <div class="boxscore-upload-meta">{% blocktrans with left=row.token.expires_at|timeuntil %}Expires in {{ left }}.{% endblocktrans %}</div>
+                {% elif row.state == 'processing' %}
+                  <span class="boxscore-state boxscore-state-active">{% trans 'Uploading' %}</span>
+                  <div class="boxscore-upload-meta">{% trans 'Refresh in a moment.' %}</div>
+                {% elif row.state == 'review' %}
+                  <span class="boxscore-state boxscore-state-warn">{% trans 'Needs review' %}</span>
+                  <div class="boxscore-upload-meta">
+                    {% if row.unmatched %}
+                      {% blocktrans count counter=row.unmatched %}{{ counter }} player to match.{% plural %}{{ counter }} players to match.{% endblocktrans %}
+                    {% endif %}
+                    {% if row.missing_map_deck %}{% trans 'Map or deck not in the box score.' %}{% endif %}
+                    {% if not row.unmatched and not row.missing_map_deck %}{% trans 'Couldn’t be recorded automatically. Check the details.' %}{% endif %}
+                  </div>
+                  <ul class="boxscore-upload-seats">
+                    {% for seat in row.seats %}
+                    <li{% if not seat.matched %} class="unmatched"{% endif %}>
+                      {{ seat.number }}. {{ seat.name }}{% if not seat.matched %} <i class="bi bi-question-circle" title="{% trans 'No matching profile' %}"></i>{% endif %}
+                    </li>
+                    {% endfor %}
+                  </ul>
+                {% elif row.state == 'recorded' %}
+                  <span class="boxscore-state boxscore-state-ok">{% trans 'Recorded' %}</span>
+                {% elif row.state == 'expired' %}
+                  <span class="boxscore-state">{% trans 'Expired' %}</span>
+                {% elif row.state == 'revoked' %}
+                  <span class="boxscore-state">{% trans 'Revoked' %}</span>
+                {% elif row.state == 'failed' %}
+                  <span class="boxscore-state boxscore-state-warn">{% trans 'Upload failed' %}</span>
+                  <div class="boxscore-upload-meta">{% trans 'The box score couldn’t be read. Generate a new token and try again.' %}</div>
+                {% endif %}
+                <div class="boxscore-upload-meta">{% blocktrans with when=row.created_at|timesince %}Generated {{ when }} ago{% endblocktrans %}</div>
+              </div>
+
+              <div class="boxscore-upload-actions">
+                {% if row.state == 'waiting' %}
+                <form method="post" action="{% url 'boxscore-token-revoke' row.token.pk %}">
+                  {% csrf_token %}
+                  <button type="submit" class="databot-btn databot-btn-outline btn-sm">{% trans 'Revoke' %}</button>
+                </form>
+                {% elif row.state == 'review' %}
+                <a href="{% url 'record-game' %}?lfg={{ row.thread.pk }}" class="databot-btn databot-btn-primary btn-sm">
+                  <i class="bi bi-pencil-square me-2"></i>{% trans 'Review & Record' %}
+                </a>
+                <form method="post" action="{% url 'boxscore-upload-discard' row.thread.pk %}"
+                      onsubmit="return confirm('{% trans "Discard this box score? This can’t be undone." %}');">
+                  {% csrf_token %}
+                  <button type="submit" class="databot-btn databot-btn-outline btn-sm">{% trans 'Discard' %}</button>
+                </form>
+                {% elif row.state == 'recorded' and row.thread.game_id %}
+                <a href="{{ row.thread.game.get_absolute_url }}" class="databot-btn databot-btn-outline btn-sm">
+                  <i class="bi bi-box-arrow-up-right me-2"></i>{% trans 'View Game' %}
+                </a>
+                {% endif %}
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="databot-notify-note mb-0">
+            <i class="bi bi-info-circle me-1"></i>{% trans 'Nothing yet. Tokens you generate will show here.' %}
+          </p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="text-center">
+        <a href="{% url 'user-settings' %}" class="databot-btn databot-btn-outline">
+          <i class="bi bi-arrow-left me-2"></i>{% trans 'Back to Settings' %}
+        </a>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+{% if new_token %}
+<script>
+(function () {
+    var btn = document.getElementById('boxscore-token-copy');
+    btn.addEventListener('click', function () {
+        navigator.clipboard.writeText(document.getElementById('boxscore-token').textContent.trim());
+        btn.innerHTML = '<i class="bi bi-check2 me-2"></i>{% trans "Copied" %}';
+    });
+})();
+</script>
+{% endif %}
+{% endblock content %}

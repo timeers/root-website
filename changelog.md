@@ -5,6 +5,7 @@
 ### New Features
 - Host can now kick players from their LFG post if they are unresponsive
 - Schedule Poll now has an option to vote between multiple times
+- Generate personal box score tokens to record standalone games that aren't linked to a Tournament or Series
 
 ### Improvements
 - Unselected captain now shows on game detail page

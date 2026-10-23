@@ -235,6 +235,16 @@ class LFGThread(models.Model):
     status = models.CharField(
         max_length=16, choices=Status.choices, default=Status.OPEN)
 
+    # A SITE-ONLY thread behind a personal box score token (minted from the
+    # Box Score Token page, not /boxscore token). There is no Discord thread:
+    # `thread_id` is a synthetic "web-<hex>" key that never matches a channel,
+    # so nothing may ever POST to it -- every Discord-posting path checks this.
+    # The owner is `host`; they alone may record it (_can_record_lfg), and the
+    # site's record form stands in for the Discord gates.
+    personal = models.BooleanField(
+        default=False,
+        help_text="Site-only thread for a personal box score token. Never posted to.")
+
     # Per-seat box score for the recorded game, in the same shape the game form's
     # JSON import accepts: the `participants` array documented in
     # the_warroom/services/box_score_import.py (turn scores plus dominance and
@@ -490,8 +500,16 @@ class BoxScoreUploadToken(models.Model):
     Only the HASH is stored, never the token, the same rule Profile.api_key_hash
     follows: a database leak must not yield usable credentials.
 
+    Two ways to mint one: /boxscore token in a Discord game thread, or the
+    site's Box Score Token page (issue_personal), which creates a site-only
+    LFGThread (`personal=True`) for the token to stage onto. A personal upload
+    never touches Discord -- the page and the record form resolve it.
+
     This row ALSO carries the pending upload between the web request that
-    received it and the Discord thread that resolves it (see `payload`). That
+    received it and the Discord thread that resolves it (see `payload`). On a
+    personal token the payload is KEPT after it is applied: it is the only
+    record of who an unresolved seat was (turns_data stores no names), and the
+    record form shows it as a hint. That
     lives here rather than in the cache because the sweep task has to FIND
     unanswered prompts, and Django's Redis backend exposes no key enumeration.
     /boxscore upload keeps using the cache -- it has no token, and its prompt is
@@ -582,8 +600,8 @@ class BoxScoreUploadToken(models.Model):
 
         Every token is single-use and expires after TOKEN_TTL. There used to be
         a `test_mode` variant that was reusable and skipped the roster/seating
-        comparison, for pasting into a scripted client; it is gone, so /boxscore
-        token is the only way a token exists and they all behave alike."""
+        comparison, for pasting into a scripted client; it is gone, so every
+        token -- from /boxscore token or issue_personal -- behaves alike."""
         import secrets
         raw = "".join(secrets.choice(cls.ALPHABET) for _ in range(cls.TOKEN_LENGTH))
         token = cls.objects.create(
@@ -593,6 +611,23 @@ class BoxScoreUploadToken(models.Model):
             expires_at=timezone.now() + cls.TOKEN_TTL,
         )
         return token, raw
+
+    @classmethod
+    def issue_personal(cls, profile):
+        """Mint a token on a fresh site-only thread owned by `profile`.
+        Returns (instance, raw_token), like issue().
+
+        One thread per token: LFGThread.game is a OneToOne, so each upload needs
+        its own. The thread is created HERE, not at upload, because the upload
+        view reads token.thread unconditionally. Unused ones are swept (see
+        sweep_boxscore_upload_tokens)."""
+        import uuid
+        from django.db import transaction
+        with transaction.atomic():
+            thread = LFGThread.objects.create(
+                thread_id=f"web-{uuid.uuid4().hex[:24]}",
+                personal=True, host=profile)
+            return cls.issue(thread, profile)
 
     @staticmethod
     def group(raw):

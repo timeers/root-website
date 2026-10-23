@@ -3671,3 +3671,144 @@ class RenderDescriptionPlaintextTests(TestCase):
     def test_empty_value_returns_empty_string(self):
         self.assertEqual(render_description_plaintext(""), "")
         self.assertEqual(render_description_plaintext(None), "")
+
+
+class BoxScoreTokenPageTests(TestCase):
+    """The Box Score Token page: generating, listing, revoking and discarding
+    personal box score tokens. All scoped to the logged-in profile."""
+
+    def setUp(self):
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+        self.user = User.objects.create_user(username='bstowner', password='x')
+        self.profile = self.user.profile
+        self.profile.group = Profile.GroupChoices.PLAYER
+        self.profile.player_onboard = True
+        self.profile.save()
+        self.client.force_login(self.user)
+
+    def _generate(self):
+        return self.client.post(reverse('boxscore-token-generate'))
+
+    def _age_tokens(self):
+        """Step past the cooldown without sleeping."""
+        from the_databot.models import BoxScoreUploadToken
+        BoxScoreUploadToken.objects.update(
+            created_at=timezone.now() - timedelta(minutes=5))
+
+    def test_the_page_renders_empty(self):
+        response = self.client.get(reverse('boxscore-tokens'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Nothing yet')
+
+    def test_the_settings_page_links_to_it(self):
+        response = self.client.get(reverse('user-settings'))
+        self.assertContains(response, reverse('boxscore-tokens'))
+
+    def test_generate_requires_post(self):
+        response = self.client.get(reverse('boxscore-token-generate'))
+        self.assertEqual(response.status_code, 405)
+
+    def test_generating_shows_the_token_exactly_once(self):
+        from the_databot.models import BoxScoreUploadToken
+        response = self._generate()
+        # Not fetched: following the redirect would itself be the one showing.
+        self.assertRedirects(response, reverse('boxscore-tokens'),
+                             fetch_redirect_response=False)
+        page = self.client.get(reverse('boxscore-tokens'))
+        shown = page.context['new_token']
+        self.assertRegex(shown, r'^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
+        token = BoxScoreUploadToken.objects.get()
+        self.assertEqual(token.token_hash, BoxScoreUploadToken.hash_token(shown))
+        self.assertTrue(token.thread.personal)
+        self.assertContains(page, 'Waiting for upload')
+        again = self.client.get(reverse('boxscore-tokens'))
+        self.assertIsNone(again.context['new_token'])
+
+    def test_a_second_token_inside_the_cooldown_is_refused(self):
+        from the_databot.models import BoxScoreUploadToken
+        self._generate()
+        self._generate()
+        self.assertEqual(BoxScoreUploadToken.objects.count(), 1)
+
+    def test_live_tokens_are_capped(self):
+        from the_databot.models import BoxScoreUploadToken
+        from the_gatehouse.views import BOXSCORE_TOKEN_LIVE_LIMIT
+        for _ in range(BOXSCORE_TOKEN_LIVE_LIMIT + 1):
+            self._age_tokens()
+            self._generate()
+        self.assertEqual(BoxScoreUploadToken.objects.count(),
+                         BOXSCORE_TOKEN_LIVE_LIMIT)
+
+    def test_revoke_only_your_own_unused_token(self):
+        from the_databot.models import BoxScoreUploadToken
+        mine, _ = BoxScoreUploadToken.issue_personal(self.profile)
+        other = Profile.objects.create(discord='bstother')
+        theirs, _ = BoxScoreUploadToken.issue_personal(other)
+
+        self.client.post(reverse('boxscore-token-revoke', args=[theirs.pk]))
+        self.client.post(reverse('boxscore-token-revoke', args=[mine.pk]))
+        mine.refresh_from_db()
+        theirs.refresh_from_db()
+        self.assertEqual(mine.status, BoxScoreUploadToken.Status.CANCELLED)
+        self.assertEqual(theirs.status, BoxScoreUploadToken.Status.ISSUED)
+        self.assertContains(self.client.get(reverse('boxscore-tokens')), 'Revoked')
+
+    def test_a_used_token_cannot_be_revoked(self):
+        from the_databot.models import BoxScoreUploadToken
+        token, _ = BoxScoreUploadToken.issue_personal(self.profile)
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.APPLIED, payload={'seats': []})
+        self.client.post(reverse('boxscore-token-revoke', args=[token.pk]))
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.APPLIED)
+
+    def _review_upload(self, owner=None):
+        """A personal upload waiting for review, with one blank seat."""
+        from the_databot.models import BoxScoreUploadToken, LFGSeat
+        token, _ = BoxScoreUploadToken.issue_personal(owner or self.profile)
+        thread = token.thread
+        thread.seating_set = True
+        thread.save(update_fields=['seating_set'])
+        LFGSeat.objects.create(thread=thread, profile=self.profile, seat_number=1)
+        LFGSeat.objects.create(thread=thread, profile=None, seat_number=2)
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.APPLIED, used_at=timezone.now(),
+            payload={'seats': [{'label': self.profile.name, 'profile_pk': self.profile.pk},
+                               {'label': 'Mystery Player', 'profile_pk': None}]})
+        return thread
+
+    def test_a_review_row_names_the_unmatched_player_and_links_the_form(self):
+        thread = self._review_upload()
+        response = self.client.get(reverse('boxscore-tokens'))
+        self.assertContains(response, 'Needs review')
+        self.assertContains(response, 'Mystery Player')
+        self.assertContains(response, '1 player to match')
+        self.assertContains(response, 'Map or deck not in the box score')
+        self.assertContains(response, f"{reverse('record-game')}?lfg={thread.pk}")
+
+    def test_a_saved_draft_still_needs_review(self):
+        """Save-progress sets thread.game but leaves the thread OPEN."""
+        from the_databot.models import LFGThread
+        thread = self._review_upload()
+        game = Game.objects.create(final=False)
+        LFGThread.objects.filter(pk=thread.pk).update(game=game)
+        self.assertContains(self.client.get(reverse('boxscore-tokens')), 'Needs review')
+
+    def test_discard_only_your_own_open_upload(self):
+        from the_databot.models import LFGThread
+        mine = self._review_upload()
+        other = Profile.objects.create(discord='bstother2')
+        theirs = self._review_upload(owner=other)
+        self.client.post(reverse('boxscore-upload-discard', args=[theirs.pk]))
+        self.client.post(reverse('boxscore-upload-discard', args=[mine.pk]))
+        self.assertFalse(LFGThread.objects.filter(pk=mine.pk).exists())
+        self.assertTrue(LFGThread.objects.filter(pk=theirs.pk).exists())
+
+    def test_a_recorded_upload_cannot_be_discarded(self):
+        from the_databot.models import LFGThread
+        thread = self._review_upload()
+        LFGThread.objects.filter(pk=thread.pk).update(status=LFGThread.Status.RECORDED)
+        self.client.post(reverse('boxscore-upload-discard', args=[thread.pk]))
+        self.assertTrue(LFGThread.objects.filter(pk=thread.pk).exists())
