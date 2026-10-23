@@ -118,9 +118,9 @@
             <a class="nav-link" id="assets-tab" data-bs-toggle="tab" href="#assets" role="tab" aria-controls="assets" aria-selected="false">{% trans 'Resources' %} ({{ player.assets.count }})</a>
         </li>
         {% endif %}
-        {% if submissions %}
+        {% if show_submissions %}
         <li class="nav-item" role="presentation">
-            <a class="nav-link" id="submissions-tab" data-bs-toggle="tab" href="#submissions" role="tab" aria-controls="submissions" aria-selected="false">{% trans 'Submissions' %}</a>
+            <a class="nav-link" id="submissions-tab" data-bs-toggle="tab" href="#submissions" role="tab" aria-controls="submissions" aria-selected="false">{% trans 'Submissions' %} <i class="bi bi-lock-fill" title="{% trans 'Private' %}"></i></a>
         </li>
         {% endif %}
     </ul>
@@ -241,7 +241,7 @@
         </div>
     </div>
         {% endif %}
-        {% if submissions %}
+        {% if show_submissions %}
         <!-- submissions -->
         <div class="tab-pane fade" id="submissions" role="tabpanel" aria-labelledby="submissions-tab">
             
@@ -267,21 +267,13 @@
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         // Auto-activate the tab from the hash
+        // Falls back to the first tab when there's no hash OR the hash names a tab
+        // this viewer can't see (e.g. a shared #submissions link).
         const hash = window.location.hash;
-        if (hash) {
-            const tabTrigger = document.querySelector(`#profileTabs a[href="${hash}"]`);
-            if (tabTrigger) {
-                const tab = new bootstrap.Tab(tabTrigger);
-                tab.show();
-            }
-        }
-    
-        // Ensure first tab is active if no hash
-        if (!hash) {
-            const firstTab = document.querySelector('#profileTabs a');
-            if (firstTab) {
-                new bootstrap.Tab(firstTab).show();
-            }
+        const tabTrigger = hash ? document.querySelector(`#profileTabs a[href="${hash}"]`) : null;
+        const target = tabTrigger || document.querySelector('#profileTabs a');
+        if (target) {
+            new bootstrap.Tab(target).show();
         }
     
         // On tab change: update the URL hash & HX triggers

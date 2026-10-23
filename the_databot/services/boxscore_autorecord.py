@@ -235,6 +235,13 @@ def _attempt(thread, recorder, payload):
     if not seats:
         return _declined(thread, "no established seating (seating_set=%s)",
                          thread.seating_set)
+    # Checked up front rather than left to the form's "Select a Map and a Deck":
+    # a box score that names neither can't be auto-recorded, and the record link
+    # is where someone fills them in. Same outcome, but the reason is logged as
+    # itself instead of as a generic validation failure.
+    if not thread.map_id or not thread.deck_id:
+        return _declined(thread, "no map/deck (map=%s deck=%s)",
+                         thread.map_id, thread.deck_id)
 
     tournament = _lfg_tournament_for(thread)
     lfg_round = _lfg_round_for(tournament)

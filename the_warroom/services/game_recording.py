@@ -176,6 +176,17 @@ def record_game(*, form, formset, recorder, match=None, lfgthread=None,
             lfgthread.status = (LFGThread.Status.RECORDED if parent.final
                                 else LFGThread.Status.OPEN)
             lfgthread.save(update_fields=['game', 'status'])
+            if lfgthread.personal:
+                # Seats the box score couldn't match were filled in on this
+                # form; carry them onto the thread, and learn their Steam ids
+                # once, on the OPEN -> RECORDED transition.
+                from the_databot.services.personal_boxscore import (
+                    finish_personal_record)
+                finish_personal_record(
+                    lfgthread,
+                    {idx: child.player_id for idx, child, _ in saved_efforts},
+                    learn=(lfg_initial_status != LFGThread.Status.RECORDED
+                           and lfgthread.status == LFGThread.Status.RECORDED))
 
         # ── Scorecard grid → ScoreCard + TurnScore persistence ──
         # Each grid row maps to one effort by its formset index. Turn cells
@@ -474,7 +485,10 @@ def record_game(*, form, formset, recorder, match=None, lfgthread=None,
             # `round` and never creates a Match), but nothing stops
             # ?match=X&lfg=Y setting both flags -- elif makes a double
             # announcement structurally impossible rather than assumed.
+            # Never for a personal thread: its thread_id is a synthetic key,
+            # not a Discord channel, so there is nowhere to post.
             if (lfg_mode and lfgthread and lfgthread.thread_id
+                    and not lfgthread.personal
                     and lfg_initial_status != LFGThread.Status.RECORDED
                     and lfgthread.status == LFGThread.Status.RECORDED):
                 site = (settings.SITE_URL or '').rstrip('/')

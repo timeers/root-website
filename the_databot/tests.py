@@ -3633,18 +3633,12 @@ class LFGEditButtonRowTests(TestCase):
                            if di.decode_custom_id(b["custom_id"])[0] == "lfg_edit")
         self.assertTrue(edit_button["custom_id"].endswith(f":{self.HOST}"))
 
-    def _edit_custom_id(self, **kwargs):
+    def test_edit_carries_only_the_owner(self):
         data = di._lfg_message_data(
-            None, self.HOST, "a game", "Tim", title="Looking for Game", **kwargs)
-        return next(b["custom_id"] for b in data["components"][0]["components"]
-                    if di.decode_custom_id(b["custom_id"])[0] == "lfg_edit")
-
-    def test_a_beta_post_marks_edit_and_keeps_the_owner_last(self):
-        """/lfg-beta's kick marker rides AHEAD of the owner, so the lock still fires."""
-        self.assertEqual(self._edit_custom_id(beta=True), f"lfg_edit:b:{self.HOST}")
-
-    def test_a_regular_post_has_no_beta_marker(self):
-        self.assertEqual(self._edit_custom_id(), f"lfg_edit:{self.HOST}")
+            None, self.HOST, "a game", "Tim", title="Looking for Game")
+        edit_id = next(b["custom_id"] for b in data["components"][0]["components"]
+                       if di.decode_custom_id(b["custom_id"])[0] == "lfg_edit")
+        self.assertEqual(edit_id, f"lfg_edit:{self.HOST}")
 
 
 class LFGPresentationTests(TestCase):
@@ -3816,7 +3810,7 @@ class LFGEditTests(TestCase):
         data = json.loads(response.content)
         self.assertIn("Couldn't find that message", data["data"]["content"])
 
-    # ── kicking (/lfg-beta posts only) ─────────────────────────────────────
+    # ── kicking ────────────────────────────────────────────────────────────
 
     P1 = "830000000000000066"
     P2 = "830000000000000077"
@@ -3825,12 +3819,10 @@ class LFGEditTests(TestCase):
         names = {self.HOST: "Tim", self.P1: "Ann", self.P2: "Bob"}
         return "\n".join(f"{names[i]} (<@{i}>)" for i in ids)
 
-    def _beta_click(self, *player_ids, beta=True):
+    def _roster_click(self, *player_ids):
         payload = self._click_payload(self.HOST)
         payload["message"]["embeds"][0]["fields"][0]["value"] = self._roster(
             self.HOST, *player_ids)
-        if beta:
-            payload["data"]["custom_id"] = di.encode_custom_id("lfg_edit", "b", self.HOST)
         return payload
 
     def _modal_components(self, payload):
@@ -3840,8 +3832,8 @@ class LFGEditTests(TestCase):
         response = di._handle_lfg_edit(self._click_payload(self.HOST))
         self.assertEqual(json.loads(response.content)["data"]["title"], "Edit LFG")
 
-    def test_a_beta_modal_lists_the_non_host_players_to_kick(self):
-        components = self._modal_components(self._beta_click(self.P1, self.P2))
+    def test_the_modal_lists_the_non_host_players_to_kick(self):
+        components = self._modal_components(self._roster_click(self.P1, self.P2))
         self.assertEqual(len(components), 2)
         select = components[1]["component"]
         self.assertEqual(select["custom_id"], "kick")
@@ -3853,8 +3845,8 @@ class LFGEditTests(TestCase):
         self.assertEqual([(o["label"], o["value"]) for o in select["options"]],
                          [("Ann", self.P1), ("Bob", self.P2)])
 
-    def test_the_beta_button_is_still_host_locked(self):
-        payload = self._beta_click(self.P1)
+    def test_kicking_is_still_host_locked(self):
+        payload = self._roster_click(self.P1)
         payload["member"]["user"]["id"] = self.OTHER
         with mock.patch.object(di, "_verify_signature", return_value=True):
             response = self.client.post(
@@ -3862,13 +3854,17 @@ class LFGEditTests(TestCase):
                 content_type="application/json")
         self.assertIn("Only the host", json.loads(response.content)["data"]["content"])
 
-    def test_a_beta_modal_with_only_the_host_has_no_select(self):
+    def test_a_modal_with_only_the_host_has_no_select(self):
         """Discord rejects a select with no options."""
-        self.assertEqual(len(self._modal_components(self._beta_click())), 1)
+        self.assertEqual(len(self._modal_components(self._roster_click())), 1)
 
-    def test_a_regular_modal_never_offers_kicking(self):
-        components = self._modal_components(self._beta_click(self.P1, beta=False))
-        self.assertEqual(len(components), 1)
+    def test_a_legacy_beta_button_still_offers_kicking(self):
+        """Posts made under the old /lfg-beta carry `lfg_edit:b:{owner}`."""
+        payload = self._roster_click(self.P1)
+        payload["data"]["custom_id"] = di.encode_custom_id("lfg_edit", "b", self.HOST)
+        components = self._modal_components(payload)
+        self.assertEqual(len(components), 2)
+        self.assertEqual(components[1]["component"]["custom_id"], "kick")
 
     def _kick_submit(self, kick, value="New text"):
         payload = self._submit_payload(value=value)
@@ -5862,45 +5858,20 @@ class RegisterGuildCommandsBodyTests(TestCase):
 
     # ── beta-tester mechanism ──────────────────────────────────────────────
 
-    def test_a_non_beta_guild_gets_no_beta_commands(self):
-        self.guild.enabled_commands = ["lfg"]
-        self.guild.is_beta_tester = False
-        self.guild.save()
-        self.assertNotIn("lfg-beta", self._body())
-
-    def test_a_beta_guild_gets_lfg_beta_alongside_lfg(self):
+    def test_a_beta_guild_no_longer_gets_lfg_beta(self):
+        """Kicking graduated into /lfg itself, so there's no beta variant left."""
         self.guild.enabled_commands = ["lfg"]
         self.guild.is_beta_tester = True
         self.guild.save()
         body = self._body()
         self.assertIn("lfg", body)
-        self.assertIn("lfg-beta", body)
-
-    def test_a_beta_guild_without_lfg_enabled_gets_no_lfg_beta(self):
-        """The beta variant is always an ADDITION alongside the real command,
-        never a replacement -- a guild can't get it without lfg itself."""
-        self.guild.enabled_commands = ["stats"]
-        self.guild.is_beta_tester = True
-        self.guild.save()
-        self.assertNotIn("lfg-beta", self._body())
-
-    def test_the_beta_variant_matches_the_reals_lfg_shape(self):
-        """lfg-beta reuses lfg_command_for_roles, so it can never silently drift
-        from what the real /lfg would show this guild."""
-        self.guild.enabled_commands = ["lfg"]
-        self.guild.is_beta_tester = True
-        self.guild.save()
-        for i in range(2):
-            GuildLFGRole.objects.create(guild=self.guild, name="Tag %d" % i,
-                                        role_id=str(100000000000000800 + i))
-        body = self._body()
-        self.assertEqual(self._opts(body["lfg"]), self._opts(body["lfg-beta"]))
+        self.assertNotIn("lfg-beta", body)
 
 
 class ApplicationCommandBetaDispatchTests(TestCase):
     """The dispatcher's generic "-beta" suffix stripping: a beta-suffixed command
-    name resolves to the SAME handler as its base name, with source unset for the
-    real command and set for the beta one."""
+    name resolves to the SAME handler as its base name, with data["_beta"] set
+    only for the beta one."""
 
     def _post(self, command_name):
         payload = {
@@ -5930,8 +5901,10 @@ class ApplicationCommandBetaDispatchTests(TestCase):
         return next(b["custom_id"] for b in buttons
                     if di.decode_custom_id(b["custom_id"])[0] == "lfg_edit")
 
-    def test_lfg_beta_posts_a_kick_enabled_edit_button(self):
-        self.assertEqual(self._edit_custom_id("lfg-beta"), "lfg_edit:b:901")
+    def test_a_stale_lfg_beta_invocation_still_posts_lfg(self):
+        """A beta guild not yet re-registered still has /lfg-beta in its picker;
+        the suffix is stripped and it posts an ordinary /lfg."""
+        self.assertEqual(self._edit_custom_id("lfg-beta"), "lfg_edit:901")
 
     def test_lfg_posts_a_plain_edit_button(self):
         self.assertEqual(self._edit_custom_id("lfg"), "lfg_edit:901")
@@ -12874,7 +12847,7 @@ class ScheduleProposalTaskTests(ScheduleFixtureMixin, TestCase):
         self.assertIn(f"channels/{self.guild.guild_id}/555000111/98765", content)
         self.assertIn(self.group.name, content)
         self.assertIn(f"<t:{int(request.proposed_time.timestamp())}:F>", content)
-        self.assertIn("awaiting a moderator", content)
+        self.assertIn("Needs moderator approval", content)
         self.assertEqual(announce.call_args.kwargs["allowed_mentions"],
                          {"parse": []})
 
@@ -13906,6 +13879,12 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
 
     def setUp(self):
         super().setUp()
+        # Never fetch the bot's emoji from the live Discord API: the result is
+        # cached process-wide, so whichever test fetched first decided every later
+        # summary's rendering. {} = no emoji, which is what these assertions expect.
+        _emoji = mock.patch('the_databot.services.discordservice._APP_EMOJI', {})
+        _emoji.start()
+        self.addCleanup(_emoji.stop)
 
         self.designer = Profile.objects.create(discord="bsdesigner", discord_id="900")
         self.map = Map.objects.create(title="Autumn Board", clearings=12,
@@ -17112,6 +17091,61 @@ class BoxScoreUploadSweepTests(TestCase):
         self.assertFalse(BoxScoreUploadToken.objects.filter(pk=old.pk).exists())
         self.assertTrue(BoxScoreUploadToken.objects.filter(pk=live.pk).exists())
 
+    # ── personal (site-only) tokens ──
+
+    def _sweep(self):
+        with mock.patch("the_databot.services.discordservice.post_channel_message_full"), \
+                mock.patch("the_databot.services.discordservice.edit_channel_message"):
+            sweep_boxscore_upload_tokens()
+
+    def _old_personal(self, status, **kw):
+        token, _raw = BoxScoreUploadToken.issue_personal(self.issuer)
+        long_ago = timezone.now() - timedelta(days=30)
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=status, created_at=long_ago, expires_at=long_ago, **kw)
+        LFGThread.objects.filter(pk=token.thread_id).update(created_at=long_ago)
+        return BoxScoreUploadToken.objects.get(pk=token.pk)
+
+    def test_a_personal_upload_awaiting_review_keeps_its_token(self):
+        """Its payload is the only record of who the unmatched seats were."""
+        token = self._old_personal(BoxScoreUploadToken.Status.APPLIED,
+                                   payload={"seats": []})
+        LFGSeat.objects.create(thread=token.thread, seat_number=1)
+        self._sweep()
+        self.assertTrue(BoxScoreUploadToken.objects.filter(pk=token.pk).exists())
+        self.assertTrue(LFGThread.objects.filter(pk=token.thread_id).exists())
+
+    def test_a_recorded_personal_upload_is_pruned_like_any_other(self):
+        token = self._old_personal(BoxScoreUploadToken.Status.APPLIED,
+                                   payload={"seats": []})
+        LFGThread.objects.filter(pk=token.thread_id).update(
+            status=LFGThread.Status.RECORDED)
+        self._sweep()
+        self.assertFalse(BoxScoreUploadToken.objects.filter(pk=token.pk).exists())
+
+    def test_an_unused_personal_thread_is_deleted_with_its_token(self):
+        token = self._old_personal(BoxScoreUploadToken.Status.ISSUED)
+        self._sweep()
+        self.assertFalse(LFGThread.objects.filter(pk=token.thread_id).exists())
+
+    def test_a_revoked_personal_thread_is_deleted(self):
+        token = self._old_personal(BoxScoreUploadToken.Status.CANCELLED)
+        self._sweep()
+        self.assertFalse(LFGThread.objects.filter(pk=token.thread_id).exists())
+
+    def test_a_fresh_personal_token_is_left_alone(self):
+        token, _raw = BoxScoreUploadToken.issue_personal(self.issuer)
+        self._sweep()
+        self.assertTrue(LFGThread.objects.filter(pk=token.thread_id).exists())
+
+    def test_a_discord_thread_with_no_tokens_is_never_swept_here(self):
+        """Only personal threads: a Discord thread's lifecycle is
+        cleanup_stale_lfg_threads'."""
+        LFGThread.objects.filter(pk=self.thread.pk).update(
+            created_at=timezone.now() - timedelta(days=60))
+        self._sweep()
+        self.assertTrue(LFGThread.objects.filter(pk=self.thread.pk).exists())
+
 
 class BoxScoreMatchRosterTests(TestCase):
     """A match game is exactly its match roster.
@@ -18351,6 +18385,12 @@ class BoxScoreSummaryLayoutTests(_NoLoginSignalMixin, TestCase):
 
     def setUp(self):
         super().setUp()
+        # Never fetch the bot's emoji from the live Discord API: the result is
+        # cached process-wide, so whichever test fetched first decided every later
+        # summary's rendering. {} = no emoji, which is what these assertions expect.
+        _emoji = mock.patch('the_databot.services.discordservice._APP_EMOJI', {})
+        _emoji.start()
+        self.addCleanup(_emoji.stop)
         self.designer = Profile.objects.create(discord="layoutdesigner",
                                                discord_id="8000")
         self.map = Map.objects.create(title="Autumn Board", slug="autumn-board",
@@ -18711,12 +18751,79 @@ class BoxScoreAutoRecordTests(_NoLoginSignalMixin, TestCase):
         from the_databot.services import boxscore_autorecord as ar
         self.assertIsNone(ar.attempt_autorecord(self.thread, outsider))
 
+    # ── tournament staff ──
+
+    def _link_tournament(self, open_roster=False):
+        """Point the thread at a MODERATORS-only tournament with an open round."""
+        guild = DiscordGuild.objects.create(guild_id="950100", name="AR Guild")
+        self.tdesigner = Profile.objects.create(
+            discord="artdesigner", discord_id="9520",
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+        self.tmod = Profile.objects.create(
+            discord="artmod", discord_id="9521",
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+        tournament = Tournament.objects.create(
+            name="AR Tournament", guild=guild, designer=self.tdesigner,
+            recording_access=Tournament.RecordingAccessTypes.MODERATORS,
+            open_roster=open_roster)
+        tournament.moderators.add(self.tmod)
+        stage = Stage.objects.create(tournament=tournament, name="Stage 1", order=1)
+        Round.objects.create(stage=stage, round_number=1)
+        self.thread.lfg_role = GuildLFGRole.objects.create(
+            guild=guild, name="AR LFG", tournament=tournament)
+        self.thread.save(update_fields=['lfg_role'])
+
+    def test_a_tournament_moderator_outside_the_thread_records(self):
+        """Tournament staff needn't have played: membership is asked of everyone
+        else, not of them."""
+        self._link_tournament()
+        game = self._run(recorder=self.tmod)
+        self.assertIsNotNone(game)
+        self.assertEqual(game.recorder, self.tmod)
+
+    def test_the_tournament_designer_outside_the_thread_records(self):
+        self._link_tournament()
+        game = self._run(recorder=self.tdesigner)
+        self.assertIsNotNone(game)
+        self.assertEqual(game.recorder, self.tdesigner)
+
+    def test_an_outsider_still_declines_on_a_tournament_thread(self):
+        self._link_tournament()
+        outsider = Profile.objects.create(
+            discord="artoutsider", discord_id="9522",
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+        self.assertIsNone(self._run(recorder=outsider))
+
+    def test_a_seated_player_declines_under_moderators_only(self):
+        """Letting staff skip membership must not loosen the tier for players."""
+        self._link_tournament()
+        self._assert_declined()
+
+    def test_an_open_roster_does_not_bypass_moderators_only(self):
+        """open_roster says who may be IN the game, not who may record it -- it
+        used to short-circuit ahead of the recording tier."""
+        self._link_tournament(open_roster=True)
+        self._assert_declined()
+
+    def test_a_moderator_still_records_on_an_open_roster(self):
+        self._link_tournament(open_roster=True)
+        self.assertIsNotNone(self._run(recorder=self.tmod))
+
     def test_no_established_seating_declines(self):
         """Without seating_set the thread knows WHO played but not in what order;
         placing players on rows positionally would invent a seating."""
         self.thread.seating_set = False
         self.thread.save(update_fields=['seating_set'])
         self._assert_declined()
+
+    def test_no_map_or_deck_declines_before_trying(self):
+        """A box score that names neither goes to the record link, where a person
+        fills them in -- and the log says so, not a generic validation error."""
+        self.thread.deck = None
+        self.thread.save(update_fields=['deck'])
+        with self.assertLogs(self.LOGGER, level="WARNING") as caught:
+            self._assert_declined()
+        self.assertIn("no map/deck", "\n".join(caught.output))
 
     def test_a_game_with_no_winner_declines(self):
         """The rule the draft branch would have skipped."""
@@ -18896,10 +19003,10 @@ class BoxScoreAutoRecordWiringTests(_NoLoginSignalMixin, TestCase):
             return post.call_args[0][2]
         return json.loads(response.content)["data"].get("content", "")
 
-    def test_it_is_off_for_a_normal_guild(self):
-        """Scoped to beta guilds: a normal server is untouched."""
-        self.assertFalse(di.BOXSCORE_AUTO_RECORD_ALL_GUILDS)
-        content = self._run()
+    def test_it_is_off_for_a_normal_guild_when_scoped_to_beta(self):
+        """With the global switch off, a normal server is untouched."""
+        with mock.patch.object(di, "BOXSCORE_AUTO_RECORD_ALL_GUILDS", False):
+            content = self._run()
         self.assertEqual(Game.objects.count(), 0)
         self.assertIn("Review and record the game", content)
 
@@ -18908,15 +19015,16 @@ class BoxScoreAutoRecordWiringTests(_NoLoginSignalMixin, TestCase):
         recording a game is not something to do on a guess."""
         self.thread.guild = None
         self.thread.save(update_fields=["guild"])
-        content = self._run()
+        with mock.patch.object(di, "BOXSCORE_AUTO_RECORD_ALL_GUILDS", False):
+            content = self._run()
         self.assertEqual(Game.objects.count(), 0)
         self.assertIn("Review and record the game", content)
 
     def test_the_global_switch_enables_every_guild(self):
-        """The eventual ship-it path, with no beta flag set anywhere."""
+        """The shipped default: no beta flag set anywhere."""
+        self.assertTrue(di.BOXSCORE_AUTO_RECORD_ALL_GUILDS)
         self.assertFalse(self.guild.is_beta_tester)
-        with mock.patch.object(di, "BOXSCORE_AUTO_RECORD_ALL_GUILDS", True):
-            self._run()
+        self._run()
         self.assertEqual(Game.objects.count(), 1)
 
     def test_with_the_flag_on_the_game_is_recorded_to_the_invoker(self):
@@ -18949,7 +19057,8 @@ class BoxScoreAutoRecordWiringTests(_NoLoginSignalMixin, TestCase):
         fresh beta rollout. Without this line "not a beta guild" is
         indistinguishable from "auto-record never ran"."""
         with self.assertLogs("the_databot.discord_interactions",
-                             level="WARNING") as caught:
+                             level="WARNING") as caught, \
+                mock.patch.object(di, "BOXSCORE_AUTO_RECORD_ALL_GUILDS", False):
             self._run()
         output = "\n".join(caught.output)
         self.assertIn("auto-record declined", output)

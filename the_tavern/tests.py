@@ -583,8 +583,9 @@ class SurveyTimezoneNameTests(_SurveyTestBase):
 
 
 class SurveyProfileTimezoneTests(_SurveyTestBase):
-    """A survey submission seeds a BLANK profile timezone, so a player who never
-    visits /availability still gets their hours shown in their own time."""
+    """A survey submission seeds a BLANK profile timezone from the browser, so a
+    player who never visits /availability still gets their hours shown in their
+    own time. An answered timezone question overwrites whatever is there."""
 
     def setUp(self):
         super().setUp()
@@ -606,7 +607,7 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
         return question, Choice.objects.create(
             question=question, text='US Pacific — PT (America/Los_Angeles)', order=0)
 
-    def _post(self, extra=None):
+    def _post(self, extra=None, url=None):
         data = {
             f'question_{self.wa.id}': '10',
             f'question_{self.wa.id}_timezone': 'UTC',
@@ -614,7 +615,7 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
             'timezone_name': 'America/Denver',
         }
         data.update(extra or {})
-        return self.client.post(self.url, data)
+        return self.client.post(url or self.url, data)
 
     def test_a_blank_profile_timezone_is_set_from_the_browser(self):
         self._post()
@@ -631,7 +632,7 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.timezone, 'America/Los_Angeles')
 
-    def test_an_existing_profile_timezone_is_never_overwritten(self):
+    def test_an_existing_profile_timezone_is_not_overwritten_by_the_browser(self):
         self.profile.timezone = 'Europe/Berlin'
         self.profile.save(update_fields=['timezone'])
 
@@ -639,6 +640,34 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
 
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.timezone, 'Europe/Berlin')
+
+    def test_a_timezone_answer_overwrites_an_existing_profile_timezone(self):
+        self.profile.timezone = 'Europe/Berlin'
+        self.profile.save(update_fields=['timezone'])
+        question, choice = self._tz_question()
+
+        self._post({f'question_{question.id}': str(choice.id)})
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'America/Los_Angeles')
+
+    def test_re_saving_an_edit_with_the_answer_overwrites_again(self):
+        """Every save that carries a timezone answer restates it, even when the
+        answer itself didn't change."""
+        self.survey.allow_edit_responses = True
+        self.survey.save(update_fields=['allow_edit_responses'])
+        question, choice = self._tz_question()
+        answer = {f'question_{question.id}': str(choice.id)}
+        self._post(answer)
+        self.profile.timezone = 'Europe/Berlin'
+        self.profile.save(update_fields=['timezone'])
+
+        response = SurveyResponse.objects.get(survey=self.survey)
+        self._post(answer, url=reverse('survey-edit-response', kwargs={
+            'slug': self.survey.slug, 'response_id': response.pk}))
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'America/Los_Angeles')
 
     def test_the_response_records_the_zone_it_was_taken_in(self):
         self._post()
@@ -900,3 +929,239 @@ class OtherTextPageRenderTests(_SurveyTestBase):
         body = page.content.decode()
         self.assertEqual(body.count(self.OTHER), 1)
         self.assertNotIn(f'Other: {self.OTHER}', body)
+
+
+class SeedTimezoneTemplateCommandTests(TestCase):
+    """seed_timezone_template: idempotent creation of the public Timezone template."""
+
+    def _run(self, *args):
+        from io import StringIO
+        from django.core.management import call_command
+        out = StringIO()
+        call_command('seed_timezone_template', *args, stdout=out)
+        return out.getvalue()
+
+    def _templates(self):
+        from the_tavern.models import QuestionTemplate
+        # The local seed migration may already have created one.
+        return QuestionTemplate.objects.filter(name='Timezone', is_public=True)
+
+    def test_creates_the_public_template(self):
+        from the_tavern.management.commands.seed_timezone_template import TIMEZONE_CHOICES
+        self._templates().delete()
+        self._run()
+        template = self._templates().get()
+        self.assertEqual(template.question_type, Question.QuestionType.MULTIPLE_CHOICE)
+        self.assertTrue(template.display_as_dropdown)
+        self.assertIsNone(template.created_by)
+        self.assertEqual(template.choices_data, TIMEZONE_CHOICES)
+
+    def test_rerunning_does_not_duplicate_or_overwrite(self):
+        self._templates().delete()
+        self._run()
+        self._templates().update(choices_data=['Custom (Europe/Berlin)'])
+        self._run()
+        self.assertEqual(self._templates().count(), 1)
+        self.assertEqual(self._templates().get().choices_data, ['Custom (Europe/Berlin)'])
+
+    def test_update_refreshes_an_existing_template(self):
+        from the_tavern.management.commands.seed_timezone_template import TIMEZONE_CHOICES
+        self._templates().delete()
+        self._run()
+        self._templates().update(choices_data=['Custom (Europe/Berlin)'], display_as_dropdown=False)
+        self._run('--update')
+        template = self._templates().get()
+        self.assertEqual(template.choices_data, TIMEZONE_CHOICES)
+        self.assertTrue(template.display_as_dropdown)
+
+    def test_every_choice_maps_back_to_a_valid_zone(self):
+        """Answering the seeded question with ANY choice records a timezone --
+        driven through the real _survey_timezone_answer, not a copy of its regex."""
+        from the_tavern.management.commands.seed_timezone_template import TIMEZONE_CHOICES
+        from the_tavern.views import _survey_timezone_answer
+        survey = Survey.objects.create(title='TZ survey')
+        question = Question.objects.create(
+            survey=survey, text='What is your timezone?',
+            question_type=Question.QuestionType.MULTIPLE_CHOICE, order=0)
+        for i, label in enumerate(TIMEZONE_CHOICES):
+            choice = Choice.objects.create(question=question, text=label, order=i)
+            response = SurveyResponse.objects.create(survey=survey)
+            Answer.objects.create(response=response, question=question, selected_choice=choice)
+            self.assertIsNotNone(_survey_timezone_answer(survey, response), label)
+
+    def test_the_utc_choice_records_plain_utc(self):
+        """Plain "UTC", not "Etc/UTC": it's what the app's timezone pickers offer."""
+        from the_tavern.views import _survey_timezone_answer
+        survey = Survey.objects.create(title='TZ survey')
+        question = Question.objects.create(
+            survey=survey, text='What is your timezone?',
+            question_type=Question.QuestionType.MULTIPLE_CHOICE, order=0)
+        choice = Choice.objects.create(
+            question=question, text='Coordinated Universal Time (UTC)', order=0)
+        response = SurveyResponse.objects.create(survey=survey)
+        Answer.objects.create(response=response, question=question, selected_choice=choice)
+        self.assertEqual(_survey_timezone_answer(survey, response), 'UTC')
+
+
+class SurveyEditPermissionTests(_SurveyTestBase):
+    """Every survey-management view gates on Survey.can_edit_survey: an admin,
+    the survey's creator, or the owner/a moderator of its tournament gets in,
+    anyone else gets a 403. Everyone who can edit can also view the private
+    survey and its individual responses."""
+
+    def setUp(self):
+        super().setUp()
+        from the_warroom.models import Tournament
+        owner = User.objects.create_user(username='surveyowner', password='pw')
+        tournament_owner = User.objects.create_user(username='cupowner', password='pw')
+        self.tournament = Tournament.objects.create(
+            name='Survey Cup', designer=tournament_owner.profile)
+        self.survey = self._survey(created_by=owner.profile, is_public=False,
+                                   series=self.tournament)
+        self.question = Question.objects.create(
+            survey=self.survey, text='Pick one',
+            question_type=Question.QuestionType.MULTIPLE_CHOICE, order=1)
+        self.response = SurveyResponse.objects.create(survey=self.survey, profile=owner.profile)
+        self.client.force_login(self.user)
+
+    def _guarded_urls(self):
+        slug = {'slug': self.survey.slug}
+        return [
+            reverse('survey-settings-edit', kwargs=slug),
+            reverse('survey-delete', kwargs=slug),
+            reverse('survey-duplicate', kwargs=slug),
+            reverse('survey-settings-quiz', kwargs=slug),
+            reverse('survey-settings-send-availability', kwargs=slug),
+            reverse('get-question-data', kwargs={'question_id': self.question.id}),
+        ]
+
+    def _view_urls(self):
+        return [
+            reverse('survey-preview', kwargs={'slug': self.survey.slug}),
+            reverse('survey-user-response', kwargs={
+                'slug': self.survey.slug, 'response_id': self.response.pk}),
+        ]
+
+    def _assert_let_in(self):
+        # Results is only checked here: a stranger's refusal there also depends
+        # on can_see_results, the respondent branch.
+        urls = self._guarded_urls() + [
+            reverse('survey-settings-results', kwargs={'slug': self.survey.slug})]
+        for url in urls:
+            with self.subTest(url=url):
+                # Not 403 rather than 200: some views redirect for their own
+                # reasons (quiz mode off).
+                self.assertNotEqual(self.client.get(url).status_code, 403)
+        # 200 here, not just "not 403": preview refuses with a redirect.
+        for url in self._view_urls():
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
+    def _assert_refused(self):
+        for url in self._guarded_urls():
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 403)
+        preview, response = self._view_urls()
+        self.assertEqual(self.client.get(preview).status_code, 302)
+        self.assertEqual(self.client.get(response).status_code, 403)
+
+    def test_a_stranger_is_refused(self):
+        self._assert_refused()
+
+    def test_a_moderator_of_another_tournament_is_refused(self):
+        from the_warroom.models import Tournament
+        other = Tournament.objects.create(name='Other Cup')
+        other.moderators.add(self.profile)
+        self._assert_refused()
+
+    def test_the_creator_is_let_in(self):
+        self.survey.created_by = self.profile
+        self.survey.save(update_fields=['created_by'])
+        self._assert_let_in()
+
+    def test_an_admin_is_let_in(self):
+        self.profile.group = 'A'
+        self.profile.save(update_fields=['group'])
+        self._assert_let_in()
+
+    def test_a_tournament_moderator_is_let_in(self):
+        self.tournament.moderators.add(self.profile)
+        self._assert_let_in()
+
+    def test_the_tournament_owner_is_let_in(self):
+        self.tournament.designer = self.profile
+        self.tournament.save(update_fields=['designer'])
+        self._assert_let_in()
+
+
+class SurveyLinkValidationTests(_SurveyTestBase):
+    """A create/edit POST may only link a tournament the profile staffs (or, on
+    edit, keep the one already linked), and a stage only of that tournament.
+    The form's dropdown is no guard: the POST isn't bound to it."""
+
+    def setUp(self):
+        super().setUp()
+        from the_warroom.models import Stage, Tournament
+        stranger = User.objects.create_user(username='cupowner', password='pw')
+        self.mine = Tournament.objects.create(name='My Cup')
+        self.mine.moderators.add(self.profile)
+        self.theirs = Tournament.objects.create(name='Their Cup', designer=stranger.profile)
+        self.their_stage = Stage.objects.create(tournament=self.theirs, name='Their Stage', order=1)
+        self.client.force_login(self.user)
+
+    def _create(self, **links):
+        return self.client.post(reverse('survey-create'), {'title': 'Linked', **links})
+
+    def _edit(self, survey, **links):
+        return self.client.post(
+            reverse('survey-settings-edit', kwargs={'slug': survey.slug}),
+            {'title': survey.title, **links})
+
+    def test_create_refuses_a_tournament_you_dont_staff(self):
+        self._create(series=self.theirs.pk)
+        self.assertFalse(Survey.objects.filter(title='Linked').exists())
+
+    def test_create_links_a_tournament_you_moderate(self):
+        self._create(series=self.mine.pk)
+        self.assertEqual(Survey.objects.get(title='Linked').series, self.mine)
+
+    def test_create_refuses_a_stage_from_another_tournament(self):
+        self._create(series=self.mine.pk, stage=self.their_stage.pk)
+        self.assertFalse(Survey.objects.filter(title='Linked').exists())
+
+    def test_edit_refuses_a_tournament_you_dont_staff(self):
+        survey = self._survey(created_by=self.profile, series=self.mine)
+        self._edit(survey, series=self.theirs.pk)
+        survey.refresh_from_db()
+        self.assertEqual(survey.series, self.mine)
+
+    def test_edit_keeps_a_current_link_you_dont_staff(self):
+        survey = self._survey(created_by=self.profile, series=self.theirs,
+                              title='Before')
+        self._edit(survey, series=self.theirs.pk, title='After')
+        survey.refresh_from_db()
+        self.assertEqual((survey.title, survey.series), ('After', self.theirs))
+
+    def test_edit_page_lists_the_current_tournament(self):
+        """Otherwise the select has no matching option and saving unlinks it."""
+        survey = self._survey(created_by=self.profile, series=self.theirs)
+        page = self.client.get(reverse('survey-settings-edit', kwargs={'slug': survey.slug}))
+        self.assertIn(self.theirs, page.context['user_tournaments'])
+
+    def test_duplicate_drops_a_tournament_you_dont_staff(self):
+        survey = self._survey(created_by=self.profile, series=self.theirs,
+                              stage=self.their_stage, auto_enroll=True,
+                              is_registration=True)
+        self.client.get(reverse('survey-duplicate', kwargs={'slug': survey.slug}))
+        copy = Survey.objects.exclude(pk=survey.pk).get()
+        self.assertIsNone(copy.series)
+        self.assertIsNone(copy.stage)
+        self.assertFalse(copy.auto_enroll)
+        self.assertFalse(copy.is_registration)
+
+    def test_duplicate_keeps_a_tournament_you_moderate(self):
+        survey = self._survey(created_by=self.profile, series=self.mine, auto_enroll=True)
+        self.client.get(reverse('survey-duplicate', kwargs={'slug': survey.slug}))
+        copy = Survey.objects.exclude(pk=survey.pk).get()
+        self.assertEqual(copy.series, self.mine)
+        self.assertTrue(copy.auto_enroll)

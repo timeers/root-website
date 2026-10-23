@@ -1019,12 +1019,15 @@ class CreateGameThreadsEndpointTests(TestCase):
         self.assertEqual(response.status_code, 403)
         delay.assert_not_called()
 
-    def test_get_is_not_allowed(self):
-        """No state change via GET, so a crafted link can't trigger it."""
+    def test_get_only_reads_the_count(self):
+        """No state change via GET, so a crafted link can't trigger it. GET is
+        allowed -- the confirm modal refetches the count with it -- but must
+        never queue the task."""
         self.client.force_login(self.host)
         with mock.patch.object(create_match_threads_task, 'delay') as delay:
             response = self.client.get(self._url())
-        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('count', response.json())
         delay.assert_not_called()
 
     def test_another_tournaments_round_is_not_reachable(self):
@@ -2811,6 +2814,12 @@ class BoxScoreUploadApiTests(TestCase):
     BOB_STEAM = '76561198000000002'
 
     def setUp(self):
+        # Never fetch the bot's emoji from the live Discord API: the result is
+        # cached process-wide, so whichever test fetched first decided every later
+        # summary's rendering. {} = no emoji, which is what these assertions expect.
+        _emoji = mock.patch('the_databot.services.discordservice._APP_EMOJI', {})
+        _emoji.start()
+        self.addCleanup(_emoji.stop)
         self.alice = Profile.objects.create(discord='ttsalice', discord_id='801',
                                             display_name='Alice',
                                             steam_id=self.ALICE_STEAM)
@@ -4799,15 +4808,18 @@ class AvailabilityCompareDSTTests(_AvailabilityFixtureMixin, TestCase):
         self.assertEqual(len(set(hows[:2])), 2) if hows else None
 
     def test_dst_spring_forward_week_renders_a_disabled_cell(self):
-        """Scans forward for a real spring-forward week within the page's own
-        navigable window, rather than a hardcoded date -- a fixed calendar
-        date eventually falls outside AVAILABILITY_WEEKS_FORWARD and gets
-        silently clamped to the current week, masking the very gap under
-        test (same trap the single-user grid's own
-        test_a_zero_offset_week_has_seven_columns_not_eight was written to
-        avoid). Australia/Sydney's spring-forward (Southern Hemisphere,
-        opposite calendar from the US) reliably lands within a 12-week
-        forward window regardless of which month "today" happens to be."""
+        """Scans forward for a real spring-forward week rather than a hardcoded
+        date -- a fixed calendar date eventually falls outside
+        AVAILABILITY_WEEKS_FORWARD and gets silently clamped to the current
+        week, masking the very gap under test (same trap the single-user
+        grid's own test_a_zero_offset_week_has_seven_columns_not_eight was
+        written to avoid).
+
+        The window is widened to a full year for the duration: a zone springs
+        forward once a year, so no 12-week window contains one year-round
+        (this failed every day from Sydney's early-October change until the
+        next July). The views read the constant at call time, so the patch
+        reaches the clamp."""
         from the_gatehouse.services.availability import local_week_cell_shape, week_start_for
 
         a = self._player("gap_a", hours=[9])
@@ -4816,9 +4828,10 @@ class AvailabilityCompareDSTTests(_AvailabilityFixtureMixin, TestCase):
         series = self._series_with(a)
         self._login(a)
 
+        weeks_forward = 53
         current_week = week_start_for(date.today())
         springfwd_week = None
-        for i in range(13):
+        for i in range(weeks_forward + 1):
             candidate = current_week + timedelta(weeks=i)
             shape = local_week_cell_shape(candidate, 'Australia/Sydney')
             if any(len(v) == 0 for v in shape.values()):
@@ -4826,7 +4839,8 @@ class AvailabilityCompareDSTTests(_AvailabilityFixtureMixin, TestCase):
                 break
         self.assertIsNotNone(springfwd_week, "No spring-forward week found in the forward window")
 
-        response = self.client.get(self.url, {'series': series.id, 'week': springfwd_week.isoformat()})
+        with mock.patch('the_gatehouse.views.AVAILABILITY_WEEKS_FORWARD', weeks_forward):
+            response = self.client.get(self.url, {'series': series.id, 'week': springfwd_week.isoformat()})
         self.assertContains(response, 'avail-cell--disabled')
 
     def test_split_cell_halves_show_independent_overlap(self):
@@ -5802,3 +5816,289 @@ class MatchSeriesDisplayNameTests(TestCase):
         from the_warroom.views import _build_series_response
         bye, _profile, _sp = self._bracket_with_one_bye()
         self.assertEqual(_build_series_response(bye)['name'], "Bye Player")
+
+
+class PersonalBoxScoreTests(TestCase):
+    """A personal (site-only) box score token, from upload to recorded game.
+
+    No Discord anywhere: the upload stages onto a site-only thread, a fully
+    matched box score auto-records, and anything else waits for the owner to
+    finish it on the record form -- which stands in for the Discord gates.
+    """
+
+    ALICE_STEAM = '76561198000044401'
+    BOB_STEAM = '76561198000044402'
+    CAROL_STEAM = '76561198000044403'
+
+    def setUp(self):
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+
+        self.user = User.objects.create_user(username='pbowner', password='x')
+        self.owner = self.user.profile
+        self.owner.discord = 'pbowner'
+        self.owner.group = Profile.GroupChoices.PLAYER
+        self.owner.player_onboard = True
+        self.owner.save()
+
+        self.alice = Profile.objects.create(
+            discord='pbalice', display_name='Alice', steam_id=self.ALICE_STEAM,
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+        self.bob = Profile.objects.create(
+            discord='pbbob', display_name='Bob', steam_id=self.BOB_STEAM,
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+        # No Steam id at all: the file can't match her, so she is someone the
+        # owner picks for a blank seat.
+        self.carol = Profile.objects.create(
+            discord='pbcarol', display_name='Carol',
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+
+        d = self.owner
+        self.map = Map.objects.create(title='PB Map', slug='pb-map', clearings=12,
+                                      designer=d, official=True,
+                                      status=StatusChoices.STABLE)
+        self.deck = Deck.objects.create(title='PB Deck', slug='pb-deck', card_total=54,
+                                        designer=d, official=True,
+                                        status=StatusChoices.STABLE)
+        self.fox = Faction.objects.create(
+            title='PB Fox', slug='pb-fox', animal='Fox', designer=d,
+            status=StatusChoices.STABLE, official=True,
+            component='Faction', type=Faction.TypeChoices.MILITANT)
+        self.bird = Faction.objects.create(
+            title='PB Bird', slug='pb-bird', animal='Bird', designer=d,
+            status=StatusChoices.STABLE, official=True,
+            component='Faction', type=Faction.TypeChoices.MILITANT)
+
+    # ── helpers ──
+
+    def _doc(self, second_steam=None, second_name='pbbob', map_deck=True):
+        doc = {'participants': [
+            {'turn_order': 1, 'player': 'pbalice',
+             'player_steam_id': self.ALICE_STEAM, 'faction': self.fox.slug,
+             'tournament_score': 1,
+             'turns': [{'turn': t, 'score': t * 10} for t in range(1, 4)]},
+            {'turn_order': 2, 'player': second_name,
+             'player_steam_id': second_steam or self.BOB_STEAM,
+             'faction': self.bird.slug, 'tournament_score': 0,
+             'turns': [{'turn': t, 'score': t * 7} for t in range(1, 4)]},
+        ]}
+        if map_deck:
+            doc.update(board_map=self.map.slug, deck=self.deck.slug)
+        return doc
+
+    def _upload(self, doc, raw=None):
+        """POST to the TTS endpoint with every Discord path patched. Returns
+        (response, token, mocks) -- the mocks are there to prove nothing was
+        posted to Discord."""
+        if raw is None:
+            token, raw = BoxScoreUploadToken.issue_personal(self.owner)
+        else:
+            token = None
+        svc = 'the_warroom.services.game_recording.'
+        di = 'the_databot.discord_interactions.'
+        with mock.patch(di + 'record_lfg_components_task.delay'), \
+                mock.patch(di + 'post_boxscore_result_task.delay') as result_post, \
+                mock.patch(di + 'post_boxscore_prompt_task.delay') as prompt_post, \
+                mock.patch(svc + 'post_channel_message_task') as thread_post, \
+                mock.patch(svc + 'edit_channel_message_task') as edit_post, \
+                mock.patch(svc + 'send_rich_discord_message_task'), \
+                self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                reverse('api-boxscore-upload'), data=json.dumps(doc),
+                content_type='application/json',
+                HTTP_AUTHORIZATION=f'Game-Token {raw}')
+        discord = [result_post, prompt_post, thread_post.delay, edit_post.delay]
+        return response, token, discord
+
+    def _assert_no_discord(self, discord):
+        for m in discord:
+            m.assert_not_called()
+
+    def _unmatched_upload(self):
+        """An upload whose seat 2 is an unknown Steam id named 'Carol'."""
+        response, token, discord = self._upload(
+            self._doc(second_steam=self.CAROL_STEAM, second_name='Carol'))
+        token.refresh_from_db()
+        return response, token, discord
+
+    # ── minting ──
+
+    def test_issue_personal_makes_a_site_only_thread(self):
+        token, raw = BoxScoreUploadToken.issue_personal(self.owner)
+        thread = token.thread
+        self.assertTrue(thread.personal)
+        self.assertEqual(thread.host, self.owner)
+        self.assertTrue(thread.thread_id.startswith('web-'))
+        self.assertIsNone(thread.guild_id)
+        self.assertEqual(token.token_hash, BoxScoreUploadToken.hash_token(raw))
+
+    # ── a clean upload ──
+
+    def test_a_clean_upload_auto_records_a_standalone_game(self):
+        response, token, discord = self._upload(self._doc())
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'applied')
+        game = Game.objects.get()
+        self.assertTrue(game.final)
+        self.assertIsNone(game.round_id)
+        # The owner records it although they did not play.
+        self.assertEqual(game.recorder, self.owner)
+        self.assertEqual({e.player for e in game.efforts.all()},
+                         {self.alice, self.bob})
+        thread = token.thread
+        thread.refresh_from_db()
+        self.assertEqual(thread.status, LFGThread.Status.RECORDED)
+        self._assert_no_discord(discord)
+
+    def test_map_and_deck_are_set_before_auto_record_runs(self):
+        """The capture task is mocked out (as it is queued in production), so
+        the game can only have its map/deck if _boxscore_apply set them itself."""
+        self._upload(self._doc())
+        game = Game.objects.get()
+        self.assertEqual(game.map, self.map)
+        self.assertEqual(game.deck, self.deck)
+
+    # ── falling back to the record link ──
+
+    def test_no_map_or_deck_falls_back_to_review(self):
+        response, token, discord = self._upload(self._doc(map_deck=False))
+        self.assertEqual(response.json()['status'], 'pending_confirmation')
+        self.assertIn('boxscore-token', response.json()['message'])
+        self.assertEqual(Game.objects.count(), 0)
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.APPLIED)
+        self.assertIsNotNone(token.payload)
+        self._assert_no_discord(discord)
+
+    def test_a_failing_auto_record_falls_back_to_review(self):
+        with mock.patch('the_databot.services.boxscore_autorecord._attempt',
+                        side_effect=RuntimeError('boom')):
+            response, _token, _ = self._upload(self._doc())
+        self.assertEqual(response.json()['status'], 'pending_confirmation')
+        self.assertEqual(Game.objects.count(), 0)
+
+    def test_an_unmatched_player_waits_for_review(self):
+        response, token, discord = self._unmatched_upload()
+        self.assertEqual(response.json()['status'], 'pending_confirmation')
+        self.assertIn('1 player', response.json()['message'])
+        self.assertEqual(Game.objects.count(), 0)
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.APPLIED)
+        seats = list(token.thread.seats.order_by('seat_number'))
+        self.assertEqual([s.profile for s in seats], [self.alice, None])
+        self.assertEqual(token.payload['seats'][1]['label'], 'Carol')
+        self._assert_no_discord(discord)
+
+    def test_an_unexpected_error_cancels_the_token_and_clears_its_payload(self):
+        token, raw = BoxScoreUploadToken.issue_personal(self.owner)
+        with mock.patch('the_databot.discord_interactions._boxscore_apply',
+                        side_effect=RuntimeError('boom')):
+            with self.assertRaises(RuntimeError):
+                self._upload(self._doc(), raw=raw)
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.CANCELLED)
+        self.assertIsNone(token.payload)
+
+    def test_a_used_personal_token_points_at_the_page(self):
+        token, raw = BoxScoreUploadToken.issue_personal(self.owner)
+        self._upload(self._doc(), raw=raw)
+        response, _t, _ = self._upload(self._doc(), raw=raw)
+        self.assertEqual(response.status_code, 401)
+        self.assertIn('Box Score Token page', response.json()['message'])
+
+    def test_a_personal_upload_is_never_restorable_in_discord(self):
+        from the_databot import discord_interactions as di
+        _r, token, _ = self._unmatched_upload()
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.CANCELLED)
+        self.assertIsNone(di._boxscore_restorable(token.thread, self.owner))
+
+    # ── the record form ──
+
+    def _form_url(self, thread):
+        return f"{reverse('record-game')}?lfg={thread.pk}"
+
+    def test_the_form_offers_gate_zero_choices_for_a_blank_seat(self):
+        _r, token, _ = self._unmatched_upload()
+        self.client.force_login(self.user)
+        response = self.client.get(self._form_url(token.thread))
+        self.assertEqual(response.status_code, 200)
+        forms = response.context['formset'].forms
+        matched = set(forms[0].fields['player'].queryset)
+        blank = set(forms[1].fields['player'].queryset)
+        self.assertEqual(matched, {self.alice})
+        # No verified Steam id, not already seated.
+        self.assertIn(self.carol, blank)
+        self.assertNotIn(self.alice, blank)
+        self.assertNotIn(self.bob, blank)
+        self.assertContains(response, 'Box score says: <strong>Carol</strong>')
+
+    def test_someone_else_cannot_record_a_personal_upload(self):
+        _r, token, _ = self._unmatched_upload()
+        other = User.objects.create_user(username='pbother', password='x')
+        other.profile.group = Profile.GroupChoices.PLAYER
+        other.profile.player_onboard = True
+        other.profile.save()
+        self.client.force_login(other)
+        response = self.client.get(self._form_url(token.thread))
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn('?lfg=', response.url)
+
+    def _record_carol(self, thread):
+        data = {
+            'platform': 'Tabletop Simulator', 'type': 'Live',
+            'map': self.map.pk, 'deck': self.deck.pk, 'final': 'True',
+            'date_posted': '2026-01-01 12:00:00', 'lfg_id': thread.pk,
+            'form-TOTAL_FORMS': '2', 'form-INITIAL_FORMS': '0',
+            'form-MIN_NUM_FORMS': '0', 'form-MAX_NUM_FORMS': '1000',
+            'form-0-player': self.alice.pk, 'form-0-faction': self.fox.pk,
+            'form-0-score': '30', 'form-0-win': 'on',
+            'form-1-player': self.carol.pk, 'form-1-faction': self.bird.pk,
+            'form-1-score': '21',
+        }
+        svc = 'the_warroom.services.game_recording.'
+        self.client.force_login(self.user)
+        with mock.patch(svc + 'post_channel_message_task') as thread_post, \
+                mock.patch(svc + 'edit_channel_message_task'), \
+                mock.patch(svc + 'send_rich_discord_message_task'), \
+                self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self._form_url(thread), data)
+        return response, thread_post
+
+    def test_recording_learns_the_blank_seats_steam_id(self):
+        _r, token, _ = self._unmatched_upload()
+        response, thread_post = self._record_carol(token.thread)
+        self.assertEqual(response.status_code, 302)
+        game = Game.objects.get()
+        self.assertEqual(game.recorder, self.owner)
+        self.carol.refresh_from_db()
+        self.assertEqual(self.carol.assumed_steam_id, self.CAROL_STEAM)
+        # Carried onto the thread so a later edit validates.
+        thread = token.thread
+        thread.refresh_from_db()
+        self.assertIn(self.carol, thread.players.all())
+        self.assertEqual(thread.seats.get(seat_number=2).profile, self.carol)
+        # Never posted to the synthetic thread id.
+        thread_post.delay.assert_not_called()
+
+        # ...and the next upload with her matches on its own.
+        response, _t, _ = self._upload(
+            self._doc(second_steam=self.CAROL_STEAM, second_name='Carol'))
+        self.assertEqual(response.json()['status'], 'applied')
+
+    def test_recording_never_overwrites_an_existing_assumed_id(self):
+        self.carol.assumed_steam_id = '76561198000044499'
+        self.carol.save(update_fields=['assumed_steam_id'])
+        _r, token, _ = self._unmatched_upload()
+        self._record_carol(token.thread)
+        self.assertEqual(Game.objects.count(), 1)
+        self.carol.refresh_from_db()
+        self.assertEqual(self.carol.assumed_steam_id, '76561198000044499')
+
+    def test_editing_a_recorded_personal_game_still_validates(self):
+        _r, token, _ = self._unmatched_upload()
+        self._record_carol(token.thread)
+        game = Game.objects.get()
+        response = self.client.get(reverse('game-update', args=[game.id]))
+        self.assertEqual(response.status_code, 200)
+        forms = response.context['formset'].forms
+        self.assertIn(self.carol, set(forms[1].fields['player'].queryset))

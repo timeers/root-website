@@ -58,7 +58,7 @@ from the_databot.tasks import (
     post_channel_message_task, post_schedule_proposal_task,
     post_to_tournament_channel_task,
     strip_schedule_proposal_messages_task, post_boxscore_prompt_task,
-    post_boxscore_result_task,
+    post_boxscore_result_task, lfg_fk_values,
 )
 from the_databot.tasks import _retire_boxscore_message
 from the_databot.services.discordservice import (
@@ -9733,14 +9733,12 @@ BOXSCORE_STRICT_PLAYERS = True
 # uploader becomes the recorder and the summary drops its "record the game" link,
 # because a recorded game already announces itself in the same thread.
 #
-# Scoped to BETA GUILDS (DiscordGuild.is_beta_tester) rather than a global
-# on/off, so it can be exercised against real uploads in one test server before
-# every guild gets it. Set BOXSCORE_AUTO_RECORD_ALL_GUILDS = True to ship it
-# everywhere once the beta guild has proved it out.
+# On for every guild. Set BOXSCORE_AUTO_RECORD_ALL_GUILDS = False to scope it
+# back to BETA GUILDS (DiscordGuild.is_beta_tester) only.
 #
 # Only plain LFG threads are eligible either way: a series thread records in
 # match mode, which needs bracket wiring attempt_autorecord does not do.
-BOXSCORE_AUTO_RECORD_ALL_GUILDS = False
+BOXSCORE_AUTO_RECORD_ALL_GUILDS = True
 
 # How long a pending /boxscore confirmation survives. The parsed file is parked in
 # the cache because a box score is a list and cannot ride in a custom_id (100-char
@@ -10580,6 +10578,18 @@ def _boxscore_apply(thread, pending, channel_id, match_roster=None):
     # file has none of its own, or a corrected file with fewer components than
     # the last one would leave the old ones stuck prefilling the record form.
     undrafted = pending.get("undrafted")
+
+    # map/deck NOW, not only via the capture task below: auto-record reads them
+    # off this thread straight after we return, long before the worker runs, and
+    # a final game with no map/deck fails validation. The task sets the same
+    # values again, harmlessly. Only overwrites what the file actually names, so
+    # a /map roll survives a box score that omits it.
+    fk_values = lfg_fk_values(items)
+    if fk_values:
+        for field, obj in fk_values.items():
+            setattr(thread, field, obj)
+        thread.save(update_fields=list(fk_values))
+
     _capture_lfg_components(channel_id, items, source="boxscore",
                             undrafted=undrafted)
 
@@ -10654,6 +10664,9 @@ def boxscore_upload_from_api(thread, raw, token):
         "component_lines": component_lines, "undrafted": undrafted,
     }
     pending["fingerprint"] = _boxscore_seat_fingerprint(thread)
+
+    if thread.personal:
+        return _boxscore_apply_personal(thread, pending, token, payload, entries)
 
     def post_gate(body, ask="confirm some details for", client_message=(
             "Box score uploaded, but it doesn't match this game's players or "
@@ -10746,6 +10759,69 @@ def boxscore_upload_from_api(thread, raw, token):
         "message": (f"Box score uploaded — {len(entries)} seats, "
                     f"{turn_count} turns."),
         "seats": len(entries), "turns": turn_count,
+    }
+
+
+def _boxscore_apply_personal(thread, pending, token, payload, entries):
+    """The personal-token tail of boxscore_upload_from_api: apply, maybe record.
+
+    No gates and no Discord. A personal thread has no prior roster or seating,
+    so Gates 2/3 have nothing to disagree with; Gates 0/1 exist only because
+    Discord can't offer a real player picker, and the site's record form is
+    one. An unresolved seat is applied as a BLANK seat in its position, and the
+    owner fills it in on the record form.
+
+    Auto-record is attempted only when every seat resolved; anything that stops
+    it (a blank seat, no map/deck, a validation error) leaves the box score
+    staged and points at the Box Score Token page, where the record link is.
+
+    The token's payload is KEPT on APPLIED -- it is the only record of who the
+    file said an unresolved seat was. Any unexpected failure cancels the token
+    with its payload cleared, so nothing is left stuck in PENDING (which the
+    sweep only handles for posted prompts) or looking restorable.
+    """
+    from the_databot.models import BoxScoreUploadToken
+    from the_warroom.services.box_score_import import BoxScoreImportError
+
+    try:
+        lines, applied_notes = _boxscore_apply(thread, pending, thread.thread_id)
+        if lines is None:
+            raise BoxScoreImportError(_boxscore_apply_error(applied_notes))
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.APPLIED, payload=pending)
+
+        unresolved = sum(1 for s in pending["seats"] if not s["profile_pk"])
+        recorded = (not unresolved and _boxscore_try_autorecord(
+            thread, token.issued_by, payload=payload))
+    except Exception:
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.CANCELLED, payload=None)
+        raise
+
+    turn_count = max((len(e.get("turns") or []) for e in entries), default=0)
+    if recorded:
+        return {
+            "ok": True, "status": "applied",
+            "message": (f"Box score uploaded and recorded — {len(entries)} "
+                        f"seats, {turn_count} turns."),
+            "seats": len(entries), "turns": turn_count,
+        }
+
+    from django.urls import reverse
+    site = (config.get("SITE_URL") or "").rstrip("/")
+    where = (f"{site}{reverse('boxscore-tokens')}" if site
+             else "your Box Score Token page")
+    if unresolved:
+        why = (f"{unresolved} player{'s' if unresolved != 1 else ''} "
+               "couldn't be matched to a profile")
+    else:
+        why = "it couldn't be recorded automatically"
+    # "pending_confirmation", not a new status: the TTS client is written against
+    # the documented contract, where anything but "applied" means a person still
+    # has to finish it.
+    return {
+        "ok": True, "status": "pending_confirmation",
+        "message": f"Box score uploaded, but {why}. Finish recording it at {where}.",
     }
 
 
@@ -11801,7 +11877,9 @@ def _boxscore_restorable(thread, profile, group=None):
     """
     from the_databot.models import BoxScoreUploadToken
 
-    if profile is None:
+    # A personal (site-only) thread has no Discord surface to restore into, and
+    # its APPLIED payload is kept on purpose -- never offer it here.
+    if profile is None or thread.personal:
         return None
     token = BoxScoreUploadToken.objects.filter(
         thread=thread,
@@ -12137,14 +12215,17 @@ def _boxscore_owner_arg(payload):
 def _boxscore_autorecord_enabled(thread):
     """Is auto-record turned on for this thread's guild?
 
-    Beta guilds only until BOXSCORE_AUTO_RECORD_ALL_GUILDS flips, so the feature
-    can be exercised on a real server without touching anyone else's games.
+    Every guild while BOXSCORE_AUTO_RECORD_ALL_GUILDS is on; otherwise beta
+    guilds only.
 
-    A thread with NO guild is not eligible: `guild` is nullable (SET_NULL), and
-    "we don't know which server this is" must not silently mean "treat it as
-    beta". Recording a game is not something to do on a guess.
+    With the switch off, a thread with NO guild is not eligible: `guild` is
+    nullable (SET_NULL), and "we don't know which server this is" must not
+    silently mean "treat it as beta". Recording a game is not something to do
+    on a guess.
     """
-    if BOXSCORE_AUTO_RECORD_ALL_GUILDS:
+    # A personal thread has no guild by construction, so the guild rule below
+    # would always refuse it; auto-recording is the whole point of one.
+    if BOXSCORE_AUTO_RECORD_ALL_GUILDS or thread.personal:
         return True
     return bool(thread.guild_id and thread.guild.is_beta_tester)
 
@@ -12983,8 +13064,7 @@ OWNER_LOCK_HINTS = {
 
 
 def _lfg_message_data(author, owner, description, players_value,
-                      content=None, title=LFG_DEFAULT_TITLE, ping_role=True,
-                      beta=False):
+                      content=None, title=LFG_DEFAULT_TITLE, ping_role=True):
     """Build the full join-message payload (embed + button row). Used ONLY for the
     initial post — never to re-render on Join/Notify (that would wipe the other
     field; those handlers mutate the echoed embed).
@@ -12994,11 +13074,7 @@ def _lfg_message_data(author, owner, description, players_value,
     `ping_role=False` renders the role mention WITHOUT notifying anyone — either
     inside a thread, where the ping is noise, or because the host passed
     `ping_role: No` to /lfg. Either way the mention must still be in the content
-    for ✔ Start to recover the tag from (see _handle_lfg_start).
-
-    `beta=True` (a /lfg-beta post) marks the Edit button `lfg_edit:b:{owner}` so its
-    modal also offers a kick list (see _handle_lfg_edit). The marker sits BEFORE the
-    owner so the owner stays the last arg and the dispatcher lock still applies."""
+    for ✔ Start to recover the tag from (see _handle_lfg_start)."""
     embed = {
         "author": author,
         "title": title,
@@ -13021,8 +13097,6 @@ def _lfg_message_data(author, owner, description, players_value,
     #   Edit      — the host ALONE (no moderator carve-out), so unlike its
     #               neighbors it ends in the bare owner snowflake and IS
     #               dispatcher-locked, the same way ✔ Start is.
-    #               A /lfg-beta post adds a "b" marker ahead of the owner,
-    #               which enables kicking in the modal (see the docstring).
     #
     # ✔ Start still ends in the owner snowflake and so is dispatcher-locked:
     # starting a game is the host's alone, and a moderator clearing an abandoned
@@ -13031,7 +13105,7 @@ def _lfg_message_data(author, owner, description, players_value,
         button("Join", encode_custom_id("lfg_join", owner, PICK_OPEN), style=STYLE_PRIMARY),
         button("", encode_custom_id("lfg_notify", owner, PICK_OPEN),
                style=STYLE_SECONDARY, emoji={"name": "🔔"}),
-        button("Edit", encode_custom_id("lfg_edit", *(["b"] if beta else []), owner),
+        button("Edit", encode_custom_id("lfg_edit", owner),
                style=STYLE_SECONDARY),
         button("", encode_custom_id("lfg_cancel", owner, PICK_OPEN),
                style=STYLE_DANGER, emoji={"name": "✖"}),
@@ -13116,8 +13190,7 @@ def _handle_lfg_command(data):
         return JsonResponse({
             "type": RESPONSE_CHANNEL_MESSAGE,
             "data": _lfg_message_data(author, owner, description, players_value,
-                                      title=title_opt or LFG_DEFAULT_TITLE,
-                                      beta=data.get("_beta", False)),
+                                      title=title_opt or LFG_DEFAULT_TITLE),
         })
 
     # No tags configured. Post the plain call; if the invoker can manage the server,
@@ -13190,8 +13263,7 @@ def _handle_lfg_command(data):
                                   # here are already here), or the host asked for
                                   # no ping. The thread rule is not overridable --
                                   # ping_role:Yes in a thread still doesn't ping.
-                                  ping_role=not (in_thread or silent),
-                                  beta=data.get("_beta", False)),
+                                  ping_role=not (in_thread or silent)),
     })
 
 
@@ -13318,9 +13390,10 @@ def _handle_lfg_edit(payload):
     itself has none, and Discord's embed description field caps at 4096 -- 4000
     leaves headroom so a re-edit of an already-long description isn't blocked.
 
-    A /lfg-beta post's button (`lfg_edit:b:{owner}`) also gets a "Kick players"
-    multi-select of everyone joined except the host. It's omitted when nobody else
-    has joined, since Discord rejects a select with no options."""
+    The modal also gets a "Kick players" multi-select of everyone joined except the
+    host. It's omitted when nobody else has joined, since Discord rejects a select
+    with no options. Posts made under the old /lfg-beta still carry a "b" marker
+    (`lfg_edit:b:{owner}`); it's simply ignored now that every post can kick."""
     message = payload.get("message", {})
     embed = (message.get("embeds") or [{}])[0]
     modal_id = encode_custom_id("lfg_edit_modal", message.get("id"), payload.get("channel_id"))
@@ -13332,23 +13405,21 @@ def _handle_lfg_edit(payload):
                       max_length=4000),
         ),
     ]
-    _action, args = decode_custom_id((payload.get("data") or {}).get("custom_id") or "")
-    if args[:1] == ["b"]:
-        # The clicker IS the host -- the dispatcher lock already enforced it.
-        host = _interaction_user_id(payload)
-        # `or p["id"]`: the player-line regex can match an empty name, and Discord
-        # rejects an empty option label.
-        options = [select_option(p["name"] or p["id"], p["id"])
-                   for p in _lfg_player_lines(embed) if p["id"] != host]
-        if options:
-            components.append(label_component(
-                "Kick players",
-                # required=False: in a modal a select defaults to required, which
-                # would force a kick on every description-only edit.
-                string_select("kick", options, placeholder="Select players to remove",
-                              min_values=0, max_values=len(options), required=False),
-                description="Selected players are removed from the game. You should ping players before kicking them",
-            ))
+    # The clicker IS the host -- the dispatcher lock already enforced it.
+    host = _interaction_user_id(payload)
+    # `or p["id"]`: the player-line regex can match an empty name, and Discord
+    # rejects an empty option label.
+    options = [select_option(p["name"] or p["id"], p["id"])
+               for p in _lfg_player_lines(embed) if p["id"] != host]
+    if options:
+        components.append(label_component(
+            "Kick players",
+            # required=False: in a modal a select defaults to required, which
+            # would force a kick on every description-only edit.
+            string_select("kick", options, placeholder="Select players to remove",
+                          min_values=0, max_values=len(options), required=False),
+            description="Selected players are removed from the game. You should ping players before kicking them",
+        ))
     return JsonResponse({
         "type": RESPONSE_MODAL,
         "data": modal(modal_id, "Edit LFG", *components),
@@ -13396,10 +13467,10 @@ def _handle_lfg_edit_modal_submit(payload, args):
     embed = (message.get("embeds") or [{}])[0]
     embed["description"] = new_description or ""
 
-    # Kicks (only a /lfg-beta modal has the select). The submitter is the host --
-    # only they could open this modal -- so subtracting them means the host can
-    # never be removed. Filtered against the RE-FETCHED embed, so anyone who joined
-    # while the modal was open is kept.
+    # Kicks (the select is absent when only the host has joined). The submitter is
+    # the host -- only they could open this modal -- so subtracting them means the
+    # host can never be removed. Filtered against the RE-FETCHED embed, so anyone
+    # who joined while the modal was open is kept.
     kick_ids = set(_modal_select_values(payload, "kick")) - {_interaction_user_id(payload)}
     # No button row left means ✔ Start or ✖ Cancel already ran. After Start the
     # roster is persisted to an LFGThread, so changing Players here would make the

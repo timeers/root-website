@@ -914,6 +914,29 @@ def link_lfg_message_task(channel_id, message_id, embed, thread_url):
 _LFG_FK_KINDS = {"Map": "map", "Deck": "deck"}
 
 
+def lfg_fk_values(items):
+    """{"map": Map, "deck": Deck} for the map/deck an items list names; the LAST
+    of each kind wins, matching the roll log. Unknown slugs are skipped.
+
+    map/deck keep their own typed lookup -- a base Post row can't be assigned to
+    them, since `thread.map = <Post>` raises ValueError under multi-table
+    inheritance.
+
+    Shared by record_lfg_components_task and _boxscore_apply, which sets these
+    SYNCHRONOUSLY: auto-record reads thread.map/deck straight after applying, so
+    it can't wait for this task to run."""
+    values = {}
+    for it in items or []:
+        field = _LFG_FK_KINDS.get(it.get("kind"))
+        slug = it.get("slug")
+        if field and slug:
+            model = {"map": Map, "deck": Deck}[field]
+            obj = model.objects.filter(slug=slug).first()
+            if obj:
+                values[field] = obj
+    return values
+
+
 @shared_task
 def record_lfg_components_task(channel_id, items, source="", draft=None,
                                undrafted=None):
@@ -998,18 +1021,11 @@ def record_lfg_components_task(channel_id, items, source="", draft=None,
         if rolls:
             LFGRoll.objects.bulk_create(rolls)
 
-        # map/deck keep their own typed lookup -- posts_by_slug holds Post rows,
-        # and `thread.map = <Post>` raises ValueError under multi-table inheritance.
+        # NOT posts_by_slug: that holds base Post rows (see lfg_fk_values).
         touched = []
-        for it in items:
-            field = _LFG_FK_KINDS.get(it.get("kind"))
-            slug = it.get("slug")
-            if field and slug:
-                model = {"map": Map, "deck": Deck}[field]
-                obj = model.objects.filter(slug=slug).first()
-                if obj:
-                    setattr(thread, field, obj)
-                    touched.append(field)
+        for field, obj in lfg_fk_values(items).items():
+            setattr(thread, field, obj)
+            touched.append(field)
         # The undrafted assets get their own columns rather than riding
         # _LFG_FK_KINDS: that maps kind -> field, and an undrafted faction shares
         # kind "Faction" with every seated one, so nothing there could tell them
@@ -1613,13 +1629,34 @@ def sweep_boxscore_upload_tokens(remind_within_minutes=60, prune_after_days=None
         status__in=[BoxScoreUploadToken.Status.APPLIED,
                     BoxScoreUploadToken.Status.CANCELLED,
                     BoxScoreUploadToken.Status.EXPIRED],
-        created_at__lt=cutoff).delete()
+        created_at__lt=cutoff,
+    ).exclude(
+        # A personal upload still waiting to be recorded keeps its token: the
+        # payload is the only record of who its unmatched seats were, and the
+        # Box Score Token page lists uploads by it. It goes with its thread --
+        # recorded and swept, discarded, or idle -- since the FK cascades.
+        status=BoxScoreUploadToken.Status.APPLIED,
+        thread__personal=True, thread__status=LFGThread.Status.OPEN,
+    ).delete()
     stale, _ = BoxScoreUploadToken.objects.filter(
         status=BoxScoreUploadToken.Status.ISSUED,
         expires_at__lt=cutoff).delete()
 
-    logger.info("sweep_boxscore_upload_tokens: reminded=%d expired=%d pruned=%d",
-                reminded, expired, done + stale)
+    # Every token generated on the site creates a personal thread for it; one
+    # whose token was never used (or was revoked) has nothing left to do once
+    # its token is gone. Never one holding a game or an applied box score.
+    _count, unused_by_model = LFGThread.objects.filter(
+        personal=True, game__isnull=True, seats__isnull=True,
+        created_at__lt=cutoff,
+    ).exclude(
+        upload_tokens__status__in=[BoxScoreUploadToken.Status.ISSUED,
+                                   BoxScoreUploadToken.Status.PENDING,
+                                   BoxScoreUploadToken.Status.APPLIED],
+    ).delete()
+    unused = unused_by_model.get(LFGThread._meta.label, 0)
+
+    logger.info("sweep_boxscore_upload_tokens: reminded=%d expired=%d pruned=%d "
+                "personal_threads=%d", reminded, expired, done + stale, unused)
     return {"reminded": reminded, "expired": expired, "pruned": done + stale}
 
 

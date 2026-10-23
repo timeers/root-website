@@ -1140,26 +1140,35 @@ def _lfg_round_for(tournament):
 def _can_record_lfg(profile, thread, round_obj):
     """Can this profile record the game for an LFG thread?
 
-    Thread membership is required of everyone (admins are checked at the call
-    site). If the LFG role names a tournament, the profile must also be allowed
-    to record games for it."""
+    Thread membership is required of everyone except the tournament's staff
+    (admins are checked at the call site). If the LFG role names a tournament,
+    the profile must also be allowed to record games for it."""
+    # A personal (site-only) thread belongs to whoever minted its token. They
+    # may record it whether or not they played -- that is the point of one --
+    # and nobody else may (admins are checked at the call site).
+    if thread.personal:
+        return thread.host_id == profile.pk
+    tournament = getattr(thread.lfg_role, 'tournament', None)
+    # Staff first: a tournament's designer or moderator may record a game they
+    # didn't play in, so membership isn't asked of them.
+    if tournament is not None and tournament.has_permission(profile):  # admin/designer/moderator
+        return True
     if not thread.players.filter(pk=profile.pk).exists():
         return False
-    tournament = getattr(thread.lfg_role, 'tournament', None)
     if tournament is None:
         return True                      # unlinked role: membership is the gate
-    if tournament.has_permission(profile):           # admin/designer/moderator
-        return True
     if tournament.guild_members_can_record(profile):  # per-profile, GUILD tier
         return True
+    # The recording tier comes BEFORE open_roster: an open roster says who may be
+    # IN a game, not who may record it, so MODERATORS still means moderators.
+    if not tournament.players_can_record_matches():
+        return False
     if tournament.open_roster:
         # Roster is unrestricted, so the form itself would accept any player
         # (current_player_queryset returns everyone). Thread membership is the
         # real gate; without this the StageParticipant check below rejects
         # everyone on tournaments that have no stage participants at all.
         return True
-    if not tournament.players_can_record_matches():
-        return False
     if round_obj is None or round_obj.stage_id is None:
         return False                     # no stage to check participation against
     return StageParticipant.objects.filter(
@@ -1595,8 +1604,30 @@ def manage_game(request, id=None):
         # (intersected with the tournament's allowed assets).
         lfg_opts = lfg_option_querysets(lfgthread, _lfg_tournament_for(lfgthread))
         thread_players = lfgthread.players.all()
-        for form in formset.forms:
-            form.fields['player'].queryset = thread_players
+        # A personal thread's blank seats -- players its box score couldn't
+        # match -- are filled from Gate 0's pool (any player with no verified
+        # Steam id, not already seated), since it has no roster to draw on. Keyed
+        # by row: row i is seat i + 1 on both GET and POST, so validation sees the
+        # same choices the page offered. Once recorded, every seat holds its
+        # player (finish_personal_record), so an edit is back to thread_players.
+        personal_blank_rows = set()
+        if lfgthread.personal:
+            from the_databot.services.personal_boxscore import (
+                unresolved_player_queryset)
+            personal_blank_rows = {i for i, seat in enumerate(lfg_seats)
+                                   if seat[1] is None}
+            blank_pool = unresolved_player_queryset(lfgthread)
+        for i, form in enumerate(formset.forms):
+            form.fields['player'].queryset = (
+                blank_pool if i in personal_blank_rows else thread_players)
+        if personal_blank_rows:
+            # Who the FILE said sat there -- turns_data stores no names, so the
+            # token's kept payload is the only place it survives.
+            from the_databot.services.personal_boxscore import personal_seat_hints
+            hints = personal_seat_hints(lfgthread)
+            for i in personal_blank_rows:
+                if i < len(hints) and i < len(formset.forms):
+                    formset.forms[i].personal_hint = hints[i].get('label')
             form.fields['faction'].queryset = lfg_opts['factions']
             form.fields['vagabond'].queryset = lfg_opts['vagabonds']
             form.fields['captains'].queryset = lfg_opts['captains']
@@ -2033,6 +2064,10 @@ def import_box_score(request):
         # established. Reading seated_profiles here would return [] for an
         # unordered thread and hand the importer None, which means NO limit.
         seat_limit = lfgthread.players.count() or None
+        if lfgthread.personal:
+            # Its roster holds only the seats the box score MATCHED, so the
+            # seats themselves are the cap -- a blank seat is still a seat.
+            seat_limit = lfgthread.seats.count() or seat_limit
         allow_game_fields = False
     elif round_id:
         round_obj = Round.objects.filter(id=round_id).first()
@@ -2056,6 +2091,13 @@ def import_box_score(request):
     if lfgthread is not None:
         option_querysets = lfg_option_querysets(lfgthread, _lfg_tournament_for(lfgthread))
         player_queryset = lfgthread.players.all()
+        if lfgthread.personal:
+            # Matched seats plus the pool its blank seats draw from. One set for
+            # every row here; the form's per-row querysets still decide.
+            from the_databot.services.personal_boxscore import (
+                unresolved_player_queryset)
+            player_queryset = (player_queryset
+                               | unresolved_player_queryset(lfgthread)).distinct()
     else:
         if round_obj is not None:
             tournament = round_obj.get_tournament()

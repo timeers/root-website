@@ -440,6 +440,78 @@ class PlayerRequiredInterstitialTests(_NoLoginSignalMixin, TestCase):
                              fetch_redirect_response=False)
 
 
+class SubmissionsTabPrivacyTests(_NoLoginSignalMixin, TestCase):
+    """A profile's Submissions tab (submitted + rejected posts) is private: only
+    the owner and admins see the tab or can load its content."""
+
+    def setUp(self):
+        super().setUp()
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.other = User.objects.create_user(username='other', password='pw')
+        self.admin = User.objects.create_user(username='admin', password='pw')
+        self.admin.profile.group = Profile.GroupChoices.ADMIN
+        self.admin.profile.save(update_fields=['group'])
+        self.player = self.owner.profile
+        self.profile_url = reverse('player-detail', args=[self.player.slug])
+        self.submitted_url = reverse('submitted-components', args=[self.player.slug])
+
+    def _submit(self, title, status):
+        return Faction.objects.create(title=title, animal="Fox", designer=self.player,
+                                      submitted_by=self.player, status=status)
+
+    def _tab_shown(self, user=None):
+        if user:
+            self.client.force_login(user)
+        content = self.client.get(self.profile_url).content.decode()
+        return 'submissions-tab' in content
+
+    def test_owner_sees_the_tab_with_a_lock(self):
+        self._submit("Pending Faction", StatusChoices.SUBMITTED)
+        self.client.force_login(self.owner)
+        content = self.client.get(self.profile_url).content.decode()
+        self.assertIn('submissions-tab', content)
+        self.assertIn('bi-lock-fill', content)
+
+    def test_admin_sees_the_tab_on_someone_elses_profile(self):
+        self._submit("Pending Faction", StatusChoices.SUBMITTED)
+        self.assertTrue(self._tab_shown(self.admin))
+
+    def test_other_user_does_not_see_the_tab(self):
+        self._submit("Pending Faction", StatusChoices.SUBMITTED)
+        self.assertFalse(self._tab_shown(self.other))
+
+    def test_logged_out_visitor_does_not_see_the_tab(self):
+        self._submit("Pending Faction", StatusChoices.SUBMITTED)
+        self.assertFalse(self._tab_shown())
+
+    def test_only_rejected_posts_still_show_the_tab(self):
+        self._submit("Rejected Faction", StatusChoices.REJECTED)
+        self.assertTrue(self._tab_shown(self.owner))
+
+    def test_no_submissions_means_no_tab(self):
+        self.assertFalse(self._tab_shown(self.owner))
+
+    def _load_submitted(self, user=None):
+        if user:
+            self.client.force_login(user)
+        return self.client.get(self.submitted_url, headers={'HX-Request': 'true'})
+
+    def test_owner_and_admin_can_load_the_content(self):
+        self._submit("Pending Faction", StatusChoices.SUBMITTED)
+        self._submit("Rejected Faction", StatusChoices.REJECTED)
+        for user in (self.owner, self.admin):
+            with self.subTest(user=user.username):
+                response = self._load_submitted(user)
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "Pending Faction")
+                self.assertContains(response, "Rejected Faction")
+
+    def test_other_user_and_visitor_get_404_from_the_content_endpoint(self):
+        self._submit("Pending Faction", StatusChoices.SUBMITTED)
+        self.assertEqual(self._load_submitted().status_code, 404)
+        self.assertEqual(self._load_submitted(self.other).status_code, 404)
+
+
 class GuildsRefreshStalenessTests(TestCase):
     """guilds_refresh_in_progress expires a flag nothing ever cleared.
 
@@ -2728,7 +2800,7 @@ class TimezoneCodeTests(TestCase):
 
 
 class DisplayTimezoneCompareTests(_NoLoginSignalMixin, TestCase):
-    """Profile.display_timezone: opt-in badge on the comparison page, editable
+    """Profile.display_timezone: opt-out badge on the comparison page, editable
     from /availability alongside the timezone picker itself."""
 
     def setUp(self):
@@ -2746,37 +2818,38 @@ class DisplayTimezoneCompareTests(_NoLoginSignalMixin, TestCase):
         self.client.force_login(self.user)
         self.compare_url = reverse('availability-compare')
 
-    def test_defaults_to_false(self):
-        self.assertFalse(self.profile.display_timezone)
+    def test_defaults_to_true(self):
+        self.assertTrue(self.profile.display_timezone)
 
-    def test_badge_absent_by_default_even_with_a_timezone_set(self):
-        response = self.client.get(self.compare_url, {'lfg': self.thread.pk})
-        self.assertNotContains(response, 'title="America/New_York"')
-
-    def test_badge_shown_when_opted_in(self):
+    def test_badge_shown_by_default(self):
         from the_databot.services.time_parsing import timezone_code
-        self.profile.display_timezone = True
-        self.profile.save(update_fields=['display_timezone'])
         response = self.client.get(self.compare_url, {'lfg': self.thread.pk})
         self.assertContains(response, 'title="America/New_York"')
         # EST in winter, EDT in summer -- assert whichever actually applies right
         # now rather than hard-coding one, since %Z is correctly DST-aware.
         self.assertContains(response, timezone_code('America/New_York'))
 
+    def test_badge_absent_when_opted_out_even_with_a_timezone_set(self):
+        self.profile.display_timezone = False
+        self.profile.save(update_fields=['display_timezone'])
+        response = self.client.get(self.compare_url, {'lfg': self.thread.pk})
+        self.assertNotContains(response, 'title="America/New_York"')
+
     def test_checkbox_round_trips_through_the_availability_form(self):
         url = reverse('availability')
         response = self.client.get(url)
-        self.assertFalse(response.context['form']['display_timezone'].value())
+        self.assertTrue(response.context['form']['display_timezone'].value())
 
+        # An unchecked box posts nothing.
         self.client.post(url, {
             'timezone': 'America/New_York', 'drawn_timezone': 'America/New_York',
-            'available_hours': '9', 'action': 'save', 'display_timezone': 'on',
+            'available_hours': '9', 'action': 'save',
         })
         self.profile.refresh_from_db()
-        self.assertTrue(self.profile.display_timezone)
+        self.assertFalse(self.profile.display_timezone)
 
         response = self.client.get(url)
-        self.assertTrue(response.context['form']['display_timezone'].value())
+        self.assertFalse(response.context['form']['display_timezone'].value())
 
     def test_saving_display_timezone_does_not_clobber_the_timezone_field(self):
         """The two fields ride in one update_fields save; only one changing must
@@ -3598,3 +3671,144 @@ class RenderDescriptionPlaintextTests(TestCase):
     def test_empty_value_returns_empty_string(self):
         self.assertEqual(render_description_plaintext(""), "")
         self.assertEqual(render_description_plaintext(None), "")
+
+
+class BoxScoreTokenPageTests(TestCase):
+    """The Box Score Token page: generating, listing, revoking and discarding
+    personal box score tokens. All scoped to the logged-in profile."""
+
+    def setUp(self):
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+        self.user = User.objects.create_user(username='bstowner', password='x')
+        self.profile = self.user.profile
+        self.profile.group = Profile.GroupChoices.PLAYER
+        self.profile.player_onboard = True
+        self.profile.save()
+        self.client.force_login(self.user)
+
+    def _generate(self):
+        return self.client.post(reverse('boxscore-token-generate'))
+
+    def _age_tokens(self):
+        """Step past the cooldown without sleeping."""
+        from the_databot.models import BoxScoreUploadToken
+        BoxScoreUploadToken.objects.update(
+            created_at=timezone.now() - timedelta(minutes=5))
+
+    def test_the_page_renders_empty(self):
+        response = self.client.get(reverse('boxscore-tokens'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Nothing yet')
+
+    def test_the_settings_page_links_to_it(self):
+        response = self.client.get(reverse('user-settings'))
+        self.assertContains(response, reverse('boxscore-tokens'))
+
+    def test_generate_requires_post(self):
+        response = self.client.get(reverse('boxscore-token-generate'))
+        self.assertEqual(response.status_code, 405)
+
+    def test_generating_shows_the_token_exactly_once(self):
+        from the_databot.models import BoxScoreUploadToken
+        response = self._generate()
+        # Not fetched: following the redirect would itself be the one showing.
+        self.assertRedirects(response, reverse('boxscore-tokens'),
+                             fetch_redirect_response=False)
+        page = self.client.get(reverse('boxscore-tokens'))
+        shown = page.context['new_token']
+        self.assertRegex(shown, r'^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$')
+        token = BoxScoreUploadToken.objects.get()
+        self.assertEqual(token.token_hash, BoxScoreUploadToken.hash_token(shown))
+        self.assertTrue(token.thread.personal)
+        self.assertContains(page, 'Waiting for upload')
+        again = self.client.get(reverse('boxscore-tokens'))
+        self.assertIsNone(again.context['new_token'])
+
+    def test_a_second_token_inside_the_cooldown_is_refused(self):
+        from the_databot.models import BoxScoreUploadToken
+        self._generate()
+        self._generate()
+        self.assertEqual(BoxScoreUploadToken.objects.count(), 1)
+
+    def test_live_tokens_are_capped(self):
+        from the_databot.models import BoxScoreUploadToken
+        from the_gatehouse.views import BOXSCORE_TOKEN_LIVE_LIMIT
+        for _ in range(BOXSCORE_TOKEN_LIVE_LIMIT + 1):
+            self._age_tokens()
+            self._generate()
+        self.assertEqual(BoxScoreUploadToken.objects.count(),
+                         BOXSCORE_TOKEN_LIVE_LIMIT)
+
+    def test_revoke_only_your_own_unused_token(self):
+        from the_databot.models import BoxScoreUploadToken
+        mine, _ = BoxScoreUploadToken.issue_personal(self.profile)
+        other = Profile.objects.create(discord='bstother')
+        theirs, _ = BoxScoreUploadToken.issue_personal(other)
+
+        self.client.post(reverse('boxscore-token-revoke', args=[theirs.pk]))
+        self.client.post(reverse('boxscore-token-revoke', args=[mine.pk]))
+        mine.refresh_from_db()
+        theirs.refresh_from_db()
+        self.assertEqual(mine.status, BoxScoreUploadToken.Status.CANCELLED)
+        self.assertEqual(theirs.status, BoxScoreUploadToken.Status.ISSUED)
+        self.assertContains(self.client.get(reverse('boxscore-tokens')), 'Revoked')
+
+    def test_a_used_token_cannot_be_revoked(self):
+        from the_databot.models import BoxScoreUploadToken
+        token, _ = BoxScoreUploadToken.issue_personal(self.profile)
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.APPLIED, payload={'seats': []})
+        self.client.post(reverse('boxscore-token-revoke', args=[token.pk]))
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.APPLIED)
+
+    def _review_upload(self, owner=None):
+        """A personal upload waiting for review, with one blank seat."""
+        from the_databot.models import BoxScoreUploadToken, LFGSeat
+        token, _ = BoxScoreUploadToken.issue_personal(owner or self.profile)
+        thread = token.thread
+        thread.seating_set = True
+        thread.save(update_fields=['seating_set'])
+        LFGSeat.objects.create(thread=thread, profile=self.profile, seat_number=1)
+        LFGSeat.objects.create(thread=thread, profile=None, seat_number=2)
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.APPLIED, used_at=timezone.now(),
+            payload={'seats': [{'label': self.profile.name, 'profile_pk': self.profile.pk},
+                               {'label': 'Mystery Player', 'profile_pk': None}]})
+        return thread
+
+    def test_a_review_row_names_the_unmatched_player_and_links_the_form(self):
+        thread = self._review_upload()
+        response = self.client.get(reverse('boxscore-tokens'))
+        self.assertContains(response, 'Needs review')
+        self.assertContains(response, 'Mystery Player')
+        self.assertContains(response, '1 player to match')
+        self.assertContains(response, 'Map or deck not in the box score')
+        self.assertContains(response, f"{reverse('record-game')}?lfg={thread.pk}")
+
+    def test_a_saved_draft_still_needs_review(self):
+        """Save-progress sets thread.game but leaves the thread OPEN."""
+        from the_databot.models import LFGThread
+        thread = self._review_upload()
+        game = Game.objects.create(final=False)
+        LFGThread.objects.filter(pk=thread.pk).update(game=game)
+        self.assertContains(self.client.get(reverse('boxscore-tokens')), 'Needs review')
+
+    def test_discard_only_your_own_open_upload(self):
+        from the_databot.models import LFGThread
+        mine = self._review_upload()
+        other = Profile.objects.create(discord='bstother2')
+        theirs = self._review_upload(owner=other)
+        self.client.post(reverse('boxscore-upload-discard', args=[theirs.pk]))
+        self.client.post(reverse('boxscore-upload-discard', args=[mine.pk]))
+        self.assertFalse(LFGThread.objects.filter(pk=mine.pk).exists())
+        self.assertTrue(LFGThread.objects.filter(pk=theirs.pk).exists())
+
+    def test_a_recorded_upload_cannot_be_discarded(self):
+        from the_databot.models import LFGThread
+        thread = self._review_upload()
+        LFGThread.objects.filter(pk=thread.pk).update(status=LFGThread.Status.RECORDED)
+        self.client.post(reverse('boxscore-upload-discard', args=[thread.pk]))
+        self.assertTrue(LFGThread.objects.filter(pk=thread.pk).exists())

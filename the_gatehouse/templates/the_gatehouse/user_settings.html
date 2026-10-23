@@ -332,6 +332,25 @@
           </div>
         </div>
 
+        {# Personal box score tokens: the site-only counterpart of /boxscore token, for games outside a Discord game thread. #}
+        <div class="col-lg-6">
+          <div class="info-card h-100">
+            <div class="info-card-body">
+              <h2 class="info-card-title"><i class="bi bi-upload me-2"></i>{% trans 'Box Score Token' %}</h2>
+
+              <p class="text-secondary">
+                {% trans 'Record and upload a Tabletop Simulator box score for a standalone game that you played. Generate a one-time token, paste it into the uploader, then check the result and finish recording here.' %}
+              </p>
+
+              <div class="d-flex gap-2 mb-3 justify-content-center">
+                <a href="{% url 'boxscore-tokens' %}" class="databot-btn databot-btn-primary btn-sm">
+                  <i class="bi bi-key me-2"></i> {% trans 'Manage Box Score Tokens' %}
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <!-- How to use: API modal (top-level so it isn't clipped by the .info-card) -->

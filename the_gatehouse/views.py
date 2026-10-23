@@ -1642,6 +1642,91 @@ def generate_api_key(request):
     return redirect('user-settings')
 
 
+# ── Personal box score tokens ────────────────────────────────────────────────
+# A token for the Tabletop Simulator uploader that isn't tied to a Discord game
+# thread. Everything about it happens on the site: the token is shown here, the
+# upload stages onto a site-only LFGThread, and the record form finishes it. See
+# the_databot.services.personal_boxscore.
+
+# Unused, unexpired tokens one profile may hold at once, and how soon after the
+# last one another may be generated.
+BOXSCORE_TOKEN_LIVE_LIMIT = 3
+BOXSCORE_TOKEN_COOLDOWN = timedelta(seconds=30)
+
+
+@login_required
+def boxscore_tokens(request):
+    from the_databot.models import BoxScoreUploadToken
+    from the_databot.services.personal_boxscore import personal_upload_rows
+
+    hours = int(BoxScoreUploadToken.TOKEN_TTL.total_seconds() // 3600)
+    return render(request, 'the_gatehouse/boxscore_tokens.html', {
+        'rows': personal_upload_rows(request.user.profile),
+        # Shown exactly once, right after generation: only the hash is stored.
+        'new_token': request.session.pop('new_boxscore_token', None),
+        'token_hours': hours,
+    })
+
+
+@login_required
+@require_POST
+def generate_boxscore_token(request):
+    from the_databot.models import BoxScoreUploadToken
+
+    profile = request.user.profile
+    live = BoxScoreUploadToken.objects.filter(
+        issued_by=profile, thread__personal=True,
+        status=BoxScoreUploadToken.Status.ISSUED, expires_at__gt=timezone.now())
+    latest = (BoxScoreUploadToken.objects
+              .filter(issued_by=profile, thread__personal=True)
+              .order_by('-created_at').values_list('created_at', flat=True).first())
+    if latest and timezone.now() - latest < BOXSCORE_TOKEN_COOLDOWN:
+        messages.warning(request, _('You just generated a token. Wait a few seconds before making another.'))
+    elif live.count() >= BOXSCORE_TOKEN_LIVE_LIMIT:
+        messages.warning(request, _('You already have %(n)s unused tokens. Use or revoke one before generating another.')
+                         % {'n': BOXSCORE_TOKEN_LIVE_LIMIT})
+    else:
+        _token, raw = BoxScoreUploadToken.issue_personal(profile)
+        request.session['new_boxscore_token'] = BoxScoreUploadToken.group(raw)
+    return redirect('boxscore-tokens')
+
+
+@login_required
+@require_POST
+def revoke_boxscore_token(request, pk):
+    from the_databot.models import BoxScoreUploadToken
+
+    # Conditional on ISSUED, so a revoke can't race an upload that already
+    # claimed the token.
+    revoked = BoxScoreUploadToken.objects.filter(
+        pk=pk, issued_by=request.user.profile, thread__personal=True,
+        status=BoxScoreUploadToken.Status.ISSUED,
+    ).update(status=BoxScoreUploadToken.Status.CANCELLED)
+    if revoked:
+        messages.success(request, _('Token revoked.'))
+    else:
+        messages.warning(request, _("That token can't be revoked — it may already have been used."))
+    return redirect('boxscore-tokens')
+
+
+@login_required
+@require_POST
+def discard_boxscore_upload(request, pk):
+    from the_databot.models import LFGThread
+
+    # Only an unrecorded upload, and conditional in the query itself so a
+    # discard can't race a recording. The token cascades with the thread.
+    deleted, _by_model = LFGThread.objects.filter(
+        pk=pk, host=request.user.profile, personal=True,
+        status=LFGThread.Status.OPEN, game__isnull=True,
+    ).delete()
+    if deleted:
+        messages.success(request, _('Upload discarded.'))
+    else:
+        messages.warning(request, _("That upload can't be discarded — it may already be recorded."))
+    return redirect('boxscore-tokens')
+
+
 # ── Steam account linking ────────────────────────────────────────────────────
 # Attaches a verified SteamID64 to a Profile so Tabletop Simulator box scores can be
 # matched to site profiles by id rather than by display name. Entered either from the
@@ -2172,6 +2257,13 @@ def add_player(request):
 
 
 
+def _can_view_submissions(user, player):
+    """Submitted/rejected posts are private: the owner and admins only."""
+    # getattr, not user.profile: a User can exist without a Profile.
+    profile = getattr(user, 'profile', None) if user.is_authenticated else None
+    return profile is not None and (profile == player or profile.admin)
+
+
 def player_page_view(request, slug=None):
     if slug:
         player = get_object_or_404(Profile, slug=slug.lower())
@@ -2187,7 +2279,10 @@ def player_page_view(request, slug=None):
     components = Post.objects.filter(
         Q(designer=player) | Q(co_designers=player)
     ).filter(status__lte=view_status).distinct()
-    submissions = player.submissions.filter(status='9')
+    show_submissions = (
+        _can_view_submissions(request.user, player)
+        and player.submissions.filter(status__in=['9', '8']).exists()
+    )
     posts_count = components.count()
     # Feed-backed elo standings (systems with an api_url). Only these carry the
     # rank/tier/icon the badge needs; other ROOTELO systems are locally computed.
@@ -2202,7 +2297,7 @@ def player_page_view(request, slug=None):
         'player': player,
         'games_played': games_played,
         'posts_count': posts_count,
-        'submissions': submissions,
+        'show_submissions': show_submissions,
         'rootelo_participants': rootelo_participants,
         }
     return render(request, 'the_gatehouse/profile_detail.html', context=context)
@@ -2317,6 +2412,9 @@ def artist_component_view(request, slug):
 def submitted_component_view(request, slug):
     # Get the artist object using the slug from the URL path
     profile = get_object_or_404(Profile, slug=slug.lower())
+    # 404 rather than 403, so the response doesn't reveal that private submissions exist.
+    if not _can_view_submissions(request.user, profile):
+        raise Http404("Object not found")
 
     # Get the component from the query parameters
     component = request.GET.get('component')  # e.g., /artist/john-doe/component/?component=some_component

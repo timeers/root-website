@@ -248,6 +248,7 @@
     <legend style="width: auto;">
         {% if object.id %}{% trans 'Update Game' %}
         {% elif match_mode %}{% trans 'Record Match Game' %}
+        {% elif lfg_mode and lfgthread.personal %}{% trans 'Record Game' %}
         {% elif lfg_mode %}{% trans 'Record LFG Game' %}
         {% else %}{% trans 'Record New Game' %}
         {% endif %}
@@ -278,8 +279,13 @@
 <div class="alert alert-info d-flex align-items-center gap-2">
     <i class="bi bi-people"></i>
     <div>
+        {% if lfgthread.personal %}
+        <strong>{% trans 'Personal Box Score' %}</strong>
+        <br><small>{% trans 'Players and components come from your Tabletop Simulator box score. Pick a player for any seat it couldn’t match.' %}</small>
+        {% else %}
         <strong>{% trans 'LFG Game' %}</strong>{% if lfg_round %} {{ lfg_round }}{% endif %}
         <br><small>{% trans 'Players and components come from the Discord thread.' %}</small>
+        {% endif %}
     </div>
 </div>
 {% endif %}
@@ -424,6 +430,11 @@
                 <div class="drag-card-content">
 
                 <div class="player-field mb-2">{{ form.player }}</div>
+                {% if form.personal_hint %}
+                <div class="small text-muted mb-2">
+                    <i class="bi bi-question-circle me-1"></i>{% blocktrans with name=form.personal_hint %}Box score says: <strong>{{ name }}</strong> (no matching profile){% endblocktrans %}
+                </div>
+                {% endif %}
 
                 <div class="row g-2 mb-2">
                     <div class="col-12 col-md-6 faction-field">{{ form.faction }}</div>
