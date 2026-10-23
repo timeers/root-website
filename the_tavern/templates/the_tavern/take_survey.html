@@ -431,6 +431,35 @@
                             {% endwith %}
                         </div>
 
+                    {% comment %}
+                    Timezone: the same picker as /availability, pre-filled from the
+                    profile. timezone_select.js adds the browser's zone on top.
+                    {% endcomment %}
+                    {% elif question.question_type == 'TZ' %}
+                        {% with field=form|get_question_field:question.id %}
+                            <div class="mt-3">
+                                {{ field }}
+                                {% if field.errors %}
+                                    <div class="invalid-feedback d-block">
+                                        {{ field.errors }}
+                                    </div>
+                                {% endif %}
+                                <p class="text-muted small mt-2 mb-0">
+                                    <i class="bi bi-globe me-1"></i>
+                                    {% if profile_timezone_display %}
+                                        {% blocktrans %}Your profile timezone is currently <strong>{{ profile_timezone_display }}</strong>. Pick a different one to update your profile.{% endblocktrans %}
+                                    {% else %}
+                                        {% trans "You haven't set a timezone yet, so the one your browser reports is selected. Your answer is saved to your profile." %}
+                                    {% endif %}
+                                </p>
+                                {% if survey.has_weekly_availability_question %}
+                                    <p class="text-muted small mt-1 mb-0">
+                                        {% trans 'The weekly availability grid on this page stays in the timezone it loaded in. A change here applies to the grid from your next visit.' %}
+                                    </p>
+                                {% endif %}
+                            </div>
+                        {% endwith %}
+
                     {# All other question types - render form field #}
                     {% else %}
                         {% with field=form|get_question_field:question.id %}
@@ -548,6 +577,16 @@
 /availability page; auto-initialises every .js-availability-grid, so several WA
 questions on one page each get their own independent grid. {% endcomment %}
 <script src="{% static 'the_keep/availability_grid.js' %}"></script>
+<script src="{% static 'the_keep/timezone_select.js' %}"></script>
+{% trans 'Detected from your browser' as detected_tz_label %}
+<script>
+// Timezone questions: offer the browser's zone at the top, and select it when
+// the profile has none (the field renders blank in that case).
+document.querySelectorAll('select[data-tz-question]').forEach(function (select) {
+  select.dataset.detectedLabel = '{{ detected_tz_label|escapejs }}';
+  window.enhanceTimezoneSelect(select, {preselect: select.value === ''});
+});
+</script>
 <script>
 // Tell the server which timezone each WA grid was PAINTED in. The local hours it
 // posts are meaningless without this, and the server (not the browser) does the

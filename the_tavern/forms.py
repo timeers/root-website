@@ -46,11 +46,15 @@ class SurveyResponseForm(forms.Form):
     Dynamic form for survey responses.
     Form fields are created based on the survey's questions.
     """
-    def __init__(self, *args, survey=None, existing_response=None, **kwargs):
+    def __init__(self, *args, survey=None, existing_response=None, profile=None, **kwargs):
         super().__init__(*args, **kwargs)
 
         if not survey:
             return
+
+        # The respondent, for questions that pre-fill from their profile (TZ).
+        if profile is None and existing_response is not None:
+            profile = existing_response.profile
 
         # Create a field for each question in the survey (only non-hidden)
         for question in survey.questions.filter(is_hidden=False):
@@ -159,6 +163,24 @@ class SurveyResponseForm(forms.Form):
                 self.fields[f'{field_name}_timezone'] = forms.CharField(
                     required=False, widget=forms.HiddenInput
                 )
+
+            # Timezone - confirms or changes the respondent's profile timezone.
+            # Same curated list as /availability; the page's script adds the
+            # browser-detected zone on top, which TimezoneChoiceField accepts.
+            elif question.question_type == 'TZ':
+                from the_databot.services.time_parsing import timezone_choice_groups
+                from the_gatehouse.forms import TimezoneChoiceField
+                initial_tz = self._initial_timezone(question, profile, existing_response)
+                current = self.data.get(field_name) if self.is_bound else initial_tz
+                self.fields[field_name] = TimezoneChoiceField(
+                    label=question.text,
+                    choices=[('', '---------')] + timezone_choice_groups(current=current),
+                    required=question.required,
+                    help_text=question.help_text,
+                    widget=forms.Select(attrs={'class': 'form-select', 'data-tz-question': '1'})
+                )
+                if initial_tz:
+                    self.initial[field_name] = initial_tz
 
             # Open Ended
             elif question.question_type == 'OE':
@@ -342,3 +364,25 @@ class SurveyResponseForm(forms.Form):
 
                 except Answer.DoesNotExist:
                     pass
+
+    @staticmethod
+    def _initial_timezone(question, profile, existing_response):
+        """What a TZ question starts on: the CURRENT profile zone, then the zone
+        saved on this response.
+
+        Profile first, even when editing: every save copies the answer to the
+        profile, so pre-filling a stale saved answer would quietly roll back a
+        zone the player changed since (on /availability or in the bot) the
+        moment they edit some unrelated answer.
+        """
+        from the_databot.services.time_parsing import valid_timezone
+        profile_tz = getattr(profile, 'timezone', None)
+        if valid_timezone(profile_tz):
+            return profile_tz
+        if existing_response is not None:
+            from .models import Answer
+            saved = (Answer.objects.filter(response=existing_response, question=question)
+                     .values_list('text_answer', flat=True).first())
+            if valid_timezone(saved):
+                return saved
+        return None

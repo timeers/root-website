@@ -1570,6 +1570,40 @@ class AvailabilityViewTests(_NoLoginSignalMixin, TestCase):
             .exclude(available_hours=[]).exists()
         )
 
+    def test_an_uncurated_zone_is_accepted(self):
+        """The page adds the browser-detected zone on top of the curated list,
+        and the curated list has gaps (Darwin, Kabul, Nuuk...). Any real zone
+        must save, or those players can never set their timezone here."""
+        response = self.client.post(self.url, {
+            'timezone': 'Australia/Darwin',
+            'available_hours': '9',
+            'action': 'save',
+        })
+        self.assertRedirects(response, self.url)
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'Australia/Darwin')
+
+    def test_a_legacy_alias_is_saved_canonical(self):
+        self.client.post(self.url, {
+            'timezone': 'Asia/Calcutta', 'available_hours': '', 'action': 'save'})
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'Asia/Kolkata')
+
+    def test_an_uncurated_profile_zone_renders_selected(self):
+        """Before, it wasn't an option at all: the select fell back to its first
+        entry (Honolulu) and the next save silently overwrote the profile."""
+        self.profile.timezone = 'Australia/Darwin'
+        self.profile.save(update_fields=['timezone'])
+
+        response = self.client.get(self.url)
+
+        self.assertContains(response, 'Your current timezone')
+        self.assertRegex(response.content.decode(),
+                         r'<option value="Australia/Darwin"\s+selected>')
+
+    def test_the_page_loads_the_browser_detection_script(self):
+        self.assertContains(self.client.get(self.url), 'timezone_select.js')
+
     def test_empty_grid_clears_availability(self):
         schedule = general_schedule_for(self.profile)
         schedule.available_hours = [1, 2, 3]

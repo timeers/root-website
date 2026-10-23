@@ -676,6 +676,221 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
         self.assertEqual(response.timezone_name, 'America/Denver')
 
 
+class TimezoneQuestionTests(_SurveyTestBase):
+    """The Timezone ('TZ') question: the /availability picker inside a survey,
+    pre-filled from the profile, whose answer is stored as an IANA name and
+    copied back to the profile. Any valid zone is accepted -- the page adds the
+    browser-detected zone, which the curated list often lacks."""
+
+    def setUp(self):
+        super().setUp()
+        self.profile.timezone = None
+        self.profile.save(update_fields=['timezone'])
+        self.survey = self._survey(created_by=self.profile, allow_edit_responses=True)
+        self.tz = Question.objects.create(
+            survey=self.survey, text='What is your timezone?',
+            question_type=Question.QuestionType.TIMEZONE, order=1, required=True)
+        self.field = f'question_{self.tz.id}'
+        self.url = reverse('survey-take', kwargs={'slug': self.survey.slug})
+        self.client.force_login(self.user)
+
+    def _post(self, zone, browser='America/Denver', url=None):
+        return self.client.post(url or self.url, {
+            self.field: zone,
+            'timezone_offset_hours': '-7',
+            'timezone_name': browser,
+        })
+
+    def _form(self, **kwargs):
+        from the_tavern.forms import SurveyResponseForm
+        return SurveyResponseForm(survey=self.survey, profile=self.profile, **kwargs)
+
+    def _options(self, form):
+        """Every option value in the TZ select, flattened across optgroups."""
+        values = []
+        for value, label in form.fields[self.field].choices:
+            if isinstance(label, (list, tuple)):
+                values.extend(v for v, _l in label)
+            else:
+                values.append(value)
+        return values
+
+    # ---- saving ------------------------------------------------------------
+
+    def test_an_uncurated_zone_is_saved_to_the_answer_and_the_profile(self):
+        """Darwin isn't in the curated list -- it reaches us through the
+        browser-detected option."""
+        self._post('Australia/Darwin')
+
+        answer = Answer.objects.get(question=self.tz)
+        self.assertEqual(answer.text_answer, 'Australia/Darwin')
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'Australia/Darwin')
+
+    def test_a_legacy_alias_is_stored_as_the_canonical_zone(self):
+        """Chrome reports Asia/Calcutta; the curated list (and labels) use Kolkata."""
+        self._post('Asia/Calcutta')
+
+        self.assertEqual(Answer.objects.get(question=self.tz).text_answer, 'Asia/Kolkata')
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'Asia/Kolkata')
+
+    def test_an_invalid_zone_is_rejected(self):
+        response = self._post('Not/AZone')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(SurveyResponse.objects.filter(survey=self.survey).exists())
+        self.profile.refresh_from_db()
+        self.assertIsNone(self.profile.timezone)
+
+    def test_the_answer_overwrites_an_existing_profile_timezone(self):
+        self.profile.timezone = 'Europe/Berlin'
+        self.profile.save(update_fields=['timezone'])
+
+        self._post('America/Los_Angeles')
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'America/Los_Angeles')
+
+    def test_the_response_keeps_the_browser_zone_for_ta_and_dy(self):
+        """The PROFILE takes the answer, but the response's timezone_name stays
+        the browser's: it interprets TA/DY answers, and the TA grid is drawn in
+        the browser's offset. A pre-filled TZ answer must not shift it."""
+        self._post('America/Los_Angeles', browser='America/Denver')
+
+        response = SurveyResponse.objects.get(survey=self.survey)
+        self.assertEqual(response.timezone_name, 'America/Denver')
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'America/Los_Angeles')
+
+    def test_the_answer_is_the_response_zone_when_the_browser_sent_none(self):
+        self._post('America/Los_Angeles', browser='')
+
+        response = SurveyResponse.objects.get(survey=self.survey)
+        self.assertEqual(response.timezone_name, 'America/Los_Angeles')
+
+    def test_editing_restates_the_answer(self):
+        self._post('America/Los_Angeles')
+        response = SurveyResponse.objects.get(survey=self.survey)
+
+        self._post('Asia/Tokyo', url=reverse('survey-edit-response', kwargs={
+            'slug': self.survey.slug, 'response_id': response.pk}))
+
+        self.assertEqual(Answer.objects.get(question=self.tz).text_answer, 'Asia/Tokyo')
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'Asia/Tokyo')
+
+    # ---- pre-fill and options ----------------------------------------------
+
+    def test_the_take_form_starts_on_the_profile_zone(self):
+        self.profile.timezone = 'Europe/Berlin'
+        self.profile.save(update_fields=['timezone'])
+
+        self.assertEqual(self._form().initial[self.field], 'Europe/Berlin')
+
+    def test_with_no_profile_zone_the_field_starts_blank(self):
+        """Blank is what tells the page's script to select the browser zone."""
+        self.assertNotIn(self.field, self._form().initial)
+
+    def test_editing_starts_on_the_current_profile_zone_not_the_saved_answer(self):
+        """The player changed their zone on /availability after answering. Pre-
+        filling the stale answer would roll that back on any unrelated edit."""
+        self._post('America/Los_Angeles')
+        self.profile.timezone = 'Europe/Berlin'
+        self.profile.save(update_fields=['timezone'])
+        response = SurveyResponse.objects.get(survey=self.survey)
+
+        form = self._form(existing_response=response)
+
+        self.assertEqual(form.initial[self.field], 'Europe/Berlin')
+
+    def test_editing_falls_back_to_the_saved_answer(self):
+        self._post('America/Los_Angeles')
+        self.profile.timezone = None
+        self.profile.save(update_fields=['timezone'])
+        response = SurveyResponse.objects.get(survey=self.survey)
+
+        form = self._form(existing_response=response)
+
+        self.assertEqual(form.initial[self.field], 'America/Los_Angeles')
+
+    def test_the_options_match_the_availability_picker(self):
+        from the_gatehouse.forms import PlayerScheduleForm
+        survey_options = self._options(self._form())
+        availability_options = [
+            v for _g, opts in PlayerScheduleForm().fields['timezone'].choices
+            for v, _l in opts]
+
+        self.assertEqual(survey_options[0], '')  # the "---------" placeholder
+        self.assertEqual(survey_options[1:], availability_options)
+
+    def test_an_uncurated_profile_zone_is_offered_and_selected(self):
+        """Otherwise the select can't show it, and saving would overwrite it."""
+        self.profile.timezone = 'Australia/Darwin'
+        self.profile.save(update_fields=['timezone'])
+
+        form = self._form()
+
+        self.assertIn('Australia/Darwin', self._options(form))
+        self.assertEqual(form.initial[self.field], 'Australia/Darwin')
+
+    def test_a_posted_uncurated_zone_stays_selectable_on_re_render(self):
+        from the_tavern.forms import SurveyResponseForm
+        form = SurveyResponseForm({self.field: 'Australia/Darwin'},
+                                  survey=self.survey, profile=self.profile)
+
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertIn('Australia/Darwin', self._options(form))
+
+    def test_the_take_page_renders_the_picker(self):
+        page = self.client.get(self.url)
+
+        self.assertContains(page, 'data-tz-question')
+        self.assertContains(page, 'timezone_select.js')
+
+    # ---- display -------------------------------------------------------------
+
+    def test_display_value_has_no_offset(self):
+        """CSV/admin text must not change between summer and winter exports."""
+        response = self._response(self.survey)
+        curated = Answer.objects.create(response=response, question=self.tz,
+                                        text_answer='Asia/Tokyo')
+        self.assertEqual(curated.get_display_value(), 'Tokyo (Asia/Tokyo)')
+        curated.text_answer = 'Australia/Darwin'
+        self.assertEqual(curated.get_display_value(), 'Australia/Darwin')
+        curated.text_answer = None
+        self.assertEqual(curated.get_display_value(), 'No answer')
+
+    def test_csv_export_and_results_show_the_zone(self):
+        self._post('Asia/Tokyo')
+
+        csv_body = self.client.get(reverse(
+            'survey-export-csv', kwargs={'slug': self.survey.slug})).content.decode()
+        self.assertIn('Tokyo (Asia/Tokyo)', csv_body)
+
+        results = self.client.get(reverse('survey-results', kwargs={'slug': self.survey.slug}))
+        self.assertEqual(results.status_code, 200)
+        self.assertContains(results, 'Tokyo')
+
+    # ---- Answer.clean() ------------------------------------------------------
+
+    def test_full_clean_accepts_a_valid_zone(self):
+        answer = Answer(response=self._response(self.survey), question=self.tz,
+                        text_answer='Australia/Darwin')
+        answer.full_clean()
+
+    def test_full_clean_rejects_an_invalid_zone(self):
+        answer = Answer(response=self._response(self.survey), question=self.tz,
+                        text_answer='Not/AZone')
+        with self.assertRaises(ValidationError):
+            answer.full_clean()
+
+    def test_full_clean_rejects_a_missing_required_zone(self):
+        answer = Answer(response=self._response(self.survey), question=self.tz)
+        with self.assertRaises(ValidationError):
+            answer.full_clean()
+
+
 class WeeklyAvailabilityGridRenderTests(_SurveyTestBase):
     """The grid partial loops over `days` and `hours`, so a view that renders
     take_survey.html without them produces an EMPTY BOX and no error anywhere.
@@ -947,47 +1162,39 @@ class SeedTimezoneTemplateCommandTests(TestCase):
         return QuestionTemplate.objects.filter(name='Timezone', is_public=True)
 
     def test_creates_the_public_template(self):
-        from the_tavern.management.commands.seed_timezone_template import TIMEZONE_CHOICES
         self._templates().delete()
         self._run()
         template = self._templates().get()
-        self.assertEqual(template.question_type, Question.QuestionType.MULTIPLE_CHOICE)
-        self.assertTrue(template.display_as_dropdown)
+        self.assertEqual(template.question_type, Question.QuestionType.TIMEZONE)
         self.assertIsNone(template.created_by)
-        self.assertEqual(template.choices_data, TIMEZONE_CHOICES)
+        self.assertEqual(template.choices_data, [])
+        self.assertFalse(template.display_as_dropdown)
 
     def test_rerunning_does_not_duplicate_or_overwrite(self):
         self._templates().delete()
         self._run()
-        self._templates().update(choices_data=['Custom (Europe/Berlin)'])
+        self._templates().update(help_text='Custom help')
         self._run()
         self.assertEqual(self._templates().count(), 1)
-        self.assertEqual(self._templates().get().choices_data, ['Custom (Europe/Berlin)'])
+        self.assertEqual(self._templates().get().help_text, 'Custom help')
 
-    def test_update_refreshes_an_existing_template(self):
-        from the_tavern.management.commands.seed_timezone_template import TIMEZONE_CHOICES
+    def test_update_converts_the_old_multiple_choice_template(self):
+        """--update turns the old 25-zone MC dropdown into a TZ question and
+        clears its choices -- leaving them would carry the stale list along."""
+        from the_tavern.models import QuestionTemplate
         self._templates().delete()
-        self._run()
-        self._templates().update(choices_data=['Custom (Europe/Berlin)'], display_as_dropdown=False)
+        QuestionTemplate.objects.create(
+            name='Timezone', is_public=True, text='What is your timezone?',
+            question_type=Question.QuestionType.MULTIPLE_CHOICE,
+            display_as_dropdown=True,
+            choices_data=['US Pacific — PT (America/Los_Angeles)'],
+            correct_choice_index=0)
         self._run('--update')
         template = self._templates().get()
-        self.assertEqual(template.choices_data, TIMEZONE_CHOICES)
-        self.assertTrue(template.display_as_dropdown)
-
-    def test_every_choice_maps_back_to_a_valid_zone(self):
-        """Answering the seeded question with ANY choice records a timezone --
-        driven through the real _survey_timezone_answer, not a copy of its regex."""
-        from the_tavern.management.commands.seed_timezone_template import TIMEZONE_CHOICES
-        from the_tavern.views import _survey_timezone_answer
-        survey = Survey.objects.create(title='TZ survey')
-        question = Question.objects.create(
-            survey=survey, text='What is your timezone?',
-            question_type=Question.QuestionType.MULTIPLE_CHOICE, order=0)
-        for i, label in enumerate(TIMEZONE_CHOICES):
-            choice = Choice.objects.create(question=question, text=label, order=i)
-            response = SurveyResponse.objects.create(survey=survey)
-            Answer.objects.create(response=response, question=question, selected_choice=choice)
-            self.assertIsNotNone(_survey_timezone_answer(survey, response), label)
+        self.assertEqual(template.question_type, Question.QuestionType.TIMEZONE)
+        self.assertEqual(template.choices_data, [])
+        self.assertFalse(template.display_as_dropdown)
+        self.assertIsNone(template.correct_choice_index)
 
     def test_the_utc_choice_records_plain_utc(self):
         """Plain "UTC", not "Etc/UTC": it's what the app's timezone pickers offer."""

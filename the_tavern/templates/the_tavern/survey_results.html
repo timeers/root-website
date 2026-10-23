@@ -74,8 +74,8 @@
                     </div>
                 {% endif %}
 
-                {% if question_data.question.question_type == 'MC' or question_data.question.question_type == 'YN' or question_data.question.question_type == 'MS' %}
-                    {# Choice-based questions - show bar chart #}
+                {% if question_data.question.question_type == 'MC' or question_data.question.question_type == 'YN' or question_data.question.question_type == 'MS' or question_data.question.question_type == 'TZ' %}
+                    {# Choice-based questions (and Timezone, shaped the same) - show bar chart #}
                     {% for result in question_data.results %}
                         <div class="mb-3">
                             <div class="d-flex justify-content-between mb-1">

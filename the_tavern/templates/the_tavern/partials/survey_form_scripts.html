@@ -457,7 +457,8 @@ const questionTypes = {
     'DA': 'Date',
     'TI': 'Time',
     'DT': 'Date & Time',
-    'NU': 'Numeric'
+    'NU': 'Numeric',
+    'TZ': 'Timezone'
 };
 
 // Component types for Post-based choices
@@ -1141,6 +1142,16 @@ function handleTypeChange(questionId, existingData = null) {
                 7&times;24 grid shown in their own timezone. On a Series survey this sets the
                 player's schedule directly, and replaces any Time or Day Availability
                 questions in the same survey.</small>
+            </div>
+        `;
+    } else if (type === 'TZ') {
+        // Timezone - the shared timezone picker, no per-question config to collect
+        optionsContainer.innerHTML = `
+            <div class="alert alert-info">
+                <i class="bi bi-globe"></i> <strong>Timezone Question</strong><br>
+                <small>Shows the same timezone list as the availability page, pre-filled with
+                the respondent's profile timezone (or the one their browser reports). Their
+                answer updates their profile timezone.</small>
             </div>
         `;
     } else if (type === 'YN') {

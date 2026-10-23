@@ -185,6 +185,68 @@ def timezone_regions():
     return TIMEZONE_REGIONS
 
 
+def timezone_choice_groups(current=None):
+    """The curated regions as Django <optgroup> choices:
+    [(region_label, [(iana, "City — UTC±N"), ...]), ...].
+
+    Shared by every website timezone picker (/availability, the survey Timezone
+    question) so they can't drift apart. Only ever returns GROUPS -- the
+    /availability template unpacks every entry as (label, options), so a caller
+    wanting a blank placeholder adds it itself.
+
+    `current` is the zone already on record (or just posted). When it is a valid
+    zone outside the curated list -- set via the bot's `timezone` autocomplete, or
+    the browser-detected option -- it gets a group of its own at the top, so the
+    picker can show it selected instead of silently falling back to the first
+    option and overwriting it on save."""
+    groups = []
+    current = canonical_timezone(current)
+    if valid_timezone(current) and current not in _ZONE_LABELS:
+        groups.append(("Your current timezone",
+                       [(current, describe_timezone(current) or current)]))
+    for region in TIMEZONE_REGIONS:
+        groups.append((region["label"],
+                       [(zone, describe_timezone(zone) or label)
+                        for zone, label in region["zones"]]))
+    return groups
+
+
+# Legacy IANA link names -> the canonical zone. Browsers (Chrome/ICU especially)
+# still report the old spelling, e.g. Asia/Calcutta for an Indian player; ZoneInfo
+# accepts both, but only the canonical one matches the curated list, so without
+# this the same player would get a duplicate "detected" entry and an unlabelled
+# zone on their profile. Mirrored in the_keep/static/the_keep/timezone_select.js.
+_TIMEZONE_ALIASES = {
+    "Asia/Calcutta": "Asia/Kolkata",
+    "Asia/Saigon": "Asia/Ho_Chi_Minh",
+    "Asia/Katmandu": "Asia/Kathmandu",
+    "Asia/Rangoon": "Asia/Yangon",
+    "Asia/Dacca": "Asia/Dhaka",
+    "Europe/Kiev": "Europe/Kyiv",
+    "America/Buenos_Aires": "America/Argentina/Buenos_Aires",
+    "America/Godthab": "America/Nuuk",
+    "Pacific/Enderbury": "Pacific/Kanton",
+    "Atlantic/Faeroe": "Atlantic/Faroe",
+    "Etc/UTC": "UTC",
+    "Etc/GMT": "UTC",
+    "Etc/Universal": "UTC",
+    "Etc/Zulu": "UTC",
+    "GMT": "UTC",
+    "UCT": "UTC",
+}
+
+
+def canonical_timezone(name):
+    """`name` with a legacy alias swapped for its canonical zone. Anything else --
+    including invalid input -- comes back unchanged (stripped), so callers still
+    validate with valid_timezone()."""
+    if not name:
+        return name
+    name = name.strip()
+    target = _TIMEZONE_ALIASES.get(name)
+    return target if target and valid_timezone(target) else name
+
+
 def zones_for_region(key):
     """[(iana, label)] for a region key, or [] when the key is unknown."""
     for region in TIMEZONE_REGIONS:

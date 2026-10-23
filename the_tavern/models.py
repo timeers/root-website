@@ -526,6 +526,16 @@ class Survey(models.Model):
             ]
         ).exists()
 
+    def has_weekly_availability_question(self):
+        """True if a visible WEEKLY_AVAILABILITY question is on the take page.
+        A Timezone question uses it to warn that its grid is drawn in the zone
+        already on record, not the one being picked."""
+        from .models import Question
+        return self.questions.filter(
+            is_hidden=False,
+            question_type=Question.QuestionType.WEEKLY_AVAILABILITY,
+        ).exists()
+
 
 class LikertScale(models.Model):
     name = models.CharField(max_length=100, help_text="Name for this scale (e.g., '5-point Agreement')")
@@ -636,6 +646,7 @@ class Question(models.Model):
         DAY_AVAILABILITY = 'DY', 'Day Availability'
         WEEKLY_AVAILABILITY = 'WA', 'Weekly Availability'
         NUMERIC = 'NU', 'Numeric'
+        TIMEZONE = 'TZ', 'Timezone'
 
     survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='questions')
     section = models.ForeignKey(
@@ -1351,6 +1362,20 @@ class Answer(models.Model):
                 raise ValidationError(
                     "Only availability hours are allowed for weekly availability.")
 
+        # TIMEZONE - an IANA zone name in text_answer. Not limited to the
+        # curated picker list: the browser-detected option posts any real zone.
+        elif qtype == Question.QuestionType.TIMEZONE:
+            from the_databot.services.time_parsing import valid_timezone
+            if self.question.required and not self.text_answer:
+                raise ValidationError("Timezone question requires a timezone.")
+            if self.text_answer and not valid_timezone(self.text_answer):
+                raise ValidationError("That isn't a timezone we recognize.")
+            # selected_choices is deliberately NOT checked, as for WA above.
+            if (self.selected_choice or self.numeric_answer is not None
+                    or self.date_answer or self.time_answer
+                    or self.availability_hours is not None):
+                raise ValidationError("Only a timezone is allowed for timezone questions.")
+
         # OPEN ENDED
         elif qtype == Question.QuestionType.OPEN_ENDED:
             if self.question.required and not self.text_answer:
@@ -1491,6 +1516,16 @@ class Answer(models.Model):
             return self.get_weekly_availability_display()
         elif qtype == Question.QuestionType.OPEN_ENDED:
             return self.text_answer or "No answer"
+        elif qtype == Question.QuestionType.TIMEZONE:
+            # Label plus the IANA name, but no UTC offset: this feeds the CSV
+            # export, and an offset would make the same zone read differently
+            # depending on whether it was exported in summer or winter.
+            from the_databot.services.time_parsing import timezone_label
+            zone = self.text_answer
+            if not zone:
+                return "No answer"
+            label = timezone_label(zone)
+            return f"{label} ({zone})" if label != zone else zone
         elif qtype == Question.QuestionType.BOOLEAN:
             return self.selected_choice.get_display_text() if self.selected_choice else "No answer"
         elif qtype == Question.QuestionType.SCALE:

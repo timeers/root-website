@@ -84,7 +84,8 @@
 
             <div class="row g-2 align-items-center">
               <div class="col-md-7">
-                <select name="timezone" id="id_timezone" class="form-select">
+                <select name="timezone" id="id_timezone" class="form-select"
+                        data-detected-label="{% trans 'Detected from your browser' %}">
                   {% for group_label, options in form.fields.timezone.choices %}
                     <optgroup label="{{ group_label }}">
                       {% for value, label in options %}
@@ -257,6 +258,7 @@ swaps #grid-container's innerHTML with it, then re-runs initAvailabilityGrid
 on the fresh DOM, rather than trying to reconstruct the grid client-side.
 {% endcomment %}
 <script src="{% static 'the_keep/availability_grid.js' %}"></script>
+<script src="{% static 'the_keep/timezone_select.js' %}"></script>
 <script>
 (function () {
   var gridContainer = document.getElementById('grid-container');
@@ -561,25 +563,17 @@ on the fresh DOM, rather than trying to reconstruct the grid client-side.
   // zone is the one in use (no saved profile zone). See labelPartialHourZone.
   var browserMinute = 0;
   var drawnField = document.getElementById('id_drawn_timezone');
-  if (!savedTz) {
-    try {
-      var browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      if (browserTz) {
-        var match = Array.prototype.find.call(tzSelect.options, function (o) {
-          return o.value === browserTz;
-        });
-        if (match) {
-          tzSelect.value = browserTz;
-          // The server rendered in UTC but the picker now says the browser zone,
-          // so that is the zone the user is actually painting in. Without this the
-          // first save would be interpreted as UTC and land an offset off.
-          drawnField.value = browserTz;
-          // ...and in a :30/:45 zone the rows must say so, or "9am" would be
-          // saved as 9:30 (see labelPartialHourZone below).
-          browserMinute = window.browserMinuteOffset();
-        }
-      }
-    } catch (err) { /* Intl unavailable -- the server default stands. */ }
+  // The browser's zone is always offered at the top of the picker (even when
+  // it isn't in the curated list); it is only SELECTED when there's no saved one.
+  var browserTz = window.enhanceTimezoneSelect(tzSelect, {preselect: !savedTz});
+  if (browserTz) {
+    // The server rendered in UTC but the picker now says the browser zone,
+    // so that is the zone the user is actually painting in. Without this the
+    // first save would be interpreted as UTC and land an offset off.
+    drawnField.value = browserTz;
+    // ...and in a :30/:45 zone the rows must say so, or "9am" would be
+    // saved as 9:30 (see labelPartialHourZone below).
+    browserMinute = window.browserMinuteOffset();
   }
 
   // ---- :30 / :45 zones -------------------------------------------------------

@@ -163,6 +163,16 @@
                                 {% endif %}
                             </div>
 
+                        {# Timezone #}
+                        {% elif answer.question.question_type == 'TZ' %}
+                            <div class="mt-2">
+                                {% if answer.text_answer %}
+                                    <span class="badge bg-primary"><i class="bi bi-globe me-1"></i>{{ answer.get_display_value }}</span>
+                                {% else %}
+                                    <em class="text-muted">{% trans 'No timezone selected' %}</em>
+                                {% endif %}
+                            </div>
+
                         {# Open Ended #}
                         {% elif answer.question.question_type == 'OE' %}
                             <div class="mt-2">
