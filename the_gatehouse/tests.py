@@ -2800,7 +2800,7 @@ class TimezoneCodeTests(TestCase):
 
 
 class DisplayTimezoneCompareTests(_NoLoginSignalMixin, TestCase):
-    """Profile.display_timezone: opt-in badge on the comparison page, editable
+    """Profile.display_timezone: opt-out badge on the comparison page, editable
     from /availability alongside the timezone picker itself."""
 
     def setUp(self):
@@ -2818,37 +2818,38 @@ class DisplayTimezoneCompareTests(_NoLoginSignalMixin, TestCase):
         self.client.force_login(self.user)
         self.compare_url = reverse('availability-compare')
 
-    def test_defaults_to_false(self):
-        self.assertFalse(self.profile.display_timezone)
+    def test_defaults_to_true(self):
+        self.assertTrue(self.profile.display_timezone)
 
-    def test_badge_absent_by_default_even_with_a_timezone_set(self):
-        response = self.client.get(self.compare_url, {'lfg': self.thread.pk})
-        self.assertNotContains(response, 'title="America/New_York"')
-
-    def test_badge_shown_when_opted_in(self):
+    def test_badge_shown_by_default(self):
         from the_databot.services.time_parsing import timezone_code
-        self.profile.display_timezone = True
-        self.profile.save(update_fields=['display_timezone'])
         response = self.client.get(self.compare_url, {'lfg': self.thread.pk})
         self.assertContains(response, 'title="America/New_York"')
         # EST in winter, EDT in summer -- assert whichever actually applies right
         # now rather than hard-coding one, since %Z is correctly DST-aware.
         self.assertContains(response, timezone_code('America/New_York'))
 
+    def test_badge_absent_when_opted_out_even_with_a_timezone_set(self):
+        self.profile.display_timezone = False
+        self.profile.save(update_fields=['display_timezone'])
+        response = self.client.get(self.compare_url, {'lfg': self.thread.pk})
+        self.assertNotContains(response, 'title="America/New_York"')
+
     def test_checkbox_round_trips_through_the_availability_form(self):
         url = reverse('availability')
         response = self.client.get(url)
-        self.assertFalse(response.context['form']['display_timezone'].value())
+        self.assertTrue(response.context['form']['display_timezone'].value())
 
+        # An unchecked box posts nothing.
         self.client.post(url, {
             'timezone': 'America/New_York', 'drawn_timezone': 'America/New_York',
-            'available_hours': '9', 'action': 'save', 'display_timezone': 'on',
+            'available_hours': '9', 'action': 'save',
         })
         self.profile.refresh_from_db()
-        self.assertTrue(self.profile.display_timezone)
+        self.assertFalse(self.profile.display_timezone)
 
         response = self.client.get(url)
-        self.assertTrue(response.context['form']['display_timezone'].value())
+        self.assertFalse(response.context['form']['display_timezone'].value())
 
     def test_saving_display_timezone_does_not_clobber_the_timezone_field(self):
         """The two fields ride in one update_fields save; only one changing must

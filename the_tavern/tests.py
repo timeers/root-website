@@ -583,8 +583,9 @@ class SurveyTimezoneNameTests(_SurveyTestBase):
 
 
 class SurveyProfileTimezoneTests(_SurveyTestBase):
-    """A survey submission seeds a BLANK profile timezone, so a player who never
-    visits /availability still gets their hours shown in their own time."""
+    """A survey submission seeds a BLANK profile timezone from the browser, so a
+    player who never visits /availability still gets their hours shown in their
+    own time. An answered timezone question overwrites whatever is there."""
 
     def setUp(self):
         super().setUp()
@@ -606,7 +607,7 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
         return question, Choice.objects.create(
             question=question, text='US Pacific — PT (America/Los_Angeles)', order=0)
 
-    def _post(self, extra=None):
+    def _post(self, extra=None, url=None):
         data = {
             f'question_{self.wa.id}': '10',
             f'question_{self.wa.id}_timezone': 'UTC',
@@ -614,7 +615,7 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
             'timezone_name': 'America/Denver',
         }
         data.update(extra or {})
-        return self.client.post(self.url, data)
+        return self.client.post(url or self.url, data)
 
     def test_a_blank_profile_timezone_is_set_from_the_browser(self):
         self._post()
@@ -631,7 +632,7 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.timezone, 'America/Los_Angeles')
 
-    def test_an_existing_profile_timezone_is_never_overwritten(self):
+    def test_an_existing_profile_timezone_is_not_overwritten_by_the_browser(self):
         self.profile.timezone = 'Europe/Berlin'
         self.profile.save(update_fields=['timezone'])
 
@@ -639,6 +640,34 @@ class SurveyProfileTimezoneTests(_SurveyTestBase):
 
         self.profile.refresh_from_db()
         self.assertEqual(self.profile.timezone, 'Europe/Berlin')
+
+    def test_a_timezone_answer_overwrites_an_existing_profile_timezone(self):
+        self.profile.timezone = 'Europe/Berlin'
+        self.profile.save(update_fields=['timezone'])
+        question, choice = self._tz_question()
+
+        self._post({f'question_{question.id}': str(choice.id)})
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'America/Los_Angeles')
+
+    def test_re_saving_an_edit_with_the_answer_overwrites_again(self):
+        """Every save that carries a timezone answer restates it, even when the
+        answer itself didn't change."""
+        self.survey.allow_edit_responses = True
+        self.survey.save(update_fields=['allow_edit_responses'])
+        question, choice = self._tz_question()
+        answer = {f'question_{question.id}': str(choice.id)}
+        self._post(answer)
+        self.profile.timezone = 'Europe/Berlin'
+        self.profile.save(update_fields=['timezone'])
+
+        response = SurveyResponse.objects.get(survey=self.survey)
+        self._post(answer, url=reverse('survey-edit-response', kwargs={
+            'slug': self.survey.slug, 'response_id': response.pk}))
+
+        self.profile.refresh_from_db()
+        self.assertEqual(self.profile.timezone, 'America/Los_Angeles')
 
     def test_the_response_records_the_zone_it_was_taken_in(self):
         self._post()

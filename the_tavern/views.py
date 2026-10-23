@@ -92,16 +92,18 @@ def _survey_timezone_answer(survey, survey_response):
 
 
 def _adopt_response_timezone(survey, survey_response, request):
-    """Record the response's zone, and seed a BLANK profile timezone from it.
+    """Record the response's zone, and copy it to the profile when it should win.
 
-    Only fills a profile that has none. A zone the player chose on /availability
-    is a deliberate setting, and a survey taken while travelling must not
-    silently overwrite it.
+    An answered timezone QUESTION is a deliberate setting, like picking one on
+    /availability or in the bot, so it overwrites the profile -- on every save,
+    edits included. The browser-detected zone only seeds a profile that has
+    none: a survey taken while travelling must not silently rewrite a zone the
+    player chose.
     """
     from the_databot.services.time_parsing import valid_timezone
 
-    tz_name = (_survey_timezone_answer(survey, survey_response)
-               or _posted_timezone_name(request))
+    answered_tz = _survey_timezone_answer(survey, survey_response)
+    tz_name = answered_tz or _posted_timezone_name(request)
     if not tz_name:
         return
 
@@ -110,7 +112,13 @@ def _adopt_response_timezone(survey, survey_response, request):
         survey_response.save(update_fields=['timezone_name'])
 
     profile = survey_response.profile
-    if profile and not valid_timezone(profile.timezone):
+    if not profile:
+        return
+    if answered_tz:
+        should_write = profile.timezone != answered_tz
+    else:
+        should_write = not valid_timezone(profile.timezone)
+    if should_write:
         profile.timezone = tz_name
         # update_fields is required, not an optimisation: a bare save()
         # re-derives display_name and runs Profile.save()'s avatar branch.
