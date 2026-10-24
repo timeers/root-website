@@ -987,6 +987,9 @@ class CreateGameThreadsEndpointTests(TestCase):
             round=self.round, group_number=1, name="Group A")
         self.series = MatchSeries.objects.create(
             round=self.round, player_group=self.group, number_of_games=1)
+        # A series only gets a thread while it has a match still to play.
+        self.match = Match.objects.create(
+            round=self.round, series=self.series, match_number=1)
 
     def _url(self, tournament=None, stage=None, round=None):
         return reverse('round-create-game-threads', kwargs={
@@ -1071,6 +1074,36 @@ class CreateGameThreadsEndpointTests(TestCase):
         self.group.discord_thread = f"https://discord.com/channels/{self.guild.guild_id}/999"
         self.group.save()
         self.assertEqual(_threads_to_create_count(self.round), 0)
+
+    def test_a_series_with_no_matches_is_not_counted(self):
+        from the_warroom.views import _threads_to_create_count
+        self.match.delete()
+        self.assertEqual(_threads_to_create_count(self.round), 0)
+
+    def test_a_series_with_only_completed_matches_is_not_counted(self):
+        """Nothing left to coordinate, so no thread to create."""
+        from the_warroom.views import _threads_to_create_count
+        Match.objects.filter(pk=self.match.pk).update(status=CompetitionStatus.COMPLETED)
+        self.assertEqual(_threads_to_create_count(self.round), 0)
+
+    def test_one_open_match_is_enough(self):
+        from the_warroom.views import _threads_to_create_count
+        Match.objects.filter(pk=self.match.pk).update(status=CompetitionStatus.COMPLETED)
+        Match.objects.create(round=self.round, series=self.series, match_number=2)
+        self.assertEqual(_threads_to_create_count(self.round), 1)
+
+    def test_several_open_matches_count_the_series_once(self):
+        """One thread per series, not per match."""
+        from the_warroom.views import _threads_to_create_count
+        Match.objects.create(round=self.round, series=self.series, match_number=2)
+        self.assertEqual(_threads_to_create_count(self.round), 1)
+
+    def test_a_round_of_completed_series_is_rejected(self):
+        Match.objects.filter(pk=self.match.pk).update(status=CompetitionStatus.COMPLETED)
+        self.client.force_login(self.host)
+        response, delay = self._post()
+        self.assertEqual(response.status_code, 400)
+        delay.assert_not_called()
 
 
 class GuildOnEveryClassificationTests(TestCase):

@@ -13577,6 +13577,47 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
         self.assertIn("p2", content)
         self.assertNotIn("p2 (p2)", content)
 
+    # --- which series qualify ---------------------------------------------------
+    # Only series with a match still to play: no matches, or only completed ones,
+    # leaves nothing to coordinate. Same rule as the matches-page count.
+
+    def test_a_series_with_no_matches_gets_no_thread(self):
+        self.match.delete()
+        create = self._run()
+        create.assert_not_called()
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.discord_thread, "")
+
+    def test_a_series_with_only_completed_matches_gets_no_thread(self):
+        Match.objects.filter(pk=self.match.pk).update(status=CompetitionStatus.COMPLETED)
+        create = self._run()
+        create.assert_not_called()
+        self.group.refresh_from_db()
+        self.assertEqual(self.group.discord_thread, "")
+
+    def test_only_series_with_an_open_match_get_threads(self):
+        done_group = PlayerGroup.objects.create(
+            round=self.round, group_number=2, name="Group Done")
+        done = MatchSeries.objects.create(
+            round=self.round, player_group=done_group, number_of_games=1)
+        Match.objects.create(round=self.round, series=done, match_number=2,
+                             status=CompetitionStatus.COMPLETED)
+        create = self._run()
+        create.assert_called_once()
+        self.assertEqual(create.call_args.args[1], "Group A")
+        done_group.refresh_from_db()
+        self.assertEqual(done_group.discord_thread, "")
+        note = UserNotification.objects.get(profile=self.actor)
+        self.assertIn("1 game thread created", note.message)
+
+    def test_an_active_match_with_an_unfinished_game_still_gets_a_thread(self):
+        """Linking a non-final game makes the match ACTIVE, not COMPLETED -- it is
+        still being played, so it still counts as open. Only the status matters to
+        the filter, so no Game row is needed here."""
+        Match.objects.filter(pk=self.match.pk).update(status=CompetitionStatus.ACTIVE)
+        create = self._run()
+        create.assert_called_once()
+
     def test_a_failed_creation_writes_no_url_and_reports_it(self):
         create = self._run(thread_id=None)
         create.assert_called_once()
@@ -13591,8 +13632,9 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
         for n in (2, 3):
             group = PlayerGroup.objects.create(
                 round=self.round, group_number=n, name=f"Group {n}")
-            MatchSeries.objects.create(
+            series = MatchSeries.objects.create(
                 round=self.round, player_group=group, number_of_games=1)
+            Match.objects.create(round=self.round, series=series, match_number=n)
         create = self._run()
         self.assertEqual(create.call_count, 3)
         # One pause per call after the first -- never before the first.

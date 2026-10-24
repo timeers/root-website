@@ -9229,14 +9229,8 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
 
 
 def _threads_to_create_count(round):
-    """How many series in this round still need a Discord thread.
-
-    discord_thread is blank=True WITHOUT null=True, so unlinked is the empty string --
-    an __isnull=True filter would match nothing.
-    """
-    return MatchSeries.objects.filter(
-        round=round, player_group__isnull=False,
-        player_group__discord_thread='').count()
+    """How many series in this round still need a Discord thread."""
+    return MatchSeries.needing_thread(round).count()
 
 
 @login_required
@@ -9297,7 +9291,8 @@ def round_create_game_threads(request, tournament_slug, stage_slug, round_slug):
     pending = _threads_to_create_count(round)
     if not pending:
         return JsonResponse(
-            {'error': 'Every match in this round already has a thread.'}, status=400)
+            {'error': 'Every match in this round still to be played already has a '
+                      'thread.'}, status=400)
 
     create_match_threads_task.delay(round.id, request.user.profile.id, tournament.id)
     return JsonResponse({'success': True, 'queued': pending})

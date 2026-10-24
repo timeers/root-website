@@ -9,6 +9,7 @@
 
 ### Improvements
 - Tournament mods can now edit tournament surveys
+- Creating threads for matches now ignores previously completed matches. Threads will only be created for unplayed matches that have no thread
 
 ## [1.13.15] - 2026-10-8 Multi-Kick-Clear
 

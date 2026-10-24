@@ -163,8 +163,8 @@
 
 {% comment %} Create Game Threads confirm. Lives here (not in schedule_button.html)
 because that partial is shared with the bracket pages. threads_to_create_count is
-computed server-side from series whose player group has discord_thread="" — the field is
-blank-not-null, so "no thread" is the empty string. {% endcomment %}
+computed server-side by MatchSeries.needing_thread: series with no thread linked yet
+and at least one match still to play. {% endcomment %}
 {% if create_game_threads_url %}
 <div class="modal fade" id="createThreadsModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-sm">
