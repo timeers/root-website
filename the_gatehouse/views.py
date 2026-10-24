@@ -20,6 +20,7 @@ from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.http import url_has_allowed_host_and_scheme, urlencode
 from django.views.decorators.http import require_POST
+from django.views.decorators.csrf import csrf_exempt
 from django.utils.translation import gettext_lazy as _
 from django.utils.translation import activate, get_language, ngettext
 from django.urls import reverse
@@ -31,7 +32,7 @@ from the_warroom.models import (Tournament, Round, Effort, Game, EloSystem,
 from the_keep.models import Faction, Post, RulesFile, LawGroup
 
 from .forms import UserRegisterForm, ProfileUpdateForm, PlayerCreateForm, UserManageForm, MessageForm, GuildJoinRequestForm, GlobalMessageForm, SendNotificationForm, ThemeForm, BackgroundImageForm, ForegroundImageForm, HolidayForm, DiscordNotificationsForm, GuildEditForm, GuildLFGRoleForm, TournamentGuildAutomationForm, PlayerScheduleForm, make_reminder_formset
-from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, PlayerSchedule, general_schedule_for, schedules_for
+from .models import Profile, Language, Website, Changelog, DiscordGuild, DiscordGuildJoinRequest, UserNotification, MessageChoices, Theme, BackgroundImage, ForegroundImage, PageChoices, Holiday, PlayerSchedule, general_schedule_for, schedules_for, Supporter
 from the_databot.models import GuildLFGRole
 from the_databot.services.discordservice import (get_guild_roles, get_guild_forum_channels,
                                       get_forum_channel_info,
@@ -41,6 +42,7 @@ from the_databot.services.discordservice import (get_guild_roles, get_guild_foru
 from .services.discord_oauth import update_discord_avatar, get_discord_invite_info, get_user_guilds
 from .services.steam_openid import build_redirect_url, read_link_token, verify_response
 from .services.context_service import get_daily_user_summary
+from .services import bmc
 from .utils import build_absolute_uri, plural
 from .tasks import send_rich_discord_message_task, send_discord_message_task
 from the_databot.tasks import register_guild_commands_task
@@ -2196,6 +2198,8 @@ def player_page_view(request, slug=None):
     )
     context = {
         'player': player,
+        'is_supporting_member': Supporter.active_members().filter(profile=player).exists(),
+        'bmc_url': bmc.BMC_PAGE_URL,
         'games_played': games_played,
         'posts_count': posts_count,
         'show_submissions': show_submissions,
@@ -3986,6 +3990,32 @@ def status_check(request):
 
     # Return a successful status
     return JsonResponse({'status': 'ok'}, status=200)
+
+
+@csrf_exempt
+@require_POST
+def bmc_webhook(request):
+    """Buy Me a Coffee webhook receiver. Logic lives in services/bmc.py.
+
+    Non-2xx makes BMC retry (15/30/45/60 min), which is what we want for real
+    failures; duplicates of an already-recorded event are acknowledged with 200."""
+    secret = settings.BMC_WEBHOOK_SECRET
+    if not secret:
+        return HttpResponse("webhook not configured", status=503)
+    if not bmc.verify_signature(request.body, secret, request.headers.get('X-Signature-Sha256', '')):
+        return HttpResponse("invalid signature", status=401)
+    try:
+        payload = json.loads(request.body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return HttpResponseBadRequest("bad request")
+    if not isinstance(payload, dict):
+        return HttpResponseBadRequest("bad request")
+    try:
+        bmc.process_event(payload)
+    except Exception:
+        logger.exception("BMC webhook processing failed for %s", payload.get('type'))
+        return HttpResponse("error", status=500)
+    return HttpResponse("ok")
 
 
 def profile_guilds_status(request):

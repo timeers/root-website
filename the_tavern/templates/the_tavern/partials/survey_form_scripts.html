@@ -461,6 +461,51 @@ const questionTypes = {
     'TZ': 'Timezone'
 };
 
+// Question types a survey may hold only ONE of -- hidden questions included.
+// Each writes a single value per player (their profile timezone, their General
+// Availability), so a second copy could never mean anything. Once one exists the
+// type is simply not offered for any other question; to use it again the author
+// restores the hidden one or deletes it with its responses.
+const SINGLE_USE_TYPES = ['TZ', 'WA'];
+const SINGLE_USE_MESSAGES = {
+    'TZ': '{% trans "This survey already has a Timezone question — only one is allowed per survey." %}',
+    'WA': '{% trans "This survey already has a General Availability question — only one is allowed per survey." %}'
+};
+
+// Single-use types already used by a question card other than `exceptCard`,
+// or by a hidden question.
+function takenSingleUseTypes(exceptCard) {
+    const taken = new Set();
+    document.querySelectorAll('.question-card').forEach(card => {
+        if (card === exceptCard) return;
+        const select = card.querySelector('.question-type');
+        if (select && SINGLE_USE_TYPES.includes(select.value)) taken.add(select.value);
+    });
+    if (typeof hiddenQuestions !== 'undefined') {
+        hiddenQuestions.forEach(q => {
+            if (SINGLE_USE_TYPES.includes(q.type)) taken.add(q.type);
+        });
+    }
+    return taken;
+}
+
+// Hide a single-use type from every type selector except the one using it.
+// Call after anything that adds, removes, hides, restores or retypes a question.
+function refreshSingleUseTypeOptions() {
+    document.querySelectorAll('.question-card').forEach(card => {
+        const select = card.querySelector('.question-type');
+        if (!select) return;
+        const taken = takenSingleUseTypes(card);
+        SINGLE_USE_TYPES.forEach(type => {
+            const option = select.querySelector(`option[value="${type}"]`);
+            if (!option) return;
+            const unavailable = taken.has(type) && select.value !== type;
+            option.hidden = unavailable;
+            option.disabled = unavailable;
+        });
+    });
+}
+
 // Component types for Post-based choices
 const componentTypes = {
     'Faction': 'Faction',
@@ -944,6 +989,11 @@ function loadExistingQuestions() {
 {% endif %}
 
 function loadQuestionFromTemplate(templateData) {
+    if (SINGLE_USE_TYPES.includes(templateData.type)
+            && takenSingleUseTypes(null).has(templateData.type)) {
+        alert(SINGLE_USE_MESSAGES[templateData.type]);
+        return;
+    }
     questionCounter++;
     const questionId = `question-${questionCounter}`;
     const container = document.getElementById('questions-container');
@@ -971,6 +1021,7 @@ function loadQuestionFromTemplate(templateData) {
     }
 
     initializeSortable();
+    refreshSingleUseTypeOptions();
     focusItem(questionId, 'question');
 }
 
@@ -993,6 +1044,7 @@ function addQuestion() {
 
     container.insertAdjacentHTML('beforeend', questionHtml);
     initializeSortable();
+    refreshSingleUseTypeOptions();
     focusItem(questionId, 'question');
 }
 
@@ -1077,6 +1129,9 @@ function renumberQuestions() {
         q.dataset.order = idx + 1;
         q.querySelector('.question-header strong').textContent = `Question ${idx + 1}`;
     });
+    // Runs after every remove, hide, delete and restore -- the moments a
+    // single-use type can become free or taken.
+    refreshSingleUseTypeOptions();
 }
 
 function handleTypeChange(questionId, existingData = null) {
@@ -1086,6 +1141,9 @@ function handleTypeChange(questionId, existingData = null) {
     const type = typeSelect.value;
 
     optionsContainer.innerHTML = '';
+    // A single-use type picked (or given up) here changes what the OTHER
+    // questions' type selectors may offer.
+    refreshSingleUseTypeOptions();
 
     if (type === 'TA') {
         // Time Availability - automatically creates 24 UTC hour choices
@@ -1140,7 +1198,8 @@ function handleTypeChange(questionId, existingData = null) {
                 <i class="bi bi-calendar-week"></i> <strong>General Availability Question</strong><br>
                 <small>Respondents mark every hour of a standard week they are free to start a game, on a
                 7&times;24 grid shown in their own timezone. Pre-filled with the respondent's
-                General Availability from the Availability page; their answer updates it.</small>
+                General Availability from the Availability page; their answer updates it.
+                Only one per survey.</small>
             </div>
         `;
     } else if (type === 'TZ') {
@@ -1148,7 +1207,7 @@ function handleTypeChange(questionId, existingData = null) {
         optionsContainer.innerHTML = `
             <div class="alert alert-info">
                 <i class="bi bi-globe"></i> <strong>Timezone Question</strong><br>
-                <small>Asks the user to set or update their timezone.</small>
+                <small>Asks the user to set or update their timezone. Only one per survey.</small>
             </div>
         `;
     } else if (type === 'YN') {
@@ -1608,6 +1667,18 @@ function addQuestionToHiddenDropdown(questionData) {
 }
 
 function restoreHiddenQuestion(questionId) {
+    // Only reachable on a survey that had duplicates before the one-per-survey
+    // rule: the type is taken by a visible question, so restoring would make two.
+    const hiddenEntry = (typeof hiddenQuestions !== 'undefined')
+        ? hiddenQuestions.find(q => q.id === questionId) : null;
+    if (hiddenEntry && SINGLE_USE_TYPES.includes(hiddenEntry.type)) {
+        const visibleTypes = new Set();
+        document.querySelectorAll('.question-card .question-type').forEach(sel => visibleTypes.add(sel.value));
+        if (visibleTypes.has(hiddenEntry.type)) {
+            alert(SINGLE_USE_MESSAGES[hiddenEntry.type]);
+            return;
+        }
+    }
     const dropdown = document.querySelector('.hidden-questions-dropdown');
     const menu = document.querySelector('.hidden-questions-menu');
     const countSpan = document.querySelector('.hidden-questions-count');
@@ -2116,6 +2187,13 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
         return false;
     }
 
+    // Single-use types already claimed -- hidden questions count. The type
+    // selectors stop a second copy being chosen; this only catches a survey
+    // that held duplicates from before the one-per-survey rule.
+    const claimedSingleUse = new Set(
+        (typeof hiddenQuestions !== 'undefined' ? hiddenQuestions : [])
+            .map(q => q.type).filter(t => SINGLE_USE_TYPES.includes(t)));
+
     questionCards.forEach(card => {
         const questionData = {
             _cardId: card.dataset.questionId,
@@ -2144,6 +2222,19 @@ document.getElementById('survey-form').addEventListener('submit', function(e) {
                 type: 'question_type',
                 message: '{% trans "Please select a question type." %}'
             });
+        }
+
+        // One Timezone / General Availability question per survey
+        if (SINGLE_USE_TYPES.includes(questionData.type)) {
+            if (claimedSingleUse.has(questionData.type)) {
+                validationErrors.push({
+                    questionId: card.dataset.questionId,
+                    questionOrder: questionData.order,
+                    type: 'question_type',
+                    message: SINGLE_USE_MESSAGES[questionData.type]
+                });
+            }
+            claimedSingleUse.add(questionData.type);
         }
 
         // Include existing question ID if present (edit mode)
@@ -2495,6 +2586,7 @@ window.addEventListener('DOMContentLoaded', function() {
     if (hiddenQuestions && hiddenQuestions.length > 0) {
         loadHiddenQuestions(hiddenQuestions);
     }
+    refreshSingleUseTypeOptions();
 });
 
 {% endif %}

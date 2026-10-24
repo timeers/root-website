@@ -17,7 +17,8 @@ class SetLanguageMiddleware:
         # work for it — otherwise the assignment below marks the session modified and
         # forces a synchronous django_session write on every interaction (and every
         # autocomplete keystroke), which competes for the 3s Discord response budget.
-        if request.path == '/discord/interactions/':
+        # The BMC webhook (/webhooks/bmc/) is the same kind of sessionless external POST.
+        if request.path in ('/discord/interactions/', '/webhooks/bmc/'):
             return self.get_response(request)
 
         language = None

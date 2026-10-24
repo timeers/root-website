@@ -2152,6 +2152,25 @@ class MatchSeries(models.Model):
         """
         return self.round.get_matches_url()
 
+    @classmethod
+    def needing_thread(cls, round):
+        """Series in `round` that Create Game Threads should post a thread for: has a
+        PlayerGroup with no thread linked yet, and at least one match still to play.
+        A series with no matches, or only completed ones, has nothing to coordinate.
+
+        Shared by the matches-page count and create_match_threads_task so the number
+        the modal promises is the number the task creates.
+
+        discord_thread is blank=True WITHOUT null=True, so unlinked is the empty
+        string -- an __isnull=True filter would match nothing. Exists rather than a
+        join, which would repeat a series once per open match.
+        """
+        open_matches = Match.objects.filter(
+            series=models.OuterRef('pk')).exclude(status=CompetitionStatus.COMPLETED)
+        return cls.objects.filter(
+            models.Exists(open_matches), round=round,
+            player_group__isnull=False, player_group__discord_thread='')
+
     def get_absolute_url(self, matches_url=None):
         """This series on its matches page: the page URL plus ?highlight_series=<id>,
         which matches.html uses to scroll to and highlight the card -- the same

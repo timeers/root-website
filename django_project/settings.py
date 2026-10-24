@@ -33,6 +33,9 @@ SECRET_KEY = config['SECRET_KEY']
 # Token for RDL Match API
 RDL_API_TOKEN = config.get('RDL_API_TOKEN', '')
 
+# Signing secret for the Buy Me a Coffee webhook (/webhooks/bmc/). Empty = endpoint rejects everything.
+BMC_WEBHOOK_SECRET = config.get('BMC_WEBHOOK_SECRET', '')
+
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = (config['DEBUG_VALUE'] == 'True')
 

@@ -488,7 +488,8 @@ def notify_multi_poll_task(notify_ids, event, actor_name=None, yes_ts=None,
 
 @shared_task
 def create_match_threads_task(round_id, profile_id, tournament_id):
-    """Create one forum thread per un-threaded MatchSeries in a round, ping its players,
+    """Create one forum thread per un-threaded MatchSeries in a round that still has a
+    match to play (MatchSeries.needing_thread), ping its players,
     and link the thread back to the PlayerGroup. Reports the outcome as a
     UserNotification pointing at the matches page.
 
@@ -529,11 +530,8 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
     # so the tag is not decoration -- omitting it fails the whole batch with a 400.
     tag_id = tournament.game_threads_tag
     created = skipped = failed = 0
-    # discord_thread is blank=True WITHOUT null=True -- unlinked is "", never NULL.
-    # An __isnull=True filter here would match nothing at all.
-    series_qs = (MatchSeries.objects
-                 .filter(round=round, player_group__isnull=False,
-                         player_group__discord_thread='')
+    # Same rule as the matches-page count: unthreaded, with a match still to play.
+    series_qs = (MatchSeries.needing_thread(round)
                  .select_related('player_group')
                  .order_by('id'))
 

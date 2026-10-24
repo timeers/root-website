@@ -3726,3 +3726,189 @@ class BoxScoreTokenPageTests(TestCase):
         LFGThread.objects.filter(pk=thread.pk).update(status=LFGThread.Status.RECORDED)
         self.client.post(reverse('boxscore-upload-discard', args=[thread.pk]))
         self.assertTrue(LFGThread.objects.filter(pk=thread.pk).exists())
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Buy Me a Coffee webhook
+# ─────────────────────────────────────────────────────────────────────────────
+
+import hashlib as _hashlib
+import hmac as _hmac
+import json as _json
+
+from the_gatehouse.models import Supporter, SupportEvent
+
+BMC_TEST_SECRET = 'test-bmc-secret'
+
+
+@override_settings(BMC_WEBHOOK_SECRET=BMC_TEST_SECRET)
+@mock.patch('the_gatehouse.tasks.send_rich_discord_message_task.delay')
+class BMCWebhookTests(TestCase):
+    url = '/webhooks/bmc/'
+
+    def post(self, payload, secret=BMC_TEST_SECRET, signature=None):
+        body = _json.dumps(payload).encode()
+        if signature is None:
+            signature = _hmac.new(secret.encode(), body, _hashlib.sha256).hexdigest()
+        with self.captureOnCommitCallbacks(execute=True):
+            return self.client.post(self.url, data=body, content_type='application/json',
+                                    HTTP_X_SIGNATURE_SHA256=signature)
+
+    def donation(self, event_id=10, payment_id=98765, type_='donation.created', live=True, **data):
+        base = {'id': payment_id, 'supporter_id': 42, 'supporter_name': 'Alex',
+                'supporter_email': 'alex@example.com', 'amount': 15.0, 'coffee_count': 3,
+                'currency': 'USD', 'support_note': 'Keep it up', 'note_hidden': 'false',
+                'created_at': 1719825600}
+        base.update(data)
+        return {'event_id': event_id, 'type': type_, 'live_mode': live,
+                'created': 1719825600, 'attempt': 1, 'data': base}
+
+    def membership(self, type_, event_id=20, **data):
+        base = {'id': 555, 'supporter_id': 42, 'supporter_name': 'Alex', 'status': 'active',
+                'amount': 5, 'currency': 'USD', 'started_at': 1719825600,
+                'current_period_end': 4102444800, 'membership_level_name': 'Tea Club'}
+        base.update(data)
+        return {'event_id': event_id, 'type': type_, 'live_mode': True,
+                'created': 1719825600, 'attempt': 1, 'data': base}
+
+    def test_donation_creates_supporter_and_event(self, delay):
+        resp = self.post(self.donation())
+        self.assertEqual(resp.status_code, 200)
+        supporter = Supporter.objects.get()
+        self.assertEqual((supporter.bmc_supporter_id, supporter.name), ('42', 'Alex'))
+        self.assertTrue(supporter.show_publicly)  # gave a name -> listed
+        event = SupportEvent.objects.get()
+        self.assertEqual(event.supporter, supporter)
+        self.assertEqual(str(event.amount), '15.00')
+        delay.assert_called_once()
+        self.assertIn('bought 3 coffees', delay.call_args.args[0])
+
+    def test_anonymous_donor_not_listed(self, delay):
+        self.post(self.donation(supporter_id=None, supporter_email='', supporter_name='Someone'))
+        self.post(self.donation(event_id=14, payment_id=3, supporter_id=7, supporter_email='', supporter_name=''))
+        self.assertFalse(Supporter.objects.filter(show_publicly=True).exists())
+        self.assertEqual(Supporter.objects.count(), 2)
+
+    def test_admin_hide_survives_next_donation(self, delay):
+        self.post(self.donation())
+        Supporter.objects.update(show_publicly=False)
+        self.post(self.donation(event_id=15, payment_id=4))
+        self.assertFalse(Supporter.objects.get().show_publicly)
+
+    def test_bad_signature_rejected(self, delay):
+        resp = self.post(self.donation(), signature='0' * 64)
+        self.assertEqual(resp.status_code, 401)
+        self.assertFalse(SupportEvent.objects.exists())
+
+    @override_settings(BMC_WEBHOOK_SECRET='')
+    def test_missing_secret_fails_closed(self, delay):
+        resp = self.post(self.donation(), secret='')
+        self.assertEqual(resp.status_code, 503)
+        self.assertFalse(SupportEvent.objects.exists())
+
+    def test_get_not_allowed(self, delay):
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+
+    def test_bad_json_rejected(self, delay):
+        body = b'not json'
+        sig = _hmac.new(BMC_TEST_SECRET.encode(), body, _hashlib.sha256).hexdigest()
+        resp = self.client.post(self.url, data=body, content_type='application/json',
+                                HTTP_X_SIGNATURE_SHA256=sig)
+        self.assertEqual(resp.status_code, 400)
+
+    def test_retry_of_same_payment_is_not_duplicated(self, delay):
+        self.post(self.donation(event_id=10))
+        # A retry may carry a different event_id; the payment id is what dedupes it.
+        resp = self.post(self.donation(event_id=11))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(SupportEvent.objects.count(), 1)
+        self.assertEqual(delay.call_count, 1)
+
+    def test_refund_marks_original_donation(self, delay):
+        self.post(self.donation())
+        self.post(self.donation(event_id=12, type_='donation.refunded', status='refunded', refunded='true'))
+        original = SupportEvent.objects.get(event_type='donation.created')
+        self.assertTrue(original.refunded)
+        refund = SupportEvent.objects.get(event_type='donation.refunded')
+        self.assertEqual(refund.supporter, original.supporter)
+
+    def test_membership_start_then_cancel(self, delay):
+        self.post(self.membership('membership.started'))
+        supporter = Supporter.objects.get()
+        self.assertTrue(supporter.is_member)
+        self.assertTrue(supporter.is_active_member)
+        self.post(self.membership('membership.cancelled', event_id=21, status='canceled',
+                                  canceled='true', canceled_at=1719900000))
+        supporter.refresh_from_db()
+        self.assertFalse(supporter.is_member)
+        self.assertIsNotNone(supporter.membership_ends)
+
+    def test_lapsed_membership_is_not_active(self, delay):
+        self.post(self.membership('membership.started', current_period_end=1719900000))
+        supporter = Supporter.objects.get()
+        self.assertTrue(supporter.is_member)
+        self.assertFalse(supporter.is_active_member)
+
+    def test_test_events_record_but_create_no_supporter(self, delay):
+        # Dashboard test sends always use event_id 1; every press must still land.
+        self.post(self.donation(event_id=1, live=False))
+        self.post(self.donation(event_id=1, live=False))
+        self.assertEqual(SupportEvent.objects.filter(live_mode=False).count(), 2)
+        self.assertFalse(Supporter.objects.exists())
+        self.assertTrue(delay.call_args.kwargs['title'].startswith('[TEST]'))
+
+    def test_unknown_event_type_acknowledged(self, delay):
+        resp = self.post({'event_id': 30, 'type': 'wishlist_payment.created', 'live_mode': True,
+                          'created': 1719825600, 'attempt': 1, 'data': {'id': 7}})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(SupportEvent.objects.get().event_type, 'wishlist_payment.created')
+        self.assertFalse(Supporter.objects.exists())
+
+    def test_email_fallback_matches_existing_supporter(self, delay):
+        self.post(self.donation(supporter_id=None))
+        self.post(self.donation(event_id=13, payment_id=2, supporter_id=None))
+        self.assertEqual(Supporter.objects.count(), 1)
+
+    def test_broker_down_still_records(self, delay):
+        delay.side_effect = KombuOperationalError('broker down')
+        resp = self.post(self.donation())
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(SupportEvent.objects.exists())
+
+
+class AboutSupportersTests(TestCase):
+    def test_only_public_supporters_listed_and_slugless_not_linked(self):
+        Supporter.objects.create(name='Hidden Person', show_publicly=False)
+        Supporter.objects.create(name='Public Pat', show_publicly=True)
+        profile = Profile.objects.create(discord='slugless_supporter')
+        Profile.objects.filter(pk=profile.pk).update(slug=None)
+        Supporter.objects.create(name='Linked', profile=Profile.objects.get(pk=profile.pk), show_publicly=True)
+        resp = self.client.get(reverse('keep-about'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Public Pat')
+        self.assertNotContains(resp, 'Hidden Person')
+        self.assertContains(resp, 'support-btn')
+        self.assertNotContains(resp, 'cdnjs.buymeacoffee.com')
+
+
+class ProfileSupporterTeaTests(TestCase):
+    def setUp(self):
+        self.profile = Profile.objects.create(discord='tea_member')
+        self.profile.refresh_from_db()
+
+    def get(self):
+        return self.client.get(reverse('player-detail', args=[self.profile.slug]))
+
+    def test_active_public_member_gets_tea_link(self):
+        Supporter.objects.create(profile=self.profile, show_publicly=True, is_member=True,
+                                 membership_ends=timezone.now() + timedelta(days=10))
+        resp = self.get()
+        self.assertContains(resp, 'profile-supporter-tea')
+        self.assertContains(resp, 'buymeacoffee.com/mrmirz')
+
+    def test_no_icon_when_private_lapsed_or_not_member(self):
+        Supporter.objects.create(profile=self.profile, show_publicly=False, is_member=True)
+        Supporter.objects.create(profile=self.profile, show_publicly=True, is_member=True,
+                                 membership_ends=timezone.now() - timedelta(days=1))
+        Supporter.objects.create(profile=self.profile, show_publicly=True, is_member=False)
+        self.assertNotContains(self.get(), 'profile-supporter-tea')

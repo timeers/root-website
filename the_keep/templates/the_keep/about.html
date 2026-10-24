@@ -120,13 +120,28 @@
 
 </div>
 
-{% comment %} <div class='mb-2 text-center'>
+<div class='mb-2 text-center'>
     <div class='root-title' style="font-size: 1.1rem; font-weight: 600;">
         Support
     </div>
-    This site only costs a few dollars a month to keep running but if you'd like to chip in
-    <script type="text/javascript" src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js" data-name="bmc-button" data-slug="mrmirz" data-color="{{ theme.theme_color }}" data-emoji="☕"  data-font="Cookie" data-text="Buy me a coffee" data-outline-color="#000000" data-font-color="{{ theme.background_color }}" data-coffee-color="#FFDD00" ></script>
-</div> {% endcomment %}
+    This site is provided as a free community resource to everyone. It only costs a few dollars a month to keep running, but support is always appreciated.
+    {% if supporters %}
+    <div class='mt-3 small text-muted'>
+        Thank you to those who help keep the lights on:
+    </div>
+    <div class='supporter-list'>
+        {% for supporter in supporters %}<span class='text-nowrap'>{% if supporter.profile and supporter.profile.slug %}<a class='clickable-link' href="{% url 'player-detail' supporter.profile.slug %}">{{ supporter.public_name }}</a>{% else %}{{ supporter.public_name }}{% endif %}</span>{% if not forloop.last %}, {% endif %}{% endfor %}
+    </div>
+    {% endif %}
+    
+    <div class='mt-2'>
+        <a class="btn support-btn" href="https://www.buymeacoffee.com/mrmirz" target="_blank" rel="noopener"
+           style="--support-bg: {{ theme.theme_color|default:'#5f788a' }}; --support-fg: {{ theme.background_color|default:'#fff' }};">
+            <img src="{% static 'images/tea.png' %}" alt="" class="support-btn-icon"> Support RDB
+        </a>
+    </div>
+
+</div>
 
 
 <img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/Frog.png'  %}" alt="Join Woodland Warriors">

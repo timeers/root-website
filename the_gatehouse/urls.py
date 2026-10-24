@@ -21,12 +21,14 @@ from .views import (user_settings, player_page_view, dwd_profile_redirect,
                     hx_save_background_image, hx_delete_background_image,
                     manage_holidays, manage_holiday_edit,
                     manage_guilds, edit_guild, hx_save_lfg_role, hx_delete_lfg_role,
-                    hx_save_tournament_channels, refresh_guild_discord_cache)
+                    hx_save_tournament_channels, refresh_guild_discord_cache,
+                    bmc_webhook)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
 urlpatterns = [
     # path("", list_view, name='home'),
     # path("home/", list_view),
     path('status/', status_check, name='status_check'),
+    path('webhooks/bmc/', bmc_webhook, name='bmc-webhook'),
     path('profile/guilds-status/', profile_guilds_status, name='profile-guilds-status'),
     path('finishing-signin/', finishing_signin, name='finishing-signin'),
 
