@@ -7,7 +7,7 @@ from .models import (Profile, PlayerBookmark,
                      Theme, BackgroundImage, ForegroundImage,
                      Website, Language, Holiday, DailyUserVisit, DiscordGuild,
                      Changelog, ChangelogEntry, DiscordGuildJoinRequest, UserNotification,
-                     PlayerSchedule,
+                     PlayerSchedule, Supporter, SupportEvent,
                      )
 # GuildLFGRole lives in the_databot, but its inline is declared here because the
 # admin it hangs off (DiscordGuildAdmin) is a the_gatehouse concern.
@@ -15,7 +15,7 @@ from the_databot.models import GuildLFGRole
 from django import forms
 from django.http import HttpResponseRedirect 
 from django.db import transaction
-from django.db.models import UniqueConstraint
+from django.db.models import UniqueConstraint, Sum, Q
 from django.utils.translation import gettext_lazy as _
 
 
@@ -571,6 +571,49 @@ admin.site.register(DailyUserVisit, DailyUserVisitAdmin)
 admin.site.register(DiscordGuild, DiscordGuildAdmin)
 admin.site.register(Changelog, ChangelogAdmin)
 admin.site.register(DiscordGuildJoinRequest, DiscordGuildJoinRequestAdmin)
+class SupportEventInline(admin.TabularInline):
+    model = SupportEvent
+    extra = 0
+    can_delete = False
+    fields = ('created', 'event_type', 'amount', 'currency', 'refunded', 'live_mode')
+    readonly_fields = fields
+    show_change_link = True
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+class SupporterAdmin(admin.ModelAdmin):
+    list_display = ('__str__', 'name', 'profile', 'show_publicly', 'is_member', 'last_supported', 'one_time_total')
+    list_editable = ('show_publicly', 'is_member')
+    list_filter = ('show_publicly', 'is_member')
+    search_fields = ('name', 'display_name', 'email', 'profile__display_name', 'profile__discord')
+    autocomplete_fields = ['profile']
+    readonly_fields = ('bmc_supporter_id', 'first_supported', 'last_supported')
+    inlines = [SupportEventInline]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('profile').annotate(
+            _one_time_total=Sum('events__amount', filter=Q(
+                events__event_type='donation.created', events__refunded=False, events__live_mode=True)))
+
+    @admin.display(description='One-time total', ordering='_one_time_total')
+    def one_time_total(self, obj):
+        # Membership renewals send no per-charge event, so this counts one-time coffees only.
+        return obj._one_time_total
+
+
+class SupportEventAdmin(admin.ModelAdmin):
+    list_display = ('created', 'event_type', 'supporter', 'amount', 'currency', 'refunded', 'live_mode')
+    list_filter = ('event_type', 'live_mode', 'refunded')
+    search_fields = ('supporter__name', 'bmc_object_id', 'event_id')
+    readonly_fields = ('dedupe_key', 'event_id', 'event_type', 'bmc_object_id', 'amount', 'currency',
+                       'live_mode', 'created', 'payload')
+    autocomplete_fields = ['supporter']
+
+
 admin.site.register(PlayerSchedule, PlayerScheduleAdmin)
+admin.site.register(Supporter, SupporterAdmin)
+admin.site.register(SupportEvent, SupportEventAdmin)
 
 

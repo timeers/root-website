@@ -53,8 +53,14 @@
             <img class="xl-avatar-icon me-2" src="{{ player.image.url }}">
 
             <div style="min-width: 0;">
-                <div class='d-flex' style="min-width: 0;">
+                <div class='d-flex align-items-center' style="min-width: 0;">
                 <h1 class="account-heading root-title">{{ player.name }}</h1>
+                {% if is_supporting_member %}
+                <a href="{{ bmc_url }}" target="_blank" rel="noopener" class="profile-supporter-tea ms-2"
+                   title="{% trans 'RDB Supporter' %}" data-bs-toggle="tooltip" aria-label="{% trans 'RDB Supporter' %}">
+                    <img src="{% static 'images/tea.png' %}" alt="">
+                </a>
+                {% endif %}
 
                 </div>
                 {% if user.profile.player or player == user.profile %}

@@ -39,7 +39,7 @@ from django.views.generic import (
     DeleteView
 )
 from the_warroom.models import Game, ScoreCard, Effort, Tournament, Stage, Round
-from the_gatehouse.models import Profile, Language, Website, DiscordGuild, DiscordGuildJoinRequest
+from the_gatehouse.models import Profile, Language, Website, DiscordGuild, DiscordGuildJoinRequest, Supporter
 from the_gatehouse.views import (designer_required_class_based_view,
                                  player_required, player_required_class_based_view,
                                  player_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
@@ -666,9 +666,12 @@ def about(request, *args, **kwargs):
     else:
         law_date = None
 
+    supporters = Supporter.objects.filter(show_publicly=True).select_related('profile')
+
     context = {
         'title': 'About',
-        'law_date': law_date
+        'law_date': law_date,
+        'supporters': supporters,
     }
 
     return render(request, 'the_keep/about.html', context)

@@ -82,6 +82,11 @@ def apply_discord_category(category):
         webhook_url = config['DISCORD_FEEDBACK_WEBHOOK_URL']
         embed_title = "Forge Feedback"
         embed_color = 0xffa500  # Orange, matches existing Forge category
+    elif category == 'support':
+        # Optional dedicated channel; falls back to feedback so a missing key never breaks import.
+        webhook_url = config.get('DISCORD_SUPPORT_WEBHOOK_URL') or config['DISCORD_FEEDBACK_WEBHOOK_URL']
+        embed_title = "Support Received"
+        embed_color = 0xD4A017  # Gold for supporters
     # Automations
     elif category == 'automation':
         webhook_url = config['DISCORD_AUTOMATIONS_WEBHOOK_URL']

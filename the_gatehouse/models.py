@@ -1520,3 +1520,82 @@ def schedules_for(profile_ids, *, week_start=None):
         ).values_list('profile_id', 'available_hours'):
             resolved[pid] = hours  # row EXISTS -> wins at this level, [] included
     return resolved
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Buy Me a Coffee supporters (fed by the_gatehouse.services.bmc via webhook)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class Supporter(models.Model):
+    """One Buy Me a Coffee supporter. Created by the BMC webhook; it is listed
+    publicly only if the donor gave BMC a name (see services.bmc), and admin can
+    override that either way. Discord login gives us no
+    email, so `profile` is never matched automatically -- an admin attaches it."""
+    bmc_supporter_id = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    name = models.CharField(max_length=200, blank=True)
+    # Private: admin-only, and the fallback match key when BMC sends no supporter_id.
+    email = models.EmailField(blank=True, db_index=True)
+    profile = models.ForeignKey('Profile', on_delete=models.SET_NULL, null=True, blank=True, related_name='supporter')
+    show_publicly = models.BooleanField(
+        default=False, help_text="List this supporter by name in the About page's Support section. "
+                                 "Set on by the webhook when they gave BMC a name (not anonymous / \"Someone\").")
+    display_name = models.CharField(
+        max_length=100, null=True, blank=True, help_text="Overrides the BMC name on the About page.")
+    is_member = models.BooleanField(default=False, help_text="Has an active BMC membership or monthly support.")
+    membership_started = models.DateTimeField(null=True, blank=True)
+    membership_ends = models.DateTimeField(null=True, blank=True)
+    first_supported = models.DateTimeField(null=True, blank=True)
+    last_supported = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-is_member', '-last_supported']
+
+    def __str__(self):
+        return self.public_name or f"Supporter {self.pk}"
+
+    @property
+    def public_name(self):
+        if self.display_name:
+            return self.display_name
+        if self.profile:
+            return self.profile.name
+        return self.name
+
+    @classmethod
+    def active_members(cls):
+        """Publicly listed supporters with a current membership (query form of is_active_member)."""
+        return cls.objects.filter(show_publicly=True, is_member=True).filter(
+            Q(membership_ends__isnull=True) | Q(membership_ends__gt=timezone.now()))
+
+    @property
+    def is_active_member(self):
+        # Guards against a missed cancel event: a lapsed period end drops the badge.
+        return self.is_member and (self.membership_ends is None or self.membership_ends > timezone.now())
+
+
+class SupportEvent(models.Model):
+    """Append-only log of BMC webhook events.
+
+    `dedupe_key` is what makes retries safe -- NOT BMC's event_id, which the spec
+    describes as per delivery attempt and is always 1 for dashboard test events.
+    It is "<type>:<data.id>" for payments (one per payment) and
+    "<type>:<data.id>:<event_id>" for subscription events, and NULL for test
+    events so repeated "Send test" presses all land."""
+    dedupe_key = models.CharField(max_length=200, unique=True, null=True, blank=True)
+    event_id = models.CharField(max_length=64, blank=True)
+    event_type = models.CharField(max_length=64)
+    # BMC's payment / subscription id (data.id). A refund arrives as its own event
+    # and finds the donation it undoes through this.
+    bmc_object_id = models.CharField(max_length=64, blank=True, db_index=True)
+    supporter = models.ForeignKey(Supporter, on_delete=models.SET_NULL, null=True, blank=True, related_name='events')
+    amount = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    currency = models.CharField(max_length=8, blank=True)
+    live_mode = models.BooleanField(default=True)
+    refunded = models.BooleanField(default=False)
+    created = models.DateTimeField(default=timezone.now)
+    payload = models.JSONField(default=dict)
+
+    class Meta:
+        ordering = ['-created']
+
+    def __str__(self):
+        return f"{self.event_type} ({self.created:%Y-%m-%d})"
