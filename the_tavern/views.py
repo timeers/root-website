@@ -59,6 +59,52 @@ def _get_survey_status_note(survey):
     return " The survey is now active."
 
 
+# Question types a survey may hold only one of, hidden questions included: each
+# writes a single value per player (profile timezone, General Availability). The
+# builder already stops a second copy being chosen; this is the server's check.
+SINGLE_USE_QUESTION_TYPES = {
+    Question.QuestionType.TIMEZONE: _('A survey can only have one Timezone question.'),
+    Question.QuestionType.WEEKLY_AVAILABILITY: _(
+        'A survey can only have one General Availability question.'),
+}
+
+
+def _single_use_question_error(questions_json, survey=None, deleting_ids=''):
+    """An error message if saving this builder payload would leave the survey
+    with more than one Timezone or General Availability question, else None.
+
+    Counts what the survey will hold AFTER the save: every question in the
+    payload, plus -- when editing -- existing questions left out of it that
+    will be kept as hidden (they have answers and aren't being deleted). An
+    existing question left out WITHOUT answers is deleted, so it doesn't count.
+    """
+    try:
+        questions_data = json.loads(questions_json) if questions_json else []
+    except (TypeError, ValueError):
+        return None  # malformed payloads fail later, as they always have
+    counts = {qtype: 0 for qtype in SINGLE_USE_QUESTION_TYPES}
+    payload_ids = set()
+    for q_data in questions_data:
+        if q_data.get('type') in counts:
+            counts[q_data['type']] += 1
+        if q_data.get('id'):
+            payload_ids.add(int(q_data['id']))
+
+    if survey is not None:
+        delete_ids = {int(x) for x in (deleting_ids or '').split(',') if x.strip().isdigit()}
+        kept_hidden = (survey.questions
+                       .filter(question_type__in=list(counts))
+                       .exclude(id__in=payload_ids | delete_ids)
+                       .filter(answer__isnull=False).distinct())
+        for question in kept_hidden:
+            counts[question.question_type] += 1
+
+    for qtype, count in counts.items():
+        if count > 1:
+            return SINGLE_USE_QUESTION_TYPES[qtype]
+    return None
+
+
 def _posted_timezone_name(request):
     """The IANA zone the browser reported, or None if it sent nothing usable.
     Legacy aliases (Asia/Calcutta) come back canonical (Asia/Kolkata)."""
@@ -2625,6 +2671,13 @@ def survey_edit_view(request, slug):
                 messages.error(request, 'Survey title is required.')
                 return redirect('survey-settings-edit', slug=slug)
 
+            single_use_error = _single_use_question_error(
+                request.POST.get('questions_data'), survey=survey,
+                deleting_ids=request.POST.get('questions_to_delete', ''))
+            if single_use_error:
+                messages.error(request, single_use_error)
+                return redirect('survey-settings-edit', slug=slug)
+
             description = request.POST.get('description', '')
             is_active = request.POST.get('is_active') == 'on'
             is_private = request.POST.get('is_private') == 'on'
@@ -3155,6 +3208,11 @@ def survey_create_view(request):
             # Validate that title is not empty
             if not title:
                 messages.error(request, 'Survey title is required.')
+                return redirect('survey-create')
+
+            single_use_error = _single_use_question_error(request.POST.get('questions_data'))
+            if single_use_error:
+                messages.error(request, single_use_error)
                 return redirect('survey-create')
 
             description = request.POST.get('description', '')

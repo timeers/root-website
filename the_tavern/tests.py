@@ -4,10 +4,12 @@ WEEKLY_AVAILABILITY ('WA') is the focus here. It replaces the TIME_AVAILABILITY 
 DAY_AVAILABILITY pair with one 7x24 grid, stores UTC hour-of-week ints in a JSON
 field rather than Choice rows, and OVERRIDES TA/DY when both are present.
 """
+import json
 import re
 from unittest import mock
 
 from django.contrib.auth.models import User
+from django.contrib.messages import get_messages
 from django.contrib.auth.signals import user_logged_in
 from django.core.exceptions import ValidationError
 from django.db.models.signals import post_save
@@ -1580,6 +1582,96 @@ class SurveyEditPermissionTests(_SurveyTestBase):
         self.tournament.designer = self.profile
         self.tournament.save(update_fields=['designer'])
         self._assert_let_in()
+
+
+class SingleUseQuestionTypeTests(_SurveyTestBase):
+    """At most one Timezone and one General Availability question per survey,
+    hidden questions included. The builder hides the type once it's taken;
+    these pin the server's own check on create and edit."""
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.user)
+
+    def _q(self, qtype, order, **extra):
+        return {'text': f'{qtype} question', 'type': qtype, 'order': order,
+                'required': False, **extra}
+
+    def _create(self, *questions):
+        return self.client.post(reverse('survey-create'), {
+            'title': 'Single use', 'questions_data': json.dumps(list(questions))})
+
+    def _edit(self, survey, *questions, deleting=''):
+        return self.client.post(
+            reverse('survey-settings-edit', kwargs={'slug': survey.slug}),
+            {'title': survey.title, 'questions_data': json.dumps(list(questions)),
+             'questions_to_delete': deleting})
+
+    def _answered_tz(self, survey, hidden=False):
+        tz = Question.objects.create(
+            survey=survey, text='Old timezone', order=1, is_hidden=hidden,
+            question_type=Question.QuestionType.TIMEZONE)
+        Answer.objects.create(response=self._response(survey), question=tz,
+                              text_answer='Europe/London')
+        return tz
+
+    def test_create_refuses_two_timezone_questions(self):
+        response = self._create(self._q('TZ', 1), self._q('TZ', 2))
+        self.assertFalse(Survey.objects.filter(title='Single use').exists())
+        self.assertIn('only have one Timezone question',
+                      ' '.join(str(m) for m in get_messages(response.wsgi_request)))
+
+    def test_create_refuses_two_general_availability_questions(self):
+        self._create(self._q('WA', 1), self._q('WA', 2))
+        self.assertFalse(Survey.objects.filter(title='Single use').exists())
+
+    def test_one_of_each_is_fine(self):
+        self._create(self._q('TZ', 1), self._q('WA', 2))
+        survey = Survey.objects.get(title='Single use')
+        self.assertEqual(sorted(survey.questions.values_list('question_type', flat=True)),
+                         ['TZ', 'WA'])
+
+    def test_a_hidden_timezone_question_still_counts(self):
+        survey = self._survey(created_by=self.profile)
+        self._answered_tz(survey, hidden=True)
+
+        self._edit(survey, self._q('TZ', 1))
+
+        self.assertEqual(survey.questions.filter(question_type='TZ').count(), 1)
+
+    def test_one_dropped_from_the_builder_with_answers_still_counts(self):
+        """Left out of the payload, an answered question is hidden, not deleted."""
+        survey = self._survey(created_by=self.profile)
+        self._answered_tz(survey)
+
+        self._edit(survey, self._q('TZ', 1))
+
+        self.assertEqual(survey.questions.filter(question_type='TZ').count(), 1)
+
+    def test_deleting_the_old_one_frees_the_type(self):
+        survey = self._survey(created_by=self.profile)
+        old = self._answered_tz(survey, hidden=True)
+
+        self._edit(survey, self._q('TZ', 1), deleting=str(old.id))
+
+        self.assertFalse(Question.objects.filter(pk=old.pk).exists())
+        self.assertEqual(survey.questions.filter(question_type='TZ').count(), 1)
+
+    def test_one_without_answers_dropped_from_the_builder_frees_the_type(self):
+        """No answers -> dropped questions are deleted outright, so they don't count."""
+        survey = self._survey(created_by=self.profile)
+        old = Question.objects.create(survey=survey, text='Unanswered', order=1,
+                                      question_type=Question.QuestionType.TIMEZONE)
+
+        self._edit(survey, self._q('TZ', 1))
+
+        self.assertFalse(Question.objects.filter(pk=old.pk).exists())
+        self.assertEqual(survey.questions.filter(question_type='TZ').count(), 1)
+
+    def test_the_builder_carries_the_rule(self):
+        page = self.client.get(reverse('survey-create')).content.decode()
+        self.assertIn("const SINGLE_USE_TYPES = ['TZ', 'WA'];", page)
+        self.assertIn('only one is allowed per survey', page)
 
 
 class SurveyLinkValidationTests(_SurveyTestBase):
