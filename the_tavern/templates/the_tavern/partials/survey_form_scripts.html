@@ -1196,10 +1196,7 @@ function handleTypeChange(questionId, existingData = null) {
         optionsContainer.innerHTML = `
             <div class="alert alert-info">
                 <i class="bi bi-calendar-week"></i> <strong>General Availability Question</strong><br>
-                <small>Respondents mark every hour of a standard week they are free to start a game, on a
-                7&times;24 grid shown in their own timezone. Pre-filled with the respondent's
-                General Availability from the Availability page; their answer updates it.
-                Only one per survey.</small>
+                <small>Users mark every hour they are free, in their own timezone. This sets or updates the user's General Availability. Only one per survey.</small>
             </div>
         `;
     } else if (type === 'TZ') {
@@ -1207,7 +1204,7 @@ function handleTypeChange(questionId, existingData = null) {
         optionsContainer.innerHTML = `
             <div class="alert alert-info">
                 <i class="bi bi-globe"></i> <strong>Timezone Question</strong><br>
-                <small>Asks the user to set or update their timezone. Only one per survey.</small>
+                <small>The user will be asked to set or confirm their timezone. Only one per survey.</small>
             </div>
         `;
     } else if (type === 'YN') {
