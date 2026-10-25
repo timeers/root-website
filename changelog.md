@@ -15,6 +15,7 @@
 - Updates page pagination fixed
 - Go to latest update button added to updates page
 - The "Save" button on Post edit/create pages now shows "Saving" with a spinner once clicked to show that it is loading
+- Admin notification form also uses the spinner when sending user notifications
 
 ## [1.13.16] - 2026-10-23 Survey Integrations
 
