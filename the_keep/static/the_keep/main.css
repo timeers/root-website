@@ -4883,7 +4883,7 @@ form[data-forge-icon-form] {
 .track-editor__row-divider-spacer.is-active { border-top: 3px solid #4d4636; }
 
 /* Floating mini rich-text toolbar — mounted by forge_editor.js next to a
-   focused [data-track-image-input] contenteditable. Style buttons mirror the
+   focused .forge-icon-input contenteditable. Style buttons mirror the
    full rich-text toolbar but are sized for inline use. */
 .forge-mini-toolbar {
   position: absolute;
