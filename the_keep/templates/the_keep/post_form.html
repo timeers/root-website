@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load crispy_forms_tags i18n %}
+{% load crispy_forms_tags i18n static %}
 
 {% block title %}
 {% if not object.id %}{% trans 'New' %}{% else %}{% trans 'Edit' %}{% endif %} | 
@@ -343,7 +343,7 @@
             </fieldset>
 
             <div class="mb-3">
-                <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
+                <button class="btn btn-info" type="submit" data-saving-label="{% trans 'Saving...' %}">{% trans 'Save' %}</button>
                 {% if not object.id %}
                     <a class="btn btn-secondary" href="{% url 'archive-home' %}">{% trans 'Cancel' %}</a>
                 {% else %}
@@ -380,6 +380,7 @@
 {% endblock content %}
 
 {% block scripts %}
+    <script src="{% static 'the_keep/save_spinner.js' %}"></script>
     <script>
 
         // Reusable function to add register button listener to a select element

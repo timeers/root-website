@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load crispy_forms_tags i18n %}
+{% load crispy_forms_tags i18n static %}
 {% block title %}New Expansion | {% endblock %}
 {% block content %}
     <div class="content-section">
@@ -12,7 +12,7 @@
                 {{ form | crispy }}
             </fieldset>
             <div class="mb-3">
-                <button class="btn btn-info" type="submit">{% trans 'Save' %}</button>
+                <button class="btn btn-info" type="submit" data-saving-label="{% trans 'Saving...' %}">{% trans 'Save' %}</button>
             </div>
         </form>
     </div>
@@ -20,6 +20,7 @@
 
 
 {% block scripts %}
+<script src="{% static 'the_keep/save_spinner.js' %}"></script>
 <script>
     $(document).ready(function(){
         // Apply the jQuery UI datepicker to the 'end_date' field
