@@ -1611,15 +1611,27 @@ def manage_game(request, id=None):
         # same choices the page offered. Once recorded, every seat holds its
         # player (finish_personal_record), so an edit is back to thread_players.
         personal_blank_rows = set()
+        row_pools = {}
         if lfgthread.personal:
             from the_databot.services.personal_boxscore import (
                 unresolved_player_queryset)
             personal_blank_rows = {i for i, seat in enumerate(lfg_seats)
                                    if seat[1] is None}
             blank_pool = unresolved_player_queryset(lfgthread)
+            # A seat blanked because two seats shared a Steam account also offers
+            # whoever that account belongs to: the pool above excludes verified
+            # profiles, and the owner may well have played one of those seats.
+            from the_databot.services.personal_boxscore import personal_seat_hints
+            _hints = personal_seat_hints(lfgthread) if personal_blank_rows else []
+            for i in personal_blank_rows:
+                hint = _hints[i] if i < len(_hints) else {}
+                if hint.get('shared_steam_id') and hint.get('account_pk'):
+                    row_pools[i] = blank_pool | Profile.objects.filter(
+                        pk=hint['account_pk'])
         for i, form in enumerate(formset.forms):
             form.fields['player'].queryset = (
-                blank_pool if i in personal_blank_rows else thread_players)
+                row_pools.get(i, blank_pool) if i in personal_blank_rows
+                else thread_players)
         if personal_blank_rows:
             # Who the FILE said sat there -- turns_data stores no names, so the
             # token's kept payload is the only place it survives.

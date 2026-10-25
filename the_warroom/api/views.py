@@ -381,12 +381,14 @@ class BoxScoreUploadView(APIView):
     credential at all -- a player who is already authorized for the thread mints
     a token with /boxscore token and pastes it in, and the token dies on use.
 
-    This stages onto the LFGThread exactly as /boxscore upload does; it never
-    creates a Game. Anything the file gets wrong is resolved by the same gates
-    /boxscore upload uses -- Confirm/Cancel for a seating disagreement,
-    Try Again/Cancel for a roster mismatch only an admin can fix on the site --
-    posted into the Discord thread, so TTS never has to render an error or
-    assume the file is clean.
+    This stages onto the LFGThread exactly as /boxscore upload does, and like it
+    records the game automatically only when nothing needs a person (see
+    boxscore_autorecord). Anything the file gets wrong is resolved by the same gates
+    /boxscore upload uses -- Confirm/Cancel for a seating disagreement, a
+    who-played-this-seat prompt for a shared Steam account, Try Again/Cancel for
+    a roster mismatch only an admin can fix on the site -- posted into the
+    Discord thread, so TTS never has to render an error or assume the file is
+    clean.
 
     THE CONTRACT the TTS client is written against: this endpoint answers with an
     error for exactly three things, and every one of them is something no button
@@ -396,6 +398,9 @@ class BoxScoreUploadView(APIView):
       2. The game is already recorded (409). Checked before the token is claimed
          and before anything is parsed, so there is nothing staged to ask about,
          and no answer could unsave a Game. Points at editing it on the site.
+         On a match thread -- which spans a best-of-N, so is never "recorded"
+         itself -- the same 409 answers a file that IS one of the series'
+         recorded games, found once it has been read.
       3. The file cannot be read (400 invalid_box_score, or 413 too_large) --
          not UTF-8, not JSON, no participants list, a malformed turn, seat
          numbers that aren't 1..N.
@@ -481,6 +486,14 @@ class BoxScoreUploadView(APIView):
 
         try:
             result = di.boxscore_upload_from_api(thread, body, token)
+        except di.BoxScoreAlreadyRecorded as exc:
+            # A match thread's re-upload of a game already recorded: the same
+            # answer as a recorded LFG game above, found only once the file was
+            # read. The token is spent, as for any upload that got this far.
+            BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+                status=BoxScoreUploadToken.Status.CANCELLED, payload=None)
+            return _upload_error('already_recorded', str(exc),
+                                 status.HTTP_409_CONFLICT)
         except BoxScoreImportError as exc:
             # Structural problems fail SYNCHRONOUSLY so the object can report them
             # at the table rather than posting a confusing thread prompt. The

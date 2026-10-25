@@ -1096,14 +1096,15 @@ class GeneralAvailabilityPrefillTests(_SurveyTestBase):
 
     def test_the_note_says_whether_general_availability_is_set(self):
         self.assertContains(self.client.get(self.take_url),
-                            'your selections here will set your availability')
+                            "You haven't set your General Availability yet")
         self._general([10])
         self.assertContains(self.client.get(self.take_url),
                             'This is your General Availability')
 
     def test_an_empty_general_row_counts_as_not_set(self):
         self._general([])
-        self.assertContains(self.client.get(self.take_url), 'your selections here will set your availability')
+        self.assertContains(self.client.get(self.take_url),
+                            "You haven't set your General Availability yet")
 
     def test_the_preview_renders(self):
         self.survey.created_by = self.profile

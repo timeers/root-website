@@ -1489,7 +1489,7 @@ def _retire_boxscore_message(channel_id, old_message_id, old_body):
     retry_backoff=True,
 )
 def post_boxscore_result_task(thread_pk, channel_id, content, body_without_record_line,
-                              allowed_mentions=None, track=True):
+                              allowed_mentions=None, track=True, autorecord=None):
     """Post a box score's saved-result message and record its id and eventual
     post-record content on the thread, so manage_game can rewrite this message
     once the game is actually recorded -- without a GET round-trip at that point.
@@ -1502,6 +1502,11 @@ def post_boxscore_result_task(thread_pk, channel_id, content, body_without_recor
     record line, so there is nothing for manage_game to strip later and tracking
     it would only schedule a pointless rewrite. The previous message is still
     retired -- it does have a stale link, and this message replaces it.
+
+    `autorecord` ({"recorder_pk", "turn_timing"}) means the game is recorded
+    HERE, once this message exists: a match in a link_required tournament needs
+    a unique link, and this message's is the only one (see
+    boxscore_autorecord.needs_message_link).
     """
     from the_databot.models import LFGThread
     from the_databot.services.discordservice import (
@@ -1522,6 +1527,43 @@ def post_boxscore_result_task(thread_pk, channel_id, content, body_without_recor
         LFGThread.objects.filter(pk=thread_pk).update(
             boxscore_message_id=(message_id if track else None),
             boxscore_message_body=(body_without_record_line if track else None))
+        if autorecord and track:
+            _autorecord_posted_boxscore(thread_pk, message_id,
+                                        body_without_record_line, autorecord)
+
+
+def _autorecord_posted_boxscore(thread_pk, message_id, body_without_record_line,
+                                autorecord):
+    """Record a box score's game now that its message -- and so its unique
+    link -- exists. Never raises: the message is already posted, with its record
+    link, which is exactly the fallback if this declines (and an exception here
+    would make the task's autoretry post the message a second time).
+
+    On success record_game rewrites the tracked message to drop its record link.
+    It rewrites to whatever body the THREAD INSTANCE holds, so that body is
+    given the "Recorded as" line in memory only: if recording declines, nothing
+    is rewritten and the stored body is untouched.
+    """
+    from the_databot.models import LFGThread
+    from the_databot.services.boxscore_autorecord import (
+        _match_for, attempt_autorecord)
+    from the_gatehouse.models import Profile
+
+    try:
+        thread = LFGThread.objects.select_related("guild").get(pk=thread_pk)
+        recorder = Profile.objects.filter(pk=autorecord.get("recorder_pk")).first()
+        base = thread.thread_url()
+        if recorder is None or not base:
+            return
+        match = _match_for(thread)
+        if match is not None and match.name:
+            thread.boxscore_message_body = (
+                f"{body_without_record_line}\n\nRecorded as **{match.name}**.")
+        attempt_autorecord(thread, recorder,
+                           payload={"turn_timing": autorecord.get("turn_timing")},
+                           link=f"{base}/{message_id}")
+    except Exception:
+        logger.exception("deferred auto-record failed for thread %s", thread_pk)
 
 
 @shared_task(

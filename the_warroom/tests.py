@@ -3423,6 +3423,11 @@ class BoxScoreMatchRosterGateTests(TestCase):
                                                series=self.series)
         self.thread.players.set([self.alice, self.bob])
 
+    # The Gate 3 tests below upload against a match of Alice ALONE: with no
+    # match player left unseated, an outsider seat has nobody it could be, so the
+    # seat prompt (which asks who played on the outsider's account) has nothing
+    # to offer and Gate 3's "an admin must fix the roster" is the right answer.
+
     def _seat(self, turn_order, profile, steam_id):
         return {'turn_order': turn_order, 'player': profile.slug,
                 'player_steam_id': steam_id, 'turns': [{'turn': 1, 'score': 3}]}
@@ -3454,7 +3459,7 @@ class BoxScoreMatchRosterGateTests(TestCase):
         result, prompt, _token = self._upload([
             self._seat(1, self.alice, self.ALICE_STEAM),
             self._seat(2, stranger, stranger.steam_id),
-        ])
+        ], roster=[self.alice])
         self.assertEqual(result['status'], 'pending_confirmation')
         self.assertTrue(prompt.called)
 
@@ -3467,7 +3472,7 @@ class BoxScoreMatchRosterGateTests(TestCase):
         _result, prompt, _token = self._upload([
             self._seat(1, self.alice, self.ALICE_STEAM),
             self._seat(2, stranger, stranger.steam_id),
-        ])
+        ], roster=[self.alice])
         content = prompt.call_args.args[1]['content']
         self.assertIn('Stranger', content)
         self.assertIn('not in this match', content)
@@ -3483,7 +3488,7 @@ class BoxScoreMatchRosterGateTests(TestCase):
         result, _prompt, _token = self._upload([
             self._seat(1, self.alice, self.ALICE_STEAM),
             self._seat(2, stranger, stranger.steam_id),
-        ])
+        ], roster=[self.alice])
         self.assertIn('admin', result['message'])
         self.assertNotIn('confirm', result['message'].lower())
         # Still no names in the response -- those live in the thread.
@@ -3497,7 +3502,7 @@ class BoxScoreMatchRosterGateTests(TestCase):
         _result, prompt, _token = self._upload([
             self._seat(1, self.alice, self.ALICE_STEAM),
             self._seat(2, stranger, stranger.steam_id),
-        ])
+        ], roster=[self.alice])
         buttons = prompt.call_args.args[1]['components'][0]['components']
         labels = [b['label'] for b in buttons]
         self.assertEqual(labels, ['Try Again', 'Cancel'])
@@ -3511,7 +3516,7 @@ class BoxScoreMatchRosterGateTests(TestCase):
         _result, _prompt, token = self._upload([
             self._seat(1, self.alice, self.ALICE_STEAM),
             self._seat(2, stranger, stranger.steam_id),
-        ])
+        ], roster=[self.alice])
         token.refresh_from_db()
         # Not CANCELLED, and the payload is parked where Try Again looks for it.
         # (The ISSUED -> PENDING claim is the VIEW's, which this in-process call
@@ -3578,10 +3583,10 @@ class BoxScoreMatchRosterGateTests(TestCase):
         _result, _prompt, token = self._upload([
             self._seat(1, self.alice, self.ALICE_STEAM),
             self._seat(2, stranger, stranger.steam_id),
-        ])
+        ], roster=[self.alice])
         token.refresh_from_db()
 
-        data = self._press_try_again(token, self.thread.players.all())
+        data = self._press_try_again(token, [self.alice])
 
         self.assertIn('Stranger', data['content'])
         self.assertIn('Last checked', data['content'])
@@ -3598,7 +3603,7 @@ class BoxScoreMatchRosterGateTests(TestCase):
         _result, _prompt, token = self._upload([
             self._seat(1, self.alice, self.ALICE_STEAM),
             self._seat(2, stranger, stranger.steam_id),
-        ])
+        ], roster=[self.alice])
         token.refresh_from_db()
 
         # What an admin editing the match on the site amounts to here.
@@ -3628,6 +3633,270 @@ class BoxScoreMatchRosterGateTests(TestCase):
         labels = [b['label'] for b
                   in prompt.call_args.args[1]['components'][0]['components']]
         self.assertEqual(labels, ['Confirm', 'Cancel'])
+
+
+class BoxScoreSeatAssignTests(TestCase):
+    """The seat prompt, from a Tabletop Simulator upload: who actually played a
+    seat the Steam ids can't settle -- someone playing on an outsider's account
+    in a match, or two seats on one account.
+
+    The answer is for ONE upload. Nothing here may write a steam_id or an
+    assumed_steam_id; the account a seat was played on is shown, not learned.
+    """
+
+    ALICE_STEAM = '76561198000000601'
+    BOB_STEAM = '76561198000000602'
+    STRANGER_STEAM = '76561198000000609'
+
+    def setUp(self):
+        self.alice = Profile.objects.create(discord='saalice', discord_id='971',
+                                            display_name='Alice',
+                                            steam_id=self.ALICE_STEAM)
+        self.bob = Profile.objects.create(discord='sabob', discord_id='972',
+                                          display_name='Bob',
+                                          steam_id=self.BOB_STEAM)
+        self.stranger = Profile.objects.create(discord='sastranger',
+                                               discord_id='979',
+                                               display_name='Stranger',
+                                               steam_id=self.STRANGER_STEAM)
+        tournament = Tournament.objects.create(name='Assign Tournament',
+                                               is_active=True)
+        stage = Stage.objects.create(tournament=tournament, name='Stage 1',
+                                     order=1, is_active=True)
+        round_ = Round.objects.create(stage=stage, round_number=1, is_active=True)
+        self.series = MatchSeries.objects.create(round=round_)
+        self.thread = LFGThread.objects.create(thread_id='tts-assign-thread',
+                                               series=self.series)
+        # The match: Alice and Bob. _thread_roster is patched to this (see
+        # BoxScoreMatchRosterGateTests._upload for why).
+        self.roster = [self.alice, self.bob]
+
+    def _seat(self, turn_order, name, steam_id):
+        return {'turn_order': turn_order, 'player': name,
+                'player_steam_id': steam_id, 'turns': [{'turn': 1, 'score': 3}]}
+
+    def _patches(self):
+        from the_databot import discord_interactions as di
+        return (mock.patch('the_databot.discord_interactions.post_boxscore_result_task.delay'),
+                mock.patch('the_databot.discord_interactions.post_boxscore_prompt_task.delay'),
+                mock.patch('the_databot.discord_interactions.record_lfg_components_task.delay'),
+                mock.patch.object(di, '_thread_roster',
+                                  side_effect=lambda *a, **k: (list(self.roster), None)))
+
+    def _upload(self, participants):
+        from the_databot import discord_interactions as di
+        token, _raw = BoxScoreUploadToken.issue(self.thread, self.alice)
+        raw_body = json.dumps({'participants': participants}).encode()
+        result_p, prompt_p, capture_p, roster_p = self._patches()
+        with result_p, prompt_p as prompt, capture_p, roster_p:
+            result = di.boxscore_upload_from_api(self.thread, raw_body, token)
+        # The view claims ISSUED -> PENDING; in-process calls skip it, and the
+        # click handlers only find PENDING tokens.
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.PENDING)
+        body = prompt.call_args.args[1] if prompt.called else None
+        return result, body, token
+
+    def _click(self, action, token, *args, values=None):
+        """Press a button / change a select on the posted (PICK_OPEN) prompt."""
+        from the_databot import discord_interactions as di
+        custom_id = ':'.join([action, 't', str(token.pk), *map(str, args),
+                              di.PICK_OPEN])
+        payload = {'data': {'custom_id': custom_id},
+                   'channel_id': self.thread.thread_id,
+                   'member': {'user': {'id': self.alice.discord_id,
+                                       'username': 'saalice'}}}
+        if values is not None:
+            payload['data']['values'] = [str(v) for v in values]
+        result_p, prompt_p, capture_p, roster_p = self._patches()
+        with result_p, prompt_p, capture_p, roster_p:
+            response = di.COMPONENT_HANDLERS[action](payload)
+        return json.loads(response.content)['data']
+
+    def _selects(self, body):
+        return [row['components'][0] for row in body.get('components') or []
+                if row['components'][0].get('type') == 3]
+
+    def _steam_ids(self, *profiles):
+        return [tuple(Profile.objects.filter(pk=p.pk).values_list(
+            'steam_id', 'assumed_steam_id').get()) for p in profiles]
+
+    # ── someone played on an outsider's account ─────────────────────────────
+
+    def test_an_outsider_seat_asks_who_played_it(self):
+        result, body, _token = self._upload([
+            self._seat(1, 'saalice', self.ALICE_STEAM),
+            self._seat(2, 'stranger-login', self.STRANGER_STEAM),
+        ])
+        from the_databot import discord_interactions as di
+        self.assertEqual(result['status'], 'pending_confirmation')
+        self.assertEqual(result['message'], di.BOXSCORE_ASSIGN_MESSAGE)
+        selects = self._selects(body)
+        self.assertEqual(len(selects), 1)
+        # Leave blank, plus the one match player not already seated. Never
+        # Alice (seated) or the outsider (not in the match).
+        values = [o['value'] for o in selects[0]['options']]
+        self.assertEqual(values, ['0', str(self.bob.pk)])
+        self.assertIn("isn't in this match", body['content'])
+
+    def test_picking_the_real_player_applies_for_this_upload_only(self):
+        before = self._steam_ids(self.alice, self.bob, self.stranger)
+        _result, _body, token = self._upload([
+            self._seat(1, 'saalice', self.ALICE_STEAM),
+            self._seat(2, 'stranger-login', self.STRANGER_STEAM),
+        ])
+        self._click('boxscore_as_pick', token, 1, values=[self.bob.pk])
+        data = self._click('boxscore_as_ok', token)
+
+        self.assertEqual(data['components'], [])
+        seats = list(self.thread.seats.order_by('seat_number')
+                     .values_list('profile_id', flat=True))
+        self.assertEqual(seats, [self.alice.pk, self.bob.pk])
+        self.assertIn("Bob (on Stranger's account)", data['content'])
+        # Nobody's identity moved.
+        self.assertEqual(self._steam_ids(self.alice, self.bob, self.stranger),
+                         before)
+
+    def test_an_untouched_dropdown_saves_as_blank_instead_of_looping(self):
+        _result, body, token = self._upload([
+            self._seat(1, 'saalice', self.ALICE_STEAM),
+            self._seat(2, 'stranger-login', self.STRANGER_STEAM),
+        ])
+        # What the dropdown shows is what Save does.
+        default = [o['value'] for o in self._selects(body)[0]['options']
+                   if o['default']]
+        self.assertEqual(default, ['0'])
+
+        data = self._click('boxscore_as_ok', token)
+        self.assertEqual(data['components'], [])
+        seats = list(self.thread.seats.order_by('seat_number')
+                     .values_list('profile_id', flat=True))
+        self.assertEqual(seats, [self.alice.pk, None])
+
+    def test_a_pick_that_is_no_longer_a_candidate_is_refused(self):
+        _result, _body, token = self._upload([
+            self._seat(1, 'saalice', self.ALICE_STEAM),
+            self._seat(2, 'stranger-login', self.STRANGER_STEAM),
+        ])
+        # Forged: the outsider isn't in the match, so can't be offered.
+        self._click('boxscore_as_pick', token, 1, values=[self.stranger.pk])
+        data = self._click('boxscore_as_ok', token)
+
+        self.assertIn("can't take that seat", data['content'])
+        self.assertTrue(self._selects(data))
+        self.assertFalse(self.thread.seats.exists())
+
+    def test_the_seat_prompt_comes_before_gate_two_on_a_seated_match(self):
+        """Gate 2 used to show first, and its Confirm then failed the roster
+        check inside apply and cancelled the upload."""
+        LFGSeat.objects.create(thread=self.thread, profile=self.alice, seat_number=1)
+        LFGSeat.objects.create(thread=self.thread, profile=self.bob, seat_number=2)
+        self.thread.seating_set = True
+        self.thread.save(update_fields=['seating_set'])
+
+        _result, body, _token = self._upload([
+            self._seat(1, 'saalice', self.ALICE_STEAM),
+            self._seat(2, 'stranger-login', self.STRANGER_STEAM),
+        ])
+        self.assertTrue(self._selects(body))
+        self.assertNotIn('Confirm', [b.get('label') for row in body['components']
+                                     for b in row['components']])
+
+    # ── two seats on one account ────────────────────────────────────────────
+
+    def test_two_seats_on_a_match_players_account_are_both_asked(self):
+        """Without the prompt this read "no seat for Bob" -- true, but it hid
+        that the file had seated Alice twice."""
+        _result, body, token = self._upload([
+            self._seat(1, 'saalice', self.ALICE_STEAM),
+            self._seat(2, 'saalice', self.ALICE_STEAM),
+        ])
+        selects = self._selects(body)
+        self.assertEqual(len(selects), 2)
+        self.assertNotIn('no seat for', body['content'])
+
+        self._click('boxscore_as_pick', token, 0, values=[self.alice.pk])
+        self._click('boxscore_as_pick', token, 1, values=[self.bob.pk])
+        data = self._click('boxscore_as_ok', token)
+        self.assertEqual(data['components'], [])
+        seats = list(self.thread.seats.order_by('seat_number')
+                     .values_list('profile_id', flat=True))
+        self.assertEqual(seats, [self.alice.pk, self.bob.pk])
+
+    def test_claiming_someone_releases_them_from_another_seat(self):
+        _result, _body, token = self._upload([
+            self._seat(1, 'saalice', self.ALICE_STEAM),
+            self._seat(2, 'saalice', self.ALICE_STEAM),
+        ])
+        self._click('boxscore_as_pick', token, 0, values=[self.bob.pk])
+        self._click('boxscore_as_pick', token, 1, values=[self.bob.pk])
+        token.refresh_from_db()
+        self.assertEqual(token.payload['seat_picks'], {'1': self.bob.pk})
+
+    # ── Try Again re-reads identities, both ways ────────────────────────────
+
+    def test_try_again_moves_a_seat_back_when_a_wrong_assumed_id_is_cleared(self):
+        """THE reported case: the outsider only ASSUMED this id (a wrong Gate 0
+        answer once). An admin clears it; Try Again must stop naming them and
+        go back to asking who the seat is."""
+        self.bob.steam_id = None          # free for Gate 0's dropdown
+        self.bob.save(update_fields=['steam_id'])
+        self.stranger.steam_id = None
+        self.stranger.assumed_steam_id = '76561198000000688'
+        self.stranger.save(update_fields=['steam_id', 'assumed_steam_id'])
+
+        _result, body, token = self._upload([
+            self._seat(1, 'saalice', self.ALICE_STEAM),
+            self._seat(2, 'MrDrouf1', '76561198000000688'),
+        ])
+        self.assertTrue(self._selects(body))           # the seat prompt
+
+        Profile.objects.filter(pk=self.stranger.pk).update(assumed_steam_id=None)
+        data = self._click('boxscore_retry', token)
+
+        # Back at Gate 0, about that seat only, under the file's own name.
+        self.assertTrue(data['components'][0]['components'][0]['custom_id']
+                        .startswith('boxscore_g0_pick:'))
+        self.assertIn('MrDrouf1', data['content'])
+        self.assertNotIn('Stranger', data['content'])
+        options = [o['value'] for o in data['components'][0]['components'][0]['options']]
+        self.assertIn(str(self.bob.pk), options)
+
+    def test_try_again_seats_the_player_who_verified_the_id(self):
+        """The other way round: the right player links the account (which
+        releases the wrong player's assumed copy), and Try Again seats them."""
+        self.stranger.steam_id = None
+        self.stranger.assumed_steam_id = '76561198000000688'
+        self.stranger.save(update_fields=['steam_id', 'assumed_steam_id'])
+        _result, _body, token = self._upload([
+            self._seat(1, 'saalice', self.ALICE_STEAM),
+            self._seat(2, 'MrDrouf1', '76561198000000688'),
+        ])
+
+        # What linking does (the_gatehouse steam link view).
+        Profile.objects.filter(pk=self.stranger.pk).update(assumed_steam_id=None)
+        Profile.objects.filter(pk=self.bob.pk).update(steam_id='76561198000000688')
+        data = self._click('boxscore_retry', token)
+
+        self.assertEqual(data['components'], [])
+        seats = list(self.thread.seats.order_by('seat_number')
+                     .values_list('profile_id', flat=True))
+        self.assertEqual(seats, [self.alice.pk, self.bob.pk])
+
+    def test_try_again_leaves_an_assigned_seat_alone(self):
+        """An assignment is a person's answer, not a guess to re-derive: the id
+        still points at Alice, and re-resolving must not put her back."""
+        from the_databot import discord_interactions as di
+        pending = {'seats': [{
+            'profile_pk': self.bob.pk, 'label': 'Bob', 'assigned': True,
+            'account_pk': self.alice.pk, 'file_label': 'saalice',
+            'player_slug': 'saalice', 'player_steam_id': self.ALICE_STEAM,
+        }]}
+        with mock.patch.object(di, '_thread_roster',
+                               return_value=(list(self.roster), None)):
+            di._boxscore_reresolve(self.thread, pending, self.thread.thread_id)
+        self.assertEqual(pending['seats'][0]['profile_pk'], self.bob.pk)
+        self.assertFalse(pending.get('gate_zero_only'))
 
 
 class ThreadRecordUrlTests(TestCase):
@@ -6010,6 +6279,55 @@ class PersonalBoxScoreTests(TestCase):
         response, _t, _ = self._upload(
             self._doc(second_steam=self.CAROL_STEAM, second_name='Carol'))
         self.assertEqual(response.json()['status'], 'applied')
+
+    def test_a_shared_steam_id_is_left_blank_and_never_learned(self):
+        """Two seats on one unknown account. No gate runs on a personal thread,
+        so both go in blank for the owner to fill -- and recording must not
+        teach that account to whoever was picked."""
+        doc = self._doc(second_steam=self.CAROL_STEAM, second_name='Carol')
+        doc['participants'][0]['player_steam_id'] = self.CAROL_STEAM
+        doc['participants'][0]['player'] = 'Carol'
+        response, token, _ = self._upload(doc)
+        self.assertEqual(response.json()['status'], 'pending_confirmation')
+        thread = token.thread
+        self.assertEqual(list(thread.seats.order_by('seat_number')
+                              .values_list('profile_id', flat=True)), [None, None])
+
+        # Both rows draw from the blank-seat pool, which leaves verified
+        # players out -- so the owner and Carol, neither of whom is.
+        data = {
+            'platform': 'Tabletop Simulator', 'type': 'Live',
+            'map': self.map.pk, 'deck': self.deck.pk, 'final': 'True',
+            'date_posted': '2026-01-01 12:00:00', 'lfg_id': thread.pk,
+            'form-TOTAL_FORMS': '2', 'form-INITIAL_FORMS': '0',
+            'form-MIN_NUM_FORMS': '0', 'form-MAX_NUM_FORMS': '1000',
+            'form-0-player': self.owner.pk, 'form-0-faction': self.fox.pk,
+            'form-0-score': '30', 'form-0-win': 'on',
+            'form-1-player': self.carol.pk, 'form-1-faction': self.bird.pk,
+            'form-1-score': '21',
+        }
+        svc = 'the_warroom.services.game_recording.'
+        self.client.force_login(self.user)
+        with mock.patch(svc + 'post_channel_message_task'), \
+                mock.patch(svc + 'edit_channel_message_task'), \
+                mock.patch(svc + 'send_rich_discord_message_task'), \
+                self.captureOnCommitCallbacks(execute=True):
+            self.client.post(self._form_url(thread), data)
+        self.assertEqual(Game.objects.count(), 1)
+        for profile in (self.owner, self.carol):
+            profile.refresh_from_db()
+            self.assertIsNone(profile.assumed_steam_id)
+
+    def test_a_shared_verified_account_still_offers_its_owner(self):
+        """Alice's own account on two seats: both are blank, and the blank-seat
+        pool (which leaves out verified players) must still offer Alice."""
+        response, token, _ = self._upload(
+            self._doc(second_steam=self.ALICE_STEAM, second_name='pbalice'))
+        self.client.force_login(self.user)
+        page = self.client.get(self._form_url(token.thread))
+        forms = page.context['formset'].forms
+        self.assertIn(self.alice, set(forms[0].fields['player'].queryset))
+        self.assertIn(self.alice, set(forms[1].fields['player'].queryset))
 
     def test_recording_never_overwrites_an_existing_assumed_id(self):
         self.carol.assumed_steam_id = '76561198000044499'

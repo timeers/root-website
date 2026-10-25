@@ -31,7 +31,9 @@ def personal_seat_hints(thread):
     """[seat dict, ...] from the staged payload, seat 1 first, or [].
 
     Each dict carries `label`, `player_slug`, `player_steam_id` and
-    `profile_pk` (None when the file's player wasn't matched)."""
+    `profile_pk` (None when the file's player wasn't matched). A seat left blank
+    because its Steam id was shared with another seat also carries
+    `shared_steam_id` and `account_pk` (whoever the id pointed at, or None)."""
     token = personal_upload_token(thread)
     if token is None:
         return []
@@ -89,7 +91,10 @@ def finish_personal_record(thread, players_by_index, *, learn):
             continue
         hint = hints[index]
         steam_id = str(hint.get("player_steam_id") or "").strip()
-        if hint.get("profile_pk") or not is_plausible_steam_id(steam_id):
+        # A Steam id two seats shared is one account two people used: it
+        # identifies neither, so whoever was picked must not inherit it.
+        if (hint.get("profile_pk") or hint.get("shared_steam_id")
+                or not is_plausible_steam_id(steam_id)):
             continue
         candidates[pk] = steam_id
     if not candidates:

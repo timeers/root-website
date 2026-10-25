@@ -13960,6 +13960,9 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
 
     def setUp(self):
         super().setUp()
+        self._build_fixture()
+
+    def _build_fixture(self):
         # Never fetch the bot's emoji from the live Discord API: the result is
         # cached process-wide, so whichever test fetched first decided every later
         # summary's rendering. {} = no emoji, which is what these assertions expect.
@@ -16098,6 +16101,156 @@ class BoxScoreGateZeroTests(BoxScoreCommandTests):
                 self.assertTrue(comp["custom_id"].endswith(f":{self.AUTHOR}"))
 
 
+class BoxScoreSeatPromptCommandTests(_NoLoginSignalMixin, TestCase):
+    """The seat prompt on /boxscore upload (a cache-backed, owner-locked prompt):
+    seats whose Steam id another seat also used.
+
+    Borrows BoxScoreCommandTests' fixture and helpers rather than subclassing
+    it, so that suite isn't run a third time over.
+    """
+
+    THREAD_ID = BoxScoreCommandTests.THREAD_ID
+    AUTHOR = BoxScoreCommandTests.AUTHOR
+    SHARED = "76561198000000777"
+    STEAM_A = "76561198000000781"
+    STEAM_B = "76561198000000782"
+
+    def setUp(self):
+        super().setUp()
+        self._build_fixture()
+
+    _build_fixture = BoxScoreCommandTests._build_fixture
+    _run = BoxScoreCommandTests._run
+    _run_data = BoxScoreCommandTests._run_data
+    _press = BoxScoreCommandTests._press
+    _pick = BoxScoreCommandTests._pick
+    _selects = BoxScoreCommandTests._selects
+    _pending_key = BoxScoreCommandTests._pending_key
+    _stashed = BoxScoreGateZeroTests._stashed
+
+    def _doc(self, *seats):
+        """(name, steam_id) per seat, in seat order."""
+        return {"participants": [
+            {"turn_order": i, "player": name, "player_steam_id": steam_id,
+             "turns": [{"turn": 1, "score": 3}]}
+            for i, (name, steam_id) in enumerate(seats, start=1)]}
+
+    def _assign(self, key, seat_index, value):
+        payload = {
+            "data": {"custom_id": f"boxscore_as_pick:{key}:{seat_index}:{self.AUTHOR}",
+                     "values": [str(value)]},
+            "channel_id": self.THREAD_ID,
+            "member": {"user": {"id": self.AUTHOR}},
+        }
+        response = di.COMPONENT_HANDLERS["boxscore_as_pick"](payload)
+        return json.loads(response.content)["data"]
+
+    def _actions(self, data):
+        return [c["custom_id"].split(":")[0] for row in data.get("components") or []
+                for c in row["components"]]
+
+    def _seated(self):
+        return list(self.thread.seats.order_by("seat_number")
+                    .values_list("profile_id", flat=True))
+
+    def test_two_seats_on_one_account_are_both_asked(self):
+        data = self._run_data(self._doc(("bsalice", self.alice.steam_id),
+                                        ("bsalice", self.alice.steam_id)))
+        selects = self._selects(data)
+        self.assertEqual(len(selects), 2)
+        # Alice is offered too: she may really have played one of them.
+        values = {o["value"] for o in selects[0]["options"]}
+        self.assertEqual(values, {"0", str(self.alice.pk), str(self.bob.pk)})
+
+        key = self._pending_key(data)
+        self._assign(key, 0, self.alice.pk)
+        self._assign(key, 1, self.bob.pk)
+        done = self._press("boxscore_as_ok", key)
+        self.assertEqual(done["components"], [])
+        self.assertEqual(self._seated(), [self.alice.pk, self.bob.pk])
+
+    def test_the_uploader_is_kept_as_the_recorder(self):
+        """A cache-backed prompt has no token to name the uploader, so once a
+        button applied it auto-record had nobody to record as -- it never ran
+        after any gate on /boxscore upload."""
+        data = self._run_data(self._doc(("bsalice", self.alice.steam_id),
+                                        ("bsalice", self.alice.steam_id)))
+        key = self._pending_key(data)
+        uploader = Profile.objects.get(discord_id=self.AUTHOR)
+        pending = self._stashed(key)
+        self.assertEqual(pending["recorder_pk"], uploader.pk)
+        self.assertEqual(di._boxscore_upload_recorder(key, pending), uploader)
+
+    def test_a_shared_unknown_id_skips_gate_zero_and_is_never_learned(self):
+        self.bob.steam_id = None          # would be Gate 0's candidate
+        self.bob.save(update_fields=["steam_id"])
+        data = self._run_data(self._doc(("bsalice", self.alice.steam_id),
+                                        ("Twin", self.SHARED),
+                                        ("Twin", self.SHARED)))
+        actions = self._actions(data)
+        self.assertIn("boxscore_as_pick", actions)
+        self.assertNotIn("boxscore_g0_pick", actions)
+
+        key = self._pending_key(data)
+        self._assign(key, 1, self.bob.pk)
+        self._press("boxscore_as_ok", key)
+        self.assertEqual(self._seated(), [self.alice.pk, self.bob.pk, None])
+        self.assertFalse(Profile.objects.filter(assumed_steam_id=self.SHARED).exists())
+
+    def test_gate_one_continue_leaves_shared_seats_for_the_prompt(self):
+        """Continue used to blank every unidentified seat, answering the shared
+        pair before anyone was asked."""
+        data = self._run_data(self._doc(("bsalice", self.alice.steam_id),
+                                        ("Ghost", self.STEAM_A),
+                                        ("Twin", self.SHARED),
+                                        ("Twin", self.SHARED)))
+        self.assertIn("boxscore_link", self._actions(data))     # Gate 1
+        self.assertIn("Ghost", data["content"])
+        self.assertNotIn("Twin", data["content"])
+
+        key = self._pending_key(data)
+        prompt = self._press("boxscore_link", key)
+        self.assertEqual(len(self._selects(prompt)), 2)
+        seats = self._stashed(key)["seats"]
+        self.assertTrue(seats[1].get("accepted_blank"))
+        self.assertFalse(seats[2].get("accepted_blank"))
+        self.assertFalse(seats[3].get("accepted_blank"))
+
+    def test_every_seat_is_asked_across_pages(self):
+        data = self._run_data(self._doc(*[("Twin", self.SHARED)] * 6))
+        self.assertEqual(len(self._selects(data)), 4)
+        self.assertIn("Showing 4 of 6", data["content"])
+
+        key = self._pending_key(data)
+        second = self._press("boxscore_as_ok", key)
+        self.assertEqual(len(self._selects(second)), 2)
+        # The two left are the LAST two seats, not a page that skipped them.
+        indices = [s["custom_id"].split(":")[3] for s in self._selects(second)]
+        self.assertEqual(indices, ["4", "5"])
+        done = self._press("boxscore_as_ok", key)
+        self.assertEqual(done["components"], [])
+
+    def test_reopened_gate_zero_does_not_re_ask_a_skipped_seat(self):
+        self.bob.steam_id = None
+        self.bob.save(update_fields=["steam_id"])
+        data = self._run_data(self._doc(("bsalice", self.alice.steam_id),
+                                        ("MysteryOne", self.STEAM_A),
+                                        ("MysteryTwo", self.STEAM_B)))
+        key = self._pending_key(data)
+        self._pick(key, 1, self.bob.pk)
+        self._pick(key, 2, di._BOXSCORE_GATE_ZERO_SKIP)
+        gate_one = self._press("boxscore_g0_ok", key + ":0")
+        self.assertIn("boxscore_retry", self._actions(gate_one))
+
+        # The answer was wrong: an admin clears it, and Try Again asks again --
+        # about that seat, and not the one deliberately skipped.
+        Profile.objects.filter(pk=self.bob.pk).update(assumed_steam_id=None)
+        again = self._press("boxscore_retry", key)
+        selects = self._selects(again)
+        self.assertEqual([s["custom_id"].split(":")[3] for s in selects], ["1"])
+        self.assertIn("MysteryOne", again["content"])
+
+
 class LinkSteamCommandTest(TestCase):
     """/link steam hands back a private, expiring link and creates the profile if the
     Discord user has never used the site."""
@@ -16860,6 +17013,29 @@ class BoxScoreTokenCommandTests(_NoLoginSignalMixin, TestCase):
         self.assertNotIn("gate_zero_done", token.payload)
         self.assertNotIn("gate_zero", token.payload)
         self.assertNotIn("accepted_blank", token.payload["seats"][0])
+
+    def test_restore_clears_a_seat_prompt_answer(self):
+        """A seat prompt answer is one-upload-only, like accepted_blank: restored,
+        the seat goes back to whoever its ids pointed at, under the file's name,
+        so the question can be asked again."""
+        other = Profile.objects.create(discord="tokother", discord_id="920000000000000009")
+        token = self._discarded()
+        payload = dict(token.payload)
+        payload["seat_picks"] = {"0": other.pk}
+        payload["seats"][0].update(profile_pk=other.pk, label="tokother",
+                                   assigned=True, account_pk=self.player.pk,
+                                   file_label="tokplayer")
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(payload=payload)
+
+        self._press_restore(token)
+
+        token.refresh_from_db()
+        seat = token.payload["seats"][0]
+        self.assertNotIn("assigned", seat)
+        self.assertNotIn("account_pk", seat)
+        self.assertNotIn("seat_picks", token.payload)
+        self.assertEqual(seat["profile_pk"], self.player.pk)
+        self.assertEqual(seat["label"], "tokplayer")
 
     def test_restore_refuses_once_the_game_is_recorded(self):
         """Checked on the CLICK, not just the offer: the two are separate
@@ -18890,6 +19066,19 @@ class BoxScoreAutoRecordTests(_NoLoginSignalMixin, TestCase):
         self._link_tournament(open_roster=True)
         self.assertIsNotNone(self._run(recorder=self.tmod))
 
+    def test_a_link_required_tournament_gets_the_thread_link(self):
+        """The record form only ever had the link from a prefill, so a bound
+        form had none and every auto-record into such a tournament failed."""
+        self._link_tournament()
+        tournament = self.thread.lfg_role.tournament
+        tournament.link_required = True
+        tournament.save(update_fields=["link_required"])
+        self.thread.guild = tournament.guild
+        self.thread.save(update_fields=["guild"])
+        game = self._run(recorder=self.tmod)
+        self.assertIsNotNone(game)
+        self.assertEqual(game.link, self.thread.thread_url())
+
     def test_no_established_seating_declines(self):
         """Without seating_set the thread knows WHO played but not in what order;
         placing players on rows positionally would invent a seating."""
@@ -18970,6 +19159,356 @@ class BoxScoreAutoRecordTests(_NoLoginSignalMixin, TestCase):
         output = "\n".join(caught.output)
         self.assertIn("validation failed", output)
         self.assertIn("Select a winner", output)
+
+
+class BoxScoreMatchAutoRecordTests(_NoLoginSignalMixin, TestCase):
+    """Auto-recording a MATCH game: a tournament group thread spanning a best of
+    3, so each clean box score goes on the series' next open match -- and a
+    re-upload must never become the next game.
+    """
+
+    THREAD_ID = "880000000000000001"
+    ALICE_STEAM = "76561198000008801"
+    BOB_STEAM = "76561198000008802"
+
+    def setUp(self):
+        super().setUp()
+        designer = Profile.objects.create(discord="madesigner", discord_id="9700")
+        self.map = Map.objects.create(title="MA Map", slug="ma-map", clearings=12,
+                                      designer=designer, official=True,
+                                      status=StatusChoices.STABLE)
+        self.deck = Deck.objects.create(title="MA Deck", slug="ma-deck", card_total=54,
+                                        designer=designer, official=True,
+                                        status=StatusChoices.STABLE)
+        self.fox = Faction.objects.create(
+            title="MA Fox", slug="ma-fox", animal="Fox", designer=designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        self.bird = Faction.objects.create(
+            title="MA Bird", slug="ma-bird", animal="Bird", designer=designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        self.alice = Profile.objects.create(
+            discord="maalice", discord_id="9701", display_name="Alice",
+            steam_id=self.ALICE_STEAM,
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+        self.bob = Profile.objects.create(
+            discord="mabob", discord_id="9702", display_name="Bob",
+            steam_id=self.BOB_STEAM,
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+
+        self.guild = DiscordGuild.objects.create(guild_id="970100", name="MA Guild")
+        self.tournament = Tournament.objects.create(
+            name="MA Tournament", guild=self.guild, designer=designer,
+            recording_access=Tournament.RecordingAccessTypes.SCHEDULED)
+        self.stage = Stage.objects.create(tournament=self.tournament,
+                                          name="Stage 1", order=1)
+        self.round = Round.objects.create(
+            stage=self.stage, round_number=1,
+            bracket_status=Round.BracketStatusChoices.FINALIZED)
+        group = PlayerGroup.objects.create(
+            round=self.round, group_number=1, name="Group A",
+            discord_thread=f"https://discord.com/channels/{self.guild.guild_id}/{self.THREAD_ID}")
+        self.series = MatchSeries.objects.create(
+            round=self.round, player_group=group, number_of_games=3)
+        self.matches = [Match.objects.create(round=self.round, series=self.series)
+                        for _ in range(3)]
+        for number, profile in enumerate((self.alice, self.bob), start=1):
+            tp = TournamentPlayer.objects.create(tournament=self.tournament,
+                                                 profile=profile)
+            sp = StageParticipant.objects.create(stage=self.stage,
+                                                 tournament_player=tp)
+            MatchSeat.objects.create(series=self.series, stage_participant=sp,
+                                     seat_number=number)
+        self.thread = LFGThread.objects.create(
+            thread_id=self.THREAD_ID, series=self.series, guild=self.guild,
+            map=self.map, deck=self.deck)
+
+    def _doc(self, first=None, second=None, alice_wins=True, steam=None):
+        """A two-seat game. `first`/`second` are each seat's (faction, step)."""
+        first = first or (self.fox, 10)
+        second = second or (self.bird, 7)
+        steam = steam or (self.ALICE_STEAM, self.BOB_STEAM)
+        seats = []
+        for order, ((faction, step), steam_id, won) in enumerate(
+                zip((first, second), steam, (alice_wins, not alice_wins)), start=1):
+            seats.append({
+                "turn_order": order, "player": f"seat{order}",
+                "player_steam_id": steam_id, "faction": faction.slug,
+                "tournament_score": 1 if won else 0,
+                "turns": [{"turn": t, "score": t * step} for t in range(1, 4)]})
+        return {"participants": seats, "board_map": self.map.slug,
+                "deck": self.deck.slug}
+
+    def _patches(self):
+        svc = "the_warroom.services.game_recording."
+        return [mock.patch.object(di.record_lfg_components_task, "delay"),
+                mock.patch.object(di.post_boxscore_result_task, "delay"),
+                mock.patch.object(di.post_boxscore_prompt_task, "delay"),
+                mock.patch(svc + "post_channel_message_task"),
+                mock.patch(svc + "edit_channel_message_task"),
+                mock.patch(svc + "send_rich_discord_message_task")]
+
+    def _upload(self, doc, issuer=None):
+        """(result, posted summary or None, prompt body or None, token)"""
+        token, _raw = BoxScoreUploadToken.issue(self.thread, issuer or self.alice)
+        patches = self._patches()
+        started = [p.start() for p in patches]
+        try:
+            with self.captureOnCommitCallbacks(execute=True):
+                result = di.boxscore_upload_from_api(
+                    self.thread, json.dumps(doc).encode(), token)
+        finally:
+            for p in patches:
+                p.stop()
+        _capture, post, prompt = started[:3]
+        BoxScoreUploadToken.objects.filter(pk=token.pk).update(
+            status=BoxScoreUploadToken.Status.PENDING)
+        self.thread.refresh_from_db()
+        return (result, post.call_args.args[2] if post.called else None,
+                prompt.call_args.args[1] if prompt.called else None, token)
+
+    def _click(self, action, token, *args, values=None, message_id="1001"):
+        custom_id = ":".join([action, "t", str(token.pk), *map(str, args),
+                              di.PICK_OPEN])
+        payload = {"data": {"custom_id": custom_id},
+                   "channel_id": self.THREAD_ID,
+                   "message": {"id": message_id},
+                   "member": {"user": {"id": self.alice.discord_id,
+                                       "username": "maalice"}}}
+        if values is not None:
+            payload["data"]["values"] = [str(v) for v in values]
+        patches = self._patches()
+        for p in patches:
+            p.start()
+        try:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = di.COMPONENT_HANDLERS[action](payload)
+        finally:
+            for p in patches:
+                p.stop()
+        return json.loads(response.content)["data"]
+
+    def _game_of(self, match):
+        match.refresh_from_db()
+        return match.game
+
+    # ── recording ───────────────────────────────────────────────────────────
+
+    def test_a_clean_upload_records_the_first_open_match(self):
+        result, summary, prompt, _t = self._upload(self._doc())
+        game = self._game_of(self.matches[0])
+        self.assertIsNotNone(game)
+        self.assertIsNone(prompt)
+        self.assertEqual(self.matches[0].status, CompetitionStatus.COMPLETED)
+        name = self.matches[0].name
+        self.assertIn(f"Recorded as **{name}**", summary)
+        self.assertIn(f"recorded as {name}", result["message"])
+        # A series thread outlives any one game, so it is never linked to one.
+        self.assertIsNone(self.thread.game_id)
+
+    def test_game_two_records_without_asking_to_replace_game_one(self):
+        self._upload(self._doc())
+        _r, _summary, prompt, _t = self._upload(
+            self._doc(first=(self.bird, 9), second=(self.fox, 8)))
+        self.assertIsNone(prompt)
+        self.assertIsNotNone(self._game_of(self.matches[1]))
+
+    def test_a_re_upload_of_a_recorded_game_is_refused(self):
+        self._upload(self._doc())
+        before = self.thread.turns_data
+        with self.assertRaises(di.BoxScoreAlreadyRecorded):
+            self._upload(self._doc())
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.turns_data, before)
+        self.assertIsNone(self._game_of(self.matches[1]))
+
+    def test_the_api_answers_a_re_upload_as_already_recorded(self):
+        """The TTS contract's 409, not a 400 "can't read that file": the file is
+        fine, it has simply been recorded."""
+        self._upload(self._doc())
+        token, raw = BoxScoreUploadToken.issue(self.thread, self.alice)
+        patches = self._patches()
+        for p in patches:
+            p.start()
+        try:
+            response = self.client.post(
+                reverse("api-boxscore-upload"), data=json.dumps(self._doc()),
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Game-Token {raw}")
+        finally:
+            for p in patches:
+                p.stop()
+        self.assertEqual(response.status_code, 409)
+        self.assertIn(self.matches[0].name, response.json()["message"])
+        token.refresh_from_db()
+        self.assertEqual(token.status, BoxScoreUploadToken.Status.CANCELLED)
+
+    def test_game_one_is_still_refused_after_game_two(self):
+        self._upload(self._doc())
+        self._upload(self._doc(first=(self.bird, 9), second=(self.fox, 8)))
+        with self.assertRaises(di.BoxScoreAlreadyRecorded):
+            self._upload(self._doc())
+        self.assertIsNone(self._game_of(self.matches[2]))
+
+    def test_a_decided_series_still_records_its_open_match(self):
+        self._upload(self._doc())
+        self._upload(self._doc(first=(self.bird, 9), second=(self.fox, 8)))
+        self.series.refresh_from_db()
+        self.assertTrue(self.series.winners.exists())      # Alice won 2 of 3
+        self._upload(self._doc(first=(self.fox, 5), second=(self.bird, 6),
+                               alice_wins=False))
+        self.assertIsNotNone(self._game_of(self.matches[2]))
+
+    def test_a_match_game_is_recorded_without_the_shared_thread_link(self):
+        """Game.link is unique and every game of the series shares this thread,
+        so writing it would let game 1 record and refuse games 2 and 3."""
+        self._upload(self._doc())
+        self._upload(self._doc(first=(self.bird, 9), second=(self.fox, 8)))
+        self.assertFalse(self._game_of(self.matches[0]).link)
+        self.assertIsNotNone(self._game_of(self.matches[1]))
+
+    def test_a_seat_settled_at_the_seat_prompt_records(self):
+        """Bob played on Alice's account: two seats, one Steam id."""
+        _r, _s, prompt, token = self._upload(
+            self._doc(steam=(self.ALICE_STEAM, self.ALICE_STEAM)))
+        self.assertIsNotNone(prompt)
+        self._click("boxscore_as_pick", token, 0, values=[self.alice.pk])
+        self._click("boxscore_as_pick", token, 1, values=[self.bob.pk])
+        data = self._click("boxscore_as_ok", token)
+        self.assertEqual(data["components"], [])
+        game = self._game_of(self.matches[0])
+        self.assertIsNotNone(game)
+        self.assertEqual(set(game.efforts.values_list("player_id", flat=True)),
+                         {self.alice.pk, self.bob.pk})
+
+    # ── link_required: the box score message's own link ─────────────────────
+
+    def _require_link(self):
+        self.tournament.link_required = True
+        self.tournament.save(update_fields=["link_required"])
+
+    def _post_result(self, message_id):
+        """Upload cleanly, then run post_boxscore_result_task the way Celery
+        would, with Discord answering `message_id`. Returns (game edit mock,
+        the kwargs the upload queued the task with)."""
+        from the_databot import tasks
+        from the_databot.services.discordservice import THREAD_OK
+        token, _raw = BoxScoreUploadToken.issue(self.thread, self.alice)
+        patches = self._patches()
+        started = [p.start() for p in patches]
+        try:
+            with self.captureOnCommitCallbacks(execute=True):
+                di.boxscore_upload_from_api(
+                    self.thread, json.dumps(self._doc(**self._next_doc)).encode(),
+                    token)
+            args, kwargs = started[1].call_args
+            with mock.patch("the_databot.services.discordservice."
+                            "post_channel_message_full",
+                            return_value=(THREAD_OK, message_id)), \
+                    self.captureOnCommitCallbacks(execute=True):
+                tasks.post_boxscore_result_task(*args, **kwargs)
+        finally:
+            for p in patches:
+                p.stop()
+        return started[4], kwargs
+
+    _next_doc = {}
+
+    def test_a_clean_link_required_upload_records_once_its_message_is_posted(self):
+        self._require_link()
+        edit, queued = self._post_result("555")
+        self.assertEqual(queued["autorecord"]["recorder_pk"], self.alice.pk)
+        game = self._game_of(self.matches[0])
+        self.assertIsNotNone(game)
+        self.assertEqual(game.link, f"{self.thread.thread_url()}/555")
+        # The message loses its record link, and says where the game went.
+        body = edit.delay.call_args.args[2]
+        self.assertIn(f"Recorded as **{self.matches[0].name}**", body)
+        self.assertNotIn("Review and record", body)
+
+    def test_each_link_required_game_gets_its_own_link(self):
+        self._require_link()
+        self._post_result("555")
+        self._next_doc = {"first": (self.bird, 9), "second": (self.fox, 8)}
+        self._post_result("556")
+        self.assertTrue(self._game_of(self.matches[1]).link.endswith("/556"))
+
+    def test_a_declined_deferred_record_keeps_the_record_link(self):
+        """Recording waits for the message; if it then declines, the message
+        is left as posted -- record link and all -- for a person."""
+        self._require_link()
+        self.round.bracket_status = Round.BracketStatusChoices.DRAFT
+        self.round.save(update_fields=["bracket_status"])
+        edit, _queued = self._post_result("555")
+        self.assertIsNone(self._game_of(self.matches[0]))
+        edit.delay.assert_not_called()
+        self.thread.refresh_from_db()
+        self.assertEqual(self.thread.boxscore_message_id, "555")
+
+    def test_a_prompt_button_uses_the_prompt_message_link(self):
+        """On a posted prompt the message already exists -- it IS the result
+        message -- so its link is used straight away."""
+        self._require_link()
+        _r, _s, _p, token = self._upload(
+            self._doc(steam=(self.ALICE_STEAM, self.ALICE_STEAM)))
+        self._click("boxscore_as_pick", token, 0, values=[self.alice.pk])
+        self._click("boxscore_as_pick", token, 1, values=[self.bob.pk])
+        self._click("boxscore_as_ok", token, message_id="777")
+        game = self._game_of(self.matches[0])
+        self.assertEqual(game.link, f"{self.thread.thread_url()}/777")
+
+    # ── declines: the box score applies, a person records it ────────────────
+
+    def test_a_blank_seat_declines(self):
+        _r, _s, _p, token = self._upload(
+            self._doc(steam=(self.ALICE_STEAM, self.ALICE_STEAM)))
+        self._click("boxscore_as_pick", token, 0, values=[self.alice.pk])
+        data = self._click("boxscore_as_ok", token)        # seat 2 left blank
+        self.assertEqual(data["components"], [])
+        # Applied -- the box score is on the thread -- but nobody recorded it.
+        self.thread.refresh_from_db()
+        self.assertTrue(self.thread.turns_data)
+        self.assertIsNone(self._game_of(self.matches[0]))
+
+    def test_an_unpublished_bracket_declines(self):
+        self.round.bracket_status = Round.BracketStatusChoices.DRAFT
+        self.round.save(update_fields=["bracket_status"])
+        result, _s, _p, _t = self._upload(self._doc())
+        self.assertEqual(result["status"], "applied")
+        self.assertNotIn("recorded", result["message"])
+        self.assertIsNone(self._game_of(self.matches[0]))
+
+    def test_a_recorder_outside_the_match_declines(self):
+        outsider = Profile.objects.create(
+            discord="maoutsider", discord_id="9709",
+            group=Profile.GroupChoices.PLAYER, player_onboard=True)
+        self._upload(self._doc(), issuer=outsider)
+        self.assertIsNone(self._game_of(self.matches[0]))
+
+    def test_no_open_match_declines(self):
+        for match in self.matches:
+            match.status = CompetitionStatus.COMPLETED
+            match.save(update_fields=["status"])
+        result, _s, _p, _t = self._upload(self._doc())
+        self.assertEqual(result["status"], "applied")
+        self.assertFalse(Game.objects.exists())
+
+    def test_replacing_an_unrecorded_game_warns_and_is_not_recorded(self):
+        """Game 1 went in but nobody recorded it. Game 2's file must say it
+        replaces it, and must not be auto-recorded onto game 1's match."""
+        self.round.bracket_status = Round.BracketStatusChoices.DRAFT
+        self.round.save(update_fields=["bracket_status"])
+        self._upload(self._doc())                          # applied, not recorded
+        self.round.bracket_status = Round.BracketStatusChoices.FINALIZED
+        self.round.save(update_fields=["bracket_status"])
+
+        _r, _s, prompt, token = self._upload(
+            self._doc(first=(self.bird, 9), second=(self.fox, 8)))
+        self.assertIn("hasn't been recorded yet", prompt["content"])
+        data = self._click("boxscore_ok", token)
+        self.assertEqual(data["components"], [])
+        self.assertFalse(Game.objects.exists())
 
 
 class BoxScoreAutoRecordWiringTests(_NoLoginSignalMixin, TestCase):
