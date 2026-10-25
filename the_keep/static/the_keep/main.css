@@ -604,14 +604,21 @@ em, i {
     background: var(--support-bg, var(--theme-color));
     color: var(--support-fg, #fff);
     border: none;
+    /* Corners and weight match the Databot buttons (.databot-btn). */
+    border-radius: 10px;
     font-size: 1.15rem;
-    font-weight: 600;
+    font-weight: 700;
     padding: 0.55em 1.2em;
     transition: all 0.15s ease;
   }
   .support-btn:hover,
   .support-btn:focus-visible {
     background: var(--support-bg, var(--theme-color));
+    /* Darken on hover like .databot-btn-primary: the theme colour mixed with
+       10% black. color-mix() darkens only the BACKGROUND -- a filter would
+       darken the tea icon and text too. A browser without color-mix() keeps
+       the line above, i.e. just no darkening. */
+    background: color-mix(in srgb, var(--support-bg, var(--theme-color)) 90%, #000);
     color: var(--support-fg, #fff);
     transform: translateY(-2px);
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
