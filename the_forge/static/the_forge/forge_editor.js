@@ -1877,6 +1877,7 @@
 
   function initForgeIconInput(input) {
     if (input.dataset.forgeIconInit === '1') return;
+    if (input.dataset.forgeIconEditor === '1') return;
     if (input.disabled || input.dataset.ghost) return;
     input.dataset.forgeIconInit = '1';
 
@@ -1895,11 +1896,12 @@
     editor.dataset.forgeIconEditor = '1';
     if (wantsMiniToolbar) editor.dataset.forgeRichMiniToolbar = '1';
     // Mirror the data-* attributes that other JS (e.g. trackEditorSerialise)
-    // queries — col-header, row-title, track-header-title, track-image-input.
+    // queries — col-header, row-title, track-header-title. Deliberately NOT
+    // track-image-input: that's the init marker, and copying it would make a
+    // later initIconInputsIn() pass mount a second editor in front of this one.
     if (input.dataset.colHeader !== undefined) editor.dataset.colHeader = input.dataset.colHeader;
     if (input.dataset.rowTitle !== undefined) editor.dataset.rowTitle = input.dataset.rowTitle;
     if (input.dataset.trackHeaderTitle !== undefined) editor.dataset.trackHeaderTitle = input.dataset.trackHeaderTitle;
-    editor.dataset.trackImageInput = '';
     editor.innerHTML = richInput ? hydrateForRichInput(input.value) : tokensToHtml(input.value);
 
     input.parentNode.insertBefore(editor, input);
