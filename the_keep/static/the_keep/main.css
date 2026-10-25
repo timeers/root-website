@@ -2891,6 +2891,63 @@ tr.clickable-row:hover {
   opacity: 0.9;
 }
 
+/* About page: the lifecycle section's background holding info-card bubbles.
+   .home-lifecycle sets white, centered text for its own content; the cards
+   need their normal dark, left-aligned body text back. */
+/* About page integration cards: the home lifecycle nodes' outline (same
+   border, radius and padding as .home-lifecycle-step), plus a translucent
+   black background for readability. Its own class rather than reusing
+   .home-lifecycle-step, which also brings centering and chevron connectors. */
+.about-resource-card {
+  border: 2px solid rgba(255, 255, 255, 0.6);
+  border-radius: 12px;
+  padding: 1rem;
+  text-align: left;
+  /* A light dark wash behind the text, over the section's own overlay. */
+  background: rgba(0, 0, 0, 0.35);
+}
+/* The section's 1rem side padding lets the cards run edge to edge whenever
+   the screen is narrower than the content's 1100px cap. From 576px (Bootstrap's
+   sm) up, keep a wider gutter so they sit inside the background; only phones
+   in portrait keep 1rem. Wide screens are unaffected: the cap already leaves
+   room either side. */
+@media (min-width: 576px) {
+  .about-resources {
+    padding-left: 3rem;
+    padding-right: 3rem;
+  }
+}
+/* The site's blue link is hard to read on the dark overlay. */
+.about-resource-card .clickable-link {
+  color: #fff;
+}
+.about-resource-card .clickable-link:hover {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+/* Each integration's logo sits left of its card title. The source PNGs are
+   different sizes (32-192px), so they are drawn at one fixed size. */
+.about-resource-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+.about-resource-icon {
+  /* A faint white rounded square behind each logo so dark ones show on the
+     dark card. Bootstrap's border-box sizing keeps the tile 40px, with the
+     logo drawn in the 32px inside the padding. */
+  width: 40px;
+  height: 40px;
+  padding: 4px;
+  object-fit: contain;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
 .home-lifecycle-steps {
   list-style: none;
   padding: 0;
@@ -3227,6 +3284,21 @@ tr.clickable-row:hover {
   gap: 0.75rem;
   justify-content: center;
   flex-wrap: wrap;
+}
+
+/* About page support band (reuses .home-community-band). Its supporter list
+   sits on the dark overlay, so muted grey text and blue links are swapped for
+   white. */
+.about-support-thanks {
+  font-size: 0.9rem;
+  opacity: 0.8;
+  margin-bottom: 0.25rem;
+}
+.about-support .supporter-list .clickable-link {
+  color: #fff;
+}
+.about-support .supporter-list .clickable-link:hover {
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .floating-alert {

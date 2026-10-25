@@ -27,7 +27,7 @@
     <div class="home-hero-content">
         <h1 class="root-title home-hero-title">{% trans 'About the Database' %}</h1>
         <p class="home-hero-tagline">
-            Welcome to the {{site_title}}, an unofficial collection of fan factions and components for Root, the board game by Leder Games.
+            The {{site_title}} is an unofficial collection of fan factions and components for Root, the board game by Leder Games.
         </p>
     </div>
 </section>
@@ -36,59 +36,100 @@
 <div class='text-center'>
 
     <div class='my-4'>
-        {% comment %} Welcome to the {{site_title}}, an unofficial collection of fan factions and components for <a class='clickable-link' href="https://ledergames.com/products/root-a-game-of-woodland-might-and-right">Root</a>, the board game by <a class='clickable-link' href="https://ledergames.com/">Leder Games</a>. {% endcomment %}
-        The goal of the site is to provide an easy place to search for Fan Content made by the Root community with links to discussion boards and Discord threads.
-        You can post game results to track your stats and search community resources to help make your own creations. If you play a game with any of the components found here you can record that game to help the creators see their faction's stats.
+        The {{site_title}} started in 2024 as a spreadsheet listing popular fan factions.
+        The goal was to provide an easy place to search for Fan Content made by the Root community with links to discussion boards and Discord threads.
+        After countless hours of tutorials and research the Database made the jump to the web and was made public in mid 2025.
+        Many features have been added since with more to come. You can see the most recent update <a class='clickable-link' href={% url 'changelog-list-view' %}>here</a>.
     </div>
 
     <div class='row g-3 mb-4'>
         <div class='col-12 col-md-6'>
-            <div class='card h-100'>
-                <div class='card-body d-flex align-items-center justify-content-center text-center'>
+            <div class='info-card h-100'>
+                <div class='info-card-body'>
+                    <h2 class='info-card-title'>{% trans 'FAQ' %}</h2>
                     <div>If you have any questions about how the site works, check out the <a class='clickable-link' href="{% url 'website-faq' %}">FAQ</a>.</div>
                 </div>
             </div>
         </div>
 
         <div class='col-12 col-md-6'>
-            <div class='card h-100 lore-content' style="font-size: 1.1rem;">
-                <div class='card-body d-flex align-items-center justify-content-center text-center'>
+            <div class='info-card h-100'>
+                <div class='info-card-body'>
+                    <h2 class='info-card-title'>{% trans 'Feedback' %}</h2>
                     <div>Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url "general-feedback" %}'>here</a>.
                     {% if rdb_ww_thread %}
-                    You can also ask questions and give feedback in the <a class='clickable-link' href="{{rdb_ww_thread}}">Root Database Woodland Warriors Thread</a>.
+                    You can also ask questions and give feedback in the <a class='clickable-link' href="{{rdb_ww_thread}}">Root Database Discord Thread</a>.
                     {% endif %}</div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class='mb-4'>
-        Woodland Warrior members are able to update their Fan Factions when logged in (if you need help updating something you created, please submit a <a class='clickable-link' href='{% url "general-feedback" %}'>feedback request</a>).
-        <div>If you haven't already, be sure to Join the Woodland Warriors Discord, the official home of Root and all Leder Games boardgames. It's a great place to discuss strategy and find online games.</div>
-        {% if user.is_authenticated %}
-            <a href="{{woodland_warriors_invite}}"><img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors"></a>
-        {% else %}
-            <img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/JoinWW.png'  %}" alt="Join Woodland Warriors">
-        {% endif %}
-    </div>
-
-
-    <div class='mb-4'>
-        <div style="font-weight: 600;">
-            Root Digital League
+    <div class='info-card mb-4'>
+        <div class='info-card-body'>
+            <h2 class='info-card-title'>{% trans 'Woodland Warriors' %}</h2>
+            Woodland Warrior members are able to update their Fan Factions when logged in (if you need help updating something you created, please submit a <a class='clickable-link' href='{% url "general-feedback" %}'>feedback request</a>).
+            <div>If you haven't already, be sure to Join the Woodland Warriors Discord, the official home of Root and all Leder Games boardgames. It's a great place to discuss strategy and find online games.</div>
+            {% comment %}
+            The invite stays behind login, as the old Join image's link did: logged-out
+            visitors read about the server but get no link to it.
+            {% endcomment %}
+            {% if user.is_authenticated and woodland_warriors_invite %}
+            <a href="{{woodland_warriors_invite}}" class="databot-btn databot-btn-primary mt-3">
+                <i class="bi bi-discord me-2"></i>{% trans 'Join Woodland Warriors' %}
+            </a>
+            {% endif %}
         </div>
-        Root Digital League is organized by the Woodland Warriors Discord community.
-        League games are played through the Direwolf Digital app and are structured to be an informal and fun way to play against real players.
-        These games are recorded on the <a class='clickable-link' href='https://rootleague.pliskin.dev'>Root Digital League</a> website and then imported to the {{site_title}} through the Match Viewset List API provided by Pliskin.
-    </div>
-    <div class='mb-4'>
-        <div style="font-weight: 600;">
-            Leder Rules Library
-        </div>
-        The official and up to date rules for Root can be found at the <a class='clickable-link' href='https://rules.ledergames.com/?product=root'>Leder Rules Library</a>.
-        The {{site_title}} updates its Law of Root to match the publicly available rules provided by the <a class='clickable-link' href='https://github.com/LederCards/rules/tree/master'>Leder Cards repository</a> on Github{% if law_date %} and was last updated on {{law_date|date:"F j, Y"}}.{% else %}.{% endif %}
     </div>
 
+
+</div>
+</div>
+
+<!-- COMMUNITY INTEGRATIONS: full-width, on the home page's lifecycle background -->
+<section class="home-lifecycle about-resources" {% if theme %}style='--theme-color: {{theme.theme_color}};'{% endif %}>
+    <picture class="home-lifecycle-bg">
+        <source media="(max-width: 500px)" srcset="{% static 'images/homepage/lifecycle-small.webp' %}">
+        <img src="{% static 'images/homepage/lifecycle.webp' %}" alt="" loading="lazy">
+    </picture>
+    <div class="home-lifecycle-overlay"></div>
+    <div class="home-lifecycle-content">
+        <h2 class="root-title home-section-heading">{% trans "Community Integrations" %}</h2>
+        <div class="row row-cols-1 row-cols-lg-3 g-3">
+            <div class="col">
+                <div class="about-resource-card h-100">
+                    <div>
+                        <h3 class="about-resource-title"><img class="about-resource-icon" src="{% static 'images/link_icons/rootdigitalleague.png' %}" alt="" aria-hidden="true">Root Digital League</h3>
+                        Root Digital League is organized by the Woodland Warriors Discord community and are an informal and fun way to play against real players.
+                        These games are recorded on the <a class='clickable-link' href='https://rootleague.pliskin.dev'>Root Digital League</a> website and imported to the {{site_title}} through the Match Viewset List API provided by Pliskin.
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="about-resource-card h-100">
+                    <div>
+                        <h3 class="about-resource-title"><img class="about-resource-icon" src="{% static 'images/link_icons/lederruleslibrary.png' %}" alt="" aria-hidden="true">Leder Rules Library</h3>
+                        The official and up to date rules for Root can be found at the <a class='clickable-link' href='https://rules.ledergames.com/?product=root'>Leder Rules Library</a>.
+                        The {{site_title}} updates its Law of Root to match the publicly available rules provided by the <a class='clickable-link' href='https://github.com/LederCards/rules/tree/master'>Leder Cards repository</a> on Github{% if law_date %} and was last updated on {{law_date|date:"F j, Y"}}.{% else %}.{% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="col">
+                <div class="about-resource-card h-100">
+                    <div>
+                        <h3 class="about-resource-title"><img class="about-resource-icon" src="{% static 'images/link_icons/rootelo.png' %}" alt="" aria-hidden="true">RootELO</h3>
+                        The {{site_title}} uses <a class='clickable-link' href='https://tricholome.github.io/rootelo/'>RootELO</a> to display ELO rankings for Root Digital League and HOOT.
+                        RootELO was developed by Tricholome as an alternate to a classic winrate leaderboard.
+                        Results dynamically increase or decrease a players ranking based on the opponents they played against.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<div class='container'>
+<div class='text-center mt-4'>
 
     <div class='mb-4'>
         <div class='my-3' style="font-size: 1.2rem; font-weight: 600;">
@@ -120,32 +161,46 @@
 
 </div>
 
-<div class='mb-2 text-center'>
-    <div class='root-title' style="font-size: 1.1rem; font-weight: 600;">
-        Support
-    </div>
-    This site is provided as a free community resource to everyone. It only costs a few dollars a month to keep running, but support is always appreciated.
-    {% if supporters %}
-    <div class='mt-3 small text-muted'>
-        Thank you to those who help keep the lights on:
-    </div>
-    <div class='supporter-list'>
-        {% for supporter in supporters %}<span class='text-nowrap'>{% if supporter.profile and supporter.profile.slug %}<a class='clickable-link' href="{% url 'player-detail' supporter.profile.slug %}">{{ supporter.public_name }}</a>{% else %}{{ supporter.public_name }}{% endif %}</span>{% if not forloop.last %}, {% endif %}{% endfor %}
-    </div>
-    {% endif %}
-    
-    <div class='mt-2'>
-        <a class="btn support-btn" href="https://www.buymeacoffee.com/mrmirz" target="_blank" rel="noopener"
-           style="--support-bg: {{ theme.theme_color|default:'#5f788a' }}; --support-fg: {{ theme.background_color|default:'#fff' }};">
-            <img src="{% static 'images/tea.png' %}" alt="" class="support-btn-icon"> Support RDB
-        </a>
-    </div>
-
 </div>
 
+<div class='container'>
 
 <img class="mt-2 responsive-img d-block mx-auto" src="{% static 'images/Frog.png'  %}" alt="Join Woodland Warriors">
 
 </div>
+
+<!-- SUPPORT: full-width, mirroring the home page's "Join the Community" band -->
+<section class="home-community-band about-support">
+    <picture class="home-community-bg">
+        <source media="(max-width: 500px)" srcset="{% static 'images/homepage/community-small.webp' %}">
+        <img src="{% static 'images/homepage/community.webp' %}" alt="" loading="lazy">
+    </picture>
+    <div class="home-community-overlay"></div>
+    <div class="home-community-content">
+        <h2 class="root-title home-section-heading">{% trans 'Support the Database' %}</h2>
+        <p class="home-community-text">
+            This site is provided as a free community resource to everyone. It only costs a few dollars a month to keep running, but support is always appreciated.
+        </p>
+        {% if supporters %}
+        <div class='about-support-thanks'>
+            Thank you to those who helped keep the lights on:
+        </div>
+        <div class='supporter-list mb-4'>
+            {% for supporter in supporters %}<span class='text-nowrap'>{% if supporter.profile and supporter.profile.slug %}<a class='clickable-link' href="{% url 'player-detail' supporter.profile.slug %}">{{ supporter.public_name }}</a>{% else %}{{ supporter.public_name }}{% endif %}</span>{% if not forloop.last %}, {% endif %}{% endfor %}
+        </div>
+        {% endif %}
+        <div class="home-community-actions">
+            {% comment %} Theme-coloured like before, but white text to match the
+            home band's Log In button rather than the theme's background colour.
+            {% endcomment %}
+            <a class="btn support-btn" href="https://www.buymeacoffee.com/mrmirz" target="_blank" rel="noopener"
+               style="--support-bg: {{ theme.theme_color|default:'#5f788a' }}; --support-fg: #fff;">
+                <img src="{% static 'images/tea.png' %}" alt="" class="support-btn-icon"> Buy Me a Coffee
+            </a>
+        </div>
+    </div>
+</section>
+
+
 
 {% endblock content %}

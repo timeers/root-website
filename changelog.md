@@ -6,6 +6,12 @@
 - Added House Rules to the Match API
 - Scheduled games will now auto record from the Boxscore API if no errors are detected (was previously only available for LFG games)
 
+### Improvements
+- Improvements to the About page
+
+### Bug Fixes
+- Updates page pagination fixed
+
 ## [1.13.16] - 2026-10-23 Survey Integrations
 
 ### New Features
