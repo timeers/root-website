@@ -9,6 +9,7 @@
 ### Improvements
 - Improvements to the About page
 - Players sharing Steam accounts should no longer lock boxscores from being submitted. Added an option to leave blank or assign player once
+- Ask to confirm when closing lfg and scheduling polls
 
 ### Bug Fixes
 - Updates page pagination fixed
