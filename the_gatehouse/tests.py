@@ -3958,3 +3958,55 @@ class ChangelogPaginationTests(TestCase):
 
     def test_the_last_page_has_no_further_trigger(self):
         self.assertNotIn('hx-trigger="revealed"', self._page(3).content.decode())
+
+    def test_an_older_update_offers_a_way_back_to_the_latest(self):
+        """Opened on a later page, nothing newer is reachable by scrolling."""
+        oldest = min(self.changelogs, key=lambda c: c.date)
+        body = self.client.get(reverse('changelog-select-view',
+                                       kwargs={'slug': oldest.slug})).content.decode()
+        self.assertIn('Go to latest update', body)
+        self.assertIn(f'href="{reverse("changelog-list-view")}"', body)
+
+    def test_the_latest_update_has_no_go_to_latest_button(self):
+        body = self.client.get(reverse('changelog-select-view',
+                                       kwargs={'slug': self.latest.slug})).content.decode()
+        self.assertNotIn('Go to latest update', body)
+
+
+class ImportChangelogSlugBackfillTests(TestCase):
+    """import_changelog skips a version whose text is unchanged without saving
+    it, and the slug is set by the save signals -- so a changelog imported
+    before slugs existed never got one. Every import now backfills them."""
+
+    def setUp(self):
+        from the_gatehouse.models import Changelog
+        self.old = Changelog.objects.create(version="1.2.3", date=date(2024, 1, 1))
+        Changelog.objects.filter(pk=self.old.pk).update(slug=None)
+        self.blank = Changelog.objects.create(version="1.2.4", date=date(2024, 2, 1))
+        Changelog.objects.filter(pk=self.blank.pk).update(slug="")
+        # No version sections at all, so only the backfill runs.
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".md", delete=False)
+        tmp.write("# Changelog\n")
+        tmp.close()
+        self.addCleanup(lambda: __import__("os").remove(tmp.name))
+        patcher = mock.patch(
+            "the_gatehouse.management.commands.import_changelog.CHANGELOG_PATH",
+            tmp.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_missing_and_blank_slugs_are_filled_in(self):
+        call_command("import_changelog", stdout=io.StringIO())
+        self.old.refresh_from_db()
+        self.blank.refresh_from_db()
+        self.assertEqual(self.old.slug, "1-2-3")
+        self.assertEqual(self.blank.slug, "1-2-4")
+        self.assertEqual(self.client.get(
+            reverse("changelog-select-view", kwargs={"slug": "1-2-3"})).status_code, 200)
+
+    def test_a_dry_run_changes_nothing(self):
+        out = io.StringIO()
+        call_command("import_changelog", "--dry-run", stdout=out)
+        self.old.refresh_from_db()
+        self.assertIsNone(self.old.slug)
+        self.assertIn("Would add a slug to 1.2.3", out.getvalue())

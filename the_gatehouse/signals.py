@@ -179,7 +179,8 @@ SMALL_IMAGE_CONFIG = {
 
 @receiver(pre_save, sender=Changelog)
 def changelog_pre_save(sender, instance, **kwargs):
-    if instance.slug is None:
+    # `not`, not `is None`: a blank slug ("") is just as unroutable.
+    if not instance.slug:
         slugify_changelog(instance, save=False)
 
 @receiver(post_save, sender=Changelog)

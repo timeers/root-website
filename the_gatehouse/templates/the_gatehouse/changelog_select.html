@@ -20,6 +20,19 @@
 {% block content %}
 <div class='card my-2'>
 <h1 class='root-title text-center my-3'>Changelog</h1>
+{% comment %}
+Opening an older update starts on that update's page, and scrolling only loads
+OLDER pages -- so anything newer can't be reached from here. Only offered when
+that's the case: on page 1 everything newer is already on screen. /updates/
+redirects to whichever update is latest.
+{% endcomment %}
+{% if page_obj.number > 1 %}
+<div class='text-center mb-3'>
+    <a class='btn btn-sm btn-outline-secondary' href="{% url 'changelog-list-view' %}">
+        <i class="bi bi-arrow-up me-1"></i>{% trans 'Go to latest update' %}
+    </a>
+</div>
+{% endif %}
 </div>
 
 <div id="search-contents">
