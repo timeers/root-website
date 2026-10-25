@@ -345,9 +345,14 @@ GAME_ASSET_FIELDS = {
 GAME_ASSET_LIST_FIELDS = {
     'landmarks': ('landmarks', 'landmarks'),
     'hirelings': ('hirelings', 'hirelings'),
-    'tweaks': ('tweaks', 'tweaks'),
+    # House rules: the file says "houserules" (as GameSerializer emits it); the
+    # form field and asset bucket are still the model's name, "tweaks".
+    'houserules': ('tweaks', 'tweaks'),
     'undrafted_captains': ('undrafted_captains', 'captains'),
 }
+# How a skipped list item is named in a message, where the key alone won't do
+# ("houserule"). Anything not listed is its key, singular.
+GAME_ASSET_LIST_LABELS = {'houserules': 'house rule'}
 GAME_TEXT_FIELDS = {
     'title': 'nickname',
     'table_talk_url': 'link',
@@ -660,7 +665,9 @@ def resolve_import(participants, *, option_querysets, player_queryset,
             ids = []
             for slug in values:
                 obj = _resolve_slug(slug, buckets.get(bucket), models_by_bucket.get(bucket),
-                                    label=label, what=key.rstrip('s'), result=result)
+                                    label=label,
+                                    what=GAME_ASSET_LIST_LABELS.get(key, key.rstrip('s')),
+                                    result=result)
                 if obj is not None:
                     ids.append(obj.pk)
             if ids:

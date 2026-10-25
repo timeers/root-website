@@ -1,12 +1,20 @@
 {% load i18n %}
-<div id="search-contents">
+{% comment %}
+One further page of updates, appended by htmx into changelog_select.html's
+#search-contents -- so no wrapper of its own: a second #search-contents would
+nest a duplicate id inside the first with every page loaded.
+
+The next-page trigger requests THIS changelog's page (changelog-select-view),
+the same as the full page does. The bare /updates/ view redirects to the
+latest changelog and drops ?page, which answered page 3 with page 1 again.
+{% endcomment %}
     {% if changelogs %}
         {% for release in changelogs %}
 
 
             {% if forloop.last and changelogs.has_next %}
                 <div hx-trigger="revealed" 
-                hx-get="{% url 'changelog-list-view' %}?page={{ page_obj.number|add:1 }}"
+                hx-get="{% url 'changelog-select-view' slug=selected_changelog.slug %}?page={{ page_obj.number|add:1 }}"
                 hx-target="#search-contents"
                 hx-swap="beforeend"
                 hx-indicator="#spinner">
@@ -30,6 +38,5 @@
 
 
     {% else %}
-        {% trans 'No updatees to display.' %}
+        {% trans 'No updates to display.' %}
     {% endif %}
-</div>

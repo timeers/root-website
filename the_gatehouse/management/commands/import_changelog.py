@@ -2,7 +2,9 @@ import re
 import hashlib
 from datetime import datetime
 from django.core.management.base import BaseCommand
+from django.db.models import Q
 from the_gatehouse.models import Changelog, ChangelogEntry
+from the_gatehouse.utils import slugify_changelog
 
 
 CHANGELOG_PATH = "changelog.md"
@@ -180,3 +182,23 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.WARNING(
                     f"[DRY RUN] Finished parsing {version}\n"
                 ))
+
+        self._backfill_slugs(dry_run)
+
+    def _backfill_slugs(self, dry_run):
+        """Give every changelog without a slug one.
+
+        The slug is set by the Changelog save signals, and an unchanged version
+        is skipped above without being saved -- so a changelog imported before
+        slugs existed never got one, and with no slug it has no page. Run on
+        every import so any such row is repaired, whatever its source text.
+        """
+        missing = Changelog.objects.filter(Q(slug__isnull=True) | Q(slug=""))
+        for changelog in missing:
+            if dry_run:
+                self.stdout.write(self.style.WARNING(
+                    f"[DRY RUN] Would add a slug to {changelog.version}"))
+                continue
+            slugify_changelog(changelog, save=True)
+            self.stdout.write(self.style.SUCCESS(
+                f"Added slug '{changelog.slug}' to {changelog.version}"))

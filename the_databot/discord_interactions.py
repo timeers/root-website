@@ -596,6 +596,21 @@ def _boxscore_record_line(thread):
     return f"This game is already recorded — view it [here]({url})."
 
 
+def _boxscore_recorded_line(recorded):
+    """The line saying where an auto-recorded MATCH game went, or None.
+
+    A best-of-N's next game is picked by match order, so the summary names it:
+    a file recorded against the wrong game is then visible at a glance. A plain
+    LFG game holds one game and announces itself, so it says nothing extra.
+    """
+    match = getattr(recorded, "match", None) if recorded else None
+    try:
+        name = match.name if match is not None else None
+    except Exception:
+        name = None
+    return f"Recorded as **{name}**." if name else None
+
+
 def _boxscore_summary(title_lines, lines, component_lines, notes, record_line):
     """THE shape of every box score result message, so the four places that build
     one can't drift apart again -- which is exactly how the record link came to
@@ -9884,9 +9899,9 @@ def _boxscore_decompose(participants, payload):
     # Unlike map/deck, an unrecognised slug here gets no note -- these are
     # existence-checked again by _boxscore_component_items below (which does
     # report/skip them for the roll log), and a second warning would just repeat
-    # the first. Tweaks follow the same silence.
+    # the first. House rules follow the same silence.
     for key, model in (("landmarks", Landmark), ("hirelings", Hireling),
-                       ("tweaks", Tweak)):
+                       ("houserules", Tweak)):
         titles = []
         for slug in (payload.get(key) or []):
             obj = model.objects.filter(slug=slug).first()
@@ -9994,7 +10009,7 @@ def _boxscore_component_items(participants, payload):
     Kind strings must match ROLL_KIND_TO_BUCKET exactly -- an unknown kind stores
     an LFGRoll that rolled_components silently skips. Deliberately NOT reusing
     _LFG_LOOKUP_KIND: that maps DISCORD SUBCOMMAND names ("houserule"), not the
-    box score's payload keys ("tweaks").
+    box score's payload keys ("houserules").
     """
     from the_keep.models import Faction, Vagabond, Landmark, Hireling, Tweak
 
@@ -10009,7 +10024,7 @@ def _boxscore_component_items(participants, payload):
 
     # Game level. These are LISTS in the file, unlike the map/deck scalars.
     for key, kind in (("landmarks", "Landmark"), ("hirelings", "Hireling"),
-                      ("tweaks", "Tweak")):
+                      ("houserules", "Tweak")):
         values = payload.get(key)
         if isinstance(values, list):
             for slug in values:
@@ -10133,15 +10148,24 @@ def _boxscore_file_seats(participants, profiles):
         # A resolved seat shows the PROFILE's name, so both sides of the
         # comparison read alike; only an unresolved one falls back to whatever
         # the file said, which is all we have to identify it by.
+        names_someone = bool(participant.get("player")
+                             or participant.get("player_steam_id"))
         if profile is not None:
             label = profile.name
-        elif participant.get("player") or participant.get("player_steam_id"):
+        elif names_someone:
             label = participant_label(participant)
         else:
             label = "(blank)"
         seats.append({
             "profile_pk": profile.pk if profile else None,
             "label": _boxscore_clean(label, _BOXSCORE_LABEL_MAX),
+            # What the FILE called this player, kept even when `label` becomes a
+            # profile's name. A seat can lose its profile later -- Try Again
+            # re-resolves, and the id it resolved by may have been unlinked or
+            # cleared -- and this is then the only name left to ask about it by.
+            "file_label": (_boxscore_clean(participant_label(participant),
+                                           _BOXSCORE_LABEL_MAX)
+                           if names_someone else None),
             # The RAW identifiers, kept so Gate 1's Try Again can re-resolve after
             # someone links their account. participant_label collapses these into
             # one display string, which is lossy -- a retry needs the keys.
@@ -10154,6 +10178,17 @@ def _boxscore_file_seats(participants, profiles):
             "discarded_slug": _boxscore_clean(participant.get("discarded_captain")),
         })
     return seats
+
+
+def _boxscore_file_label(seat):
+    """What the file called this seat's player, or "" when it named nobody.
+
+    Falls back for a payload staged before `file_label` existed: the raw slug,
+    then the Steam id -- participant_label's own order. Never `label`, which may
+    be the name of whoever the seat last resolved to.
+    """
+    return (seat.get("file_label") or seat.get("player_slug")
+            or seat.get("player_steam_id") or "")
 
 
 def _boxscore_current_seats(thread):
@@ -10244,6 +10279,8 @@ def _boxscore_seat_lines(seats, header, numbered=True, scores=None, dominance=No
     # to None kept displaying the last person who held it, which read as that
     # player occupying two seats when the seating was in fact correct.
     profile_pks = {s["profile_pk"] for s in seats if s.get("profile_pk")}
+    # Plus whose ACCOUNT an assigned seat was played on, for "(on A's account)".
+    profile_pks |= {s["account_pk"] for s in seats if s.get("account_pk")}
     names = {}
     if profile_pks:
         names = {p.pk: p.name
@@ -10272,7 +10309,25 @@ def _boxscore_seat_lines(seats, header, numbered=True, scores=None, dominance=No
     lines = [header] if header else []
     for index, seat in enumerate(seats, 1):
         pk = seat.get("profile_pk")
-        if pk:
+        account = names.get(seat.get("account_pk"))
+        if seat.get("assigned"):
+            # Settled at the seat prompt, so checked BEFORE accepted_blank (a
+            # blank answer sets that too) -- otherwise it reads "(not linked)",
+            # which is advice to go and link, the wrong advice for a shared
+            # account. Says whose login it was, which is the point of the
+            # prompt; an unknown shared id has no name to give, so it says that.
+            if pk:
+                who = names.get(pk) or seat["label"]
+                if account and seat.get("account_pk") != pk:
+                    who += f" (on {account}'s account)"
+                elif not account:
+                    who += " (shared Steam account)"
+            elif account:
+                who = f"(blank, on {account}'s account)"
+            else:
+                label = _boxscore_file_label(seat)
+                who = f"{label} (blank, shared Steam account)" if label else ""
+        elif pk:
             # Resolved: the profile is the truth.
             who = names.get(pk) or seat["label"]
         elif seat.get("accepted_blank"):
@@ -10511,6 +10566,14 @@ def _boxscore_apply(thread, pending, channel_id, match_roster=None):
         if error:
             return None, [error]
 
+    # The seat prompt exists so this never happens; logged rather than refused,
+    # because a refusal here reaches the TTS fallback, which presents any apply
+    # note as Gate 3's "an admin must fix the roster" -- the wrong advice.
+    doubled = _boxscore_shared_profile_indices(seats)
+    if doubled:
+        logger.error("boxscore applying one profile to several seats "
+                     "(thread %s, seats %s)", thread.pk, sorted(doubled))
+
     # Roster: LFG threads only. A tournament group thread's roster lives in
     # PlayerGroup.tournament_players / MatchSeat, NOT thread.players -- writing
     # here would silently change nothing, and rewriting a bracket from an
@@ -10668,6 +10731,14 @@ def boxscore_upload_from_api(thread, raw, token):
     if thread.personal:
         return _boxscore_apply_personal(thread, pending, token, payload, entries)
 
+    # Before anything is staged or written: a re-upload of a series game that is
+    # already recorded would otherwise overwrite the thread's box score and
+    # offer a record link to the NEXT match, prefilled with the old game.
+    duplicate = _boxscore_already_recorded(thread, pending)
+    if duplicate is not None:
+        raise BoxScoreAlreadyRecorded(
+            _boxscore_already_recorded_text(duplicate, plain=True))
+
     def post_gate(body, ask="confirm some details for", client_message=(
             "Box score uploaded, but it doesn't match this game's players or "
             "seating. Check the Discord thread to confirm or cancel.")):
@@ -10712,6 +10783,8 @@ def boxscore_upload_from_api(thread, raw, token):
         if _boxscore_is_gate_three(body):
             return post_gate(body, BOXSCORE_GATE_THREE_ASK,
                              BOXSCORE_GATE_THREE_MESSAGE)
+        if _boxscore_is_assign_prompt(body):
+            return post_gate(body, BOXSCORE_ASSIGN_ASK, BOXSCORE_ASSIGN_MESSAGE)
         return post_gate(body)
 
     # match_roster re-checks the SAME roster balance _boxscore_decide already
@@ -10744,20 +10817,26 @@ def boxscore_upload_from_api(thread, raw, token):
         title_lines.append(f"{mention} — your box score was saved.")
     # The token's issuer records it: they minted the credential the TTS object
     # used, so the upload is theirs.
-    recorded = _boxscore_try_autorecord(thread, token.issued_by, payload=payload)
+    recorded, deferred = _boxscore_autorecord_posted(
+        thread, token.issued_by, payload=payload)
     _boxscore_finish_posted(
         thread, title_lines, lines, component_lines, applied_notes,
         allowed_mentions=({"users": [token.issued_by.discord_id]}
                           if mention else None),
-        recorded=recorded)
+        recorded=recorded, autorecord=deferred)
     turn_count = max((len(e.get("turns") or []) for e in entries), default=0)
     # No record link: whoever is holding the TTS object is at the table and
     # usually isn't the one who records. The link goes to the thread instead,
     # where everyone who can act on it already is.
+    # Recorded matches are said so at the table too, the way a personal upload
+    # already is ("uploaded and recorded").
+    where = getattr(getattr(recorded, "match", None), "name", None) if recorded else None
+    done = (f"Box score uploaded and recorded as {where}" if where
+            else "Box score uploaded and recorded" if recorded
+            else "Box score uploaded")
     return {
         "ok": True, "status": "applied",
-        "message": (f"Box score uploaded — {len(entries)} seats, "
-                    f"{turn_count} turns."),
+        "message": f"{done} — {len(entries)} seats, {turn_count} turns.",
         "seats": len(entries), "turns": turn_count,
     }
 
@@ -10784,6 +10863,10 @@ def _boxscore_apply_personal(thread, pending, token, payload, entries):
     from the_warroom.services.box_score_import import BoxScoreImportError
 
     try:
+        # No gate will ask who played a shared account here, so those seats go
+        # in blank: the owner picks them on the record form, and the shared id
+        # is never taught to anyone (finish_personal_record skips the flag).
+        _boxscore_blank_shared_seats(pending["seats"])
         lines, applied_notes = _boxscore_apply(thread, pending, thread.thread_id)
         if lines is None:
             raise BoxScoreImportError(_boxscore_apply_error(applied_notes))
@@ -11067,10 +11150,21 @@ def _boxscore_from_raw(data, thread, channel_id, raw, filename):
         "component_lines": component_lines, "undrafted": undrafted,
     }
 
+    # See boxscore_upload_from_api: refused before anything is staged.
+    duplicate = _boxscore_already_recorded(thread, pending)
+    if duplicate is not None:
+        return _ephemeral(_boxscore_already_recorded_text(duplicate))
+
     if not strict:
         # Legacy behaviour: seating only when there isn't one, and no prompting.
         if thread.seating_set or thread.seats.exists():
             pending["seats"] = []
+        shared_labels = _boxscore_blank_shared_seats(pending["seats"])
+        if shared_labels:
+            notes.append(
+                "These seats share a Steam account, so they were left blank: "
+                + ", ".join(f"`{s}`" for s in shared_labels)
+                + " — pick them on the form.")
         if unlinkable:
             notes.append(
                 "Couldn't match players: " + ", ".join(f"`{s}`" for s in unlinkable)
@@ -11078,16 +11172,12 @@ def _boxscore_from_raw(data, thread, channel_id, raw, filename):
         return _boxscore_reply(thread, pending, channel_id,
                                recorder=_boxscore_invoker_profile(data))
 
-    # A match game is exactly its match roster. Checked HERE, before any gate
-    # renders, so the uploader learns while they can still fix the file -- by the
-    # time it reaches the record form they have gone, and the recorder is holding
-    # something they cannot reconcile. Re-checked at apply, since a gate answer
-    # can change both sides of the balance.
-    if thread.series_id:
-        error = _boxscore_roster_mismatch(file_seats, roster)
-        if error:
-            return _ephemeral(error)
-
+    # A match game is exactly its match roster -- but that is NOT checked here
+    # any more. It used to refuse the file outright, before any gate, which left
+    # the uploader nothing to press: a seat played on an outsider's Steam account
+    # was simply rejected, where the seat prompt can say who sat there, and a
+    # roster an admin is about to fix had no Try Again. _boxscore_decide asks the
+    # same question at the right point (Gate 3), and _boxscore_apply re-checks.
     return _boxscore_next_step(thread, pending, channel_id, data.get("_author_id"))
 
 
@@ -11254,9 +11344,19 @@ def _boxscore_gate_zero_needed(pending, roster):
     """
     from the_warroom.services.box_score_import import is_plausible_steam_id
 
+    # Set when Try Again moved seats back to unidentified: the gate reopens for
+    # THOSE seats only (see _boxscore_reresolve).
+    only = pending.get("gate_zero_only")
+    only = {int(i) for i in only} if only else None
+    # A Steam id two seats share isn't anyone's identity, so it must never be
+    # taught to a profile -- the seat prompt answers those for this upload only.
+    shared = _boxscore_shared_steam_indices(pending["seats"])
     seats = [(i, s) for i, s in enumerate(pending["seats"])
              if s["profile_pk"] is None
              and not s.get("accepted_blank")
+             and not s.get("assigned")
+             and i not in shared
+             and (only is None or i in only)
              and is_plausible_steam_id(s.get("player_steam_id"))
              and s.get("player_slug")]
     if not seats:
@@ -11280,9 +11380,22 @@ def _boxscore_unlinkable(pending):
     -- _boxscore_decide re-runs this on the way back, and a seat that still
     reported unlinkable would render Gate 1 again, identically, forever.
     """
-    return [s["label"] for s in pending["seats"]
+    return [s["label"] for _i, s in _boxscore_unlinkable_seats(pending)]
+
+
+def _boxscore_unlinkable_seats(pending):
+    """[(index, seat)] behind _boxscore_unlinkable -- shared with Gate 1's
+    Continue, which must blank exactly the seats Gate 1 listed and no others.
+
+    Seats sharing a Steam id are excluded: linking can't fix them (one account,
+    two players), and the seat prompt asks about them instead.
+    """
+    shared = _boxscore_shared_steam_indices(pending["seats"])
+    return [(i, s) for i, s in enumerate(pending["seats"])
             if s["profile_pk"] is None
             and not s.get("accepted_blank")
+            and not s.get("assigned")
+            and i not in shared
             and (s.get("player_slug") or s.get("player_steam_id"))]
 
 
@@ -11315,6 +11428,34 @@ def _boxscore_reresolve(thread, pending, channel_id, channel_name=None, guild_id
     # blank" does nothing.
     skipped = {int(i) for i in (pending.get("gate_zero_skipped") or [])}
 
+    picks = pending.get("seat_picks") or {}
+
+    def settled(position, seat):
+        # Same reasoning as `skipped`, for the other ways a seat gets settled:
+        # Gate 1's Continue accepted this one as blank, or the seat prompt
+        # assigned it for this upload only. The identifiers are kept (so it can
+        # be restored), so without this it would silently re-fill on the next
+        # re-resolve and undo that decision.
+        return (position in skipped or seat.get("accepted_blank")
+                or seat.get("assigned"))
+
+    # Pass 1: release seats whose id no longer finds anyone -- its verified owner
+    # unlinked it, or an admin cleared a wrong assumed id. Keeping the stale
+    # profile made Try Again unable to fix exactly the case it is pressed for:
+    # the seat kept naming the wrong player. Steam id only, because that is the
+    # only way /boxscore ever resolves a seat (resolve_participant_players skips
+    # the slug tier). A SEPARATE pass, before anything is filled: a released
+    # profile is free for an earlier seat to take, which a single pass in seat
+    # order would already have refused.
+    unresolved = []
+    for position, (seat, on_roster, anywhere) in enumerate(zip(seats, found, wider)):
+        if settled(position, seat) or on_roster or anywhere:
+            continue
+        if seat.get("profile_pk") and seat.get("player_steam_id"):
+            seat["profile_pk"] = None
+            seat["label"] = _boxscore_file_label(seat) or seat["label"]
+            unresolved.append(position)
+
     # One profile cannot hold two seats. Re-resolution is per-seat and blind to
     # what its neighbours matched, so two seats can land on the same person --
     # notably after Gate 0 writes an assumed_steam_id, which makes a previously
@@ -11323,22 +11464,147 @@ def _boxscore_reresolve(thread, pending, channel_id, channel_name=None, guild_id
     # seating one person twice.
     taken = {s["profile_pk"] for s in seats if s.get("profile_pk")}
 
+    # Pass 2: fill in whatever now resolves.
     for position, (seat, on_roster, anywhere) in enumerate(zip(seats, found, wider)):
-        # Same reasoning as `skipped`, for the other way a seat gets settled:
-        # Gate 1's Continue accepted this one as blank, and the identifiers are
-        # kept now (so it can be restored), so without this it would silently
-        # re-fill on the next re-resolve and undo that decision.
-        if position in skipped or seat.get("accepted_blank"):
+        if settled(position, seat):
             continue
         profile = on_roster or anywhere
         if profile is None:
             continue
         if profile.pk in taken and seat.get("profile_pk") != profile.pk:
             continue
+        if seat.get("profile_pk") != profile.pk:
+            # An unsaved pick on the seat prompt was about who held this seat
+            # BEFORE; it must not survive into a seating it no longer describes.
+            picks.pop(str(position), None)
         seat["profile_pk"] = profile.pk
         seat["label"] = profile.name
         taken.add(profile.pk)
+
+    # A seat released above that something else then filled again isn't
+    # unidentified after all.
+    unresolved = [p for p in unresolved if not seats[p].get("profile_pk")]
+
+    if unresolved:
+        # Moving a seat back to unidentified moves the UPLOAD back a step: Gate 0
+        # asks who these seats are. Only these -- seats already answered or
+        # skipped in an earlier round stay as they were, so reopening the gate
+        # doesn't re-ask everything (gate_zero_done was the only thing stopping
+        # that). A Gate 0 answer is durable (it writes an assumed id), which is
+        # right here: this is fixing a wrong identity. A shared account is the
+        # seat prompt's job, and the seat can still be skipped.
+        gate_zero = pending.get("gate_zero") or {}
+        for position in unresolved:
+            gate_zero.pop(str(position), None)
+            picks.pop(str(position), None)
+        only = set(pending.get("gate_zero_only") or [])
+        pending["gate_zero_only"] = sorted(only | set(unresolved))
+        pending["gate_zero_done"] = False
     return roster
+
+
+class BoxScoreAlreadyRecorded(Exception):
+    """This exact box score is already a recorded game of the thread's series.
+
+    Its own type, not a BoxScoreImportError: the file is fine, it has simply
+    been recorded, and the upload API answers that as "already recorded" (409)
+    rather than as an unreadable file (400).
+    """
+
+
+def _boxscore_score_of(cells):
+    """A seat's final score from its turn cells, as an int, or None."""
+    if not cells:
+        return None
+    try:
+        return int(cells[-1].get("score"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _series_recorded_games(series_id):
+    """The series' recorded games, efforts and match prefetched."""
+    from the_warroom.models import Game
+    return list(Game.objects.filter(match__series_id=series_id)
+                .select_related("match")
+                .prefetch_related("efforts__faction"))
+
+
+def _series_recorded_game_for_file(series_id, entries, seats):
+    """The recorded game of this series that IS this box score, or None.
+
+    Compared on what a file can't get wrong by accident -- every seat's faction
+    and final score, as a multiset -- and deliberately NOT on players: a seat
+    corrected on the record form, or played on someone else's account, would
+    otherwise hide a re-upload of a game already in. Two different games with
+    every faction and every score identical are not a real risk.
+
+    Needs a faction on every seat: without them the comparison is scores alone,
+    and two games can plausibly share those.
+    """
+    scores = {e.get("turn_order"): _boxscore_score_of(e.get("turns"))
+              for e in entries or []}
+    rows = sorted((s.get("faction_slug"), scores.get(i))
+                  for i, s in enumerate(seats or [], start=1))
+    if not rows or any(faction is None for faction, _score in rows):
+        return None
+    for game in _series_recorded_games(series_id):
+        recorded = sorted((e.faction.slug if e.faction_id else None, e.score)
+                          for e in game.efforts.all())
+        if recorded == rows:
+            return game
+    return None
+
+
+def _series_seating_spent(thread):
+    """Whether the thread's current seating is a game already recorded.
+
+    After game 1 of a best-of-N the group thread still holds game 1's seating,
+    so game 2's file always "differs" from it and Gate 2 would ask to replace a
+    seating nobody needs any more. A seating whose (player, faction) pairs are
+    exactly a recorded game's is that game's, and is safe to overwrite.
+
+    A seating set for the NEXT game (/seating, /pick) matches no recorded game,
+    so Gate 2 still protects it -- except in a tournament where everyone keeps
+    the same faction every game, where the two are indistinguishable.
+    """
+    current = sorted((seat.profile_id, seat.faction.slug if seat.faction_id else None)
+                     for seat in thread.seats.select_related("faction"))
+    if not current or any(pk is None for pk, _f in current):
+        return False
+    for game in _series_recorded_games(thread.series_id):
+        played = sorted((e.player_id, e.faction.slug if e.faction_id else None)
+                        for e in game.efforts.all())
+        if played == current:
+            return True
+    return False
+
+
+def _series_unrecorded_boxscore(thread):
+    """Whether this series thread holds a box score no recorded game accounts
+    for -- so applying another one would replace a game nobody recorded."""
+    return bool(thread.series_id and thread.turns_data and thread.seating_set
+                and not _series_seating_spent(thread))
+
+
+def _boxscore_already_recorded(thread, pending):
+    """The recorded game this upload duplicates, or None. Series threads only:
+    a plain LFG thread holds one game and refuses a re-upload on game_id."""
+    if not thread.series_id:
+        return None
+    return _series_recorded_game_for_file(
+        thread.series_id, pending.get("entries"), pending.get("seats"))
+
+
+def _boxscore_already_recorded_text(game, plain=False):
+    """The refusal for a re-upload of a recorded series game. `plain` for the
+    TTS client, which shows the text as-is at the table."""
+    name = getattr(getattr(game, "match", None), "name", None) or "a game"
+    if plain:
+        return f"This box score was already recorded as {name}."
+    url = _record_url(game.get_absolute_url())
+    view = f" View it [here]({url})." if url else ""
+    return f"This box score was already recorded as **{name}**.{view}"
 
 
 def _boxscore_decide(thread, pending, roster, owner, ref):
@@ -11380,24 +11646,38 @@ def _boxscore_decide(thread, pending, roster, owner, ref):
         return _boxscore_gate_one_body(thread, pending, unlinkable, owner,
                                        ref=ref(), guild_id=_thread_guild_id(thread))
 
-    # Gate 2: the file disagrees with what the thread already knows -- either its
-    # seating, or (on a thread with no seating yet) its roster. The roster check
-    # matters on its own: an unseated thread has nothing to compare positionally,
-    # but a file naming someone who isn't in this game is still worth confirming.
+    # The seat prompt: Steam ids that can't say who sat where -- two seats on one
+    # account, or (in a match) someone playing on an outsider's login. After
+    # Gates 0/1, which settle who an id IS; before Gates 2/3, which compare a
+    # seating that only means something once each seat names the right person.
+    problem, _candidates = _boxscore_seats_to_assign(thread, pending, roster)
+    if problem:
+        return _boxscore_assign_body(thread, pending, roster, owner, ref=ref())
+
     current = _boxscore_current_seats(thread)
-    if _boxscore_seats_differ(current, pending["seats"]):
-        return _boxscore_gate_two_body(thread, pending, current, owner, ref=ref())
 
     # A match thread's roster is a CLOSED set -- only an admin editing the match
     # on the site can add or remove someone, so a mismatch there is Gate 3
-    # (Try Again/Cancel), not something Confirm can fix. A plain LFG thread's
-    # roster is open -- Gate 2's Confirm already handles it by adding whoever
-    # the file names (see _boxscore_apply), so that stays exactly as it was.
+    # (Try Again/Cancel), not something Confirm can fix. Checked BEFORE Gate 2:
+    # the other way round, a seated match showed Gate 2 first and its Confirm
+    # then failed this same check inside _boxscore_apply, cancelling the upload.
+    # A plain LFG thread's roster is open -- Gate 2's Confirm already handles it
+    # by adding whoever the file names (see _boxscore_apply).
     if thread.series_id:
         mismatch = _boxscore_roster_mismatch(pending["seats"], roster)
         if mismatch:
             return _boxscore_gate_three_body(thread, pending, mismatch, owner,
                                              ref=ref())
+
+    # Gate 2: the file disagrees with what the thread already knows -- either its
+    # seating, or (on a thread with no seating yet) its roster. The roster check
+    # matters on its own: an unseated thread has nothing to compare positionally,
+    # but a file naming someone who isn't in this game is still worth confirming.
+    if _boxscore_seats_differ(current, pending["seats"]) and not (
+            thread.series_id and _series_seating_spent(thread)):
+        return _boxscore_gate_two_body(thread, pending, current, owner, ref=ref())
+
+    if thread.series_id:
         return None
 
     roster_pks = {p.pk for p in roster}
@@ -11438,6 +11718,14 @@ def _boxscore_next_step(thread, pending, channel_id, owner, roster=None,
 
     def prompt_ref():
         if not stashed:
+            if not ref and not save and owner and owner != PICK_OPEN:
+                # A cache-backed prompt has no token to say who uploaded it, so
+                # once a button applies it there was nobody to record the game
+                # as -- auto-record never ran after ANY gate on this path. The
+                # owner here is the invoker (the uploader), not a later clicker.
+                recorder = _schedule_profile(owner)
+                if recorder:
+                    pending["recorder_pk"] = recorder.pk
             stashed.append(ref or (save() if save else
                                    _boxscore_stash(thread, pending)))
         return stashed[0]
@@ -11496,7 +11784,9 @@ def _boxscore_apply_in_place(thread, pending, channel_id, ref, payload=None):
 
     # From the UPLOAD, not the click: a "t:" gate can be answered by the thread
     # host or a moderator, and they are not the one recording.
-    recorded = _boxscore_try_autorecord(thread, _boxscore_token_profile(ref))
+    recorded = _boxscore_try_autorecord(
+        thread, _boxscore_upload_recorder(ref, pending),
+        link=_boxscore_prompt_link(thread, ref, payload))
     content = _boxscore_finish(
         thread, ref, payload or {}, channel_id,
         _boxscore_title_lines(pending), lines,
@@ -11619,6 +11909,220 @@ def _boxscore_gate_zero_body(thread, pending, roster, owner, page=0, ref=None):
     }
 
 
+def _boxscore_shared_steam_indices(seats):
+    """Indices of seats whose Steam id appears on another seat too.
+
+    Two seats on one Steam account is two people taking turns on one login (or
+    one exporter quirk); either way the id identifies neither of them, so these
+    seats are asked about one upload at a time rather than resolved or learned.
+    Only plausible ids count: a junk id shared by two seats says nothing.
+    """
+    from the_warroom.services.box_score_import import is_plausible_steam_id
+
+    by_id = {}
+    for index, seat in enumerate(seats):
+        steam_id = seat.get("player_steam_id")
+        if is_plausible_steam_id(steam_id):
+            by_id.setdefault(str(steam_id), []).append(index)
+    return {i for group in by_id.values() if len(group) > 1 for i in group}
+
+
+def _boxscore_shared_profile_indices(seats):
+    """Indices of seats that resolved to a profile another seat also holds.
+
+    Distinct from a shared Steam id: two DIFFERENT ids can land on one profile
+    (a verified id plus an older assumed one). Counted across every seat,
+    settled ones included -- re-resolve only refuses NEW collisions, so a
+    duplicate present from the first resolve survives it, and this is what
+    catches it before one person is seated twice.
+    """
+    by_pk = {}
+    for index, seat in enumerate(seats):
+        if seat.get("profile_pk"):
+            by_pk.setdefault(seat["profile_pk"], []).append(index)
+    return {i for group in by_pk.values() if len(group) > 1 for i in group}
+
+
+def _boxscore_blank_shared_seats(seats):
+    """Blank every seat sharing a Steam id or a profile, in place, for paths with
+    no seat prompt to ask (a personal thread, or a thread with no roster).
+    Returns the file's labels for the seats it blanked.
+
+    Blank rather than first-seat-wins: nothing says which seat the account's
+    owner played, and a blank seat is one the record form makes someone fill.
+    `account_pk` keeps who the ids pointed at, so the form can still offer them
+    (a verified owner is otherwise outside the personal blank-seat pool), and
+    `shared_steam_id` is what stops the record form learning the id.
+    """
+    shared = (_boxscore_shared_steam_indices(seats)
+              | _boxscore_shared_profile_indices(seats))
+    labels = []
+    for index in sorted(shared):
+        seat = seats[index]
+        seat["account_pk"] = seat.get("profile_pk")
+        seat["profile_pk"] = None
+        seat["shared_steam_id"] = True
+        seat["label"] = _boxscore_file_label(seat) or seat["label"]
+        labels.append(seat["label"])
+    return labels
+
+
+def _boxscore_seat_settled(seat):
+    """A seat a person already answered for: assigned at the seat prompt, or
+    accepted as blank (at Gate 1, or as the seat prompt's "leave blank")."""
+    return bool(seat.get("assigned") or seat.get("accepted_blank"))
+
+
+def _boxscore_seats_to_assign(thread, pending, roster):
+    """([(index, seat, reason)], [Profile]) -- the seats the seat prompt asks
+    about, and who may be picked for them.
+
+    `reason` is "shared_steam", "shared_profile" or "outsider". A match outsider
+    (a seat resolved to someone not in the match -- usually someone playing on
+    another person's account) is only asked about while a match player is still
+    unseated. Without room for them, every answer would still fail the roster
+    balance, so Gate 3 explains that instead of a question with no good answer.
+
+    Candidates are the roster minus anyone seated on a seat that ISN'T in
+    question. On a plain LFG thread the profile a seat resolved to is offered
+    too, roster or not: "A really did play seat 2" is a valid answer, and
+    _boxscore_apply adds a seated player to the thread. A match roster is closed,
+    so there only match players are offered.
+    """
+    seats = pending["seats"]
+    reasons = {i: "shared_steam" for i in _boxscore_shared_steam_indices(seats)}
+    for i in _boxscore_shared_profile_indices(seats):
+        reasons.setdefault(i, "shared_profile")
+
+    if thread.series_id and roster:
+        roster_pks = {p.pk for p in roster}
+        seated = {s["profile_pk"] for s in seats if s.get("profile_pk")}
+        outsiders = [i for i, s in enumerate(seats)
+                     if s.get("profile_pk") and s["profile_pk"] not in roster_pks
+                     and i not in reasons and not _boxscore_seat_settled(s)]
+        unidentified = sum(1 for s in seats if not s.get("profile_pk"))
+        if outsiders and len(roster_pks - seated) > unidentified:
+            for i in outsiders:
+                reasons[i] = "outsider"
+
+    problem = [(i, seats[i], reasons[i]) for i in sorted(reasons)
+               if not _boxscore_seat_settled(seats[i])]
+    if not problem:
+        return [], []
+
+    asked = {i for i, _s, _r in problem}
+    occupied = {s["profile_pk"] for i, s in enumerate(seats)
+                if i not in asked and s.get("profile_pk")}
+    pool = {p.pk: p for p in roster}
+    if not thread.series_id:
+        extra = [s.get("profile_pk") for _i, s, _r in problem
+                 if s.get("profile_pk") and s["profile_pk"] not in pool]
+        pool.update({p.pk: p for p in Profile.objects.filter(pk__in=extra)})
+    candidates = sorted((p for pk, p in pool.items() if pk not in occupied),
+                        key=lambda p: (p.name.lower(), p.pk))
+    # 25 options per select, one of which is "leave blank".
+    return problem, candidates[:24]
+
+
+_BOXSCORE_ASSIGN_PER_PAGE = 4    # 4 selects + 1 button row = Discord's 5-row cap
+_BOXSCORE_ASSIGN_BLANK = "0"     # sentinel option value; a pk is never 0
+
+
+def _boxscore_is_assign_prompt(body):
+    """Is this the seat prompt? Asked of the BODY, as _boxscore_is_gate_three is,
+    so the TTS client's wording can't disagree with what rendered."""
+    return any(c.get("custom_id", "").startswith("boxscore_as_pick:")
+               for row in body.get("components") or []
+               for c in row.get("components") or [])
+
+
+def _boxscore_assign_body(thread, pending, roster, owner, ref=None, note=None):
+    """The seat prompt's {content, components}: who actually played each seat
+    the Steam ids can't settle -- a shared account, or someone playing on
+    another person's login in a match.
+
+    The answer is for THIS UPLOAD ONLY. It never writes an assumed id: an
+    account two people use identifies neither of them, so teaching it to one
+    would mis-seat the other on every later upload.
+
+    No page index rides in the custom_ids, unlike Gate 0. Saving settles the
+    seats on screen, so they drop out of the list and the next render is simply
+    the first page of what is left; page arithmetic over a shrinking list is how
+    seats get skipped.
+
+    A seat with no pick shows "leave blank" SELECTED, because that is what Save
+    does with it -- an untouched dropdown otherwise looks unanswered while
+    Save treats it as answered.
+    """
+    ref = ref or _boxscore_stash(thread, pending)
+    problem, candidates = _boxscore_seats_to_assign(thread, pending, roster)
+    picks = pending.get("seat_picks") or {}
+    shown = problem[:_BOXSCORE_ASSIGN_PER_PAGE]
+
+    held = {s["profile_pk"] for _i, s, _r in shown if s.get("profile_pk")}
+    names = ({p.pk: p.name for p in Profile.objects.filter(pk__in=held)}
+             if held else {})
+
+    rows = []
+    lines = ["**Who played these seats?**", ""]
+    for position, (index, seat, reason) in enumerate(shown, 1):
+        chosen = str(picks.get(str(index)) or "")
+        tag = f"Seat {index + 1}"
+        options = [select_option(f"{tag}: — leave blank —", _BOXSCORE_ASSIGN_BLANK,
+                                 default=chosen in ("", _BOXSCORE_ASSIGN_BLANK))]
+        options += [select_option(_boxscore_option_label(tag, p.name, joiner=": "),
+                                  str(p.pk), default=str(p.pk) == chosen)
+                    for p in candidates]
+        rows.append(action_row(string_select(
+            encode_custom_id("boxscore_as_pick", ref, index, owner),
+            options, placeholder=f"{position}. Who played seat {index + 1}?"[:100],
+            min_values=1, max_values=1)))
+
+        holder = names.get(seat.get("profile_pk"))
+        if reason == "outsider":
+            why = f"`{holder}` isn't in this match"
+        elif reason == "shared_profile":
+            why = f"`{holder}` is in more than one seat"
+        elif holder:
+            why = f"another seat used the same Steam account (`{holder}`)"
+        else:
+            why = "another seat used the same Steam account"
+        label = _boxscore_file_label(seat) or seat.get("label") or "?"
+        lines.append(f"**{position}.** Seat {index + 1}, `{label}`: {why}.")
+
+    lines += [
+        "",
+        "If someone played on another person's Steam account, pick who actually "
+        "sat there. This only applies to this upload; no linked Steam account "
+        "changes. Or leave a seat blank and fill it in on the record form.",
+    ]
+    if not thread.series_id:
+        lines.append("-# Not listed? They need to `/join` this thread first.")
+    if len(problem) > len(shown):
+        lines.append(f"*Showing {len(shown)} of {len(problem)} seats.*")
+    if note:
+        lines.append(f"-# {note}")
+
+    more = len(problem) > len(shown)
+    rows.append(action_row(
+        button("Save & Next Players" if more else "Save & Continue",
+               encode_custom_id("boxscore_as_ok", ref, owner),
+               style=STYLE_PRIMARY),
+        # Re-resolves first, so a player who has just linked their Steam
+        # account (or an admin fixing a wrong assumed id) settles a seat
+        # without anyone having to pick.
+        button("Try Again", encode_custom_id("boxscore_retry", ref, owner),
+               style=STYLE_SECONDARY),
+        button("Cancel", encode_custom_id("boxscore_no", ref, owner),
+               style=STYLE_SECONDARY),
+    ))
+    return {
+        "content": "\n".join(lines),
+        "components": rows,
+        "allowed_mentions": {"parse": []},
+    }
+
+
 def _thread_guild_id(thread):
     """The guild snowflake for a thread, or None.
 
@@ -11707,6 +12211,13 @@ def _boxscore_gate_two_body(thread, pending, current, owner,
     if thread.game_id:
         lines.append("-# This game is already recorded — this won't change the "
                      "saved game.")
+    if _series_unrecorded_boxscore(thread):
+        # Confirming would overwrite the previous game's box score before anyone
+        # recorded it -- and auto-record would then put THIS file on the match
+        # the previous one belongs to. Confirm stays manual (_boxscore_commit).
+        lines.append("-# The previous game's box score hasn't been recorded yet "
+                     "— this replaces it, and this one won't be recorded "
+                     "automatically.")
     lines.append("Continue?")
 
     return {
@@ -11739,6 +12250,14 @@ BOXSCORE_GATE_THREE_ASK = "an admin needs to fix the roster for"
 BOXSCORE_GATE_THREE_MESSAGE = (
     "Box score uploaded, but it doesn't match this match's roster. Check the "
     "Discord thread — an admin has to fix the roster on the site.")
+
+
+# The seat prompt asks something neither Confirm nor an admin can answer: who
+# was actually at the keyboard of a shared account.
+BOXSCORE_ASSIGN_ASK = "pick who played the shared seats in"
+BOXSCORE_ASSIGN_MESSAGE = (
+    "Box score uploaded, but some seats share a Steam account or name someone "
+    "outside this game. Check the Discord thread to choose who played them.")
 
 
 def _boxscore_is_gate_three(body):
@@ -12082,10 +12601,15 @@ def _handle_boxscore_gate_zero_save(payload):
     # upload can be restored) where the old code stripped it, so a stale pick
     # from before that decision would otherwise write a DURABLE cross-game
     # identity for a seat the user explicitly declined to link.
+    # A shared Steam id is skipped too, even though Gate 0 never renders those
+    # seats: an id two seats used identifies neither player, so a stale pick
+    # must not write it onto anyone.
+    shared = _boxscore_shared_steam_indices(seats)
     pairs = [(pk, seats[int(i)].get("player_steam_id"))
              for i, pk in (pending.get("gate_zero") or {}).items()
              if i.isdigit() and int(i) < len(seats)
-             and not seats[int(i)].get("accepted_blank")]
+             and int(i) not in shared
+             and not _boxscore_seat_settled(seats[int(i)])]
     if pairs:
         assign_assumed_steam_ids(pairs)
 
@@ -12102,6 +12626,117 @@ def _handle_boxscore_gate_zero_save(payload):
         return _boxscore_gate_zero_rerender(payload, pending, thread, ref, page + 1)
 
     pending["gate_zero_done"] = True
+    pending.pop("gate_zero_only", None)
+    _boxscore_save(ref, thread, pending)
+    return _boxscore_next_step(
+        thread, pending, thread.thread_id, _boxscore_owner_arg(payload),
+        roster=roster, save=lambda: ref, ref=ref, payload=payload)
+
+
+def _boxscore_assign_rerender(payload, pending, thread, ref, note=None):
+    """Re-draw the seat prompt in place."""
+    roster, _group = _thread_roster(thread, thread.thread_id)
+    body = _boxscore_assign_body(thread, pending, roster,
+                                 _boxscore_owner_arg(payload), ref=ref, note=note)
+    return JsonResponse({"type": RESPONSE_UPDATE_MESSAGE, "data": body})
+
+
+def _handle_boxscore_assign_pick(payload):
+    """A seat prompt dropdown changed: record the choice and re-draw.
+
+    Kept in the PAYLOAD, as Gate 0's are, rather than read back from the
+    message's option state: the prompt pages, so an earlier page's answers are
+    not on the message any more.
+    """
+    pending, thread, ref = _boxscore_pending_for_click(payload)
+    if not pending:
+        return _ephemeral("That box score is no longer waiting — upload it again.")
+    _who, error = _boxscore_click_owner(payload, thread, ref)
+    if error:
+        return error
+
+    _action, args = decode_custom_id(payload["data"]["custom_id"])
+    index = args[2] if len(args) >= 4 else None
+    chosen = (payload["data"].get("values") or [None])[0]
+
+    # String keys for the same JSONField round-trip reason as Gate 0's picks.
+    picks = pending.setdefault("seat_picks", {})
+    if index is not None and index.isdigit():
+        if chosen in (None, _BOXSCORE_ASSIGN_BLANK) or not str(chosen).isdigit():
+            picks[index] = _BOXSCORE_ASSIGN_BLANK
+        else:
+            # One person, one seat: claiming someone releases them elsewhere.
+            for key, pk in list(picks.items()):
+                if str(pk) == chosen and key != index:
+                    picks.pop(key)
+            picks[index] = int(chosen)
+    _boxscore_save(ref, thread, pending)
+    return _boxscore_assign_rerender(payload, pending, thread, ref)
+
+
+def _handle_boxscore_assign_save(payload):
+    """Save on the seat prompt: settle the seats on screen, then carry on.
+
+    Settles them for THIS UPLOAD ONLY -- profile_pk is written into the staged
+    seat and nothing else. Never assign_assumed_steam_ids: a shared account
+    identifies nobody, so teaching it to whoever was picked would mis-seat the
+    other player on every later upload.
+
+    The candidates are recomputed from the CURRENT roster rather than trusted
+    from the pick: the click is a separate request, and the roster or the other
+    seats may have moved since the dropdown rendered. A pick that no longer
+    fits is dropped and the prompt re-drawn, rather than seating someone twice
+    or seating someone the match doesn't have.
+    """
+    pending, thread, ref = _boxscore_pending_for_click(payload)
+    if not pending:
+        return _ephemeral("That box score is no longer waiting — upload it again.")
+    _who, error = _boxscore_click_owner(payload, thread, ref)
+    if error:
+        return error
+
+    roster, _group = _thread_roster(thread, thread.thread_id)
+    problem, candidates = _boxscore_seats_to_assign(thread, pending, roster)
+    allowed = {p.pk: p for p in candidates}
+    picks = pending.setdefault("seat_picks", {})
+    shown = problem[:_BOXSCORE_ASSIGN_PER_PAGE]
+
+    chosen, rejected = {}, False
+    for index, _seat, _reason in shown:
+        raw = str(picks.get(str(index), _BOXSCORE_ASSIGN_BLANK))
+        pk = int(raw) if raw.isdigit() and raw != _BOXSCORE_ASSIGN_BLANK else None
+        if pk is not None and (pk not in allowed or pk in chosen.values()):
+            picks.pop(str(index), None)
+            rejected = True
+            continue
+        chosen[index] = pk
+    if rejected:
+        _boxscore_save(ref, thread, pending)
+        return _boxscore_assign_rerender(
+            payload, pending, thread, ref,
+            note="A player you picked can't take that seat any more. Pick again.")
+
+    seats = pending["seats"]
+    for index, pk in chosen.items():
+        seat = seats[index]
+        if not seat.get("assigned"):
+            # Who the ids resolved this seat to, so it can be shown ("on A's
+            # account") and Restore can put it back.
+            seat["account_pk"] = seat.get("profile_pk")
+        seat["assigned"] = True
+        if pk:
+            seat["profile_pk"] = pk
+            seat["label"] = allowed[pk].name
+            seat.pop("accepted_blank", None)
+        else:
+            # accepted_blank is what every other gate already reads as "a person
+            # chose to leave this empty", so leaving it blank here is settled
+            # for Gates 0/1 and the roster balance alike.
+            seat["profile_pk"] = None
+            seat["accepted_blank"] = True
+            seat["label"] = _boxscore_file_label(seat) or seat["label"]
+        picks.pop(str(index), None)
+
     _boxscore_save(ref, thread, pending)
     return _boxscore_next_step(
         thread, pending, thread.thread_id, _boxscore_owner_arg(payload),
@@ -12182,9 +12817,12 @@ def _handle_boxscore_link(payload):
     # name of whoever it last resolved to (which read as one person holding two
     # seats); _boxscore_seat_lines now marks these "(not linked)" instead, which
     # says the same thing without throwing the name away.
-    for seat in pending["seats"]:
-        if seat["profile_pk"] is None:
-            seat["accepted_blank"] = True
+    #
+    # Only the seats Gate 1 LISTED. It used to blank every profile-less seat,
+    # which also swallowed seats sharing a Steam id -- those come after Gate 1,
+    # at the seat prompt, and Continue would have answered them unasked.
+    for _index, seat in _boxscore_unlinkable_seats(pending):
+        seat["accepted_blank"] = True
     _boxscore_save(ref, thread, pending)
     return _boxscore_next_step(
         thread, pending, thread.thread_id, _boxscore_owner_arg(payload),
@@ -12230,13 +12868,44 @@ def _boxscore_autorecord_enabled(thread):
     return bool(thread.guild_id and thread.guild.is_beta_tester)
 
 
-def _boxscore_try_autorecord(thread, recorder, payload=None):
+def _boxscore_message_link(thread, message_id):
+    """The Discord link to one message in this thread, or None.
+
+    A series game's Game.link: unique to the game, where the thread's own link
+    is shared by the whole best-of-N (see boxscore_autorecord.build_form_data).
+    """
+    base = thread.thread_url()
+    return f"{base}/{message_id}" if base and message_id else None
+
+
+def _boxscore_autorecord_posted(thread, recorder, payload=None):
+    """(recorded, deferred) for a box score whose result is about to be POSTED.
+
+    Records now, unless the game needs its box score message's link and that
+    message doesn't exist yet (boxscore_autorecord.needs_message_link). Then
+    nothing is recorded here and `deferred` is what post_boxscore_result_task
+    needs to record it once the message is posted -- the message goes out WITH
+    its record link, which record_game strips if the recording works and
+    which is the fallback if it doesn't.
+    """
+    from the_databot.services.boxscore_autorecord import needs_message_link
+
+    if (recorder is not None and _boxscore_autorecord_enabled(thread)
+            and thread.thread_url() and needs_message_link(thread)):
+        return None, {"recorder_pk": recorder.pk,
+                      "turn_timing": (payload or {}).get("turn_timing")}
+    return _boxscore_try_autorecord(thread, recorder, payload=payload), None
+
+
+def _boxscore_try_autorecord(thread, recorder, payload=None, link=None):
     """Record this thread's game now, if it's enabled here and everything lines up.
 
-    Returns True when a game was created, which is the ONLY thing the callers
-    need: it decides whether the summary still offers a record link. Every
-    refusal -- not a beta guild, no recorder, ineligible recorder, failed
-    validation -- returns False and leaves the box score to a person.
+    Returns the Game when one was created, else None. Callers mostly need only
+    its truthiness -- it decides whether the summary still offers a record link
+    -- but a MATCH game is also named in the summary, so a best-of-N says which
+    game it went on. Every refusal -- not a beta guild, no recorder, ineligible
+    recorder, failed validation -- returns None and leaves the box score to a
+    person.
 
     The recorder comes from the UPLOAD (the invoker, or the token's issuer),
     never from whoever clicked a gate button: a moderator clarifying someone
@@ -12249,7 +12918,7 @@ def _boxscore_try_autorecord(thread, recorder, payload=None):
         # no LOGGING dict is configured, so INFO is never emitted.
         logger.warning("auto-record declined for thread %s: no recorder resolved",
                        thread.pk)
-        return False
+        return None
     if not _boxscore_autorecord_enabled(thread):
         # Report the guild AND its beta flag: "no guild on this thread" and "this
         # guild isn't a beta tester" are different problems with different fixes,
@@ -12257,9 +12926,9 @@ def _boxscore_try_autorecord(thread, recorder, payload=None):
         logger.warning("auto-record declined for thread %s: not enabled here "
                        "(guild=%s beta=%s)", thread.pk, thread.guild_id,
                        thread.guild.is_beta_tester if thread.guild_id else None)
-        return False
+        return None
     from the_databot.services.boxscore_autorecord import attempt_autorecord
-    return attempt_autorecord(thread, recorder, payload=payload) is not None
+    return attempt_autorecord(thread, recorder, payload=payload, link=link)
 
 
 def _boxscore_invoker_profile(data):
@@ -12273,6 +12942,26 @@ def _boxscore_invoker_profile(data):
     return _schedule_profile(data.get("_author_id"), data.get("_author_username"))
 
 
+def _boxscore_prompt_link(thread, ref, payload):
+    """The link to the prompt a button was pressed on, which becomes the box
+    score's result message -- or None for a "c:" prompt, an ephemeral reply
+    nobody else could open."""
+    if not ref or not ref.startswith("t:"):
+        return None
+    return _boxscore_message_link(
+        thread, ((payload or {}).get("message") or {}).get("id"))
+
+
+def _boxscore_upload_recorder(ref, pending):
+    """Who uploaded a staged box score, and so records it: the token's issuer
+    for a "t:" prompt, the invoker stashed with a "c:" one -- never whoever
+    clicked the button that applied it."""
+    if ref and ref.startswith("t:"):
+        return _boxscore_token_profile(ref)
+    pk = (pending or {}).get("recorder_pk")
+    return Profile.objects.filter(pk=pk).first() if pk else None
+
+
 def _boxscore_token_profile(ref):
     """The Profile that minted a "t:<pk>" upload token, or None."""
     if not ref or not ref.startswith("t:"):
@@ -12284,7 +12973,8 @@ def _boxscore_token_profile(ref):
 
 
 def _boxscore_finish_posted(thread, title_lines, lines, component_lines, notes,
-                            allowed_mentions, channel_id=None, recorded=False):
+                            allowed_mentions, channel_id=None, recorded=False,
+                            autorecord=None):
     """The shared tail of a box score result POSTED fresh into a thread (as
     opposed to editing an existing prompt -- see _boxscore_finish): build both
     forms of the message through _boxscore_summary and hand them to
@@ -12303,13 +12993,14 @@ def _boxscore_finish_posted(thread, title_lines, lines, component_lines, notes,
     # NOT gated on thread.game_id: a series thread never has one, so that test
     # would drop the link for exactly the threads that need a match-mode one.
     # _boxscore_record_line decides record-vs-view instead.
-    record_line = None if recorded else _boxscore_record_line(thread)
+    record_line = (_boxscore_recorded_line(recorded) if recorded
+                   else _boxscore_record_line(thread))
     content, body_without_record_line = _boxscore_summary(
         title_lines, lines, component_lines, notes, record_line)
     post_boxscore_result_task.delay(
         thread.pk, channel_id or thread.thread_id, content,
         body_without_record_line, allowed_mentions=allowed_mentions,
-        track=not recorded)
+        track=not recorded, autorecord=autorecord)
 
 
 def _boxscore_finish(thread, ref, payload, channel_id,
@@ -12334,7 +13025,7 @@ def _boxscore_finish(thread, ref, payload, channel_id,
     """
     # See _boxscore_finish_posted: gated on the link, not thread.game_id,
     # which a series thread never has.
-    record_line = (None if recorded
+    record_line = (_boxscore_recorded_line(recorded) if recorded
                    else (_boxscore_record_line(thread) if ref.startswith("t:") else None))
     content, body_without_record_line = _boxscore_summary(
         title_lines, lines, component_lines, notes, record_line)
@@ -12376,6 +13067,11 @@ def _boxscore_commit(payload, pending, thread, ref):
             + _boxscore_kept_note(ref, "to restore it against the new seating"))
 
     channel_id = payload.get("channel_id") or (payload.get("channel") or {}).get("id")
+    # Read BEFORE the apply overwrites it: is this Confirm replacing a series
+    # game's box score that was never recorded? Gate 2 warned about exactly
+    # this, and the match auto-record would pick is the one the REPLACED game
+    # belongs to -- so a person records this one.
+    replaces_unrecorded = _series_unrecorded_boxscore(thread)
     lines, notes = _boxscore_apply(thread, pending, channel_id,
                                    _boxscore_match_roster(thread, channel_id))
     if lines is None:
@@ -12383,10 +13079,16 @@ def _boxscore_commit(payload, pending, thread, ref):
         return _boxscore_resolved(_boxscore_apply_error(notes, ref))
     # BEFORE the discard: it clears the token's payload, and the issuer is who
     # records this -- not whoever clicked Confirm, who may be a moderator.
-    _recorder = _boxscore_token_profile(ref)
+    _recorder = _boxscore_upload_recorder(ref, pending)
     _boxscore_discard(ref, status=BoxScoreUploadToken.Status.APPLIED)
 
-    recorded = _boxscore_try_autorecord(thread, _recorder)
+    if replaces_unrecorded:
+        logger.warning("auto-record declined for thread %s: replaced an "
+                       "unrecorded series box score", thread.pk)
+        recorded = None
+    else:
+        recorded = _boxscore_try_autorecord(
+            thread, _recorder, link=_boxscore_prompt_link(thread, ref, payload))
     content = _boxscore_finish(
         thread, ref, payload, channel_id,
         _boxscore_title_lines(pending), lines,
@@ -12500,10 +13202,18 @@ def _handle_boxscore_restore(payload):
     # than asking twice. accepted_blank is the one gate answer with no durable
     # backing -- leave it and the seat would be skipped by every condition, so
     # Gate 1 would never render and the seat would stay blank forever.
-    for key in ("gate_zero", "gate_zero_skipped", "gate_zero_done"):
+    for key in ("gate_zero", "gate_zero_skipped", "gate_zero_done",
+                "gate_zero_only", "seat_picks"):
         pending.pop(key, None)
     for seat in pending.get("seats") or []:
         seat.pop("accepted_blank", None)
+        # A seat prompt answer is for one upload and, like accepted_blank, has
+        # no durable backing -- so it is reset, and the seat goes back to what
+        # its ids resolved to, for the prompt to ask about again.
+        if seat.pop("assigned", None):
+            seat["profile_pk"] = seat.pop("account_pk", None)
+            seat["label"] = _boxscore_file_label(seat) or seat.get("label")
+        seat.pop("account_pk", None)
 
     ref = f"t:{token.pk}"
     BoxScoreUploadToken.objects.filter(pk=token.pk).update(
@@ -12520,6 +13230,9 @@ def _handle_boxscore_restore(payload):
     # account or joined the roster since. _boxscore_save re-stamps the
     # fingerprint, so the next Confirm compares against the CURRENT seating.
     _boxscore_reresolve(thread, pending, thread.thread_id)
+    # The gates start fresh (above), so Gate 0 asks about every seat it can, not
+    # just the ones this re-resolve happened to move back to unidentified.
+    pending.pop("gate_zero_only", None)
     _boxscore_save(ref, thread, pending)
 
     # POST INTO THE THREAD rather than returning the gate as this interaction's
@@ -12551,12 +13264,12 @@ def _handle_boxscore_restore(payload):
             title_lines.append(f"{mention} — your box score was saved.")
         # The restorer records it: ownership moved to them above, and they are
         # the one who chose to bring this box score back.
-        recorded = _boxscore_try_autorecord(thread, profile)
+        recorded, deferred = _boxscore_autorecord_posted(thread, profile)
         _boxscore_finish_posted(
             thread, title_lines, lines,
             _boxscore_component_lines(pending), notes,
             allowed_mentions=({"users": [profile.discord_id]} if mention else None),
-            recorded=recorded)
+            recorded=recorded, autorecord=deferred)
         return _ephemeral("Restored — the box score has been added to the thread.")
 
     mention = f"<@{profile.discord_id}>" if profile.discord_id else ""
@@ -12589,7 +13302,7 @@ def _boxscore_reply(thread, pending, channel_id, recorder=None):
     if lines is None:
         return _ephemeral(_boxscore_apply_error(notes))
 
-    recorded = _boxscore_try_autorecord(thread, recorder)
+    recorded, deferred = _boxscore_autorecord_posted(thread, recorder)
     _boxscore_finish_posted(
         thread, _boxscore_title_lines(pending), lines,
         _boxscore_component_lines(pending), notes,
@@ -12597,7 +13310,7 @@ def _boxscore_reply(thread, pending, channel_id, recorder=None):
         # EXPLICITLY: post_channel_message_full omits the key when it is None,
         # which would let arbitrary text out of a box score ping people.
         allowed_mentions={"parse": []},
-        channel_id=channel_id, recorded=recorded)
+        channel_id=channel_id, recorded=recorded, autorecord=deferred)
     return _ephemeral("Box score saved — posted in the thread.")
 
 
@@ -13755,6 +14468,8 @@ COMPONENT_HANDLERS = {
     "boxscore_ok": _handle_boxscore_confirm,
     "boxscore_no": _handle_boxscore_cancel,
     "boxscore_roster_retry": _handle_boxscore_roster_retry,
+    "boxscore_as_pick": _handle_boxscore_assign_pick,
+    "boxscore_as_ok": _handle_boxscore_assign_save,
     # Ends in the invoker's snowflake (the offer is an ephemeral reply, so there
     # IS one), which owner-locks it at the dispatcher. The handler re-authorizes
     # anyway: the offer and the click are separate interactions.

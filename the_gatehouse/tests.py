@@ -3912,3 +3912,101 @@ class ProfileSupporterTeaTests(TestCase):
                                  membership_ends=timezone.now() - timedelta(days=1))
         Supporter.objects.create(profile=self.profile, show_publicly=True, is_member=False)
         self.assertNotContains(self.get(), 'profile-supporter-tea')
+
+
+class ChangelogPaginationTests(TestCase):
+    """The updates page loads further pages as you scroll (htmx). Every page's
+    trigger must ask for the NEXT page of the same view -- the partial used to
+    point at /updates/, which redirects to the latest changelog and drops
+    ?page, so the third load came back as page 1 again."""
+
+    def setUp(self):
+        from the_gatehouse.models import Changelog
+        from django.conf import settings
+        self.page_size = settings.PAGE_SIZE
+        start = date(2020, 1, 1)
+        # Three full pages, newest first by date.
+        self.changelogs = [
+            Changelog.objects.create(version=f"1.{i}", title=f"Release {i}",
+                                     date=start + timedelta(days=i))
+            for i in range(self.page_size * 3)
+        ]
+        self.latest = max(self.changelogs, key=lambda c: c.date)
+
+    def _page(self, number):
+        url = reverse('changelog-select-view', kwargs={'slug': self.latest.slug})
+        return self.client.get(f"{url}?page={number}", HTTP_HX_REQUEST='true')
+
+    def test_each_loaded_page_asks_for_the_next_one(self):
+        url = reverse('changelog-select-view', kwargs={'slug': self.latest.slug})
+        body = self._page(2).content.decode()
+        self.assertIn(f'hx-get="{url}?page=3"', body)
+        self.assertNotIn(f'{reverse("changelog-list-view")}?page=', body)
+
+    def test_a_later_page_is_not_the_first_page_again(self):
+        first = self._page(1).content.decode()
+        third = self._page(3).content.decode()
+        oldest = min(self.changelogs, key=lambda c: c.date)
+        self.assertIn(oldest.title, third)
+        self.assertNotIn(oldest.title, first)
+        self.assertNotIn(self.latest.title, third)
+
+    def test_an_appended_page_brings_no_second_container(self):
+        """Appended INTO #search-contents, so a wrapper of its own would nest a
+        duplicate id with every page."""
+        self.assertNotIn('id="search-contents"', self._page(2).content.decode())
+
+    def test_the_last_page_has_no_further_trigger(self):
+        self.assertNotIn('hx-trigger="revealed"', self._page(3).content.decode())
+
+    def test_an_older_update_offers_a_way_back_to_the_latest(self):
+        """Opened on a later page, nothing newer is reachable by scrolling."""
+        oldest = min(self.changelogs, key=lambda c: c.date)
+        body = self.client.get(reverse('changelog-select-view',
+                                       kwargs={'slug': oldest.slug})).content.decode()
+        self.assertIn('Go to latest update', body)
+        self.assertIn(f'href="{reverse("changelog-list-view")}"', body)
+
+    def test_the_latest_update_has_no_go_to_latest_button(self):
+        body = self.client.get(reverse('changelog-select-view',
+                                       kwargs={'slug': self.latest.slug})).content.decode()
+        self.assertNotIn('Go to latest update', body)
+
+
+class ImportChangelogSlugBackfillTests(TestCase):
+    """import_changelog skips a version whose text is unchanged without saving
+    it, and the slug is set by the save signals -- so a changelog imported
+    before slugs existed never got one. Every import now backfills them."""
+
+    def setUp(self):
+        from the_gatehouse.models import Changelog
+        self.old = Changelog.objects.create(version="1.2.3", date=date(2024, 1, 1))
+        Changelog.objects.filter(pk=self.old.pk).update(slug=None)
+        self.blank = Changelog.objects.create(version="1.2.4", date=date(2024, 2, 1))
+        Changelog.objects.filter(pk=self.blank.pk).update(slug="")
+        # No version sections at all, so only the backfill runs.
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".md", delete=False)
+        tmp.write("# Changelog\n")
+        tmp.close()
+        self.addCleanup(lambda: __import__("os").remove(tmp.name))
+        patcher = mock.patch(
+            "the_gatehouse.management.commands.import_changelog.CHANGELOG_PATH",
+            tmp.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_missing_and_blank_slugs_are_filled_in(self):
+        call_command("import_changelog", stdout=io.StringIO())
+        self.old.refresh_from_db()
+        self.blank.refresh_from_db()
+        self.assertEqual(self.old.slug, "1-2-3")
+        self.assertEqual(self.blank.slug, "1-2-4")
+        self.assertEqual(self.client.get(
+            reverse("changelog-select-view", kwargs={"slug": "1-2-3"})).status_code, 200)
+
+    def test_a_dry_run_changes_nothing(self):
+        out = io.StringIO()
+        call_command("import_changelog", "--dry-run", stdout=out)
+        self.old.refresh_from_db()
+        self.assertIsNone(self.old.slug)
+        self.assertIn("Would add a slug to 1.2.3", out.getvalue())

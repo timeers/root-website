@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.13.17] - 2026-10-25 Boxscore Houserules
+
+### New Features
+- Added House Rules to the Match API
+- Scheduled games will now auto record from the Boxscore API if no errors are detected (was previously only available for LFG games)
+
+### Improvements
+- Improvements to the About page
+- Players sharing Steam accounts should no longer lock boxscores from being submitted. Added an option to leave blank or assign player once
+
+### Bug Fixes
+- Updates page pagination fixed
+- Go to latest update button added to updates page
+
 ## [1.13.16] - 2026-10-23 Survey Integrations
 
 ### New Features
