@@ -7,7 +7,7 @@ from crispy_forms.layout import Layout, HTML
 from the_warroom.models import (Game, Tournament, EloSystem, PlatformChoices,
                                 game_counts_for_tournament_q,
                                 game_counts_for_elo_system_q, elo_eligibility_q)
-from the_keep.models import Faction, Vagabond, Landmark, Hireling, Deck, Map
+from the_keep.models import Faction, Vagabond, Landmark, Hireling, Tweak, Deck, Map
 from the_gatehouse.models import Profile
 
 
@@ -16,10 +16,10 @@ class GameFilter(django_filters.FilterSet):
 
     Single-value filters (map, deck, tournament, dates, official) match one value each.
 
-    Multi-value filters (factions, vagabonds, players, landmarks, hirelings) accept the
-    param repeated several times, e.g. ``?factions=cats&factions=birds``, and return only
-    games that contain **all** of the selected values (AND). They render as multi-select
-    boxes on the DRF browsable API filter form.
+    Multi-value filters (factions, vagabonds, players, landmarks, hirelings, houserules)
+    accept the param repeated several times, e.g. ``?factions=cats&factions=birds``, and
+    return only games that contain **all** of the selected values (AND). They render as
+    multi-select boxes on the DRF browsable API filter form.
 
     NB: these use a grouped-count subquery (filter to the selected values, then require the
     distinct match count to equal the number selected) rather than ``conjoined=True``.
@@ -110,12 +110,19 @@ class GameFilter(django_filters.FilterSet):
     hirelings_present = django_filters.ChoiceFilter(
         method='filter_hirelings_present', label='Has hirelings?', choices=PRESENCE_CHOICES,
     )
+    houserules_present = django_filters.ChoiceFilter(
+        method='filter_houserules_present', label='Has house rules?',
+        choices=PRESENCE_CHOICES,
+    )
 
     def filter_landmarks_present(self, queryset, name, value):
         return self._filter_presence(queryset, 'landmarks', value)
 
     def filter_hirelings_present(self, queryset, name, value):
         return self._filter_presence(queryset, 'hirelings', value)
+
+    def filter_houserules_present(self, queryset, name, value):
+        return self._filter_presence(queryset, 'tweaks', value)
 
     @staticmethod
     def _filter_presence(queryset, field_path, value):
@@ -149,6 +156,11 @@ class GameFilter(django_filters.FilterSet):
         field_name='hirelings', to_field_name='slug',
         queryset=Hireling.objects.all(), method='filter_all', label='Hirelings',
     )
+    # House rules are the Tweak model, stored on Game.tweaks.
+    houserules = django_filters.ModelMultipleChoiceFilter(
+        field_name='tweaks', to_field_name='slug',
+        queryset=Tweak.objects.all(), method='filter_all', label='House rules',
+    )
 
     def filter_all(self, queryset, name, value):
         """Keep only games that contain *all* the selected values for this field.
@@ -167,12 +179,13 @@ class GameFilter(django_filters.FilterSet):
 
     class Meta:
         model = Game
-        # Form renders in this order. Landmark/hireling fields are grouped together at the
-        # bottom, just above the date/official fields.
+        # Form renders in this order. Landmark/hireling/house rule fields are grouped
+        # together at the bottom, just above the date/official fields.
         fields = [
             'factions', 'vagabonds', 'players',
             'map', 'deck', 'tournament', 'elo_system', 'recorder', 'type', 'platform',
-            'landmarks_present', 'landmarks', 'hirelings_present', 'hirelings', 
+            'landmarks_present', 'landmarks', 'hirelings_present', 'hirelings',
+            'houserules_present', 'houserules',
             'date_after', 'date_before', 'official',
         ]
 

@@ -850,6 +850,71 @@ class GameApiTournamentTests(TestCase):
         self.assertNotIn(game.pk, self._filter_pks(self.beta))
 
 
+class GameApiHouseRulesTests(TestCase):
+    """House rules (the Tweak model, Game.tweaks) in the game download API: a
+    `houserules` slug list on each game, and filters to match."""
+
+    def setUp(self):
+        self.designer = Profile.objects.create(discord="hrdesigner")
+        self.riverboats = Tweak.objects.create(title="Rowdy Riverboats",
+                                               designer=self.designer)
+        self.ferry = Tweak.objects.create(title="Free Ferry", designer=self.designer)
+        self.both = Game.objects.create(final=True)
+        self.both.tweaks.add(self.riverboats, self.ferry)
+        self.one = Game.objects.create(final=True)
+        self.one.tweaks.add(self.riverboats)
+        self.none = Game.objects.create(final=True)
+
+    def _pks(self, data):
+        from the_warroom.api.game_filters import GameFilter
+        f = GameFilter(data, queryset=Game.objects.filter(final=True))
+        pks = list(f.qs.values_list('pk', flat=True))
+        self.assertEqual(len(pks), len(set(pks)), "duplicate rows")
+        return set(pks)
+
+    def test_each_game_lists_its_house_rule_slugs(self):
+        from the_warroom.api.game_serializers import GameSerializer
+        self.assertCountEqual(GameSerializer(self.both).data['houserules'],
+                              [self.riverboats.slug, self.ferry.slug])
+        self.assertEqual(GameSerializer(self.none).data['houserules'], [])
+
+    def test_the_filter_matches_games_with_all_selected_house_rules(self):
+        self.assertEqual(self._pks({'houserules': [self.riverboats.slug]}),
+                         {self.both.pk, self.one.pk})
+        self.assertEqual(
+            self._pks({'houserules': [self.riverboats.slug, self.ferry.slug]}),
+            {self.both.pk})
+
+    def test_the_presence_filter_splits_with_and_without(self):
+        self.assertEqual(self._pks({'houserules_present': 'has'}),
+                         {self.both.pk, self.one.pk})
+        self.assertEqual(self._pks({'houserules_present': 'none'}), {self.none.pk})
+
+    def test_house_rules_cost_no_query_per_game(self):
+        """Prefetched with the rest: a page of many games takes the same number
+        of queries as a page of one."""
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        from rest_framework.test import APIRequestFactory, force_authenticate
+        from the_warroom.api.views import GameListView
+
+        user = User.objects.create_user(username="hrapi", password="x")
+
+        def count():
+            request = APIRequestFactory().get('/api/games/')
+            force_authenticate(request, user=user)
+            with CaptureQueriesContext(connection) as ctx:
+                response = GameListView.as_view()(request)
+                response.render()
+            return len(ctx.captured_queries)
+
+        few = count()
+        for _ in range(4):
+            game = Game.objects.create(final=True)
+            game.tweaks.add(self.riverboats, self.ferry)
+        self.assertEqual(count(), few)
+
+
 class UndraftedPrefillTests(TestCase):
     """_prefill_undrafted seeds the game-level undrafted_* fields from the one
     drafted faction no seat took."""
@@ -2590,6 +2655,32 @@ class BoxScoreImportResolveTests(TestCase):
             option_querysets=self._buckets(factions=factions),
             player_queryset=players if players is not None else Profile.objects.all(),
             **kwargs)
+
+    def test_house_rules_are_read_from_houserules(self):
+        rule = Tweak.objects.create(title="Rowdy Riverboats", designer=self.designer)
+        result = self._resolve([{'turn_order': 1}], allow_game_fields=True,
+                               game_data={'houserules': [rule.slug]})
+        self.assertEqual(result.game['tweaks'], [rule.pk])
+
+    def test_an_unknown_house_rule_is_named_as_one(self):
+        result = self._resolve([{'turn_order': 1}], allow_game_fields=True,
+                               game_data={'houserules': ['no-such-rule']})
+        self.assertTrue(any('no house rule matching' in m for m in result.skipped),
+                        result.skipped)
+
+    def test_an_exported_game_imports_its_house_rules_back(self):
+        """The API's `houserules` is the importer's key, so a downloaded game
+        uploads back with its house rules."""
+        from the_warroom.api.game_serializers import GameSerializer
+        rule = Tweak.objects.create(title="Rowdy Riverboats", designer=self.designer)
+        game = Game.objects.create(final=True)
+        game.tweaks.add(rule)
+        Effort.objects.create(game=game, faction=self.marquise, player=self.player,
+                              seat=1, score=10)
+        exported = json.loads(json.dumps(GameSerializer(game).data))
+        result = self._resolve(exported['participants'], allow_game_fields=True,
+                               game_data=exported)
+        self.assertEqual(result.game['tweaks'], [rule.pk])
 
     def test_slugs_resolve_to_primary_keys(self):
         result = self._resolve([{'turn_order': 1, 'faction': self.marquise.slug,
@@ -5575,6 +5666,16 @@ class ImportBoxScoreSourceTests(TestCase):
         self.assertEqual(response.status_code, 200)
         cells = response.json()['participants'][0]['cells']
         self.assertNotIn(99, [c['value'] for c in cells])
+
+    def test_house_rules_from_a_thread_game_are_noted_as_ignored(self):
+        """An LFG game gets its details from the thread, so a file's house rules
+        are dropped -- and said to be, like its map or hirelings."""
+        thread = LFGThread.objects.create(thread_id="import-hr-thread")
+        thread.players.set([self.profile])
+        doc = dict(self.DOC, houserules=["rowdy-riverboats"])
+        response = self._post(box_score_text=json.dumps(doc), lfg_id=thread.pk)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(any('were ignored' in n for n in response.json()['notes']))
 
     # ── refusals ──
 

@@ -18852,10 +18852,10 @@ class BoxScoreSummaryLayoutTests(_NoLoginSignalMixin, TestCase):
         content = self._run(self._doc())
         self.assertIn(f"{self.deck.title} Deck · {self.map.title} Map", content)
 
-    def test_landmarks_hirelings_and_tweaks_each_get_a_line(self):
+    def test_landmarks_hirelings_and_house_rules_each_get_a_line(self):
         content = self._run(self._doc(
             landmarks=["the-tower", "black-market"],
-            hirelings=["popular-band"], tweaks=["action"]))
+            hirelings=["popular-band"], houserules=["action"]))
         self.assertIn("The Tower · Black Market", content)
         self.assertIn("Popular Band", content)
         self.assertIn("Action!", content)
@@ -18868,10 +18868,16 @@ class BoxScoreSummaryLayoutTests(_NoLoginSignalMixin, TestCase):
         self.assertNotIn("Popular Band", content)
         self.assertNotIn("Action!", content)
 
-    def test_tweaks_are_shown_at_all(self):
+    def test_house_rules_are_shown_at_all(self):
         """They were parsed into the roll log but never displayed."""
-        content = self._run(self._doc(tweaks=["action"]))
+        content = self._run(self._doc(houserules=["action"]))
         self.assertIn("Action!", content)
+
+    def test_the_old_tweaks_key_is_not_read(self):
+        """House rules are "houserules", the key the game API emits, so an
+        export uploads back unchanged. "tweaks" was never used by a client."""
+        content = self._run(self._doc(tweaks=["action"]))
+        self.assertNotIn("Action!", content)
 
 
 class BoxScoreComponentLinesTests(TestCase):

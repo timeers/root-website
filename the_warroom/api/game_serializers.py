@@ -60,6 +60,9 @@ class GameSerializer(serializers.ModelSerializer):
     tournament = serializers.SerializerMethodField()
     hirelings = serializers.SerializerMethodField()
     landmarks = serializers.SerializerMethodField()
+    # House rules are the Tweak model (Game.tweaks); named for what users call
+    # them, and the same key the JSON importers read, so an export uploads back.
+    houserules = serializers.SerializerMethodField()
     title = serializers.CharField(source='nickname', read_only=True)
     date_registered = serializers.DateTimeField(source='date_posted', read_only=True)
     date_closed = serializers.DateTimeField(source='date_posted', read_only=True)
@@ -77,7 +80,7 @@ class GameSerializer(serializers.ModelSerializer):
         model = Game
         fields = [
             'id', 'participants', 'tournament', 'hirelings', 'landmarks',
-            'title', 'date_registered', 'date_modified', 'date_closed',
+            'houserules', 'title', 'date_registered', 'date_modified', 'date_closed',
             'turn_timing', 'table_talk_url', 'undrafted_faction', 'undrafted_vagabond',
             'undrafted_captains', 'deck', 'board_map', 'random_suits', 'elo_systems',
         ]
@@ -115,6 +118,9 @@ class GameSerializer(serializers.ModelSerializer):
 
     def get_landmarks(self, obj):
         return [landmark.slug for landmark in obj.landmarks.all()]
+
+    def get_houserules(self, obj):
+        return [tweak.slug for tweak in obj.tweaks.all()]
 
     def get_turn_timing(self, obj):
         return obj.type.lower() if obj.type else None

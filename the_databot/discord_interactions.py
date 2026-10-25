@@ -9899,9 +9899,9 @@ def _boxscore_decompose(participants, payload):
     # Unlike map/deck, an unrecognised slug here gets no note -- these are
     # existence-checked again by _boxscore_component_items below (which does
     # report/skip them for the roll log), and a second warning would just repeat
-    # the first. Tweaks follow the same silence.
+    # the first. House rules follow the same silence.
     for key, model in (("landmarks", Landmark), ("hirelings", Hireling),
-                       ("tweaks", Tweak)):
+                       ("houserules", Tweak)):
         titles = []
         for slug in (payload.get(key) or []):
             obj = model.objects.filter(slug=slug).first()
@@ -10009,7 +10009,7 @@ def _boxscore_component_items(participants, payload):
     Kind strings must match ROLL_KIND_TO_BUCKET exactly -- an unknown kind stores
     an LFGRoll that rolled_components silently skips. Deliberately NOT reusing
     _LFG_LOOKUP_KIND: that maps DISCORD SUBCOMMAND names ("houserule"), not the
-    box score's payload keys ("tweaks").
+    box score's payload keys ("houserules").
     """
     from the_keep.models import Faction, Vagabond, Landmark, Hireling, Tweak
 
@@ -10024,7 +10024,7 @@ def _boxscore_component_items(participants, payload):
 
     # Game level. These are LISTS in the file, unlike the map/deck scalars.
     for key, kind in (("landmarks", "Landmark"), ("hirelings", "Hireling"),
-                      ("tweaks", "Tweak")):
+                      ("houserules", "Tweak")):
         values = payload.get(key)
         if isinstance(values, list):
             for slug in values:

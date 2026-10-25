@@ -2158,7 +2158,7 @@ def import_box_score(request):
 
     if not allow_game_fields and any(
             payload.get(key) is not None for key in
-            ('title', 'board_map', 'deck', 'landmarks', 'hirelings', 'tweaks')):
+            ('title', 'board_map', 'deck', 'landmarks', 'hirelings', 'houserules')):
         result.notes.append(
             _('Game details from the file were ignored: this game gets them from '
               'the match or thread it belongs to.'))

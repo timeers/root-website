@@ -315,8 +315,8 @@ class GameListView(generics.ListAPIView):
 
     def get_queryset(self):
         # No .distinct(): the base query has no row-multiplying joins (FKs are 1:1, M2M are
-        # fetched via separate prefetch queries), and the multi-select filters use
-        # conjoined=True which chains one JOIN per value without producing duplicate rows.
+        # fetched via separate prefetch queries), and the multi-select filters use a
+        # grouped-count subquery (GameFilter.filter_all) that yields one row per game.
         # A blanket DISTINCT would force Postgres to dedupe the whole table before applying
         # the cursor limit, defeating keyset pagination (~240ms even for a 10-row page).
         related = Game.with_efforts()
@@ -334,6 +334,7 @@ class GameListView(generics.ListAPIView):
                 ),
                 'landmarks',
                 'hirelings',
+                'tweaks',
                 'undrafted_captains',
                 # Load extra_rounds' tournaments/EloSystems so GameSerializer.get_elo_systems()
                 # stays query-free (the primary round is covered by select_related above).
