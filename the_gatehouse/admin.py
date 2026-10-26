@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from django.urls import path, reverse
 from django.shortcuts import render
 from .models import (Profile, PlayerBookmark,
-                     Theme, BackgroundImage, ForegroundImage,
+                     Theme, BackgroundImage, ForegroundImage, SiteArtwork,
                      Website, Language, Holiday, DailyUserVisit, DiscordGuild,
                      Changelog, ChangelogEntry, DiscordGuildJoinRequest, UserNotification,
                      PlayerSchedule, Supporter, SupportEvent,
@@ -581,6 +581,19 @@ class SupportEventInline(admin.TabularInline):
 
     def has_add_permission(self, request, obj=None):
         return False
+
+
+class SiteArtworkAdmin(admin.ModelAdmin):
+    """The art credited on the About page (one card per artist)."""
+    list_display = ('title', 'artist', 'order', 'show')
+    list_editable = ('order', 'show')
+    list_filter = ('show',)
+    search_fields = ('title', 'artist__display_name', 'artist__discord')
+    autocomplete_fields = ['artist']
+    readonly_fields = ('small_image', 'date_modified')
+
+
+admin.site.register(SiteArtwork, SiteArtworkAdmin)
 
 
 class SupporterAdmin(admin.ModelAdmin):
