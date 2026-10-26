@@ -4090,6 +4090,28 @@ def _handle_match_poll_notify(payload):
     })
 
 
+def _match_poll_close_refusal(payload, proposed_by_id, match):
+    """The refusal for someone who may not close a MATCH poll, or None: only its
+    proposer or someone who can schedule the match. Shared by both match-poll
+    Close handlers and their confirm prechecks, so none of them can disagree."""
+    clicker = Profile.objects.filter(
+        discord_id=str(_interaction_user_id(payload) or "")).first()
+    if clicker and (clicker.pk == proposed_by_id or match.can_schedule(clicker)):
+        return None
+    return _ephemeral(
+        "Only the person who started this poll, or a moderator, can close it.")
+
+
+def _embed_poll_close_refusal(payload, proposer_id):
+    """The refusal for someone who may not close an EMBED poll, or None: the
+    proposer or a guild moderator (the owner-lock can't express that union).
+    Shared by both embed-poll Close handlers and their confirm prechecks."""
+    clicker_id = str(_interaction_user_id(payload))
+    if proposer_id and clicker_id != proposer_id and not _clicker_is_guild_staff(payload):
+        return _ephemeral("Only the person who started this poll can close it.")
+    return None
+
+
 def _handle_match_poll_close(payload):
     """Close on a match poll: the proposer or a moderator ends it early.
 
@@ -4100,12 +4122,12 @@ def _handle_match_poll_close(payload):
     if error:
         return error
 
+    refusal = _match_poll_close_refusal(payload, proposal.proposed_by_id, match)
+    if refusal is not None:
+        return refusal
+    # Named in the closed note / DMs below.
     clicker = Profile.objects.filter(
         discord_id=str(_interaction_user_id(payload) or "")).first()
-    is_proposer = clicker and clicker.pk == proposal.proposed_by_id
-    if not is_proposer and not (clicker and match.can_schedule(clicker)):
-        return _ephemeral(
-            "Only the person who started this poll, or a moderator, can close it.")
 
     notify_ids = _poll_notify_ids_from_payload(payload)
     ScheduleProposal.objects.filter(
@@ -4338,8 +4360,9 @@ def _handle_schedule_poll_close(payload):
     proposer_id = embed_proposer or proposer_id
 
     clicker_id = str(_interaction_user_id(payload))
-    if proposer_id and clicker_id != proposer_id and not _clicker_is_guild_staff(payload):
-        return _ephemeral("Only the person who started this poll can close it.")
+    refusal = _embed_poll_close_refusal(payload, proposer_id)
+    if refusal is not None:
+        return refusal
 
     yes, no, notify_ids, pending = _poll_state(embed)
     return _poll_close_response(
@@ -5067,8 +5090,9 @@ def _mp_embed_close(payload, kind, proposer_id):
     """Close on an embed poll: the proposer or a guild moderator ends it. A bare
     channel's poll only ever ends this way, and reports its tallies as they stand."""
     clicker_id = str(_interaction_user_id(payload))
-    if proposer_id and clicker_id != proposer_id and not _clicker_is_guild_staff(payload):
-        return _ephemeral("Only the person who started this poll can close it.")
+    refusal = _embed_poll_close_refusal(payload, proposer_id)
+    if refusal is not None:
+        return refusal
     embed = dict((payload.get("message", {}).get("embeds") or [{}])[0])
     options, notify_ids, _pending = _multi_poll_state(embed)
     if not options:
@@ -5391,12 +5415,12 @@ def _mp_match_close(payload, lead_pk):
     rows, match, error = _mp_group_for_click(payload, lead_pk)
     if error:
         return error
+    refusal = _match_poll_close_refusal(payload, rows[0].proposed_by_id, match)
+    if refusal is not None:
+        return refusal
+    # Named in the closed note / DMs below.
     clicker = Profile.objects.filter(
         discord_id=str(_interaction_user_id(payload) or "")).first()
-    is_proposer = clicker and clicker.pk == rows[0].proposed_by_id
-    if not is_proposer and not (clicker and match.can_schedule(clicker)):
-        return _ephemeral(
-            "Only the person who started this poll, or a moderator, can close it.")
 
     notify_ids = _poll_notify_ids_from_payload(payload)
     _retire_group(rows, ScheduleProposal.Status.CANCELLED)
@@ -8965,6 +8989,26 @@ def _pick_actor_name(payload):
     return _clicker_username(payload) or ""
 
 
+def _pick_stop_refusal(payload, thread):
+    """The refusal for someone off the table pressing Stop / Cancel, or None.
+
+    The roster resolves by thread id alone: a button payload carries no channel
+    name, and /pick already linked a group thread to its player group before any
+    of these buttons existed. Shared by the handler and its confirm precheck."""
+    roster = _pick_roster(thread, payload.get("channel_id"))
+    _me, status = _resolve_clicker(
+        roster, _interaction_user_id(payload), _clicker_username(payload))
+    if status == CLICKER_UNLINKED:
+        return _ephemeral(
+            "You're one of this game's players, but your Discord isn't linked to "
+            f"your site account yet. Log in{_login_hint()} with Discord once, then "
+            "try again.")
+    if status != CLICKER_MATCHED:
+        return _ephemeral(
+            "Only the players in this game can stop the faction picks.")
+    return None
+
+
 def _handle_pick_cancel(payload):
     """Stop picking and clear the session, so /pick can run again from scratch.
 
@@ -8989,20 +9033,9 @@ def _handle_pick_cancel(payload):
     if not thread:
         return _pick_retire_panel("This isn't a game thread anymore.")
 
-    # The roster resolves by thread id alone: a button payload carries no channel
-    # name, and /pick already linked a group thread to its player group before any
-    # of these buttons existed.
-    roster = _pick_roster(thread, channel_id)
-    _me, status = _resolve_clicker(
-        roster, _interaction_user_id(payload), _clicker_username(payload))
-    if status == CLICKER_UNLINKED:
-        return _ephemeral(
-            "You're one of this game's players, but your Discord isn't linked to "
-            f"your site account yet. Log in{_login_hint()} with Discord once, then "
-            "try again.")
-    if status != CLICKER_MATCHED:
-        return _ephemeral(
-            "Only the players in this game can stop the faction picks.")
+    refusal = _pick_stop_refusal(payload, thread)
+    if refusal is not None:
+        return refusal
 
     cleared = _pick_clear(thread)
 
@@ -13806,7 +13839,8 @@ def _lfg_message_data(author, owner, description, players_value,
     #   ✖ Cancel  — the host OR a guild moderator, which is why it cannot use the
     #               lock: that admits exactly one snowflake and cannot express a
     #               union. _handle_lfg_cancel makes the check instead, the same
-    #               way the schedule poll's Close button does.
+    #               way the schedule poll's Close button does. It asks privately
+    #               before cancelling (_confirm_first).
     #   Edit      — the host ALONE (no moderator carve-out), so unlike its
     #               neighbors it ends in the bare owner snowflake and IS
     #               dispatcher-locked, the same way ✔ Start is.
@@ -14198,10 +14232,43 @@ def _handle_lfg_edit_modal_submit(payload, args):
     return JsonResponse({"type": RESPONSE_DEFERRED_UPDATE_MESSAGE})
 
 
+def _lfg_cancel_host_id(payload):
+    """The host, read off the ✖ button's own custom_id (`lfg_cancel:{owner}:g`).
+
+    Index 0, NOT -1: the trailing PICK_OPEN marker is what keeps the dispatcher
+    lock off, so the last arg is that sentinel. Same position /lfg's Join reads
+    its owner from. Defensive .get chain with an `or ""`, not payload["data"]: a
+    missing OR null custom_id must cost only the host exclusion, never the
+    cancel that was just asked for."""
+    _action, id_args = decode_custom_id(
+        (payload.get("data") or {}).get("custom_id") or "")
+    return id_args[0] if id_args else None
+
+
+def _lfg_cancel_refusal(payload):
+    """The refusal for someone who may not cancel this game, or None.
+
+    The check the owner-lock used to make, widened by one class. Skipped when
+    the custom_id gave us no host -- the alternative is refusing a cancel nobody
+    can then perform. Shared by the handler and its confirm precheck, so the two
+    can't disagree about who may cancel."""
+    host_id = _lfg_cancel_host_id(payload)
+    clicker_id = _interaction_user_id(payload)
+    if host_id and clicker_id and clicker_id != host_id:
+        if not _clicker_is_guild_staff(payload):
+            return _ephemeral("Only the host or a moderator can cancel this game."
+                              + OWNER_LOCK_HINTS.get("lfg_cancel", ""))
+    return None
+
+
 def _handle_lfg_cancel(payload):
     """✖ Cancel: remove the buttons, note the game was cancelled, and DM everyone
     who subscribed to 🔔 so they don't keep waiting on a game that isn't
     happening. Players leave via the Join toggle.
+
+    Reached only AFTER the ✖'s private "Cancel this game?" is confirmed: the
+    button is registered through _confirm_first, which replays this against
+    the real post (see _handle_confirm_ok).
 
     The host OR a guild moderator, authorized HERE rather than by the dispatcher.
     The owner-lock admits exactly one snowflake and so cannot express that union
@@ -14211,24 +14278,11 @@ def _handle_lfg_cancel(payload):
     """
     embed = (payload.get("message", {}).get("embeds") or [{}])[0]
 
-    # The host, read off this button's own custom_id (`lfg_cancel:{owner}:g`).
-    # Index 0, NOT -1: the trailing PICK_OPEN marker is what keeps the dispatcher
-    # lock off, so the last arg is that sentinel. Same position /lfg's Join reads
-    # its owner from. Defensive .get chain with an `or ""`, not payload["data"]: a
-    # missing OR null custom_id must cost only the host exclusion, never the
-    # cancel that was just asked for.
-    _action, id_args = decode_custom_id(
-        (payload.get("data") or {}).get("custom_id") or "")
-    host_id = id_args[0] if id_args else None
-
-    # The check the owner-lock used to make, widened by one class. Skipped when
-    # the custom_id gave us no host -- consistent with the exclusion above, and
-    # the alternative is refusing a cancel nobody can then perform.
+    host_id = _lfg_cancel_host_id(payload)
     clicker_id = _interaction_user_id(payload)
-    if host_id and clicker_id and clicker_id != host_id:
-        if not _clicker_is_guild_staff(payload):
-            return _ephemeral("Only the host or a moderator can cancel this game."
-                              + OWNER_LOCK_HINTS.get("lfg_cancel", ""))
+    refusal = _lfg_cancel_refusal(payload)
+    if refusal is not None:
+        return refusal
 
     # Read the subscribers BEFORE _lfg_set_notify_ids wipes them below. Whoever
     # cancelled is excluded -- they already know. That is usually the host, but a
@@ -14456,6 +14510,234 @@ COMMAND_HANDLERS["join"] = _handle_join_command
 COMMAND_HANDLERS["leave"] = _handle_leave_command
 
 
+# ── Confirm before a destructive button ─────────────────────────────────────
+# Some buttons on PUBLIC messages destroy something with one click and can't be
+# undone: cancel a game, close a poll, discard the table's picks, delete a draft.
+# A misclick beside Join or Vote cost the whole thing. These are registered
+# through _confirm_first, which answers the first click with a private "are you
+# sure?" instead.
+#
+# The confirmation is a NEW interaction on THAT private message, not the post.
+# So rather than rewrite each handler, "Confirm" REPLAYS the original handler,
+# unchanged, against the real post: fetch it, put it in the payload as
+# `message` with the original button's custom_id, run the handler, and PATCH
+# its update onto the post. The handler sees exactly what a direct click gave
+# it -- including the post's own id, which e.g. _lfg_jump_url links the DMs to.
+
+class _ConfirmSpec:
+    """How one destructive action asks first.
+
+    `precheck(payload)` runs on the first click and returns None to ask, a
+    refusal response to stop there (so nobody confirms only to be told no), or
+    _CONFIRM_SKIP when there is nothing to lose and the action should just run.
+    """
+
+    def __init__(self, handler, prompt, label, done, precheck=None):
+        self.handler = handler
+        self.prompt = prompt
+        self.label = label
+        self.done = done
+        self.precheck = precheck
+
+
+_CONFIRM_SKIP = object()
+
+
+def _poll_close_precheck(payload):
+    """The single-time poll's Close: the same lookups and refusals its two
+    handlers make (match polls by proposal pk, embed polls by the embed)."""
+    _action, args = decode_custom_id((payload.get("data") or {}).get("custom_id") or "")
+    first = args[0] if args else ""
+    if first.isdigit():
+        proposal, match, error = _proposal_for_click(payload, allow_agreed=True)
+        if error:
+            return error
+        return _match_poll_close_refusal(payload, proposal.proposed_by_id, match)
+    embed = dict((payload.get("message", {}).get("embeds") or [{}])[0])
+    when, embed_proposer, _label, _author = _poll_embed_meta(embed)
+    if when is None:
+        return _ephemeral("That poll is out of date — run /schedule again.")
+    proposer_id = embed_proposer or (args[1] if len(args) > 1 else None)
+    return _embed_poll_close_refusal(payload, proposer_id)
+
+
+def _mp_close_precheck(payload):
+    """The multi-time poll's Close, split the way _handle_sched_mp_button splits
+    it: a numeric first arg is a match poll's lead proposal pk."""
+    _action, args = decode_custom_id((payload.get("data") or {}).get("custom_id") or "")
+    first = args[0] if args else ""
+    if first.isdigit():
+        rows, match, error = _mp_group_for_click(payload, int(first))
+        if error:
+            return error
+        return _match_poll_close_refusal(payload, rows[0].proposed_by_id, match)
+    proposer_id = args[1] if len(args) >= 3 and args[1] != "0" else None
+    return _embed_poll_close_refusal(payload, proposer_id)
+
+
+def _pick_stop_precheck(payload):
+    """Stop / Cancel on /pick: refuse anyone off the table, and only ask when
+    a seat actually holds a faction -- Cancel on the setup prompts, before any
+    pick, has nothing to lose and just runs."""
+    thread = _pick_thread_for_channel(payload.get("channel_id"))
+    if not thread:
+        return _CONFIRM_SKIP          # the handler retires the panel itself
+    refusal = _pick_stop_refusal(payload, thread)
+    if refusal is not None:
+        return refusal
+    if not LFGSeat.objects.filter(thread=thread, faction__isnull=False).exists():
+        return _CONFIRM_SKIP
+    return None
+
+
+_CLEAR_DRAFT_PROMPT = ("Clear this draft? The drafted factions are deleted, and "
+                       "running /draft again makes a new random draft.")
+
+_CONFIRM_ACTIONS = {
+    "lfg_cancel": _ConfirmSpec(
+        _handle_lfg_cancel,
+        "Cancel this game? The post's buttons are removed and anyone who "
+        "turned on 🔔 is told it isn't happening.",
+        "Cancel game", "✖ Game cancelled.", precheck=_lfg_cancel_refusal),
+    # Both poll dispatchers also route Vote and 🔔; only the Close ACTION is
+    # wrapped, and the replay hands them the original custom_id to route on.
+    "sched_poll_close": _ConfirmSpec(
+        _handle_schedule_poll_dispatch,
+        "Close this poll? Voting ends for everyone and it can't be reopened.",
+        "Close poll", "Poll closed.", precheck=_poll_close_precheck),
+    "sched_mp_close": _ConfirmSpec(
+        _handle_sched_mp_button,
+        "Close this poll? Voting ends for everyone and it can't be reopened.",
+        "Close poll", "Poll closed.", precheck=_mp_close_precheck),
+    "pick_cancel": _ConfirmSpec(
+        _handle_pick_cancel,
+        "Stop picking? Everyone's faction picks so far are discarded.",
+        "Stop picking", "Picking stopped.", precheck=_pick_stop_precheck),
+    # Owner-locked by the dispatcher on the first click; _handle_confirm_ok
+    # repeats that lock on the replay, so no precheck is needed.
+    "draft_clear": _ConfirmSpec(
+        _handle_draft_clear, _CLEAR_DRAFT_PROMPT, "Clear draft", "Draft cleared."),
+    "adset_clear": _ConfirmSpec(
+        _handle_adset_clear, _CLEAR_DRAFT_PROMPT, "Clear draft", "Draft cleared."),
+}
+
+
+def _confirm_first(action):
+    """The COMPONENT_HANDLERS entry for a destructive `action`: ask privately
+    before running it. See the block comment above."""
+    def handler(payload):
+        spec = _CONFIRM_ACTIONS[action]
+        message = payload.get("message") or {}
+        # A private message can't be fetched or edited by REST, and only the
+        # clicker sees it anyway -- there is no public post to protect. No
+        # target button is on one today; this keeps a future one working.
+        if (message.get("flags") or 0) & EPHEMERAL or not message.get("id"):
+            return spec.handler(payload)
+        if spec.precheck is not None:
+            verdict = spec.precheck(payload)
+            if verdict is _CONFIRM_SKIP:
+                return spec.handler(payload)
+            if verdict is not None:
+                return verdict
+        return JsonResponse({
+            "type": RESPONSE_CHANNEL_MESSAGE,
+            "data": {
+                "content": spec.prompt,
+                "flags": EPHEMERAL,
+                "allowed_mentions": {"parse": []},
+                "components": [action_row(
+                    # PICK_OPEN: only the clicker can see an ephemeral, and
+                    # _handle_confirm_ok re-authorizes through the replay.
+                    button(spec.label,
+                           encode_custom_id("cfm_ok", action, message["id"], PICK_OPEN),
+                           style=STYLE_DANGER),
+                    button("Keep it", encode_custom_id("cfm_no", PICK_OPEN),
+                           style=STYLE_SECONDARY),
+                )],
+            },
+        })
+    handler.__name__ = f"_confirm_first_{action}"
+    return handler
+
+
+def _confirm_resolved(text):
+    """Edit the private confirmation into `text`, buttons removed."""
+    return JsonResponse({
+        "type": RESPONSE_UPDATE_MESSAGE,
+        "data": {"content": text, "components": [],
+                 "allowed_mentions": {"parse": []}},
+    })
+
+
+def _find_button_custom_id(components, action):
+    """The custom_id of the first component on a message whose action is
+    `action`, or None."""
+    for row in components or []:
+        for comp in row.get("components") or []:
+            custom_id = comp.get("custom_id") or ""
+            if decode_custom_id(custom_id)[0] == action:
+                return custom_id
+    return None
+
+
+def _handle_confirm_ok(payload):
+    """`cfm_ok:<action>:<message_id>:g` -- the private confirmation's Confirm.
+
+    Re-reads the post rather than trusting the prompt: it is a second request,
+    and the post may have moved on (started, closed, cleared) since. The
+    ORIGINAL button's custom_id is read back off the post -- carrying a 100-char
+    id inside another wouldn't fit -- and its absence means there is nothing
+    left to do, so a stale confirmation can't e.g. cancel a game that started.
+    """
+    from the_databot.services.discordservice import (
+        THREAD_OK, edit_channel_message, get_channel_message)
+
+    _a, args = decode_custom_id((payload.get("data") or {}).get("custom_id") or "")
+    action = args[0] if args else ""
+    message_id = args[1] if len(args) > 1 else ""
+    spec = _CONFIRM_ACTIONS.get(action)
+    channel_id = payload.get("channel_id")
+    if spec is None or not message_id or not channel_id:
+        return _confirm_resolved("That button isn't available any more.")
+
+    message = get_channel_message(channel_id, message_id)
+    if not message:
+        return _confirm_resolved("That message is gone.")
+    original = _find_button_custom_id(message.get("components"), action)
+    if original is None:
+        return _confirm_resolved(
+            "That's already been done or is no longer available.")
+
+    # The replay calls the handler directly, so it skips the dispatcher -- whose
+    # ONLY per-click check is this owner lock. Same rule, repeated.
+    _o, original_args = decode_custom_id(original)
+    last = original_args[-1] if original_args else ""
+    owner_id = last if (last.isdigit() and len(last) >= 17) else None
+    if owner_id and _interaction_user_id(payload) != owner_id:
+        return _confirm_resolved("Only the host can use this button.")
+
+    replay = {**payload, "message": message,
+              "data": {**(payload.get("data") or {}), "custom_id": original}}
+    body = json.loads(spec.handler(replay).content)
+    data = body.get("data") or {}
+    if body.get("type") != RESPONSE_UPDATE_MESSAGE:
+        # A refusal or an "out of date": the handler re-ran its own checks.
+        return _confirm_resolved(data.get("content") or "Nothing changed.")
+
+    # Only the keys the handler set, exactly as a direct update would apply them
+    # (a key left out, like an /lfg post's role-mention content, is kept).
+    # allowed_mentions has no PATCH counterpart here, and an edit never pings.
+    edit = {key: data[key] for key in ("content", "embeds", "components") if key in data}
+    if edit_channel_message(channel_id, message_id, **edit) != THREAD_OK:
+        return _confirm_resolved("Couldn't update the message — try again.")
+    return _confirm_resolved(spec.done)
+
+
+def _handle_confirm_no(payload):
+    """`cfm_no:g` -- the private confirmation's Keep it."""
+    return _confirm_resolved("OK — nothing changed.")
+
+
 # Component (button/select) handlers, keyed by the custom_id's action prefix.
 COMPONENT_HANDLERS = {
     # /boxscore's confirmation gates. All three end in the uploader's snowflake,
@@ -14479,7 +14761,7 @@ COMPONENT_HANDLERS = {
     "draft_cancel": _handle_draft_cancel,
     # Only rendered when the thread already has a draft; owner-locked by its
     # trailing snowflake like the rest of the prompt's controls.
-    "draft_clear": _handle_draft_clear,
+    "draft_clear": _confirm_first("draft_clear"),
     "draft_seat": _handle_draft_seat,
     "draft_seat_no": _handle_draft_seat_no,
     # `pick_mode` ends in the invoker's snowflake, so the dispatcher locks it to
@@ -14496,7 +14778,7 @@ COMPONENT_HANDLERS = {
     # lock stays off and the handler authorizes the turn itself.
     "pick_vagabond": _handle_pick_vagabond,
     "pick_captains": _handle_pick_captains,
-    "pick_cancel": _handle_pick_cancel,
+    "pick_cancel": _confirm_first("pick_cancel"),
     # /adset. `adset_mode` shares _handle_pick_mode with /pick -- the two differ
     # only in the board title, which rides in the custom_id as PICK_ADSET_FLAG.
     "adset_join": _handle_adset_join,
@@ -14506,7 +14788,7 @@ COMPONENT_HANDLERS = {
     "adset_build": _handle_adset_build,
     "adset_reseat": _handle_adset_reseat,
     "adset_redraft": _handle_adset_redraft,
-    "adset_clear": _handle_adset_clear,
+    "adset_clear": _confirm_first("adset_clear"),
     # PICK_OPEN-terminated, so the dispatcher's owner-lock stays off and the
     # handler applies /pick's roster gate instead.
     "adset_takeover": _handle_adset_takeover,
@@ -14541,13 +14823,13 @@ COMPONENT_HANDLERS = {
     "sched_poll_ok": _handle_schedule_poll_dispatch,
     "sched_poll_no": _handle_schedule_poll_dispatch,
     "sched_poll_notify": _handle_schedule_poll_dispatch,
-    "sched_poll_close": _handle_schedule_poll_dispatch,
+    "sched_poll_close": _confirm_first("sched_poll_close"),
     # /schedule-beta poll: the multi-time prompt and poll.
     "sched_mp_add": _handle_sched_mp_add,
     "sched_mp_open": _handle_sched_mp_open,
     "sched_mp_vote": _handle_sched_mp_button,
     "sched_mp_notify": _handle_sched_mp_button,
-    "sched_mp_close": _handle_sched_mp_button,
+    "sched_mp_close": _confirm_first("sched_mp_close"),
     # /schedule set by someone who may not write the time themselves: one moderator
     # confirms or rejects. Also "g"-tailed -- the moderator answering is by
     # definition not the person who asked -- and gated so these can only ever act on
@@ -14562,7 +14844,10 @@ COMPONENT_HANDLERS = {
     "lfg_join": _handle_lfg_join,
     "lfg_notify": _handle_lfg_notify,
     "lfg_edit": _handle_lfg_edit,
-    "lfg_cancel": _handle_lfg_cancel,
+    "lfg_cancel": _confirm_first("lfg_cancel"),
+    # The private "are you sure?" behind every _confirm_first button above.
+    "cfm_ok": _handle_confirm_ok,
+    "cfm_no": _handle_confirm_no,
     "lfg_start": _handle_lfg_start,
     # /join and /leave approval buttons. ALL SELF-AUTHORIZING: every custom_id ends in
     # PICK_OPEN so the dispatcher's owner-lock stays off (the approver is by definition

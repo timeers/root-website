@@ -81,6 +81,17 @@ NOW = datetime(2026, 8, 17, 15, 0, tzinfo=dt_timezone.utc)
 SCHEDULE_TIME_TEXT = "Sep 15 8pm"
 
 
+
+def _component_handler(action):
+    """The handler a component test drives for `action`.
+
+    Destructive buttons are registered through _confirm_first, so their table
+    entry answers with a private "are you sure?" -- these tests are about what
+    the action DOES, so they get the handler behind it. The confirmation itself
+    is covered by ConfirmDestructiveButtonTests."""
+    spec = di._CONFIRM_ACTIONS.get(action)
+    return spec.handler if spec else di.COMPONENT_HANDLERS[action]
+
 class ParseUserDatetimeTests(TestCase):
     """The parser accepts absolute date+time and epoch forms, resolves dateless
     inputs to their next occurrence, and refuses what it can't pin down.
@@ -2226,7 +2237,7 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
                         "embeds": [embed or self._poll_embed(when)]},
         }
         with mock.patch.object(di.notify_schedule_poll_task, "delay"):
-            return self._body(di.COMPONENT_HANDLERS[action](payload))["data"]
+            return self._body(_component_handler(action)(payload))["data"]
 
     def _field(self, data, base):
         for field in data["embeds"][0].get("fields", []):
@@ -2355,6 +2366,29 @@ class ScheduleUnlinkedTests(ScheduleFixtureMixin, TestCase):
         when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
         data = self._click("sched_poll_close", "88888888", when=when)
         self.assertIn("started this poll", data["content"])
+
+    def _first_close_click(self, clicker):
+        """Close through the REAL table entry, i.e. its private confirm step."""
+        when = (timezone.now() + timedelta(days=5)).replace(microsecond=0)
+        payload = {
+            "channel_id": self.UNLINKED_CHANNEL, "guild_id": self.guild.guild_id,
+            "member": {"user": {"id": clicker, "username": "someone"}},
+            "data": {"custom_id": di.encode_custom_id(
+                "sched_poll_close", "bare", self.player.discord_id, "g")},
+            "message": {"id": "m", "components": [],
+                        "embeds": [self._poll_embed(when)]},
+        }
+        return self._body(di.COMPONENT_HANDLERS["sched_poll_close"](payload))
+
+    def test_close_asks_the_host_to_confirm_first(self):
+        body = self._first_close_click(self.player.discord_id)
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        self.assertIn("Close this poll?", body["data"]["content"])
+
+    def test_an_outsider_is_refused_close_without_a_prompt(self):
+        body = self._first_close_click("88888888")
+        self.assertIn("started this poll", body["data"]["content"])
+        self.assertNotIn("components", body["data"])
 
     def test_the_poll_does_not_repeat_the_proposer_in_its_description(self):
         """The embed's author already names and pictures that person, so the
@@ -3646,6 +3680,180 @@ class LFGCancelPermissionTests(TestCase):
         self.assertTrue(ids["lfg_start"].endswith(f":{self.HOST}"))
         self.assertTrue(ids["lfg_cancel"].endswith(f":{di.PICK_OPEN}"))
 
+
+
+class ConfirmDestructiveButtonTests(TestCase):
+    """Destructive buttons on PUBLIC messages ask privately first.
+
+    The first click answers with an ephemeral "are you sure?"; its Confirm
+    replays the original handler against the real post (fetched by id) and
+    PATCHes the result on. Driven with /lfg's ✖, the one with the most to lose.
+    """
+
+    HOST = "830000000000000031"
+    MOD = "830000000000000032"
+    OUTSIDER = "830000000000000033"
+    POST_ID = "1300000000000000001"
+
+    def setUp(self):
+        self.guild = DiscordGuild.objects.create(guild_id="830100", name="Confirm Guild")
+        mod = Profile.objects.create(discord="confirmmod", discord_id=self.MOD)
+        self.guild.guild_moderators.add(mod)
+
+    def _post(self, buttons=True):
+        embed = {
+            "title": "Looking for Game", "description": "a game",
+            "fields": [
+                {"name": di.LFG_PLAYERS_FIELD, "value": f"Tim (<@{self.HOST}>)",
+                 "inline": False},
+                {"name": di.LFG_NOTIFY_FIELD, "value": f"<@{self.HOST}> <@111>",
+                 "inline": False},
+            ],
+        }
+        components = ([di.action_row(di.button(
+            "", di.encode_custom_id("lfg_cancel", self.HOST, di.PICK_OPEN)))]
+            if buttons else [])
+        return {"id": self.POST_ID, "content": "<@&role>", "embeds": [embed],
+                "components": components}
+
+    def _payload(self, clicker, custom_id, message):
+        return {
+            "channel_id": "chan", "guild_id": self.guild.guild_id,
+            "member": {"nick": "Clicker", "user": {"id": clicker}},
+            "message": message,
+            "data": {"custom_id": custom_id},
+        }
+
+    def _first_click(self, clicker, message=None):
+        message = message or self._post()
+        custom_id = message["components"][0]["components"][0]["custom_id"] \
+            if message.get("components") else di.encode_custom_id(
+                "lfg_cancel", self.HOST, di.PICK_OPEN)
+        with mock.patch.object(di.notify_lfg_cancelled_task, "delay") as delay:
+            response = di.COMPONENT_HANDLERS["lfg_cancel"](
+                self._payload(clicker, custom_id, message))
+        return json.loads(response.content), delay
+
+    def _confirm(self, clicker, post=None, edit_result=None):
+        from the_databot.services import discordservice as ds
+        prompt, _ = self._first_click(self.HOST)
+        confirm_id = prompt["data"]["components"][0]["components"][0]["custom_id"]
+        confirmation = {"id": "eph", "flags": di.EPHEMERAL, "components": []}
+        with mock.patch.object(ds, "get_channel_message",
+                               return_value=post if post is not None else self._post()), \
+                mock.patch.object(ds, "edit_channel_message",
+                                  return_value=edit_result or ds.THREAD_OK) as edit, \
+                mock.patch.object(di.notify_lfg_cancelled_task, "delay") as delay:
+            response = di.COMPONENT_HANDLERS["cfm_ok"](
+                self._payload(clicker, confirm_id, confirmation))
+        return json.loads(response.content), edit, delay
+
+    # ── the first click only asks ───────────────────────────────────────────
+
+    def test_the_first_click_asks_privately_and_changes_nothing(self):
+        body, delay = self._first_click(self.HOST)
+        self.assertEqual(body["type"], di.RESPONSE_CHANNEL_MESSAGE)
+        self.assertEqual(body["data"]["flags"], di.EPHEMERAL)
+        labels = [b["label"] for b in body["data"]["components"][0]["components"]]
+        self.assertEqual(labels, ["Cancel game", "Keep it"])
+        delay.assert_not_called()
+
+    def test_someone_not_allowed_is_refused_without_a_prompt(self):
+        body, _ = self._first_click(self.OUTSIDER)
+        self.assertIn("Only the host or a moderator", body["data"]["content"])
+        self.assertNotIn("components", body["data"])
+
+    def test_a_click_on_a_private_message_runs_directly(self):
+        """No public post to protect, and REST can't reach an ephemeral."""
+        message = dict(self._post(), flags=di.EPHEMERAL)
+        body, _ = self._first_click(self.HOST, message)
+        self.assertEqual(body["type"], di.RESPONSE_UPDATE_MESSAGE)
+        self.assertEqual(body["data"]["components"], [])
+
+    # ── Confirm replays the real handler onto the real post ─────────────────
+
+    def test_confirming_cancels_the_post(self):
+        body, edit, delay = self._confirm(self.HOST)
+        self.assertEqual(body["data"]["content"], "✖ Game cancelled.")
+        args, kwargs = edit.call_args
+        self.assertEqual(args, ("chan", self.POST_ID))
+        self.assertEqual(kwargs["components"], [])
+        self.assertEqual(kwargs["embeds"][0]["footer"]["text"], "✖ Game was cancelled.")
+        # The role-mention content wasn't returned, so it isn't overwritten.
+        self.assertNotIn("content", kwargs)
+        # DMs go out, linking the POST, not the private confirmation.
+        self.assertEqual(delay.call_args.args[0], ["111"])
+        self.assertIn(self.POST_ID, delay.call_args.args[3])
+
+    def test_a_moderator_confirming_is_named(self):
+        _body, edit, _delay = self._confirm(self.MOD)
+        self.assertIn("cancelled by Clicker",
+                      edit.call_args.kwargs["embeds"][0]["footer"]["text"])
+
+    def test_an_outsider_confirming_is_refused_by_the_replay(self):
+        """A forged confirmation still meets the handler's own check."""
+        body, edit, delay = self._confirm(self.OUTSIDER)
+        self.assertIn("Only the host or a moderator", body["data"]["content"])
+        edit.assert_not_called()
+        delay.assert_not_called()
+
+    def test_a_post_that_moved_on_is_left_alone(self):
+        """Started or cancelled since: the button is gone, so nothing replays."""
+        body, edit, delay = self._confirm(self.HOST, post=self._post(buttons=False))
+        self.assertIn("already been done", body["data"]["content"])
+        edit.assert_not_called()
+        delay.assert_not_called()
+
+    def test_a_failed_edit_says_so(self):
+        from the_databot.services import discordservice as ds
+        body, _edit, _delay = self._confirm(self.HOST, edit_result=ds.THREAD_ERROR)
+        self.assertIn("try again", body["data"]["content"])
+
+    def test_keep_it_changes_nothing(self):
+        body = json.loads(di.COMPONENT_HANDLERS["cfm_no"](
+            self._payload(self.HOST, "cfm_no:g", {"id": "eph"})).content)
+        self.assertIn("nothing changed", body["data"]["content"])
+        self.assertEqual(body["data"]["components"], [])
+
+    # ── shared rules ────────────────────────────────────────────────────────
+
+    def test_an_owner_locked_button_is_still_locked_on_confirm(self):
+        """Clear Draft relies on the dispatcher's owner lock, which a replay skips
+        -- so Confirm repeats it."""
+        from the_databot.services import discordservice as ds
+        post = {"id": self.POST_ID, "components": [di.action_row(di.button(
+            "Clear Draft", di.encode_custom_id("draft_clear", self.HOST)))]}
+        confirm_id = di.encode_custom_id("cfm_ok", "draft_clear", self.POST_ID, di.PICK_OPEN)
+        with mock.patch.object(ds, "get_channel_message", return_value=post), \
+                mock.patch.object(ds, "edit_channel_message") as edit:
+            body = json.loads(di.COMPONENT_HANDLERS["cfm_ok"](
+                self._payload(self.OUTSIDER, confirm_id, {"id": "eph"})).content)
+        self.assertIn("Only the host", body["data"]["content"])
+        edit.assert_not_called()
+
+    def test_every_confirm_id_fits_discords_limit(self):
+        longest = max(di._CONFIRM_ACTIONS, key=len)
+        custom_id = di.encode_custom_id("cfm_ok", longest, "9" * 20, di.PICK_OPEN)
+        self.assertLessEqual(len(custom_id), 100)
+
+    def test_every_destructive_action_is_wrapped(self):
+        for action in di._CONFIRM_ACTIONS:
+            self.assertEqual(di.COMPONENT_HANDLERS[action].__name__,
+                             f"_confirm_first_{action}")
+
+    def test_pick_stop_only_asks_when_a_pick_would_be_lost(self):
+        designer = Profile.objects.create(discord="cfdesigner", discord_id="839")
+        faction = Faction.objects.create(title="CF Fox", animal="Fox", designer=designer,
+                                         component="Faction")
+        thread = LFGThread.objects.create(thread_id="cf-pick-thread")
+        seat = LFGSeat.objects.create(thread=thread, profile=designer, seat_number=1)
+        payload = self._payload(self.HOST, "pick_cancel:x:g", {"id": "panel"})
+        with mock.patch.object(di, "_pick_thread_for_channel", return_value=thread), \
+                mock.patch.object(di, "_pick_stop_refusal", return_value=None):
+            self.assertIs(di._pick_stop_precheck(payload), di._CONFIRM_SKIP)
+            seat.faction = faction
+            seat.save(update_fields=["faction"])
+            self.assertIsNone(di._pick_stop_precheck(payload))
 
 class LFGEditButtonRowTests(TestCase):
     """The Edit button is a permanent part of _lfg_message_data's row."""
@@ -8480,7 +8688,7 @@ class PickSeatChoiceTests(TestCase):
             "data": {"custom_id": di.encode_custom_id(action, self.OWNER)},
             "message": {"id": "msg", "components": []},
         }
-        handler = di.COMPONENT_HANDLERS[action]
+        handler = _component_handler(action)
         with mock.patch.object(di.post_channel_message_task, "delay") as post:
             response = handler(payload)
         return json.loads(response.content)["data"], post
@@ -8890,7 +9098,7 @@ class PickFreeFollowUpTests(TestCase):
             },
             "message": {"id": "ephemeral", "components": []},
         }
-        handler = di.COMPONENT_HANDLERS[action]
+        handler = _component_handler(action)
         with mock.patch.object(di, "edit_channel_message",
                                return_value=di.THREAD_OK) as edit:
             response = handler(payload)
@@ -14061,7 +14269,7 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
         }
         delay = mock.Mock()
         with mock.patch.object(di.record_lfg_components_task, "delay", delay):
-            response = di.COMPONENT_HANDLERS[action](payload)
+            response = _component_handler(action)(payload)
         parsed = json.loads(response.content)
         # Stashed so a test can assert the RESPONSE TYPE: type 7 edits the
         # message the button was on, type 4 posts a new one. Nothing pinned that
@@ -19289,7 +19497,7 @@ class BoxScoreMatchAutoRecordTests(_NoLoginSignalMixin, TestCase):
             p.start()
         try:
             with self.captureOnCommitCallbacks(execute=True):
-                response = di.COMPONENT_HANDLERS[action](payload)
+                response = _component_handler(action)(payload)
         finally:
             for p in patches:
                 p.stop()
@@ -19872,7 +20080,7 @@ class JoinTournamentRosterTests(ScheduleFixtureMixin, TestCase):
             "data": {"custom_id": di.encode_custom_id(
                 action, requester_id, target_pk, di.PICK_OPEN)},
         }
-        return json.loads(di.COMPONENT_HANDLERS[action](payload).content)
+        return json.loads(_component_handler(action)(payload).content)
 
     def test_context_resolves_the_group_and_roster(self):
         ctx = self._ctx()
@@ -20021,7 +20229,7 @@ class JoinModeratorTests(ScheduleFixtureMixin, TestCase):
         }).content)
 
     def _click(self, action, requester_id, clicker_id):
-        return json.loads(di.COMPONENT_HANDLERS[action]({
+        return json.loads(_component_handler(action)({
             "guild_id": self.guild.guild_id, "channel_id": self.THREAD_ID,
             "channel": {"name": None},
             "member": {"user": {"id": clicker_id, "username": "clicker"}},
@@ -20184,7 +20392,7 @@ class LeaveGameTests(ScheduleFixtureMixin, TestCase):
         }).content)
 
     def _click(self, action, requester_id, clicker_id):
-        return json.loads(di.COMPONENT_HANDLERS[action]({
+        return json.loads(_component_handler(action)({
             "guild_id": self.guild.guild_id, "channel_id": self.THREAD_ID,
             "channel": {"name": None},
             "member": {"user": {"id": clicker_id, "username": "clicker"}},
