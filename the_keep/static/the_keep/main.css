@@ -3296,6 +3296,16 @@ tr.clickable-row:hover {
   flex-wrap: wrap;
 }
 
+/* An info-card title with a logo to its left (the About page's Woodland
+   Warriors card). The logo is .external-link-image, the same rounded square the
+   component pages' external links use. */
+.about-card-title-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;       /* the About page centres its card text */
+  gap: 0.6rem;
+}
+
 /* About page "Site Art" section heading: sized like the page's other
    section headings, with room above to separate it from the thank-yous. */
 .about-art-heading {
