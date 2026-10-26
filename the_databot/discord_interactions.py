@@ -9812,6 +9812,16 @@ _BOXSCORE_SLUG_MAX = 100
 _BOXSCORE_MAX_PARTICIPANTS = 12   # a Root table is at most 6; this is slack, not a limit
 
 
+def _boxscore_random_clearing(payload):
+    """The file's random_suits as Game.random_clearing, or None when it doesn't say.
+
+    Only a real bool counts: a string "false" is truthy, and guessing at it would
+    record the opposite of what the table played.
+    """
+    value = (payload or {}).get("random_suits")
+    return value if isinstance(value, bool) else None
+
+
 def _boxscore_decompose(participants, payload):
     """(entries, notes, items, component_lines, undrafted) from a parsed box score.
 
@@ -10662,22 +10672,18 @@ def _boxscore_apply(thread, pending, channel_id, match_roster=None):
     if undrafted_line:
         lines.append(undrafted_line)
 
-    # AFTER the writes, never inside a transaction with them: this is a Celery
-    # enqueue, and a worker picking the task up before a commit would read stale
-    # rows. Fire-and-forget by design -- a capture failure must not undo a saved
-    # box score.
-    # `undrafted` rides along: it is not a roll (nothing distinguishes an
-    # undrafted faction from a seated one in the log) but it is written by the
-    # same task, onto the thread's own columns.
+    # `undrafted` rides along with the capture: it is not a roll (nothing
+    # distinguishes an undrafted faction from a seated one in the log) but the
+    # same task writes it, onto the thread's own columns.
     # Unconditional (not gated on items/undrafted like other captures): a
     # re-upload must clear the thread's PREVIOUS boxscore rolls even when this
     # file has none of its own, or a corrected file with fewer components than
     # the last one would leave the old ones stuck prefilling the record form.
     undrafted = pending.get("undrafted")
 
-    # map/deck NOW, not only via the capture task below: auto-record reads them
-    # off this thread straight after we return, long before the worker runs, and
-    # a final game with no map/deck fails validation. The task sets the same
+    # map/deck NOW, ahead of the capture: if the capture below fails and falls
+    # back to the worker, auto-record still finds them on this thread, and a
+    # final game with no map/deck fails validation. The capture sets the same
     # values again, harmlessly. Only overwrites what the file actually names, so
     # a /map roll survives a box score that omits it.
     fk_values = lfg_fk_values(items)
@@ -10686,8 +10692,31 @@ def _boxscore_apply(thread, pending, channel_id, match_roster=None):
             setattr(thread, field, obj)
         thread.save(update_fields=list(fk_values))
 
-    _capture_lfg_components(channel_id, items, source="boxscore",
-                            undrafted=undrafted)
+    # The capture runs HERE, not on the worker: auto-record reads the undrafted
+    # columns and the box score's landmark/hireling/tweak rolls off this thread
+    # straight after we return, long before a worker would have run, and
+    # recorded games came out without them. The task is its own transaction, and
+    # no caller holds one open around this, so a direct call is safe. A failure
+    # must still not undo a saved box score: it degrades to the old
+    # fire-and-forget enqueue, and auto-record records without those fields.
+    try:
+        record_lfg_components_task(channel_id, items, source="boxscore",
+                                   undrafted=undrafted)
+    except Exception:
+        logger.exception("box score capture failed for thread %s; enqueued "
+                         "instead", thread.pk)
+        _capture_lfg_components(channel_id, items, source="boxscore",
+                                undrafted=undrafted)
+    else:
+        # The task wrote through its own instance, so this one -- the one the
+        # callers hand to auto-record -- would still hold the old columns.
+        thread.refresh_from_db(fields=["map", "deck", "undrafted_faction",
+                                       "undrafted_vagabond"])
+
+    # Every upload, even when the file is silent: a corrected re-upload that
+    # drops random_suits must not keep the previous file's answer.
+    thread.random_clearing = pending.get("random_clearing")
+    thread.save(update_fields=["random_clearing"])
 
     return lines, notes
 
@@ -10758,6 +10787,7 @@ def boxscore_upload_from_api(thread, raw, token):
         "seats": _boxscore_file_seats(participants, profiles),
         "thread_pk": thread.pk, "filename": "Tabletop Simulator",
         "component_lines": component_lines, "undrafted": undrafted,
+        "random_clearing": _boxscore_random_clearing(payload),
     }
     pending["fingerprint"] = _boxscore_seat_fingerprint(thread)
 
@@ -11181,6 +11211,7 @@ def _boxscore_from_raw(data, thread, channel_id, raw, filename):
         "entries": entries, "items": items, "notes": notes, "seats": file_seats,
         "thread_pk": thread.pk, "filename": filename,
         "component_lines": component_lines, "undrafted": undrafted,
+        "random_clearing": _boxscore_random_clearing(payload),
     }
 
     # See boxscore_upload_from_api: refused before anything is staged.

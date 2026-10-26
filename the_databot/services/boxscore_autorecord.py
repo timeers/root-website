@@ -139,6 +139,27 @@ def needs_message_link(thread):
     return bool(tournament and tournament.link_required)
 
 
+def _game_level_components(thread, opts, data):
+    """The undrafted assets and landmarks/hirelings/tweaks, into `data`.
+
+    The record form's own prefill helpers, pointed at a data dict rather than
+    `.initial`, so a box score fills the same fields either way -- and in the
+    same order: the /draft's leftover first, then the box score's columns over
+    it (the draft is what was dealt; the box score is what was played).
+    """
+    from the_databot.services.lfg_game import undrafted_pick
+    from the_warroom.views import _set_undrafted_initial, boxscore_component_values
+
+    pick = undrafted_pick(thread)
+    if pick:
+        _set_undrafted_initial(data, opts, pick.faction_id, pick.vagabond_id,
+                               [c.pk for c in pick.captains.all()])
+    _set_undrafted_initial(
+        data, opts, thread.undrafted_faction_id, thread.undrafted_vagabond_id,
+        thread.undrafted_captains.values_list("pk", flat=True))
+    data.update(boxscore_component_values(thread, opts))
+
+
 def build_form_data(thread, seats, entries, *, tournament, opts,
                     platform, game_type, grid_rows, link=None):
     """The POST-shaped dict the form and formset validate against.
@@ -175,6 +196,12 @@ def build_form_data(thread, seats, entries, *, tournament, opts,
         data['map'] = str(thread.map_id)
     if thread.deck_id:
         data['deck'] = str(thread.deck_id)
+    # A bound checkbox that is ABSENT is False, so leaving this out recorded
+    # every game as fixed clearings. Only a file that said fixed makes it so;
+    # silence keeps Game.random_clearing's default, as the record form does.
+    if thread.random_clearing is not False:
+        data['random_clearing'] = 'on'
+    _game_level_components(thread, opts, data)
 
     for i, (seat_no, profile, faction_slug, vagabond_slug) in enumerate(seats):
         entry = entries.get(seat_no, {})
@@ -262,7 +289,7 @@ def _attempt(thread, recorder, payload, link=None):
     from the_warroom.services.game_recording import AlreadyRecorded, record_game
     from the_warroom.views import (
         _can_record_lfg, _can_record_match, _get_match_profiles, _lfg_round_for,
-        _lfg_tournament_for)
+        _lfg_tournament_for, narrow_game_fields)
     from the_databot.services.lfg_game import lfg_option_querysets
 
     if recorder is None:
@@ -346,9 +373,13 @@ def _attempt(thread, recorder, payload, link=None):
     )
 
     if match is not None:
-        # The view's match-mode initial, which a bound form never reads.
-        data['nickname'] = f'{match.round} {match.name}'[:50]
+        # What the record form posts in match mode: its hidden nickname input is
+        # match.name -- the player group's name, plus "Game N" in a best-of-N.
+        data['nickname'] = (match.name or '')[:50]
         data['match_id'] = str(match.pk)
+    else:
+        # The record form's LFG initial: only a name someone gave the game.
+        data['nickname'] = (thread.nickname or '')[:50]
 
     grid_payload = {'rows': [
         {'form_index': i, 'locked': False, 'cells': cells}
@@ -377,6 +408,10 @@ def _attempt(thread, recorder, payload, link=None):
         lfgthread=thread,
         lfg_round=lfg_round,
     )
+    # As the view does: the form's own querysets are official-only for most
+    # recorders, so without this a tournament-allowed unofficial component
+    # declined here while recording fine through the link.
+    narrow_game_fields(form, opts)
 
     if not (form.is_valid() and formset.is_valid()):
         # The decline most likely to need explaining -- and the one that was

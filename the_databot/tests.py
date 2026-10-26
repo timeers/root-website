@@ -14405,11 +14405,13 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
             [(s.seat_number, s.profile_id) for s in self.thread.seats.all()],
             [(1, self.alice.pk), (2, self.bob.pk)])
 
-        # map/deck ride the existing capture task so the roll log is written too.
-        items = delay.call_args.args[1]
-        self.assertEqual([(i["kind"], i["slug"]) for i in items],
-                         [("Map", self.map.slug), ("Deck", self.deck.slug)])
-        self.assertEqual(delay.call_args.kwargs["source"], "boxscore")
+        # map/deck ride the existing capture task so the roll log is written too
+        # -- run in-process, not enqueued, so auto-record can read it right away.
+        self.assertEqual(
+            list(self.thread.roll_log.filter(source="boxscore")
+                 .order_by("created_at", "pk").values_list("kind", "slug")),
+            [("Map", self.map.slug), ("Deck", self.deck.slug)])
+        delay.assert_not_called()
 
         # Only what no other field can hold.
         self.assertEqual(self.thread.turns_data, [
@@ -15577,6 +15579,21 @@ class BoxScoreCommandTests(_NoLoginSignalMixin, TestCase):
 
         self.thread.refresh_from_db()
         self.assertEqual(self.thread.undrafted_faction_id, self.faction.pk)
+
+    def test_the_files_clearings_prefill_the_record_form(self):
+        """Fixed when the file said fixed; untouched -- Game's own default --
+        when it said nothing."""
+        from the_warroom.views import _prefill_boxscore_components
+        opts = lfg_option_querysets(self.thread, None)
+
+        form = mock.Mock(initial={})
+        _prefill_boxscore_components(form, self.thread, opts)
+        self.assertNotIn("random_clearing", form.initial)
+
+        self.thread.random_clearing = False
+        form = mock.Mock(initial={})
+        _prefill_boxscore_components(form, self.thread, opts)
+        self.assertIs(form.initial["random_clearing"], False)
 
     def test_undrafted_captains_are_all_or_nothing(self):
         """clean() requires exactly 4 undrafted captains or none, so seeding a
@@ -19195,6 +19212,66 @@ class BoxScoreAutoRecordTests(_NoLoginSignalMixin, TestCase):
     def test_the_platform_defaults_to_tabletop_simulator(self):
         self.assertEqual(self._run().platform, "Tabletop Simulator")
 
+    def test_the_nickname_is_the_threads_own(self):
+        self.thread.nickname = "Chaos Game"
+        self.thread.save(update_fields=["nickname"])
+        self.assertEqual(self._run().nickname, "Chaos Game")
+
+    def test_clearings_default_to_random_when_the_file_is_silent(self):
+        """A bound checkbox that is absent is False -- which recorded every
+        auto-recorded game as fixed clearings."""
+        self.assertIsNone(self.thread.random_clearing)
+        self.assertTrue(self._run().random_clearing)
+
+    def test_a_file_that_said_fixed_records_fixed_clearings(self):
+        self.thread.random_clearing = False
+        self.thread.save(update_fields=["random_clearing"])
+        self.assertFalse(self._run().random_clearing)
+
+    def test_the_box_scores_undrafted_faction_is_recorded(self):
+        cat = Faction.objects.create(
+            title="AR Cat", slug="ar-cat", animal="Cat", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        self.thread.undrafted_faction = cat
+        self.thread.save(update_fields=["undrafted_faction"])
+        self.assertEqual(self._run().undrafted_faction, cat)
+
+    def test_the_drafts_leftover_is_recorded_without_a_box_score_one(self):
+        cat = Faction.objects.create(
+            title="AR Cat", slug="ar-cat", animal="Cat", designer=self.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        draft = LFGDraft.objects.create(thread=self.thread, players=2)
+        for order, faction in enumerate((self.fox, self.bird, cat), start=1):
+            LFGDraftPick.objects.create(draft=draft, faction=faction, order=order)
+        self.assertEqual(self._run().undrafted_faction, cat)
+
+    def test_the_box_scores_landmarks_are_recorded(self):
+        tower = Landmark.objects.create(
+            title="AR Tower", designer=self.designer,
+            status=StatusChoices.STABLE, official=True)
+        LFGRoll.objects.create(thread=self.thread, kind="Landmark",
+                               slug=tower.slug, source="boxscore")
+        self.assertEqual(list(self._run().landmarks.all()), [tower])
+
+    def test_an_unofficial_component_the_game_allows_still_records(self):
+        """The form's own querysets are official-only for a recorder with Show
+        Fan Content off (profile.weird); the view replaces them with what the
+        game allows, and auto-record must too or it declines a game the link
+        records fine."""
+        homebrew = Faction.objects.create(
+            title="AR Homebrew", slug="ar-homebrew", animal="Bat",
+            designer=self.designer, status=StatusChoices.STABLE, official=False,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        self.thread.undrafted_faction = homebrew
+        self.thread.save(update_fields=["undrafted_faction"])
+        Profile.objects.filter(pk=self.alice.pk).update(weird=False)
+        self.alice.refresh_from_db()
+        game = self._run()
+        self.assertIsNotNone(game)
+        self.assertEqual(game.undrafted_faction, homebrew)
+
     # ── fallbacks: each must return None and record nothing ──
 
     def _assert_declined(self):
@@ -19520,6 +19597,51 @@ class BoxScoreMatchAutoRecordTests(_NoLoginSignalMixin, TestCase):
         self.assertIn(f"recorded as {name}", result["message"])
         # A series thread outlives any one game, so it is never linked to one.
         self.assertIsNone(self.thread.game_id)
+
+    def test_the_nickname_is_the_match_name(self):
+        """What the record form posts -- the group name and "Game N" -- with no
+        round prefix, which pushed the group name past the 50-char limit."""
+        self._upload(self._doc())
+        self.assertEqual(self._game_of(self.matches[0]).nickname,
+                         self.matches[0].name)
+        self.assertEqual(self.matches[0].name, "Group A Game 1")
+
+    def test_the_files_clearings_undrafted_and_landmarks_are_recorded(self):
+        """Through the whole upload, with the capture task's .delay patched out:
+        auto-record runs before any worker would have, so these must already
+        be on the thread when it does."""
+        cat = Faction.objects.create(
+            title="MA Cat", slug="ma-cat", animal="Cat", designer=self.map.designer,
+            status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        tower = Landmark.objects.create(
+            title="MA Tower", designer=self.map.designer,
+            status=StatusChoices.STABLE, official=True)
+        doc = self._doc()
+        doc.update(random_suits=False, undrafted_faction=cat.slug,
+                   landmarks=[tower.slug])
+        self._upload(doc)
+        game = self._game_of(self.matches[0])
+        self.assertIsNotNone(game)
+        self.assertFalse(game.random_clearing)
+        self.assertEqual(game.undrafted_faction, cat)
+        self.assertEqual(list(game.landmarks.all()), [tower])
+
+    def test_a_failed_capture_still_records_and_enqueues_instead(self):
+        with mock.patch.object(di, "record_lfg_components_task",
+                               side_effect=RuntimeError("boom")), \
+                mock.patch.object(di, "_capture_lfg_components") as enqueue:
+            self._upload(self._doc())
+        enqueue.assert_called_once()
+        self.assertIsNotNone(self._game_of(self.matches[0]))
+
+    def test_a_silent_re_upload_resets_the_clearings(self):
+        doc = self._doc()
+        doc["random_suits"] = False
+        self._upload(doc)
+        self.assertFalse(self.thread.random_clearing)
+        self._upload(self._doc(first=(self.bird, 9), second=(self.fox, 8)))
+        self.assertIsNone(self.thread.random_clearing)
 
     def test_game_two_records_without_asking_to_replace_game_one(self):
         self._upload(self._doc())

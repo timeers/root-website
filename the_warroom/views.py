@@ -1041,27 +1041,7 @@ def _prefill_boxscore_components(form, thread, opts, blocked=None):
 
     `blocked` collects whatever the narrowing dropped, for the banner summary.
     """
-    from the_databot.services.lfg_game import boxscore_components
-
-    named = boxscore_components(thread)
-
-    for kind, field, bucket in (("Landmark", "landmarks", "landmarks"),
-                                ("Hireling", "hirelings", "hirelings"),
-                                ("Tweak", "tweaks", "tweaks")):
-        slugs = named.get(kind)
-        if not slugs:
-            continue
-        offered = list(opts[bucket].filter(slug__in=slugs))
-        if offered:
-            form.initial[field] = [o.pk for o in offered]
-        missing = set(slugs) - {o.slug for o in offered}
-        if missing and blocked is not None:
-            # Titles, not slugs: the banner is read by a recorder looking at the
-            # dropdown, which shows titles. The model lookup is unfiltered on
-            # purpose -- opts is exactly what EXCLUDED these, so it cannot name
-            # them.
-            for obj in ASSET_TYPES[bucket].objects.filter(slug__in=missing):
-                blocked.add(obj)
+    form.initial.update(boxscore_component_values(thread, opts, blocked))
 
     # The undrafted assets come from the thread's own COLUMNS, not the roll log:
     # an undrafted faction and a seated one are both kind "Faction" there.
@@ -1071,12 +1051,71 @@ def _prefill_boxscore_components(form, thread, opts, blocked=None):
     # played, and a /draft re-run or a re-seat can leave the draft stale. When
     # there is no box score these stay None and the draft's values survive.
     _set_undrafted_initial(
-        form, opts, thread.undrafted_faction_id, thread.undrafted_vagabond_id,
+        form.initial, opts, thread.undrafted_faction_id,
+        thread.undrafted_vagabond_id,
         thread.undrafted_captains.values_list("pk", flat=True))
 
+    # Same rule as the undrafted columns: a file that said nothing leaves the
+    # field at Game's own default.
+    if thread.random_clearing is not None:
+        form.initial['random_clearing'] = thread.random_clearing
 
-def _set_undrafted_initial(form, opts, faction_id, vagabond_id, captain_ids):
-    """Write the three undrafted_* initials, whatever the source.
+
+def boxscore_component_values(thread, opts, blocked=None):
+    """{field: [pk, ...]} for the landmarks/hirelings/tweaks a box score named.
+
+    Only values `opts` still offers. Shared by the record form's prefill and
+    auto-record, which writes the same values into a bound form's data -- so the
+    two can't disagree about which components a box score carried.
+
+    `blocked` collects whatever the narrowing dropped, for the banner summary.
+    """
+    from the_databot.services.lfg_game import boxscore_components
+
+    named = boxscore_components(thread)
+    values = {}
+    for kind, field, bucket in (("Landmark", "landmarks", "landmarks"),
+                                ("Hireling", "hirelings", "hirelings"),
+                                ("Tweak", "tweaks", "tweaks")):
+        slugs = named.get(kind)
+        if not slugs:
+            continue
+        offered = list(opts[bucket].filter(slug__in=slugs))
+        if offered:
+            values[field] = [o.pk for o in offered]
+        missing = set(slugs) - {o.slug for o in offered}
+        if missing and blocked is not None:
+            # Titles, not slugs: the banner is read by a recorder looking at the
+            # dropdown, which shows titles. The model lookup is unfiltered on
+            # purpose -- opts is exactly what EXCLUDED these, so it cannot name
+            # them.
+            for obj in ASSET_TYPES[bucket].objects.filter(slug__in=missing):
+                blocked.add(obj)
+    return values
+
+
+def narrow_game_fields(form, opts):
+    """Limit the game-level component fields to what `opts` allows.
+
+    REPLACES the form's own official-only querysets, which is what lets a
+    tournament that allows unofficial content record it. Auto-record must do the
+    same, or a game that records fine through the link fails validation headless.
+    """
+    form.fields['map'].queryset = opts['maps']
+    form.fields['deck'].queryset = opts['decks']
+    form.fields['landmarks'].queryset = opts['landmarks']
+    form.fields['tweaks'].queryset = opts['tweaks']
+    form.fields['hirelings'].queryset = opts['hirelings']
+    form.fields['undrafted_faction'].queryset = opts['factions']
+    form.fields['undrafted_vagabond'].queryset = opts['vagabonds']
+    form.fields['undrafted_captains'].queryset = opts['captains']
+
+
+def _set_undrafted_initial(target, opts, faction_id, vagabond_id, captain_ids):
+    """Write the three undrafted_* values into `target`, whatever the source.
+
+    `target` is a form's `.initial` for the record form, or a bound form's data
+    dict for auto-record -- the same values either way.
 
     Two callers supply the values differently -- _prefill_undrafted from the
     thread's /draft leftover, _prefill_boxscore_components from the columns a box
@@ -1093,13 +1132,13 @@ def _set_undrafted_initial(form, opts, faction_id, vagabond_id, captain_ids):
     some; seeding 3 would fail validation on submit.
     """
     if faction_id and opts['factions'].filter(pk=faction_id).exists():
-        form.initial['undrafted_faction'] = faction_id
+        target['undrafted_faction'] = faction_id
     if vagabond_id and opts['vagabonds'].filter(pk=vagabond_id).exists():
-        form.initial['undrafted_vagabond'] = vagabond_id
+        target['undrafted_vagabond'] = vagabond_id
 
     caps = list(opts['captains'].filter(pk__in=list(captain_ids)))
     if len(caps) == FULL_CAPTAIN_COMPLEMENT:
-        form.initial['undrafted_captains'] = [v.pk for v in caps]
+        target['undrafted_captains'] = [v.pk for v in caps]
 
 
 def _prefill_undrafted(form, thread, opts):
@@ -1113,8 +1152,8 @@ def _prefill_undrafted(form, thread, opts):
     if not pick:
         return
 
-    _set_undrafted_initial(form, opts, pick.faction_id, pick.vagabond_id,
-                           [c.pk for c in pick.captains.all()])
+    _set_undrafted_initial(form.initial, opts, pick.faction_id,
+                           pick.vagabond_id, [c.pk for c in pick.captains.all()])
 
 
 def _lfg_round_for(tournament):
@@ -1720,9 +1759,11 @@ def manage_game(request, id=None):
         round=selected_round if not (match_mode or lfg_mode) else None,
     )
 
-    # Auto-fill nickname with match name in match mode
+    # Auto-fill nickname with match name in match mode. The template posts
+    # match.name as a hidden input in match mode, so this only keeps the initial
+    # honest -- auto-record copies the same value.
     if match_mode and not obj.pk:
-        form.initial['nickname'] = (f'{match.round} {match.name}' or '')[:50]
+        form.initial['nickname'] = (match.name or '')[:50]
         player_group = match.series.player_group
         #  Disabled auto fill since game now displays match's video link
         # if player_group and player_group.video_link:
@@ -1783,25 +1824,11 @@ def manage_game(request, id=None):
 
     # Same game-level narrowing for a match whose thread captured components.
     if match_mode and match_opts:
-        form.fields['map'].queryset = match_opts['maps']
-        form.fields['deck'].queryset = match_opts['decks']
-        form.fields['landmarks'].queryset = match_opts['landmarks']
-        form.fields['tweaks'].queryset = match_opts['tweaks']
-        form.fields['hirelings'].queryset = match_opts['hirelings']
-        form.fields['undrafted_faction'].queryset = match_opts['factions']
-        form.fields['undrafted_vagabond'].queryset = match_opts['vagabonds']
-        form.fields['undrafted_captains'].queryset = match_opts['captains']
+        narrow_game_fields(form, match_opts)
 
     # Narrow the game-level component fields to the thread's rolls as well.
     if lfg_mode and lfg_opts:
-        form.fields['map'].queryset = lfg_opts['maps']
-        form.fields['deck'].queryset = lfg_opts['decks']
-        form.fields['landmarks'].queryset = lfg_opts['landmarks']
-        form.fields['tweaks'].queryset = lfg_opts['tweaks']
-        form.fields['hirelings'].queryset = lfg_opts['hirelings']
-        form.fields['undrafted_faction'].queryset = lfg_opts['factions']
-        form.fields['undrafted_vagabond'].queryset = lfg_opts['vagabonds']
-        form.fields['undrafted_captains'].queryset = lfg_opts['captains']
+        narrow_game_fields(form, lfg_opts)
 
     # Determine platform lock status for template rendering. A `disabled` control
     # is not submitted by the browser, so the template pairs the visible select
