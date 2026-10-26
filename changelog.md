@@ -10,12 +10,13 @@
 - Improvements to the About page
 - Players sharing Steam accounts should no longer lock boxscores from being submitted. Added an option to leave blank or assign player once
 - Ask to confirm when closing lfg and scheduling polls
+- Go to latest update button added to updates page
 
 ### Bug Fixes
 - Updates page pagination fixed
-- Go to latest update button added to updates page
 - The "Save" button on Post edit/create pages now shows "Saving" with a spinner once clicked to show that it is loading
 - Admin notification form also uses the spinner when sending user notifications
+- Auto record boxscores now uses the correct game name and records fields not initially saved in the thread now
 
 ## [1.13.16] - 2026-10-23 Survey Integrations
 

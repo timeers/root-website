@@ -39,7 +39,7 @@ from django.views.generic import (
     DeleteView
 )
 from the_warroom.models import Game, ScoreCard, Effort, Tournament, Stage, Round
-from the_gatehouse.models import Profile, Language, Website, DiscordGuild, DiscordGuildJoinRequest, Supporter
+from the_gatehouse.models import Profile, Language, Website, DiscordGuild, DiscordGuildJoinRequest, Supporter, SiteArtwork
 from the_gatehouse.views import (designer_required_class_based_view,
                                  player_required, player_required_class_based_view,
                                  player_onboard_required, admin_required, editor_onboard_required, editor_required, editor_required_class_based_view)
@@ -668,10 +668,21 @@ def about(request, *args, **kwargs):
 
     supporters = Supporter.objects.filter(show_publicly=True).select_related('profile')
 
+    # One card per ARTIST, each with their pieces in admin order. Grouped here
+    # rather than with {% regroup %}, which only groups ADJACENT rows -- an
+    # artist whose pieces aren't consecutive in the order would get two cards.
+    # Insertion order puts each artist where their first piece is ordered.
+    art_by_artist = {}
+    for art in SiteArtwork.objects.filter(show=True).select_related('artist'):
+        art_by_artist.setdefault(art.artist, []).append(art)
+    art_credits = [{'artist': artist, 'artworks': pieces}
+                   for artist, pieces in art_by_artist.items()]
+
     context = {
         'title': 'About',
         'law_date': law_date,
         'supporters': supporters,
+        'art_credits': art_credits,
     }
 
     return render(request, 'the_keep/about.html', context)

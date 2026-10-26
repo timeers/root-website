@@ -205,6 +205,9 @@ class LFGThread(models.Model):
         related_name="+")
     undrafted_captains = models.ManyToManyField(
         "the_keep.Vagabond", blank=True, related_name="+")
+    # The box score's random_suits. Null when the file didn't say, which the
+    # record form and auto-record both read as Game.random_clearing's default.
+    random_clearing = models.BooleanField(null=True, blank=True)
 
     class Status(models.TextChoices):
         OPEN = "open", "Open"

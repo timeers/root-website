@@ -18,7 +18,7 @@ from django.db import transaction
 from django.utils import timezone
 from kombu.exceptions import OperationalError
 
-from .models import Profile, ForegroundImage, BackgroundImage, Changelog
+from .models import Profile, ForegroundImage, BackgroundImage, Changelog, SiteArtwork
 from the_databot.models import BotBlacklist
 from .services.discord_oauth import get_discord_id, discord_refresh_capability
 from .utils import slugify_instance_discord, slugify_changelog, slugify_survey_title, build_absolute_uri
@@ -171,6 +171,14 @@ SMALL_IMAGE_CONFIG = {
     BackgroundImage: {
         'fields': {
             'image': ('small_image', 992),
+        },
+        'flag': '_processed_image',
+    },
+    # Uploaded at full size (4096x1152); the About page's art cards serve this
+    # copy, whose longest side is plenty for a card at most ~550px wide.
+    SiteArtwork: {
+        'fields': {
+            'image': ('small_image', 1200),
         },
         'flag': '_processed_image',
     },
@@ -423,6 +431,7 @@ def handle_image_resize(sender, instance, **kwargs):
 @receiver(post_save, sender=Tweak)
 @receiver(post_save, sender=ForegroundImage)
 @receiver(post_save, sender=BackgroundImage)
+@receiver(post_save, sender=SiteArtwork)
 def process_small_images(sender, instance, **kwargs):
     # Generates the necessary small images for specific objects
     config = SMALL_IMAGE_CONFIG.get(sender)

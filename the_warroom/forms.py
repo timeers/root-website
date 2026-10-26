@@ -304,7 +304,8 @@ class GameCreateForm(forms.ModelForm):
 
         self.effort_formset = effort_formset
 
-        # Filter for only Official content if not a member of Weird Root.
+        # Filter for only Official content if the recorder has Show Fan Content
+        # off (profile.weird) -- the profile setting, not Weird Root membership.
         # A missing profile gets the RESTRICTED set, not an AttributeError: this
         # read used to be unguarded, which made the form impossible to build for
         # a recorder with no linked User.

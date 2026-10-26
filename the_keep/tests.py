@@ -171,3 +171,99 @@ class ResizeImageInPlaceTests(TestCase):
                                   max_size=400)
 
         self.assertEqual(os.listdir(self.tmp), ['upload.webp'])
+
+
+class AboutArtCreditsTests(TestCase):
+    """The About page's art credits: one card per artist, their pieces in a
+    carousel that only shows chevrons when there is more than one, and the
+    whole card linking to the artist's credit_url."""
+
+    def setUp(self):
+        from django.test import override_settings
+        media = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, media, ignore_errors=True)
+        settings_override = override_settings(MEDIA_ROOT=media)
+        settings_override.enable()
+        self.addCleanup(settings_override.disable)
+
+        from the_gatehouse.models import Profile
+        self.alice = Profile.objects.create(discord="artalice", display_name="Alice",
+                                            credit_link="https://alice.example/art")
+        self.bob = Profile.objects.create(discord="artbob", display_name="Bob")
+
+    def _art(self, artist, title, order, show=True):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from io import BytesIO
+        from the_gatehouse.models import SiteArtwork
+        buf = BytesIO()
+        Image.new("RGB", (64, 18), "red").save(buf, format="PNG")
+        return SiteArtwork.objects.create(
+            artist=artist, title=title, order=order, show=show,
+            image=SimpleUploadedFile(f"{title}.png", buf.getvalue(), content_type="image/png"))
+
+    def _page(self):
+        from django.urls import reverse
+        return self.client.get(reverse('keep-about')).content.decode()
+
+    def _cards(self, body):
+        """Each card's HTML, in page order -- each cut at the end of its artist
+        row, so the last one doesn't run on into the rest of the page."""
+        cards = []
+        for chunk in body.split("class='artwork-card h-100'")[1:]:
+            row = chunk.find("class='artwork-card-artist'")
+            cards.append(chunk[:chunk.find("</div>", row) + len("</div>")])
+        return cards
+
+    def test_one_card_per_artist_with_their_pieces_in_a_carousel(self):
+        self._art(self.alice, "Alice One", 1)
+        self._art(self.bob, "Bob One", 2)        # between Alice's pieces
+        self._art(self.alice, "Alice Two", 3)
+        self._art(self.alice, "Alice Hidden", 4, show=False)
+
+        cards = self._cards(self._page())
+        self.assertEqual(len(cards), 2)
+        alice, bob = cards
+        self.assertIn("Alice One by Alice", alice)
+        self.assertIn("Alice Two by Alice", alice)
+        self.assertNotIn("Alice Hidden", alice)
+        self.assertEqual(alice.count("carousel-item"), 2)
+        self.assertIn("carousel-control-prev", alice)
+        self.assertIn("carousel-control-next", alice)
+        self.assertEqual(bob.count("carousel-item"), 1)
+        self.assertNotIn("carousel-control-prev", bob)
+
+    def test_the_card_links_to_the_credit_url(self):
+        self._art(self.alice, "Alice One", 1)
+        self._art(self.bob, "Bob One", 2)
+        alice, bob = self._cards(self._page())
+        # Alice's own link, in a new tab.
+        self.assertIn("href='https://alice.example/art' target='_blank'", alice)
+        # Bob has none: his profile here, in the same tab.
+        self.assertIn(f"href='{self.bob.get_absolute_url()}'>", bob)
+        self.assertNotIn("_blank", bob)
+
+    def test_the_resized_copy_is_served(self):
+        art = self._art(self.alice, "Alice One", 1)
+        art.refresh_from_db()
+        self.assertTrue(art.small_image)
+        self.assertIn(art.small_image.url, self._page())
+
+    def test_the_art_section_has_its_heading_and_component_credit(self):
+        """Without any art rows there are no cards, but the section -- its
+        heading and the credit for the component art -- is still there."""
+        body = self._page()
+        self.assertNotIn("artwork-card h-100", body)
+        self.assertIn(">Artwork</h2>", body)
+        self.assertIn("Kyle Ferrin", body)
+
+
+class ProfileCreditUrlTests(TestCase):
+    def test_credit_link_then_profile_then_none(self):
+        from the_gatehouse.models import Profile
+        linked = Profile.objects.create(discord="cuone", credit_link="https://x.example")
+        plain = Profile.objects.create(discord="cutwo")
+        self.assertEqual(linked.credit_url, "https://x.example")
+        self.assertEqual(plain.credit_url, plain.get_absolute_url())
+        Profile.objects.filter(pk=plain.pk).update(slug=None)
+        plain.refresh_from_db()
+        self.assertIsNone(plain.credit_url)

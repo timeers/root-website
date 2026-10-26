@@ -1869,6 +1869,16 @@ tr.clickable-row:hover {
   text-decoration: underline; /* Keep underline on hover */
 }
 
+/* Links on a dark background (image overlays like the About page's hero,
+   integrations and support band), where the default blue is hard to read.
+   Add .links-on-dark to the dark section rather than listing each one here. */
+.links-on-dark .clickable-link {
+  color: #fff;
+}
+.links-on-dark .clickable-link:hover {
+  color: rgba(255, 255, 255, 0.75);
+}
+
 .subtle-link {
   color: grey; /* Link color */
   /* text-decoration: underline; */
@@ -2924,13 +2934,6 @@ tr.clickable-row:hover {
     padding-right: 3rem;
   }
 }
-/* The site's blue link is hard to read on the dark overlay. */
-.about-resource-card .clickable-link {
-  color: #fff;
-}
-.about-resource-card .clickable-link:hover {
-  color: rgba(255, 255, 255, 0.75);
-}
 
 /* Each integration's logo sits left of its card title. The source PNGs are
    different sizes (32-192px), so they are drawn at one fixed size. */
@@ -3293,19 +3296,97 @@ tr.clickable-row:hover {
   flex-wrap: wrap;
 }
 
+/* About page "Site Art" section heading: sized like the page's other
+   section headings, with room above to separate it from the thank-yous. */
+.about-art-heading {
+  font-size: 1.6rem;
+  margin: 2.5rem 0 0.75rem;
+}
+
+/* About page art credits: one card per artist. The art is shown WHOLE
+   (object-fit: contain in a fixed 4096:1152 frame) -- unlike the dashboard
+   widget's cropped .widget-img -- and an artist with several pieces gets a
+   carousel. The whole card links via the name's .stretched-link. */
+.artwork-card {
+  position: relative;            /* the stretched link's overlay fills this */
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  background: #fff;
+  border-radius: 14px;
+  overflow: hidden;              /* rounds the art's top corners too */
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  border: 1px solid #e3e5e8;
+  transition: transform 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+}
+.artwork-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+}
+/* A fixed frame, so the card keeps its height as the carousel moves. */
+.artwork-card-art {
+  aspect-ratio: 4096 / 1152;
+  background: #f6f7fb;
+}
+.artwork-card-art .carousel-inner,
+.artwork-card-art .carousel-item {
+  height: 100%;
+}
+.artwork-card-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;           /* never cover: a piece is shown in full */
+}
+.artwork-card-nav {
+  z-index: 2;                    /* above .stretched-link::after (z-index 1) */
+  width: 2.25rem;
+  opacity: 1;
+}
+.artwork-card-nav i {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 0.9rem;
+  transition: background 0.15s ease;
+}
+.artwork-card-nav:hover i,
+.artwork-card-nav:focus-visible i {
+  background: rgba(0, 0, 0, 0.7);
+}
+.artwork-card-artist {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  margin-top: auto;              /* pinned to the bottom of an h-100 card */
+  font-weight: 600;
+  color: #2c2f33;
+}
+.artwork-card-artist a {
+  color: inherit;
+  text-decoration: none;         /* the whole card is the link */
+}
+.artwork-card-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
 /* About page support band (reuses .home-community-band). Its supporter list
-   sits on the dark overlay, so muted grey text and blue links are swapped for
-   white. */
+   sits on the dark overlay, so the muted grey label is swapped for white (its
+   links are white via .links-on-dark, beside .clickable-link). */
 .about-support-thanks {
   font-size: 0.9rem;
   opacity: 0.8;
   margin-bottom: 0.25rem;
-}
-.about-support .supporter-list .clickable-link {
-  color: #fff;
-}
-.about-support .supporter-list .clickable-link:hover {
-  color: rgba(255, 255, 255, 0.75);
 }
 
 .floating-alert {

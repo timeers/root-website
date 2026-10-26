@@ -18,7 +18,7 @@
 {% block content %}
 
 <!-- HERO -->
-<section class="home-hero">
+<section class="home-hero links-on-dark">
     <picture class="home-hero-bg">
         <source media="(max-width: 500px)" srcset="{% static 'images/homepage/hero-small.webp' %}">
         <img src="{% static 'images/homepage/hero.webp' %}" alt="" fetchpriority="high">
@@ -27,20 +27,20 @@
     <div class="home-hero-content">
         <h1 class="root-title home-hero-title">{% trans 'About the Database' %}</h1>
         <p class="home-hero-tagline">
-            The {{site_title}} is an unofficial collection of fan factions and components for Root, the board game by Leder Games.
+            {% comment %} The {{site_title}} is an unofficial collection of fan factions and components for Root, the board game by Leder Games. {% endcomment %}
+        
+        The {{site_title}} started in 2024 as a spreadsheet listing popular fan factions.
+        The goal was to provide an easy way to search Fan Content made by the Root community with links to discussion boards and Discord threads.
+        After countless hours of tutorials and research the Database made the jump to the web and was made public in mid 2025.
+        Many features have been added since, with more to come. You can find the most recent update <a class='clickable-link' href="{% url 'changelog-list-view' %}">here</a>.
+
+        
         </p>
     </div>
 </section>
 
-<div class='container'>
+<div class='container mt-4'>
 <div class='text-center'>
-
-    <div class='my-4'>
-        The {{site_title}} started in 2024 as a spreadsheet listing popular fan factions.
-        The goal was to provide an easy way to search Fan Content made by the Root community with links to discussion boards and Discord threads.
-        After countless hours of tutorials and research the Database made the jump to the web and was made public in mid 2025.
-        Many features have been added since, with more to come. You can see the most recent update <a class='clickable-link' href={% url 'changelog-list-view' %}>here</a>.
-    </div>
 
     <div class='row g-3 mb-4'>
         <div class='col-12 col-md-6'>
@@ -83,11 +83,13 @@
     </div>
 
 
+
+
 </div>
 </div>
 
 <!-- COMMUNITY INTEGRATIONS: full-width, on the home page's lifecycle background -->
-<section class="home-lifecycle about-resources" {% if theme %}style='--theme-color: {{theme.theme_color}};'{% endif %}>
+<section class="home-lifecycle about-resources links-on-dark" {% if theme %}style='--theme-color: {{theme.theme_color}};'{% endif %}>
     <picture class="home-lifecycle-bg">
         <source media="(max-width: 500px)" srcset="{% static 'images/homepage/lifecycle-small.webp' %}">
         <img src="{% static 'images/homepage/lifecycle.webp' %}" alt="" loading="lazy">
@@ -100,8 +102,8 @@
                 <div class="about-resource-card h-100">
                     <div>
                         <h3 class="about-resource-title"><img class="about-resource-icon" src="{% static 'images/link_icons/rootdigitalleague.png' %}" alt="" aria-hidden="true">Root Digital League</h3>
-                        Root Digital League is organized by the Woodland Warriors Discord community and are an informal and fun way to play against real players.
-                        These games are recorded on the <a class='clickable-link' href='https://rootleague.pliskin.dev'>Root Digital League</a> website and imported to the {{site_title}} through the Match Viewset List API provided by Pliskin.
+                        Root Digital League is organized by the Woodland Warriors Discord and is an informal and fun way to play against real players.
+                        Games are recorded on the <a class='clickable-link' href='https://rootleague.pliskin.dev'>Root Digital League</a> website and imported to the {{site_title}} through the Match Viewset List API provided by Pliskin.
                     </div>
                 </div>
             </div>
@@ -118,9 +120,9 @@
                 <div class="about-resource-card h-100">
                     <div>
                         <h3 class="about-resource-title"><img class="about-resource-icon" src="{% static 'images/link_icons/rootelo.png' %}" alt="" aria-hidden="true">RootELO</h3>
-                        The {{site_title}} uses <a class='clickable-link' href='https://tricholome.github.io/rootelo/'>RootELO</a> to display ELO rankings for Root Digital League and HOOT.
-                        RootELO was developed by Tricholome as an alternate to a classic winrate leaderboard.
-                        Results dynamically increase or decrease a players ranking based on the opponents they played against.
+                        <a class='clickable-link' href='https://tricholome.github.io/rootelo/'>RootELO</a> was developed by Tricholome as an alternative to a classic winrate leaderboard.
+                        Results dynamically increase or decrease a players ranking based on their opponents.
+                        {{site_title}} uses RootELO to display ELO rankings for Root Digital League and HOOT.
                     </div>
                 </div>
             </div>
@@ -130,6 +132,74 @@
 
 <div class='container'>
 <div class='text-center mt-4'>
+
+
+
+    {% comment %} The site's art as one section: heading, the credit for the
+    component art, then the thanks and the commissioned artists' cards. {% endcomment %}
+    <section class='mb-4 about-art'>
+        <h2 class='root-title about-art-heading'>{% trans 'Artwork' %}</h2>
+
+        <div class='mb-1'>
+            All art credit for Factions and other components, unless otherwise stated, goes to the amazing <a class='clickable-link' href="https://www.instagram.com/d20plusmodifier/">Kyle Ferrin</a> at Buried Giant Studios.
+        </div>
+
+        {% if art_credits %}
+        <div class='mb-3'>
+            The Root Database has commissioned members of the community for the art you see on this site.
+            A huge thanks to these artists for their work.
+        </div>
+        {% comment %}
+        One card per artist (grouped in the view). An artist with several pieces
+        gets a Bootstrap carousel that only moves when a chevron is pressed. The
+        whole card links to the artist via the name's .stretched-link; the
+        chevrons sit above that overlay so they cycle the art instead.
+        {% endcomment %}
+        <div class='row row-cols-1 row-cols-md-2 g-3 mb-4 justify-content-center'>
+            {% for credit in art_credits %}{% with artist=credit.artist %}
+            <div class='col'>
+                <div class='artwork-card h-100'>
+                    <div id='artwork-{{ artist.pk }}' class='carousel slide artwork-card-art' data-bs-interval='false'>
+                        <div class='carousel-inner'>
+                            {% for art in credit.artworks %}
+                            <div class='carousel-item{% if forloop.first %} active{% endif %}'>
+                                {% comment %} Only the first is lazy: the rest are hidden until a
+                                chevron shows them, and a lazy image there would slide in blank. {% endcomment %}
+                                <img class='artwork-card-img' {% if forloop.first %}loading='lazy'{% endif %}
+                                     src='{% if art.small_image %}{{ art.small_image.url }}{% else %}{{ art.image.url }}{% endif %}'
+                                     alt='{{ art.title }} by {{ artist.name }}'>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% if credit.artworks|length > 1 %}
+                        <button class='carousel-control-prev artwork-card-nav' type='button'
+                                data-bs-target='#artwork-{{ artist.pk }}' data-bs-slide='prev'
+                                aria-label='{% trans "Previous artwork" %}'>
+                            <i class='bi bi-chevron-left' aria-hidden='true'></i>
+                        </button>
+                        <button class='carousel-control-next artwork-card-nav' type='button'
+                                data-bs-target='#artwork-{{ artist.pk }}' data-bs-slide='next'
+                                aria-label='{% trans "Next artwork" %}'>
+                            <i class='bi bi-chevron-right' aria-hidden='true'></i>
+                        </button>
+                        {% endif %}
+                    </div>
+                    <div class='artwork-card-artist'>
+                        <img class='artwork-card-avatar' src='{{ artist.image.url }}' alt=''>
+                        {% if artist.credit_url %}
+                        <a class='stretched-link' href='{{ artist.credit_url }}'{% if artist.credit_link %} target='_blank' rel='noopener'{% endif %}>{{ artist.name }}</a>
+                        {% else %}
+                        <span>{{ artist.name }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endwith %}{% endfor %}
+        </div>
+        {% endif %}
+
+    </section>
+
 
     <div class='mb-4'>
         <div class='my-3' style="font-size: 1.2rem; font-weight: 600;">
@@ -141,20 +211,8 @@
         <div class='mb-4'>
             Special thanks to KingLuigiNL, Diamondragon4, Peppy and all the other Discord users who provided suggestions, input and encouragement to make the site what it is now.
         </div>
-        <div>
-            A huge thanks to <a class='clickable-link' href="{% url 'player-detail' 'tinthefoil' %}">Tin (the Foil)</a> for providing the fantastic art for the site. You can check out Tin's wonderful work <a class='clickable-link' href='https://linktr.ee/tinthefoil'>here<a>.
-        </div>
-        <div>
-            Thank you to the artists of the new art celebrating the 1 year anniversary of the Root Database: <a class='clickable-link' href='https://www.instagram.com/redzeraus/'>redzeraus</a>, <a class='clickable-link' href="{% url 'player-detail' 'xluevi' %}">xluevi</a> and <a class='clickable-link' href='https://bergerloic.wixsite.com/website'>Lioc de Parmesan</a>.
-        </div>
-    </div>
 
-    <div class='mb-1'>
-        All art credit for Factions and other components, unless otherwise stated, goes to the amazing <a class='clickable-link' href="https://www.instagram.com/d20plusmodifier/">Kyle Ferrin</a> at Buried Giant Studios.
-    </div>
-    <div class='mb-4'>
-        The content on this website is inspired by the board game Root, published by Leder Games. This content is only intended for personal enjoyment.
-        The content provided here is not for commercial use and it is shared in the spirit of celebrating Root and its creative community.
+
     </div>
 
 
@@ -170,7 +228,7 @@
 </div>
 
 <!-- SUPPORT: full-width, mirroring the home page's "Join the Community" band -->
-<section class="home-community-band about-support">
+<section class="home-community-band about-support links-on-dark">
     <picture class="home-community-bg">
         <source media="(max-width: 500px)" srcset="{% static 'images/homepage/community-small.webp' %}">
         <img src="{% static 'images/homepage/community.webp' %}" alt="" loading="lazy">
@@ -178,12 +236,19 @@
     <div class="home-community-overlay"></div>
     <div class="home-community-content">
         <h2 class="root-title home-section-heading">{% trans 'Support the Database' %}</h2>
+        
+        <div class='home-community-text'>
+            The content on this website is inspired by the board game Root, published by Leder Games. This content is only intended for personal enjoyment.
+            The content provided here is not for commercial use and it is shared in the spirit of celebrating Root and its creative community.
+        </div>        
+
+        
         <p class="home-community-text">
             This site is provided as a free community resource to everyone. It only costs a few dollars a month to keep running, but support is always appreciated.
         </p>
         {% if supporters %}
         <div class='about-support-thanks'>
-            Thank you to those who helped keep the lights on:
+            Thank you to those who help keep the lights on:
         </div>
         <div class='supporter-list mb-4'>
             {% for supporter in supporters %}<span class='text-nowrap'>{% if supporter.profile and supporter.profile.slug %}<a class='clickable-link' href="{% url 'player-detail' supporter.profile.slug %}">{{ supporter.public_name }}</a>{% else %}{{ supporter.public_name }}{% endif %}</span>{% if not forloop.last %}, {% endif %}{% endfor %}
@@ -198,6 +263,9 @@
                 <img src="{% static 'images/tea.png' %}" alt="" class="support-btn-icon"> Buy Me a Coffee
             </a>
         </div>
+
+
+
     </div>
 </section>
 

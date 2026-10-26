@@ -470,6 +470,39 @@ class ForegroundImage(models.Model):
 
 
 
+class SiteArtwork(models.Model):
+    """A piece of art made for the site, credited on the About page.
+
+    One card per ARTIST there; an artist with several pieces gets a carousel.
+    Uploaded at full size -- `small_image` is generated from it (see
+    SMALL_IMAGE_CONFIG in signals.py) and is what the page serves."""
+    title = models.CharField(max_length=100, help_text="Used for the image's alt text.")
+    # PROTECT: a credited artist can't be deleted out from under their card. The
+    # admin's profile merge reassigns every reverse FK first, so merging is fine.
+    artist = models.ForeignKey('Profile', on_delete=models.PROTECT, related_name='site_artwork')
+    image = models.ImageField(upload_to='site_artwork')
+    small_image = models.ImageField(upload_to='site_artwork/small', null=True, blank=True)
+    order = models.PositiveSmallIntegerField(
+        default=0, help_text="Lower comes first. An artist's card sits where their first piece does.")
+    show = models.BooleanField(default=True, help_text="Show this piece on the About page.")
+    date_modified = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['order', 'id']
+
+    def __str__(self):
+        return f"{self.title} by {self.artist.name}"
+
+    def save(self, *args, **kwargs):
+        # A replaced image takes its old files with it, as ForegroundImage does.
+        if self.pk:
+            old = SiteArtwork.objects.filter(pk=self.pk).first()
+            if old and old.image and old.image != self.image:
+                delete_old_image(old.image)
+                delete_old_image(old.small_image)
+        super().save(*args, **kwargs)
+
+
 class Profile(models.Model):
     class GroupChoices(models.TextChoices):
         OUTCAST = 'O'
@@ -874,6 +907,15 @@ class Profile(models.Model):
 
     def get_absolute_url(self):
         return reverse('player-detail', kwargs={'slug': self.slug})
+
+    @property
+    def credit_url(self):
+        """Where crediting this person links: their own credit_link if they set
+        one, else their profile here. None for a profile with no slug, which has
+        no page to link to."""
+        if self.credit_link:
+            return self.credit_link
+        return self.get_absolute_url() if self.slug else None
     
 
     def most_used_faction(self):
