@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.13.18] - 2026-10-26 Draft Statistics
+
+### New Features
+- Draft Statistics page
+
 ## [1.13.17] - 2026-10-25 Boxscore Houserules
 
 ### New Features

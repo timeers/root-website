@@ -33,6 +33,7 @@
             <div class="nav-subitems">
               <a class="nav-item nav-link" href="{% url 'games-home' %}">{% trans 'Games' %}</a>
               <a class="nav-item nav-link" href="{% url 'leaderboard-view' %}">{% trans 'Leaderboards' %}</a>
+              <a class="nav-item nav-link" href="{% url 'draft-statistics' %}">{% trans 'Draft Stats' %}</a>
               <a class="nav-item nav-link" href="{% url 'tournaments-home' %}">{% trans 'Series' %}</a>
               {% if user.is_authenticated and user_recorded_game_count %}
                 <a class="nav-item nav-link" href="{% url 'my-submitted-games' %}">{% trans 'Submitted Games' %}</a>

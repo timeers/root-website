@@ -6447,3 +6447,181 @@ class PersonalBoxScoreTests(TestCase):
         self.assertEqual(response.status_code, 200)
         forms = response.context['formset'].forms
         self.assertIn(self.carol, set(forms[1].fields['player'].queryset))
+
+
+class DraftStatisticsTests(TestCase):
+    """/statistics/drafting/: pick rate when offered, per seat and overall.
+
+    Draft pools come from the real derivation (refresh_game_draft_options), so
+    these also pin how the page reads that cache. The draft runs in reverse seat
+    order: in a 4-player game seat 4 picks first from all five options, seat 1
+    last from the final two (its pick plus the undrafted leftover).
+    """
+
+    def setUp(self):
+        self.designer = Profile.objects.create(discord="dsdesigner")
+        def faction(title, **kw):
+            return Faction.objects.create(title=title, type="M", reach=5,
+                                          animal=title.lower(), designer=self.designer, **kw)
+        self.cats = faction("DS Cats")
+        self.birds = faction("DS Birds")
+        self.mice = faction("DS Mice")
+        self.lizards = faction("DS Lizards")
+        self.otters = faction("DS Otters")
+        self.vb_faction = faction("Vagabond")
+        self.ranger = Vagabond.objects.create(title="DS Ranger", animal="Raccoon",
+                                              designer=self.designer)
+        self.thief = Vagabond.objects.create(title="DS Thief", animal="Raccoon",
+                                             designer=self.designer)
+        self.players = [Profile.objects.create(discord=f"dsp{i}") for i in range(6)]
+
+    def _game(self, picks, leftover, *, final=True, test_match=False, date=None):
+        """A drafted game. `picks` lists (faction, vagabond) from seat 1 up."""
+        from the_warroom.services.draft_service import refresh_game_draft_options
+        game = Game.objects.create(final=final, test_match=test_match,
+                                   undrafted_faction=leftover)
+        for seat, (fac, vb) in enumerate(picks, start=1):
+            Effort.objects.create(game=game, player=self.players[seat - 1],
+                                  faction=fac, vagabond=vb, seat=seat)
+        Game.objects.filter(pk=game.pk).update(cached_player_count=len(picks))
+        if date is not None:
+            Game.objects.filter(pk=game.pk).update(date_posted=date)
+        refresh_game_draft_options(game)
+        return game
+
+    def _four(self, **kw):
+        # Seat 4 picks Cats first from all five; seat 1 is left Otters vs the
+        # leftover Lizards and takes Otters.
+        return self._game([(self.otters, None), (self.mice, None),
+                           (self.birds, None), (self.cats, None)],
+                          leftover=self.lizards, **kw)
+
+    def _stats(self, player_count=4, games=None, **kw):
+        from the_warroom.services.draft_stats import draft_pick_rates
+        games = games if games is not None else Game.objects.filter(
+            final=True, test_match=False, cached_player_count=player_count)
+        return draft_pick_rates(games, player_count, **kw)
+
+    def _row(self, rows, obj):
+        return next(r for r in rows if r['object'].pk == obj.pk)
+
+    def test_rates_per_seat_and_overall(self):
+        self._four()
+        stats = self._stats(min_offered=0)
+        self.assertEqual(stats['seats'], [1, 2, 3, 4])
+        self.assertEqual(stats['games_counted'], 1)
+
+        cats = self._row(stats['factions'], self.cats)
+        # Only seat 4 ever saw the Cats -- and took them.
+        self.assertEqual(cats['seats'][3], {'taken': 1, 'offered': 1, 'rate': 1.0})
+        # Never offered at seats 1-3: unknown, not 0%.
+        self.assertIsNone(cats['seats'][0]['rate'])
+        self.assertEqual(cats['overall'], {'taken': 1, 'offered': 1, 'rate': 1.0})
+
+        # The leftover was offered to every seat and never taken.
+        lizards = self._row(stats['factions'], self.lizards)
+        self.assertEqual([c['offered'] for c in lizards['seats']], [1, 1, 1, 1])
+        self.assertEqual(lizards['overall'], {'taken': 0, 'offered': 4, 'rate': 0.0})
+
+        # Otters: available to all four seats, taken by seat 1 only.
+        otters = self._row(stats['factions'], self.otters)
+        self.assertEqual(otters['overall'], {'taken': 1, 'offered': 4, 'rate': 0.25})
+
+    def test_vagabonds_combine_into_one_row_and_split_in_their_own_table(self):
+        self._game([(self.otters, None), (self.mice, None),
+                    (self.birds, None), (self.vb_faction, self.ranger)], leftover=self.lizards)
+        self._game([(self.otters, None), (self.mice, None),
+                    (self.birds, None), (self.vb_faction, self.thief)], leftover=self.lizards)
+        stats = self._stats(min_offered=0)
+
+        vb_row = self._row(stats['factions'], self.vb_faction)
+        self.assertEqual(vb_row['seats'][3], {'taken': 2, 'offered': 2, 'rate': 1.0})
+        names = {r['object'].pk for r in stats['vagabonds']}
+        self.assertEqual(names, {self.ranger.pk, self.thief.pk})
+        self.assertEqual(self._row(stats['vagabonds'], self.ranger)['overall']['taken'], 1)
+
+    def test_player_count_picks_the_games_and_the_columns(self):
+        self._four()
+        self._game([(self.otters, None), (self.mice, None), (self.birds, None)],
+                   leftover=self.lizards)
+        self.assertEqual(self._stats(4)['games_counted'], 1)
+        three = self._stats(3)
+        self.assertEqual(three['seats'], [1, 2, 3])
+        self.assertEqual(three['games_counted'], 1)
+
+    def test_undrafted_test_and_unfinished_games_contribute_nothing(self):
+        Game.objects.create(final=True)                 # no undrafted faction
+        self._four(test_match=True)
+        self._four(final=False)
+        self.assertEqual(self._stats()['games_counted'], 0)
+
+    def test_low_samples_are_flagged_and_sorted_last(self):
+        self._four()
+        stats = self._stats(min_offered=2)
+        # Cats: 1/1 (100%) but offered once -- below the minimum.
+        cats = self._row(stats['factions'], self.cats)
+        self.assertTrue(cats['low_sample'])
+        self.assertTrue(stats['factions'][-1]['low_sample'])
+        self.assertFalse(stats['factions'][0]['low_sample'])
+
+    def test_a_player_filter_keeps_only_their_own_seats(self):
+        """Their picks and passes, not their opponents'."""
+        self._four()
+        seat_four = self.players[3]                     # took the Cats, first pick
+        stats = self._stats(min_offered=0, player=seat_four)
+        cats = self._row(stats['factions'], self.cats)
+        self.assertEqual(cats['overall'], {'taken': 1, 'offered': 1, 'rate': 1.0})
+        # Otters were in their pool too, and passed on.
+        otters = self._row(stats['factions'], self.otters)
+        self.assertEqual(otters['overall'], {'taken': 0, 'offered': 1, 'rate': 0.0})
+        # Nothing from the other three seats.
+        self.assertEqual([c['offered'] for c in otters['seats']], [0, 0, 0, 1])
+
+    # ── the page ─────────────────────────────────────────────────────────────
+
+    def _get(self, **params):
+        from django.urls import reverse
+        return self.client.get(reverse('draft-statistics'), params)
+
+    def test_the_page_renders_the_tables(self):
+        self._game([(self.otters, None), (self.mice, None),
+                    (self.birds, None), (self.vb_faction, self.ranger)], leftover=self.lizards)
+        response = self._get(threshold=0)
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn("Draft Statistics", body)
+        self.assertIn("Seat 4", body)
+        self.assertNotIn("Seat 5", body)
+        self.assertIn("DS Ranger", body)            # the vagabond table
+        self.assertEqual(response.context['player_count'], 4)
+
+    def test_the_factions_filter_still_counts_through_the_subquery(self):
+        """GameFilter's "contains all" filters annotate and .distinct() the
+        queryset; the stats read it as a pk subquery."""
+        self._four()
+        self._game([(self.otters, None), (self.lizards, None),
+                    (self.birds, None), (self.mice, None)], leftover=self.cats)
+        response = self._get(factions=[self.cats.pk], threshold=0)
+        # Only the first game contains the Cats as a played faction.
+        self.assertEqual(response.context['stats']['games_counted'], 1)
+
+    def test_the_page_filters_to_one_players_picks(self):
+        self._four()
+        response = self._get(picker=self.players[3].slug, threshold=0)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['picker'], self.players[3])
+        cats = next(r for r in response.context['stats']['factions']
+                    if r['object'].pk == self.cats.pk)
+        self.assertEqual(cats['overall']['offered'], 1)
+        self.assertIn("own picks", response.content.decode())
+
+    def test_the_empty_state(self):
+        response = self._get()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("No draft data", response.content.decode())
+
+    def test_a_bad_player_count_falls_back_instead_of_erroring(self):
+        self._four()
+        response = self._get(player_count="99")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['player_count'], 4)
