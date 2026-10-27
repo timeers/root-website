@@ -5,6 +5,9 @@
 ### New Features
 - Draft Statistics page
 
+### Improvements
+- About page always links to Woodland Warriors
+
 ### Bug Fixes
 - Hidden stages and rounds should no longer become inactive
 

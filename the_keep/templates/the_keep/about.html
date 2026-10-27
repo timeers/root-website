@@ -43,7 +43,7 @@
 <div class='text-center'>
 
     <div class='row g-3 mb-4'>
-        <div class='col-12 col-md-6'>
+        <div class='col-6'>
             <div class='info-card h-100'>
                 <div class='info-card-body'>
                     <h2 class='info-card-title'><i class="bi bi-question-circle me-2"></i>{% trans 'FAQ' %}</h2>
@@ -52,14 +52,16 @@
             </div>
         </div>
 
-        <div class='col-12 col-md-6'>
+        <div class='col-6'>
             <div class='info-card h-100'>
                 <div class='info-card-body'>
                     <h2 class='info-card-title'><i class="bi bi-chat-dots me-2"></i>{% trans 'Feedback' %}</h2>
-                    <div>Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url "general-feedback" %}'>here</a>.
+                    <div>
+                    Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url "general-feedback" %}'>here</a>
                     {% if rdb_ww_thread %}
-                    You can also ask questions and give feedback in the <a class='clickable-link' href="{{rdb_ww_thread}}">Root Database Discord Thread</a>.
-                    {% endif %}</div>
+                    or in the <a class='clickable-link' href="{{rdb_ww_thread}}">Discord Thread</a>.
+                    {% endif %}
+                    </div>
                 </div>
             </div>
         </div>
