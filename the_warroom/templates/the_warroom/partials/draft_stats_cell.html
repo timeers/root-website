@@ -1,0 +1,14 @@
+{% comment %}
+One pick-rate cell. --rate (0-1) scales the background shading; formatted with
+stringformat so a localized decimal comma can't break the CSS value. Low-sample
+rows aren't shaded.
+{% endcomment %}
+<td class="text-center draft-stats-cell{% if overall %} draft-stats-overall{% endif %}"
+    {% if cell.rate is not None and not low %}style="--rate: {{ cell.rate|stringformat:'.3f' }};"{% endif %}>
+  {% if cell.rate is None %}
+    <span class="draft-stats-none">—</span>
+  {% else %}
+    <span class="draft-stats-rate">{% widthratio cell.taken cell.offered 100 %}%</span>
+    <span class="draft-stats-count">{{ cell.taken }}/{{ cell.offered }}</span>
+  {% endif %}
+</td>

@@ -1,0 +1,146 @@
+{% extends "the_keep/base.html" %}
+{% load i18n %}
+{% block title %}{% trans 'Draft Statistics' %} | {% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-10">
+
+      <div class="discord-hero mb-4">
+        <h1 class="discord-hero-title root-title">{% trans 'Draft Statistics' %}</h1>
+        <p class="discord-hero-tagline">
+          {% trans "How often each faction is picked when it's in the draft, by seat." %}
+        </p>
+      </div>
+
+      {% comment %} Plain GET: results are shareable by URL. Player count sets
+      the seat columns, so it leads the form. {% endcomment %}
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <h2 class="info-card-title">{% trans 'Filters' %}</h2>
+          <form method="get" class="draft-stats-filters">
+            <div class="row g-3">
+              <div class="col-6 col-md-3">
+                <label class="form-label" for="{{ form.player_count.id_for_label }}">{% trans 'Player Count' %}</label>
+                {{ form.player_count }}
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label" for="id_threshold">{% trans 'Min games in draft' %}</label>
+                <input type="number" id="id_threshold" name="threshold" min="0" max="1000"
+                       class="form-control" value="{{ threshold }}">
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label" for="{{ form.picker.id_for_label }}">{% trans 'Player' %}</label>
+                {{ form.picker }}
+                {% comment %} <div class="form-text">{% trans "Only that player's own seats: what they took and passed on." %}</div> {% endcomment %}
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label" for="{{ form.date_after.id_for_label }}">{% trans 'From' %}</label>
+                {{ form.date_after }}
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label" for="{{ form.date_before.id_for_label }}">{% trans 'To' %}</label>
+                {{ form.date_before }}
+              </div>
+
+              <div class="col-12 col-md-6">
+                <label class="form-label" for="{{ form.tournament.id_for_label }}">{% trans 'Tournament' %}</label>
+                {{ form.tournament }}
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label" for="{{ form.map.id_for_label }}">{% trans 'Map' %}</label>
+                {{ form.map }}
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label" for="{{ form.deck.id_for_label }}">{% trans 'Deck' %}</label>
+                {{ form.deck }}
+              </div>
+
+              <div class="col-12 col-md-6">
+                <label class="form-label" for="{{ form.official.id_for_label }}">{% trans 'Content' %}</label>
+                {{ form.official }}
+              </div>
+              <div class="col-12 col-md-4">
+                <label class="form-label" for="{{ form.factions.id_for_label }}">{% trans 'Games with factions' %}</label>
+                {{ form.factions }}
+              </div>
+              <div class="col-12 col-md-4">
+                <label class="form-label" for="{{ form.vagabonds.id_for_label }}">{% trans 'Games with vagabonds' %}</label>
+                {{ form.vagabonds }}
+              </div>
+              <div class="col-12 col-md-4">
+                <label class="form-label" for="{{ form.players.id_for_label }}">{% trans 'Games with players' %}</label>
+                {{ form.players }}
+              </div>
+            </div>
+            <div class="d-flex align-items-center gap-3 mt-3">
+              <button type="submit" class="databot-btn databot-btn-primary">{% trans 'Apply' %}</button>
+              {% if has_filters %}
+              <a href="{% url 'draft-statistics' %}" class="subtle-link">{% trans 'Clear' %}</a>
+              {% endif %}
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <p class="databot-card-intro mb-4">
+        {% if picker %}{% blocktrans with name=picker.name %}Showing only {{ name }}'s own picks.{% endblocktrans %}{% endif %}
+        {% blocktrans count counter=stats.games_counted %}Based on {{ counter }} drafted {{ player_count }}-player game.{% plural %}Based on {{ counter }} drafted {{ player_count }}-player games.{% endblocktrans %}
+        {% blocktrans %}Each seat's percentage is how often that seat took the faction when it was available to them. Drafts runs in reverse seat order: seat {{ player_count }} picks first and seat 1 picks last.{% endblocktrans %}
+        {% trans "Overall is per game: of the games a faction was in the draft, how often someone drafted it." %}
+        {% blocktrans %}Factions in fewer than {{ threshold }} drafts are faded and listed last.{% endblocktrans %}
+      </p>
+
+      {% if stats.factions %}
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <h2 class="info-card-title">{% trans 'Factions' %}</h2>
+          {% comment %} Every vagabond character adds into the one Vagabond
+          row here; the table below splits them out. {% endcomment %}
+          <div style="--rate-color: {{ theme.theme_color|default:'#5865F2' }};">
+            {% trans 'Faction' as faction_label %}
+            {% include 'the_warroom/partials/draft_stats_table.html' with rows=stats.factions seats=stats.seats label=faction_label %}
+          </div>
+        </div>
+      </div>
+
+      {% if stats.vagabonds %}
+      <div class="info-card mb-4">
+        <div class="info-card-body">
+          <h2 class="info-card-title">{% trans 'Vagabonds' %}</h2>
+          <div style="--rate-color: {{ theme.theme_color|default:'#5865F2' }};">
+            {% trans 'Vagabond' as vagabond_label %}
+            {% include 'the_warroom/partials/draft_stats_table.html' with rows=stats.vagabonds seats=stats.seats label=vagabond_label %}
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      {% else %}
+      <div class="info-card mb-4">
+        <div class="info-card-body text-center">
+          <h2 class="info-card-title">{% trans 'No draft data' %}</h2>
+          <p class="databot-card-intro mb-0">
+            {% trans 'No drafted games match these filters. Draft data only exists for games recorded with an undrafted faction.' %}
+          </p>
+        </div>
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script>
+  // The multi-selects are long lists; make them searchable like the site's
+  // other game filters.
+  $(function () {
+    $('.draft-stats-filters select[multiple]').select2({ width: '100%' });
+    // A long player list: searchable too.
+    $('#{{ form.picker.id_for_label }}').select2({ width: '100%' });
+  });
+</script>
+{% endblock %}

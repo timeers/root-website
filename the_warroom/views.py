@@ -48,7 +48,8 @@ from .forms import (GameCreateForm, GameCreateFormV2, EffortCreateForm,
                     TournamentDynamicCreateForm, TournamentDynamicUpdateForm,
                     TournamentPlayerSettingsForm, TournamentAssetSettingsForm,
                     )
-from .filters import GameFilter, PlayerGameFilter, TournamentGameFilter, EloSystemGameFilter
+from .filters import (GameFilter, PlayerGameFilter, TournamentGameFilter, EloSystemGameFilter,
+                      DraftStatsFilter, DRAFT_STATS_DEFAULT_PLAYER_COUNT)
 
 from .utils import get_single_round, get_single_stage, build_scorecard_grid, build_single_scorecard_grid
 
@@ -365,6 +366,55 @@ def leaderboard_view(request):
     response = render(request, template_name, context)
     
     return response
+
+
+def draft_statistics(request):
+    """/statistics/drafting/: how often each faction is taken when it's
+    available, per seat and overall, for the filtered games.
+
+    The player count always applies (default 4): a seat only means one draft
+    position within one player count. Reads the SeatDraftOption cache through
+    draft_stats.draft_pick_rates.
+    """
+    from the_warroom.services.draft_stats import DEFAULT_MIN_OFFERED, draft_pick_rates
+
+    params = request.GET.copy()
+    params.setdefault('player_count', str(DRAFT_STATS_DEFAULT_PLAYER_COUNT))
+
+    games = Game.objects.filter(final=True, test_match=False)
+    filterset = DraftStatsFilter(params, queryset=games, user=request.user)
+    if filterset.is_valid():
+        player_count = int(filterset.form.cleaned_data.get('player_count')
+                           or DRAFT_STATS_DEFAULT_PLAYER_COUNT)
+        picker = filterset.form.cleaned_data.get('picker')
+        filtered = filterset.qs
+    else:
+        # An out-of-range value in the URL: fall back to the defaults rather
+        # than erroring on a shareable page.
+        player_count = DRAFT_STATS_DEFAULT_PLAYER_COUNT
+        picker = None
+        filtered = games.filter(cached_player_count=player_count)
+
+    try:
+        min_offered = max(0, int(request.GET.get('threshold', DEFAULT_MIN_OFFERED)))
+    except (TypeError, ValueError):
+        min_offered = DEFAULT_MIN_OFFERED
+
+    stats = draft_pick_rates(filtered, player_count, min_offered=min_offered,
+                             player=picker)
+
+    context = {
+        'title': 'Draft Statistics',
+        'filterset': filterset,
+        'form': filterset.form,
+        'stats': stats,
+        'player_count': player_count,
+        'threshold': min_offered,
+        'picker': picker,
+        'has_filters': any(k in request.GET for k in filterset.form.fields
+                           if k != 'player_count'),
+    }
+    return render(request, 'the_warroom/draft_statistics.html', context)
 
 
 def player_game_list_view(request, slug=None):
@@ -3676,19 +3726,17 @@ def tournament_dynamic_create(request):
             round_name = 'Round 1'
 
             # Create the initial Stage and Round 1
-            stage_kwargs = dict(
+            # No stage_format: the stage starts hidden (use_stages off) and
+            # inherits default_format, so later format changes apply.
+            stage = Stage.objects.create(
                 tournament=tournament,
                 name=stage_name,
                 order=1,
             )
-            if tournament.classification == Tournament.ClassificationTypes.TOURNAMENT:
-                stage_kwargs['stage_format'] = tournament.default_format or FormatChoices.CUSTOM
-            stage = Stage.objects.create(**stage_kwargs)
             Round.objects.create(
                 stage=stage,
                 name=round_name,
                 round_number=1,
-                start_date=tournament.start_date,
             )
 
             messages.success(request, f"Tournament '{tournament.name}' created successfully!")
@@ -5976,7 +6024,6 @@ def stage_manage_view(request, tournament_slug, stage_slug=None):
                 stage=stage_instance,
                 name='Round 1',
                 round_number=1,
-                start_date=stage_instance.start_date,
             )
 
         return redirect(stage_instance.get_absolute_url())

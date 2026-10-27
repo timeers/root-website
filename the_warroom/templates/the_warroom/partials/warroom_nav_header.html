@@ -12,6 +12,10 @@
                class="section-nav-tab root-title {% if active_page == 'leaderboards' %}active{% endif %}">
                 {% trans 'Leaderboards' %}
             </a>
+            <a href="{% url 'draft-statistics' %}"
+               class="section-nav-tab root-title {% if active_page == 'draft-stats' %}active{% endif %}">
+                {% trans 'Draft Stats' %}
+            </a>
             <a href="{% url 'tournaments-home' %}"
                class="section-nav-tab root-title {% if active_page == 'series' %}active{% endif %}">
                 {% trans 'Series' %}

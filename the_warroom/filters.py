@@ -1,6 +1,7 @@
 import django_filters
 from django.db.models import Q, Count
-from .models import Game, game_counts_for_elo_system_q, elo_eligibility_q
+from .models import (Game, Tournament, game_counts_for_elo_system_q,
+                     game_counts_for_tournament_q, elo_eligibility_q)
 from the_keep.models import Faction, Deck, Map, Vagabond
 from the_gatehouse.models import Profile
 from django import forms
@@ -197,6 +198,71 @@ class GameFilter(BaseGameFilter):
         self.filters['deck'].queryset = decks_qs
         self.filters['map'].queryset = maps_qs
         self.filters['players'].queryset = players_qs
+
+
+DRAFT_STATS_PLAYER_COUNTS = [(n, str(n)) for n in range(2, 7)]
+DRAFT_STATS_DEFAULT_PLAYER_COUNT = 4
+
+
+class DraftStatsFilter(GameFilter):
+    """The /statistics/drafting/ filters: GameFilter's, plus a tournament and the
+    player count.
+
+    The player count is not optional in practice -- a seat only means one draft
+    position within one player count (seat 4 picks first at four players,
+    second at five), so the view always supplies one (default 4). It filters on
+    cached_player_count, the same field the Elo system filters on.
+    """
+
+    tournament = django_filters.ModelChoiceFilter(
+        queryset=Tournament.objects.all(), to_field_name='slug',
+        method='filter_tournament', empty_label='All', label='Tournament',
+    )
+    # empty_label=None: no "any" choice -- seats only line up within one count.
+    player_count = django_filters.ChoiceFilter(
+        field_name='cached_player_count', choices=DRAFT_STATS_PLAYER_COUNTS,
+        empty_label=None, label='Players',
+    )
+
+    # One player's OWN draft: unlike `players` (games they were in, every seat
+    # counted), the stats keep only the seats this player sat in -- what they
+    # took and what they passed on. The game-level narrowing here just skips
+    # games they weren't in; the per-seat cut is draft_pick_rates(player=...).
+    picker = django_filters.ModelChoiceFilter(
+        queryset=Profile.objects.none(), to_field_name='slug',
+        method='filter_picker', empty_label='All Players', label='Picks by',
+    )
+
+    class Meta(GameFilter.Meta):
+        fields = GameFilter.Meta.fields + ['tournament', 'player_count', 'picker']
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # The same players GameFilter offers (it narrows them per user).
+        self.filters['picker'].queryset = self.filters['players'].queryset
+        # Bootstrap classes, so the page's filter card can render the bare
+        # widgets. Multi-selects are left plain: the page turns them into select2.
+        for field in self.form.fields.values():
+            widget = field.widget
+            if getattr(widget, 'allow_multiple_selected', False):
+                continue
+            css = 'form-select' if isinstance(widget, forms.Select) else 'form-control'
+            classes = widget.attrs.get('class', '').split()
+            if css not in classes:
+                widget.attrs['class'] = ' '.join(classes + [css])
+
+    @staticmethod
+    def filter_picker(queryset, name, value):
+        if value is None:
+            return queryset
+        return queryset.filter(efforts__player=value).distinct()
+
+    @staticmethod
+    def filter_tournament(queryset, name, value):
+        # The primary round OR an extra round, as the game API's filter does.
+        if value is None:
+            return queryset
+        return queryset.filter(game_counts_for_tournament_q(value)).distinct()
 
 
 class PlayerGameFilter(BaseGameFilter):

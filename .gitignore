@@ -33,6 +33,7 @@ media/small_images/
 media/tts_decks/
 media/uploads/
 media/forge/
+media/site_artwork/
 
 # Django stuff:
 # Collected static output (STATIC_ROOT). Built by `collectstatic` on each

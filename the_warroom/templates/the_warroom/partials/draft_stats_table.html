@@ -1,0 +1,40 @@
+{% load i18n custom_filters %}
+{% comment %}
+One pick-rate table: a row per faction (or vagabond), a column per seat 1..N,
+then Overall. Each cell is the pick rate when offered, with taken/offered
+beneath it; "—" when never offered (unknown, not 0%). Rows offered fewer than
+the threshold are muted and sorted last (draft_stats._table).
+
+Expects: rows, seats, label (the first column's heading).
+{% endcomment %}
+<div class="table-responsive">
+  <table class="table draft-stats-table mb-0">
+    <thead>
+      <tr>
+        <th scope="col" class="draft-stats-name">{{ label }}</th>
+        {% for seat in seats %}
+        <th scope="col" class="text-center">{% blocktrans %}Seat {{ seat }}{% endblocktrans %}</th>
+        {% endfor %}
+        <th scope="col" class="text-center draft-stats-overall">{% trans 'Overall' %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr class="{% if row.low_sample %}draft-stats-low{% endif %}">
+        <th scope="row" class="draft-stats-name">
+          <span class="draft-stats-label">
+            {% if row.object.small_icon %}
+            <img class="draft-stats-icon" src="{{ row.object.small_icon|cache_bust:row.object.small_icon_version }}" alt="">
+            {% endif %}
+            {{ row.object.title }}
+          </span>
+        </th>
+        {% for cell in row.seats %}
+        {% include 'the_warroom/partials/draft_stats_cell.html' with cell=cell low=row.low_sample %}
+        {% endfor %}
+        {% include 'the_warroom/partials/draft_stats_cell.html' with cell=row.overall low=row.low_sample overall=True %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

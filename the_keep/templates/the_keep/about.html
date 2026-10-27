@@ -43,23 +43,25 @@
 <div class='text-center'>
 
     <div class='row g-3 mb-4'>
-        <div class='col-12 col-md-6'>
+        <div class='col-6'>
             <div class='info-card h-100'>
                 <div class='info-card-body'>
-                    <h2 class='info-card-title'>{% trans 'FAQ' %}</h2>
+                    <h2 class='info-card-title'><i class="bi bi-question-circle me-2"></i>{% trans 'FAQ' %}</h2>
                     <div>If you have any questions about how the site works, check out the <a class='clickable-link' href="{% url 'website-faq' %}">FAQ</a>.</div>
                 </div>
             </div>
         </div>
 
-        <div class='col-12 col-md-6'>
+        <div class='col-6'>
             <div class='info-card h-100'>
                 <div class='info-card-body'>
-                    <h2 class='info-card-title'>{% trans 'Feedback' %}</h2>
-                    <div>Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url "general-feedback" %}'>here</a>.
+                    <h2 class='info-card-title'><i class="bi bi-chat-dots me-2"></i>{% trans 'Feedback' %}</h2>
+                    <div>
+                    Feedback, bug reports, and feature requests can be submitted <a class='clickable-link' href='{% url "general-feedback" %}'>here</a>
                     {% if rdb_ww_thread %}
-                    You can also ask questions and give feedback in the <a class='clickable-link' href="{{rdb_ww_thread}}">Root Database Discord Thread</a>.
-                    {% endif %}</div>
+                    or in the <a class='clickable-link' href="{{rdb_ww_thread}}">Discord Thread</a>.
+                    {% endif %}
+                    </div>
                 </div>
             </div>
         </div>
@@ -67,14 +69,16 @@
 
     <div class='info-card mb-4'>
         <div class='info-card-body'>
-            <h2 class='info-card-title'>{% trans 'Woodland Warriors' %}</h2>
-            Woodland Warrior members are able to update their Fan Factions when logged in (if you need help updating something you created, please submit a <a class='clickable-link' href='{% url "general-feedback" %}'>feedback request</a>).
-            <div>If you haven't already, be sure to Join the Woodland Warriors Discord, the official home of Root and all Leder Games boardgames. It's a great place to discuss strategy and find online games.</div>
-            {% comment %}
-            The invite stays behind login, as the old Join image's link did: logged-out
-            visitors read about the server but get no link to it.
-            {% endcomment %}
-            {% if user.is_authenticated and woodland_warriors_invite %}
+            <h2 class='info-card-title about-card-title-icon'><img class='external-link-image' src="{% static 'images/link_icons/WW.webp' %}" alt='' aria-hidden='true'>{% trans 'Woodland Warriors' %}</h2>
+
+            <div>
+                If you haven't already, be sure to join the Woodland Warriors Discord community, it's the official home of Root and all Leder Games boardgames. 
+                It's a great place to discuss strategy and find online games.
+            </div>
+            <div>
+                Woodland Warrior members are also able to create and update their factions as well as record games when logged in (if you need help updating something you created, please submit a <a class='clickable-link' href='{% url "general-feedback" %}'>feedback request</a>).
+            </div>
+            {% if woodland_warriors_invite %}
             <a href="{{woodland_warriors_invite}}" class="databot-btn databot-btn-primary mt-3">
                 <i class="bi bi-discord me-2"></i>{% trans 'Join Woodland Warriors' %}
             </a>

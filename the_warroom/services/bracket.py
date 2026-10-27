@@ -228,8 +228,11 @@ class BracketService:
     @transaction.atomic
     def _check_round_complete(cls, round):
         """
-        Check if all match series in the round are complete.
-        If so, mark the round and potentially the stage as completed.
+        Check if all match series in the round are complete. If so, mark the
+        round completed and, once its stage has no open rounds left, the stage
+        -- or the tournament when stages are disabled. Hidden levels (rounds or
+        stages disabled) are skipped and stay ACTIVE; see
+        Stage._normalize_hidden_rounds / Tournament._normalize_hidden_stages.
 
         Skipped entirely when the tournament lets registered players record
         games freely (recording_access = REGISTERED): completing the scheduled
@@ -244,42 +247,57 @@ class BracketService:
         if not all_series:
             return
 
-        if all(s.is_complete() for s in all_series):
+        if not all(s.is_complete() for s in all_series):
+            return
+
+        stage = round.stage
+        # A hidden level (rounds/stages disabled) is a pass-through that stays
+        # ACTIVE, so completion lands on the nearest VISIBLE ancestor instead.
+        if stage is None or stage.use_rounds:
             round.status = CompetitionStatus.COMPLETED
             round.save(update_fields=['status'])
+            if stage is None:
+                return
+            # Was this the last round in the stage?
+            if stage.rounds.exclude(status=CompetitionStatus.COMPLETED).exists():
+                return
 
-            # Check if this was the last round in the stage
-            if round.stage_id:
-                remaining = round.stage.rounds.exclude(
-                    status=CompetitionStatus.COMPLETED,
-                )
-                if not remaining.exists():
-                    round.stage.status = CompetitionStatus.COMPLETED
-                    round.stage.save(update_fields=['status'])
+        tournament = stage.tournament
+        if tournament.use_stages:
+            stage.status = CompetitionStatus.COMPLETED
+            stage.save(update_fields=['status'])
+        elif tournament.stages.count() == 1:
+            # Stages-off implies a single stage; guard anyway so one stage
+            # finishing can't close a tournament that somehow has others.
+            tournament.status = CompetitionStatus.COMPLETED
+            tournament.save(update_fields=['status'])
 
     @classmethod
     @transaction.atomic
     def reopen_round(cls, round):
         """
-        Reopen a COMPLETED round back to ACTIVE after a match is explicitly
-        added (e.g. via the Schedule Match button), cascading to any parent
-        stage/tournament that had been completed.
+        Reopen the round and any parent stage/tournament that was COMPLETED,
+        after a match is explicitly added (e.g. via the Schedule Match button)
+        or unrecorded.
 
         The act of adding a match is the intent signal: the new slot is meant
-        to be played, so the round is no longer finished — even if every series
-        already has a recorded winner. PENDING/ACTIVE rounds are left untouched.
+        to be played, so nothing above it is finished — even if every series
+        already has a recorded winner. Ancestors are checked even when the
+        round itself is open: a hidden round never completes (completion lands
+        on the nearest visible ancestor), and a round added after its stage
+        auto-completed is ACTIVE under a COMPLETED stage.
+
+        Objects closed by hand (is_active=False) or by date (end_date passed)
+        stay closed -- adding a match is not a reason to override those, and
+        update_competition_statuses would re-complete a date-ended one anyway.
+        PENDING/ACTIVE objects are left untouched.
         """
-        if round.status != CompetitionStatus.COMPLETED:
-            return
-
-        round.status = CompetitionStatus.ACTIVE
-        round.save(update_fields=['status'])
-
-        # Reactivate the parent stage/tournament if they were completed.
         stage = round.stage
         tournament = stage.tournament if stage else None
-        for obj in (stage, tournament):
-            if obj and obj.status == CompetitionStatus.COMPLETED:
+        today = timezone.now().date()
+        for obj in (round, stage, tournament):
+            if (obj and obj.status == CompetitionStatus.COMPLETED and obj.is_active
+                    and not (obj.end_date and obj.end_date < today)):
                 obj.status = CompetitionStatus.ACTIVE
                 obj.save(update_fields=['status'])
 

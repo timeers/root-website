@@ -722,7 +722,65 @@ em, i {
     }
   }
 
-  /* Content pieces used inside .info-card: intro prose, notices, numbered
+  /* /statistics/drafting/ pick-rate tables. Each cell's background is the
+   theme colour (--rate-color, set on the wrapper) at an opacity scaled by that
+   cell's pick rate (--rate, 0-1), so strong and weak picks stand out. */
+.draft-stats-table th,
+.draft-stats-table td {
+  vertical-align: middle;
+  padding: 0.45rem 0.6rem;
+}
+.draft-stats-table thead th {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #6c757d;
+  white-space: nowrap;
+}
+/* The name column stays put while the seats scroll sideways on a phone. */
+.draft-stats-name {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #fff;
+  min-width: 10rem;
+  font-weight: 600;
+}
+.draft-stats-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.draft-stats-icon {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.draft-stats-cell {
+  background: color-mix(in srgb, var(--rate-color, #5865F2) calc(var(--rate, 0) * 45%), transparent);
+  min-width: 4.5rem;
+}
+.draft-stats-rate {
+  display: block;
+  font-weight: 700;
+}
+.draft-stats-count {
+  display: block;
+  font-size: 0.75rem;
+  color: #6c757d;
+}
+.draft-stats-none {
+  color: #adb5bd;
+}
+.draft-stats-overall {
+  border-left: 2px solid #e3e5e8;
+}
+.draft-stats-low {
+  opacity: 0.55;
+}
+
+/* Content pieces used inside .info-card: intro prose, notices, numbered
      steps and command/token chips. Moved out of /databot/'s inline styles so
      the Box Score Token page can share them. */
   .databot-card-intro {
@@ -3294,6 +3352,16 @@ tr.clickable-row:hover {
   gap: 0.75rem;
   justify-content: center;
   flex-wrap: wrap;
+}
+
+/* An info-card title with a logo to its left (the About page's Woodland
+   Warriors card). The logo is .external-link-image, the same rounded square the
+   component pages' external links use. */
+.about-card-title-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;       /* the About page centres its card text */
+  gap: 0.6rem;
 }
 
 /* About page "Site Art" section heading: sized like the page's other

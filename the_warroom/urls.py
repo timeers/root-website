@@ -2,7 +2,7 @@ from django.urls import path
 from the_gatehouse.views import (tournament_availability, tournament_availability_week_data,
                                 tournament_availability_search)
 # from .views import
-from .views import (game_list_view, leaderboard_view,
+from .views import (game_list_view, leaderboard_view, draft_statistics,
                     game_detail_view,
                     game_add_extra_round, game_remove_extra_round,
                     game_delete_view, effort_hx_delete, game_hx_delete,
@@ -78,6 +78,7 @@ urlpatterns = [
     path('games/', game_list_view),
 
     path('leaderboard/', leaderboard_view, name='leaderboard-view'),
+    path('statistics/drafting/', draft_statistics, name='draft-statistics'),
 
     path('record/scorecard/', scorecard_manage_view, name='record-scorecard'),
     path("scorecard/<int:id>/edit/", scorecard_manage_view, name='update-scorecard'),

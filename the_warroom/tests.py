@@ -36,7 +36,7 @@ from the_warroom.forms import GameCreateForm
 from the_databot.tasks import create_match_threads_task
 from the_warroom.services.grouping import GroupingService
 from the_warroom.models import (
-    CompetitionStatus, Effort, Game, Match, MatchReminderSent, MatchSeat,
+    CompetitionStatus, Effort, FormatChoices, Game, Match, MatchReminderSent, MatchSeat,
     MatchSeries, PlayerGroup, Round, ScheduledGameReminder, Stage,
     StageParticipant, Tournament, TournamentPlayer,
 )
@@ -2420,19 +2420,20 @@ class MatchLinkGameTests(TestCase):
         self.assertFalse(series.winners.exists())
         self.assertEqual(series.status, CompetitionStatus.PENDING)
 
-    def test_unlink_reopens_a_completed_round_and_stage(self):
+    def test_unlink_reopens_the_completed_tournament(self):
         """reevaluate_round_status never reopens a COMPLETED round, which is the
-        opposite of what unlinking means -- reopen_round is the correct call."""
+        opposite of what unlinking means -- reopen_round is the correct call.
+        The fixture hides both stages and rounds, so completion lands on the
+        tournament and the hidden stage/round stay ACTIVE throughout."""
         game = self._game([(self.p1, self.faction_a), (self.p2, self.faction_b)])
         self._link(game)
-        self.round.refresh_from_db()
-        self.assertEqual(self.round.status, CompetitionStatus.COMPLETED)
+        self.tournament.refresh_from_db()
+        self.assertEqual(self.tournament.status, CompetitionStatus.COMPLETED)
 
         self._unlink()
-        self.round.refresh_from_db()
-        self.stage.refresh_from_db()
-        self.assertEqual(self.round.status, CompetitionStatus.ACTIVE)
-        self.assertEqual(self.stage.status, CompetitionStatus.ACTIVE)
+        for obj in (self.tournament, self.stage, self.round):
+            obj.refresh_from_db()
+            self.assertEqual(obj.status, CompetitionStatus.ACTIVE)
 
     def test_unlink_leaves_a_multi_game_series_active(self):
         """A best-of series whose other games are still recorded stays Active,
@@ -6447,3 +6448,420 @@ class PersonalBoxScoreTests(TestCase):
         self.assertEqual(response.status_code, 200)
         forms = response.context['formset'].forms
         self.assertIn(self.carol, set(forms[1].fields['player'].queryset))
+
+
+class DraftStatisticsTests(TestCase):
+    """/statistics/drafting/: pick rate when offered, per seat and overall.
+
+    Draft pools come from the real derivation (refresh_game_draft_options), so
+    these also pin how the page reads that cache. The draft runs in reverse seat
+    order: in a 4-player game seat 4 picks first from all five options, seat 1
+    last from the final two (its pick plus the undrafted leftover).
+    """
+
+    def setUp(self):
+        self.designer = Profile.objects.create(discord="dsdesigner")
+        def faction(title, **kw):
+            return Faction.objects.create(title=title, type="M", reach=5,
+                                          animal=title.lower(), designer=self.designer, **kw)
+        self.cats = faction("DS Cats")
+        self.birds = faction("DS Birds")
+        self.mice = faction("DS Mice")
+        self.lizards = faction("DS Lizards")
+        self.otters = faction("DS Otters")
+        self.vb_faction = faction("Vagabond")
+        self.ranger = Vagabond.objects.create(title="DS Ranger", animal="Raccoon",
+                                              designer=self.designer)
+        self.thief = Vagabond.objects.create(title="DS Thief", animal="Raccoon",
+                                             designer=self.designer)
+        self.players = [Profile.objects.create(discord=f"dsp{i}") for i in range(6)]
+
+    def _game(self, picks, leftover, *, final=True, test_match=False, date=None):
+        """A drafted game. `picks` lists (faction, vagabond) from seat 1 up."""
+        from the_warroom.services.draft_service import refresh_game_draft_options
+        game = Game.objects.create(final=final, test_match=test_match,
+                                   undrafted_faction=leftover)
+        for seat, (fac, vb) in enumerate(picks, start=1):
+            Effort.objects.create(game=game, player=self.players[seat - 1],
+                                  faction=fac, vagabond=vb, seat=seat)
+        Game.objects.filter(pk=game.pk).update(cached_player_count=len(picks))
+        if date is not None:
+            Game.objects.filter(pk=game.pk).update(date_posted=date)
+        refresh_game_draft_options(game)
+        return game
+
+    def _four(self, **kw):
+        # Seat 4 picks Cats first from all five; seat 1 is left Otters vs the
+        # leftover Lizards and takes Otters.
+        return self._game([(self.otters, None), (self.mice, None),
+                           (self.birds, None), (self.cats, None)],
+                          leftover=self.lizards, **kw)
+
+    def _stats(self, player_count=4, games=None, **kw):
+        from the_warroom.services.draft_stats import draft_pick_rates
+        games = games if games is not None else Game.objects.filter(
+            final=True, test_match=False, cached_player_count=player_count)
+        return draft_pick_rates(games, player_count, **kw)
+
+    def _row(self, rows, obj):
+        return next(r for r in rows if r['object'].pk == obj.pk)
+
+    def test_rates_per_seat_and_overall(self):
+        self._four()
+        stats = self._stats(min_offered=0)
+        self.assertEqual(stats['seats'], [1, 2, 3, 4])
+        self.assertEqual(stats['games_counted'], 1)
+
+        cats = self._row(stats['factions'], self.cats)
+        # Only seat 4 ever saw the Cats -- and took them.
+        self.assertEqual(cats['seats'][3], {'taken': 1, 'offered': 1, 'rate': 1.0})
+        # Never offered at seats 1-3: unknown, not 0%.
+        self.assertIsNone(cats['seats'][0]['rate'])
+        self.assertEqual(cats['overall'], {'taken': 1, 'offered': 1, 'rate': 1.0})
+
+        # The leftover was offered to every seat and never taken...
+        lizards = self._row(stats['factions'], self.lizards)
+        self.assertEqual([c['offered'] for c in lizards['seats']], [1, 1, 1, 1])
+        # ...but Overall is per GAME: in one draft, taken in none.
+        self.assertEqual(lizards['overall'], {'taken': 0, 'offered': 1, 'rate': 0.0})
+
+        # Otters: offered to all four seats, but it's one game, and seat 1 took
+        # them -- so 1 of 1 games, not 1 of 4 seat offers.
+        otters = self._row(stats['factions'], self.otters)
+        self.assertEqual(sum(c['offered'] for c in otters['seats']), 4)
+        self.assertEqual(otters['overall'], {'taken': 1, 'offered': 1, 'rate': 1.0})
+
+    def test_overall_is_taken_games_over_drafted_games(self):
+        """The example: taken in some games, left undrafted in the rest."""
+        for _ in range(2):
+            self._four()                    # Lizards left over
+        self._game([(self.otters, None), (self.mice, None),
+                    (self.birds, None), (self.lizards, None)], leftover=self.cats)
+        stats = self._stats(min_offered=0)
+        lizards = self._row(stats['factions'], self.lizards)
+        self.assertEqual(lizards['overall'], {'taken': 1, 'offered': 3, 'rate': 1 / 3})
+
+    def test_vagabonds_combine_into_one_row_and_split_in_their_own_table(self):
+        self._game([(self.otters, None), (self.mice, None),
+                    (self.birds, None), (self.vb_faction, self.ranger)], leftover=self.lizards)
+        self._game([(self.otters, None), (self.mice, None),
+                    (self.birds, None), (self.vb_faction, self.thief)], leftover=self.lizards)
+        stats = self._stats(min_offered=0)
+
+        vb_row = self._row(stats['factions'], self.vb_faction)
+        self.assertEqual(vb_row['seats'][3], {'taken': 2, 'offered': 2, 'rate': 1.0})
+        names = {r['object'].pk for r in stats['vagabonds']}
+        self.assertEqual(names, {self.ranger.pk, self.thief.pk})
+        self.assertEqual(self._row(stats['vagabonds'], self.ranger)['overall']['taken'], 1)
+
+    def test_player_count_picks_the_games_and_the_columns(self):
+        self._four()
+        self._game([(self.otters, None), (self.mice, None), (self.birds, None)],
+                   leftover=self.lizards)
+        self.assertEqual(self._stats(4)['games_counted'], 1)
+        three = self._stats(3)
+        self.assertEqual(three['seats'], [1, 2, 3])
+        self.assertEqual(three['games_counted'], 1)
+
+    def test_undrafted_test_and_unfinished_games_contribute_nothing(self):
+        Game.objects.create(final=True)                 # no undrafted faction
+        self._four(test_match=True)
+        self._four(final=False)
+        self.assertEqual(self._stats()['games_counted'], 0)
+
+    def test_low_samples_are_flagged_and_sorted_last(self):
+        """The minimum counts GAMES a faction was in the draft."""
+        self._four()
+        self._game([(self.otters, None), (self.mice, None),
+                    (self.birds, None), (self.lizards, None)], leftover=self.vb_faction)
+        stats = self._stats(min_offered=2)
+        # Cats: taken in their only draft (100%) -- one game, below the minimum.
+        cats = self._row(stats['factions'], self.cats)
+        self.assertTrue(cats['low_sample'])
+        # Otters were in both drafts.
+        self.assertFalse(self._row(stats['factions'], self.otters)['low_sample'])
+        self.assertTrue(stats['factions'][-1]['low_sample'])
+        self.assertFalse(stats['factions'][0]['low_sample'])
+
+    def test_a_player_filter_keeps_only_their_own_seats(self):
+        """Their picks and passes, not their opponents'."""
+        self._four()
+        seat_four = self.players[3]                     # took the Cats, first pick
+        stats = self._stats(min_offered=0, player=seat_four)
+        cats = self._row(stats['factions'], self.cats)
+        self.assertEqual(cats['overall'], {'taken': 1, 'offered': 1, 'rate': 1.0})
+        # Otters were in their pool too, and passed on.
+        otters = self._row(stats['factions'], self.otters)
+        self.assertEqual(otters['overall'], {'taken': 0, 'offered': 1, 'rate': 0.0})
+        # Nothing from the other three seats.
+        self.assertEqual([c['offered'] for c in otters['seats']], [0, 0, 0, 1])
+
+    # ── the page ─────────────────────────────────────────────────────────────
+
+    def _get(self, **params):
+        from django.urls import reverse
+        return self.client.get(reverse('draft-statistics'), params)
+
+    def test_the_page_renders_the_tables(self):
+        self._game([(self.otters, None), (self.mice, None),
+                    (self.birds, None), (self.vb_faction, self.ranger)], leftover=self.lizards)
+        response = self._get(threshold=0)
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn("Draft Statistics", body)
+        self.assertIn("Seat 4", body)
+        self.assertNotIn("Seat 5", body)
+        self.assertIn("DS Ranger", body)            # the vagabond table
+        self.assertEqual(response.context['player_count'], 4)
+
+    def test_the_factions_filter_still_counts_through_the_subquery(self):
+        """GameFilter's "contains all" filters annotate and .distinct() the
+        queryset; the stats read it as a pk subquery."""
+        self._four()
+        self._game([(self.otters, None), (self.lizards, None),
+                    (self.birds, None), (self.mice, None)], leftover=self.cats)
+        response = self._get(factions=[self.cats.pk], threshold=0)
+        # Only the first game contains the Cats as a played faction.
+        self.assertEqual(response.context['stats']['games_counted'], 1)
+
+    def test_the_page_filters_to_one_players_picks(self):
+        self._four()
+        response = self._get(picker=self.players[3].slug, threshold=0)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['picker'], self.players[3])
+        cats = next(r for r in response.context['stats']['factions']
+                    if r['object'].pk == self.cats.pk)
+        self.assertEqual(cats['overall']['offered'], 1)
+        self.assertIn("own picks", response.content.decode())
+
+    def test_the_empty_state(self):
+        response = self._get()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("No draft data", response.content.decode())
+
+    def test_a_bad_player_count_falls_back_instead_of_erroring(self):
+        self._four()
+        response = self._get(player_count="99")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['player_count'], 4)
+
+
+
+class HiddenLevelNormalizationTests(TestCase):
+    """With use_rounds / use_stages off the default round / stage is hidden and
+    must be a pure pass-through: ACTIVE, active, undated, no overrides. Each
+    test seeds a stale value a visible-era edit (or the old creation code)
+    could have left behind."""
+
+    def setUp(self):
+        today = timezone.now().date()
+        self.future = today + timedelta(days=7)
+        self.past = today - timedelta(days=3)
+        self.tournament = Tournament.objects.create(
+            name="Hidden T", use_stages=True, min_players=4, default_format='')
+        self.stage = Stage.objects.create(tournament=self.tournament, name="S1",
+                                          order=1, start_date=self.future)
+        self.round = Round.objects.create(stage=self.stage, round_number=1)
+        # Seed stale values with a queryset update so no normalization runs.
+        Round.objects.filter(pk=self.round.pk).update(
+            start_date=self.future, end_date=self.future, is_active=False,
+            status=CompetitionStatus.COMPLETED, min_players=3, game_threshold=9)
+
+    def _assert_pass_through(self, obj):
+        obj.refresh_from_db()
+        self.assertIsNone(obj.start_date)
+        self.assertIsNone(obj.end_date)
+        self.assertTrue(obj.is_active)
+        self.assertEqual(obj.status, CompetitionStatus.ACTIVE)
+        self.assertIsNone(obj.min_players)
+        self.assertIsNone(obj.game_threshold)
+
+    def test_moving_stage_start_earlier_unblocks_hidden_round(self):
+        """The original report: stage moved from 11/1 to 10/23, the hidden
+        round kept 11/1 and blocked recording."""
+        self.stage.start_date = self.past
+        self.stage.save()
+        self._assert_pass_through(self.round)
+        self.assertTrue(Round.objects.is_available().filter(pk=self.round.pk).exists())
+
+    def test_hidden_round_inherits_stage_settings(self):
+        self.stage.min_players = 5
+        self.stage.save()
+        self.round.refresh_from_db()
+        self.assertEqual(self.round.get_min_players(), 5)
+
+    def test_disabling_rounds_normalizes_the_round(self):
+        self.stage.use_rounds = True
+        self.stage.save(update_fields=['use_rounds'])
+        self.round.refresh_from_db()
+        self.assertEqual(self.round.min_players, 3)  # visible: untouched
+
+        self.stage.use_rounds = False
+        self.stage.save(update_fields=['use_rounds'])
+        self._assert_pass_through(self.round)
+
+    def test_visible_round_is_untouched(self):
+        self.stage.use_rounds = True
+        self.stage.start_date = self.past
+        self.stage.save()
+        self.round.refresh_from_db()
+        self.assertEqual(self.round.start_date, self.future)
+        self.assertEqual(self.round.min_players, 3)
+        self.assertFalse(self.round.is_active)
+
+    def test_disabling_stages_normalizes_stage_and_its_hidden_round(self):
+        Stage.objects.filter(pk=self.stage.pk).update(
+            is_active=False, status=CompetitionStatus.COMPLETED, min_players=3,
+            game_threshold=9, stage_format=FormatChoices.SINGLE_ELIM)
+        self.tournament.use_stages = False
+        self.tournament.save(update_fields=['use_stages'])
+        self._assert_pass_through(self.stage)
+        self.assertIsNone(self.stage.stage_format)
+        self._assert_pass_through(self.round)
+
+    def test_hidden_stage_follows_tournament_format(self):
+        """Creation used to copy default_format into stage_format, so changing
+        the tournament's format later never reached the bracket."""
+        Stage.objects.filter(pk=self.stage.pk).update(stage_format=FormatChoices.SINGLE_ELIM)
+        self.tournament.use_stages = False
+        self.tournament.default_format = FormatChoices.DOUBLE_ELIM
+        self.tournament.save()
+        self.round.refresh_from_db()
+        self.assertEqual(self.round.get_format(), FormatChoices.DOUBLE_ELIM)
+
+    def test_visible_stage_is_untouched(self):
+        Stage.objects.filter(pk=self.stage.pk).update(min_players=3)
+        self.tournament.start_date = self.past
+        self.tournament.save()
+        self.stage.refresh_from_db()
+        self.assertEqual(self.stage.start_date, self.future)
+        self.assertEqual(self.stage.min_players, 3)
+
+
+class HiddenLevelAutoCompleteTests(TestCase):
+    """Bracket auto-completion skips hidden levels and completes the nearest
+    visible ancestor; reopen_round reverses it with is_active/end_date guards."""
+
+    def _layout(self, *, use_stages, use_rounds,
+                access=Tournament.RecordingAccessTypes.MODERATORS):
+        self.tournament = Tournament.objects.create(
+            name=f"AC {use_stages}-{use_rounds}", use_stages=use_stages,
+            recording_access=access)
+        self.stage = Stage.objects.create(tournament=self.tournament, name="S1",
+                                          order=1, use_rounds=use_rounds)
+        self.round = Round.objects.create(stage=self.stage, round_number=1)
+        self.series = MatchSeries.objects.create(round=self.round, number_of_games=1)
+        self.match = Match.objects.create(round=self.round, series=self.series,
+                                          status=CompetitionStatus.COMPLETED)
+
+    def _complete(self):
+        from the_warroom.services.bracket import BracketService
+        BracketService._check_round_complete(self.round)
+        for obj in (self.tournament, self.stage, self.round):
+            obj.refresh_from_db()
+
+    def _reopen(self, round_obj=None):
+        from the_warroom.services.bracket import BracketService
+        BracketService.reopen_round(round_obj or self.round)
+        for obj in (self.tournament, self.stage, self.round):
+            obj.refresh_from_db()
+
+    def test_rounds_off_completes_the_stage(self):
+        self._layout(use_stages=True, use_rounds=False)
+        self._complete()
+        self.assertEqual(self.round.status, CompetitionStatus.ACTIVE)
+        self.assertEqual(self.stage.status, CompetitionStatus.COMPLETED)
+        self.assertEqual(self.tournament.status, CompetitionStatus.ACTIVE)
+
+    def test_stages_off_last_round_completes_the_tournament(self):
+        self._layout(use_stages=False, use_rounds=True)
+        self._complete()
+        self.assertEqual(self.round.status, CompetitionStatus.COMPLETED)
+        self.assertEqual(self.stage.status, CompetitionStatus.ACTIVE)
+        self.assertEqual(self.tournament.status, CompetitionStatus.COMPLETED)
+
+    def test_stages_off_open_round_keeps_tournament_open(self):
+        self._layout(use_stages=False, use_rounds=True)
+        Round.objects.create(stage=self.stage, round_number=2)
+        self._complete()
+        self.assertEqual(self.round.status, CompetitionStatus.COMPLETED)
+        self.assertEqual(self.tournament.status, CompetitionStatus.ACTIVE)
+
+    def test_both_off_completes_the_tournament(self):
+        self._layout(use_stages=False, use_rounds=False)
+        self._complete()
+        self.assertEqual(self.round.status, CompetitionStatus.ACTIVE)
+        self.assertEqual(self.stage.status, CompetitionStatus.ACTIVE)
+        self.assertEqual(self.tournament.status, CompetitionStatus.COMPLETED)
+        self.assertFalse(Round.objects.is_available().filter(pk=self.round.pk).exists())
+
+    def test_registered_access_never_auto_completes(self):
+        self._layout(use_stages=False, use_rounds=False,
+                     access=Tournament.RecordingAccessTypes.REGISTERED)
+        self._complete()
+        self.assertEqual(self.tournament.status, CompetitionStatus.ACTIVE)
+
+    def test_hidden_round_reopens_the_completed_tournament(self):
+        self._layout(use_stages=False, use_rounds=False)
+        self._complete()
+        self._reopen()
+        self.assertEqual(self.tournament.status, CompetitionStatus.ACTIVE)
+
+    def test_new_round_reopens_an_auto_completed_stage(self):
+        """A round added after its stage auto-completed is ACTIVE itself, which
+        the old 'round must be COMPLETED' gate ignored -- the stage stayed shut."""
+        self._layout(use_stages=True, use_rounds=True)
+        self._complete()
+        self.assertEqual(self.stage.status, CompetitionStatus.COMPLETED)
+        new_round = Round.objects.create(stage=self.stage, round_number=2)
+        self._reopen(new_round)
+        self.assertEqual(self.stage.status, CompetitionStatus.ACTIVE)
+        self.assertEqual(self.round.status, CompetitionStatus.COMPLETED)
+
+    def test_reopen_leaves_manually_closed_and_ended_parents_alone(self):
+        self._layout(use_stages=True, use_rounds=False)
+        yesterday = timezone.now().date() - timedelta(days=1)
+        Stage.objects.filter(pk=self.stage.pk).update(
+            status=CompetitionStatus.COMPLETED, is_active=False)
+        Tournament.objects.filter(pk=self.tournament.pk).update(
+            status=CompetitionStatus.COMPLETED, end_date=yesterday)
+        self._reopen()
+        self.assertEqual(self.stage.status, CompetitionStatus.COMPLETED)
+        self.assertEqual(self.tournament.status, CompetitionStatus.COMPLETED)
+
+    def test_completed_survives_a_save_that_leaves_dates_alone(self):
+        """The edit form re-saves everything; a description tweak must not
+        reopen a finished bracket (status_toggle_scripts.html expects this)."""
+        self._layout(use_stages=False, use_rounds=False)
+        self._complete()
+        self.tournament.description = "Thanks for playing"
+        self.tournament.save()
+        self.tournament.refresh_from_db()
+        self.assertEqual(self.tournament.status, CompetitionStatus.COMPLETED)
+
+        self.tournament.end_date = timezone.now().date() + timedelta(days=7)
+        self.tournament.save()
+        self.tournament.refresh_from_db()
+        self.assertEqual(self.tournament.status, CompetitionStatus.ACTIVE)
+
+    def test_disabling_stages_leaves_tournament_status_alone(self):
+        self._layout(use_stages=True, use_rounds=False)
+        self._complete()
+        self.tournament.use_stages = False
+        self.tournament.save(update_fields=['use_stages'])
+        self.tournament.refresh_from_db()
+        self.stage.refresh_from_db()
+        self.assertEqual(self.tournament.status, CompetitionStatus.ACTIVE)
+        self.assertEqual(self.stage.status, CompetitionStatus.ACTIVE)
+
+    def test_nightly_tournament_completion_skips_hidden_levels(self):
+        from the_warroom.tasks import update_competition_statuses
+        self._layout(use_stages=False, use_rounds=False)
+        Tournament.objects.filter(pk=self.tournament.pk).update(
+            end_date=timezone.now().date() - timedelta(days=1))
+        update_competition_statuses()
+        for obj in (self.tournament, self.stage, self.round):
+            obj.refresh_from_db()
+        self.assertEqual(self.tournament.status, CompetitionStatus.COMPLETED)
+        self.assertEqual(self.stage.status, CompetitionStatus.ACTIVE)
+        self.assertEqual(self.round.status, CompetitionStatus.ACTIVE)
