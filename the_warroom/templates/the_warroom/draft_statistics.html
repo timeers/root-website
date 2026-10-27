@@ -10,7 +10,7 @@
       <div class="discord-hero mb-4">
         <h1 class="discord-hero-title root-title">{% trans 'Draft Statistics' %}</h1>
         <p class="discord-hero-tagline">
-          {% trans "How often each faction is taken when it's available, by seat." %}
+          {% trans "How often each faction is picked when it's in the draft, by seat." %}
         </p>
       </div>
 
@@ -87,8 +87,8 @@
       <p class="databot-card-intro mb-4">
         {% if picker %}{% blocktrans with name=picker.name %}Showing only {{ name }}'s own picks.{% endblocktrans %}{% endif %}
         {% blocktrans count counter=stats.games_counted %}Based on {{ counter }} drafted {{ player_count }}-player game.{% plural %}Based on {{ counter }} drafted {{ player_count }}-player games.{% endblocktrans %}
-        {% blocktrans %}Each seat's percentage is how often that seat took the faction when it was available to them. The draft runs in reverse seat order: seat {{ player_count }} picks first and seat 1 picks last.{% endblocktrans %}
-        {% trans "Overall is per game: of the games a faction was in the draft, how many someone took it in." %}
+        {% blocktrans %}Each seat's percentage is how often that seat took the faction when it was available to them. Drafts runs in reverse seat order: seat {{ player_count }} picks first and seat 1 picks last.{% endblocktrans %}
+        {% trans "Overall is per game: of the games a faction was in the draft, how often someone drafted it." %}
         {% blocktrans %}Factions in fewer than {{ threshold }} drafts are faded and listed last.{% endblocktrans %}
       </p>
 
