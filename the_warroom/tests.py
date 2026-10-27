@@ -6519,14 +6519,27 @@ class DraftStatisticsTests(TestCase):
         self.assertIsNone(cats['seats'][0]['rate'])
         self.assertEqual(cats['overall'], {'taken': 1, 'offered': 1, 'rate': 1.0})
 
-        # The leftover was offered to every seat and never taken.
+        # The leftover was offered to every seat and never taken...
         lizards = self._row(stats['factions'], self.lizards)
         self.assertEqual([c['offered'] for c in lizards['seats']], [1, 1, 1, 1])
-        self.assertEqual(lizards['overall'], {'taken': 0, 'offered': 4, 'rate': 0.0})
+        # ...but Overall is per GAME: in one draft, taken in none.
+        self.assertEqual(lizards['overall'], {'taken': 0, 'offered': 1, 'rate': 0.0})
 
-        # Otters: available to all four seats, taken by seat 1 only.
+        # Otters: offered to all four seats, but it's one game, and seat 1 took
+        # them -- so 1 of 1 games, not 1 of 4 seat offers.
         otters = self._row(stats['factions'], self.otters)
-        self.assertEqual(otters['overall'], {'taken': 1, 'offered': 4, 'rate': 0.25})
+        self.assertEqual(sum(c['offered'] for c in otters['seats']), 4)
+        self.assertEqual(otters['overall'], {'taken': 1, 'offered': 1, 'rate': 1.0})
+
+    def test_overall_is_taken_games_over_drafted_games(self):
+        """The example: taken in some games, left undrafted in the rest."""
+        for _ in range(2):
+            self._four()                    # Lizards left over
+        self._game([(self.otters, None), (self.mice, None),
+                    (self.birds, None), (self.lizards, None)], leftover=self.cats)
+        stats = self._stats(min_offered=0)
+        lizards = self._row(stats['factions'], self.lizards)
+        self.assertEqual(lizards['overall'], {'taken': 1, 'offered': 3, 'rate': 1 / 3})
 
     def test_vagabonds_combine_into_one_row_and_split_in_their_own_table(self):
         self._game([(self.otters, None), (self.mice, None),
@@ -6557,11 +6570,16 @@ class DraftStatisticsTests(TestCase):
         self.assertEqual(self._stats()['games_counted'], 0)
 
     def test_low_samples_are_flagged_and_sorted_last(self):
+        """The minimum counts GAMES a faction was in the draft."""
         self._four()
+        self._game([(self.otters, None), (self.mice, None),
+                    (self.birds, None), (self.lizards, None)], leftover=self.vb_faction)
         stats = self._stats(min_offered=2)
-        # Cats: 1/1 (100%) but offered once -- below the minimum.
+        # Cats: taken in their only draft (100%) -- one game, below the minimum.
         cats = self._row(stats['factions'], self.cats)
         self.assertTrue(cats['low_sample'])
+        # Otters were in both drafts.
+        self.assertFalse(self._row(stats['factions'], self.otters)['low_sample'])
         self.assertTrue(stats['factions'][-1]['low_sample'])
         self.assertFalse(stats['factions'][0]['low_sample'])
 

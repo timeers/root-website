@@ -26,7 +26,7 @@
                 {{ form.player_count }}
               </div>
               <div class="col-6 col-md-3">
-                <label class="form-label" for="id_threshold">{% trans 'Min times offered' %}</label>
+                <label class="form-label" for="id_threshold">{% trans 'Min games in draft' %}</label>
                 <input type="number" id="id_threshold" name="threshold" min="0" max="1000"
                        class="form-control" value="{{ threshold }}">
               </div>
@@ -87,8 +87,9 @@
       <p class="databot-card-intro mb-4">
         {% if picker %}{% blocktrans with name=picker.name %}Showing only {{ name }}'s own picks.{% endblocktrans %}{% endif %}
         {% blocktrans count counter=stats.games_counted %}Based on {{ counter }} drafted {{ player_count }}-player game.{% plural %}Based on {{ counter }} drafted {{ player_count }}-player games.{% endblocktrans %}
-        {% blocktrans %}Each percentage is how often a seat took that faction when it was available to them. The draft runs in reverse seat order: seat {{ player_count }} picks first and seat 1 picks last.{% endblocktrans %}
-        {% blocktrans %}Rows offered fewer than {{ threshold }} times are faded and listed last.{% endblocktrans %}
+        {% blocktrans %}Each seat's percentage is how often that seat took the faction when it was available to them. The draft runs in reverse seat order: seat {{ player_count }} picks first and seat 1 picks last.{% endblocktrans %}
+        {% trans "Overall is per game: of the games a faction was in the draft, how many someone took it in." %}
+        {% blocktrans %}Factions in fewer than {{ threshold }} drafts are faded and listed last.{% endblocktrans %}
       </p>
 
       {% if stats.factions %}

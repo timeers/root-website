@@ -1,13 +1,12 @@
 # Changelog
 
-## [1.13.18] - 2026-10-26 Draft Statistics
+## [1.13.18] - 2026-10-27 Draft Statistics
 
 ### New Features
 - Draft Statistics page
 
 ### Bug Fixes
 - Hidden stages and rounds should no longer become inactive
-
 
 ## [1.13.17] - 2026-10-25 Boxscore Houserules
 
