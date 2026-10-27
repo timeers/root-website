@@ -231,6 +231,44 @@ class CompetitionStatus(models.TextChoices):
     PENDING = "Pending"
     COMPLETED = "Completed"
 
+
+def _should_recalculate_status(instance, update_fields, old):
+    """Whether save() should rederive status from is_active and dates.
+
+    Skipped for status-only saves (the caller set status deliberately), and
+    COMPLETED is sticky: a bracket auto-completion survives a save that leaves
+    the dates and is_active untouched, so editing a description doesn't reopen
+    a finished competition. `old` is the stored row (start_date, end_date,
+    is_active) or None for an unsaved instance. Mirrors the form's status
+    preview (status_toggle_scripts.html), which keeps showing Completed until
+    the dates or active state change."""
+    if update_fields and 'status' in update_fields and 'is_active' not in update_fields:
+        return False
+    if instance.status == CompetitionStatus.COMPLETED and old is not None:
+        return (old['start_date'], old['end_date'], old['is_active']) != (
+            instance.start_date, instance.end_date, instance.is_active)
+    return True
+
+
+# A hidden (stages/rounds disabled) Stage or Round is a pass-through: always
+# open, undated, and with no overrides, so only the visible parent governs.
+_HIDDEN_LEVEL_VALUES = {
+    'start_date': None, 'end_date': None,
+    'is_active': True, 'status': CompetitionStatus.ACTIVE,
+    'min_players': None, 'max_players': None,
+    'game_threshold': None, 'leaderboard_positions': None,
+}
+
+
+def _normalize_hidden(queryset, values):
+    """Apply `values` to the rows of `queryset` that differ from them. A
+    queryset update, so _recalculate_status can't overwrite the result and no
+    save() cascade recurses."""
+    differs = Q()
+    for field, value in values.items():
+        differs |= Q(**{f'{field}__isnull': False}) if value is None else ~Q(**{field: value})
+    queryset.filter(differs).update(**values)
+
 ASSET_TYPES = {
     'maps': Map,
     'factions': Faction,
@@ -1125,7 +1163,13 @@ class Tournament(models.Model):
 
     def save(self, *args, **kwargs):
         update_fields = kwargs.get('update_fields')
-        if not update_fields or 'status' not in update_fields or 'is_active' in update_fields:
+        old_instance = Tournament.objects.filter(pk=self.pk).first() if self.pk else None
+        old_row = (None if old_instance is None else {
+            'start_date': old_instance.start_date,
+            'end_date': old_instance.end_date,
+            'is_active': old_instance.is_active,
+        })
+        if _should_recalculate_status(self, update_fields, old_row):
             self._recalculate_status()
 
         # Auto-detect the rules link platform for icon display
@@ -1144,8 +1188,7 @@ class Tournament(models.Model):
         old_end = None
 
         # Check if the image field has changed (only works if the instance is already saved)
-        if self.pk:  # If the object already exists in the database
-            old_instance = Tournament.objects.get(pk=self.pk)
+        if old_instance is not None:
             old_start = old_instance.start_date
             old_end = old_instance.end_date
             # List of fields to check and delete old images if necessary
@@ -1184,6 +1227,21 @@ class Tournament(models.Model):
         # Cascade date changes to child stages
         if self.pk and (old_start != self.start_date or old_end != self.end_date):
             self._cascade_dates_to_children()
+
+        if not self.use_stages:
+            self._normalize_hidden_stages()
+
+    def _normalize_hidden_stages(self):
+        """With stages disabled the default stage is hidden and the tournament
+        governs. Reset it to a pass-through (see _HIDDEN_LEVEL_VALUES): stale
+        dates, a COMPLETED status, is_active=False or an override kept from
+        when it was visible would otherwise block or override the tournament
+        with nothing on screen to explain it. stage_format too -- creation used
+        to copy default_format into it, so later format changes never applied.
+        The update skips Stage.save(), so hidden rounds are normalized here."""
+        _normalize_hidden(self.stages.all(), {**_HIDDEN_LEVEL_VALUES, 'stage_format': None})
+        for stage in self.stages.filter(use_rounds=False):
+            stage._normalize_hidden_rounds()
 
 
 
@@ -1403,23 +1461,33 @@ class Stage(models.Model):
 
     def save(self, *args, **kwargs):
         update_fields = kwargs.get('update_fields')
-        if not update_fields or 'status' not in update_fields or 'is_active' in update_fields:
+        old = (Stage.objects.filter(pk=self.pk)
+               .values('start_date', 'end_date', 'is_active').first()) if self.pk else None
+        if _should_recalculate_status(self, update_fields, old):
             self._recalculate_status()
 
         # Track date changes for cascading to children
-        old_start = None
-        old_end = None
-        if self.pk:
-            old = Stage.objects.filter(pk=self.pk).values('start_date', 'end_date').first()
-            if old:
-                old_start = old['start_date']
-                old_end = old['end_date']
+        old_start = old['start_date'] if old else None
+        old_end = old['end_date'] if old else None
 
         super().save(*args, **kwargs)
 
         # Cascade date changes to child rounds
         if self.pk and (old_start != self.start_date or old_end != self.end_date):
             self._cascade_dates_to_children()
+
+        if not self.use_rounds:
+            self._normalize_hidden_rounds()
+
+    def _normalize_hidden_rounds(self):
+        """With rounds disabled the default round is hidden and the stage
+        governs. Reset it to a pass-through (see _HIDDEN_LEVEL_VALUES).
+        Leftover dates were the original bug: the clamp in
+        _cascade_dates_to_children tightens but never widens, so moving the
+        stage start earlier left the round PENDING until the old start date.
+        Status likewise -- bracket auto-completion skips hidden levels, so a
+        COMPLETED hidden round is always stale."""
+        _normalize_hidden(self.rounds.all(), {**_HIDDEN_LEVEL_VALUES, 'round_specific_format': None})
 
     def __str__(self):
         return f"{self.tournament.name} - {self.name}"
@@ -1715,7 +1783,11 @@ class Round(models.Model):
 
     def save(self, *args, **kwargs):
         update_fields = kwargs.get('update_fields')
-        if not update_fields or 'status' not in update_fields or 'is_active' in update_fields:
+        # The stored row only matters for the sticky-COMPLETED check.
+        old = (Round.objects.filter(pk=self.pk)
+               .values('start_date', 'end_date', 'is_active').first()
+               if self.pk and self.status == CompetitionStatus.COMPLETED else None)
+        if _should_recalculate_status(self, update_fields, old):
             self._recalculate_status()
         super().save(*args, **kwargs)
 

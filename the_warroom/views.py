@@ -3726,19 +3726,17 @@ def tournament_dynamic_create(request):
             round_name = 'Round 1'
 
             # Create the initial Stage and Round 1
-            stage_kwargs = dict(
+            # No stage_format: the stage starts hidden (use_stages off) and
+            # inherits default_format, so later format changes apply.
+            stage = Stage.objects.create(
                 tournament=tournament,
                 name=stage_name,
                 order=1,
             )
-            if tournament.classification == Tournament.ClassificationTypes.TOURNAMENT:
-                stage_kwargs['stage_format'] = tournament.default_format or FormatChoices.CUSTOM
-            stage = Stage.objects.create(**stage_kwargs)
             Round.objects.create(
                 stage=stage,
                 name=round_name,
                 round_number=1,
-                start_date=tournament.start_date,
             )
 
             messages.success(request, f"Tournament '{tournament.name}' created successfully!")
@@ -6026,7 +6024,6 @@ def stage_manage_view(request, tournament_slug, stage_slug=None):
                 stage=stage_instance,
                 name='Round 1',
                 round_number=1,
-                start_date=stage_instance.start_date,
             )
 
         return redirect(stage_instance.get_absolute_url())

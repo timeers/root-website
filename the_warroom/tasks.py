@@ -133,8 +133,11 @@ def update_competition_statuses():
     for t in completed_tournaments:
         t.status = CompetitionStatus.COMPLETED
         t.save(update_fields=['status'])
-        t.stages.exclude(status=CompetitionStatus.COMPLETED).update(status=CompetitionStatus.COMPLETED)
-        Round.objects.filter(stage__tournament=t).exclude(
+        # Hidden levels (stages/rounds disabled) stay ACTIVE pass-throughs;
+        # availability already cascades from the completed parent.
+        if t.use_stages:
+            t.stages.exclude(status=CompetitionStatus.COMPLETED).update(status=CompetitionStatus.COMPLETED)
+        Round.objects.filter(stage__tournament=t, stage__use_rounds=True).exclude(
             status=CompetitionStatus.COMPLETED
         ).update(status=CompetitionStatus.COMPLETED)
         updated += 1
@@ -159,7 +162,8 @@ def update_competition_statuses():
     for s in completed_stages:
         s.status = CompetitionStatus.COMPLETED
         s.save(update_fields=['status'])
-        s.rounds.exclude(status=CompetitionStatus.COMPLETED).update(status=CompetitionStatus.COMPLETED)
+        if s.use_rounds:  # a hidden round stays an ACTIVE pass-through
+            s.rounds.exclude(status=CompetitionStatus.COMPLETED).update(status=CompetitionStatus.COMPLETED)
         updated += 1
 
     # --- Rounds ---

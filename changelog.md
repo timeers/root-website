@@ -5,6 +5,10 @@
 ### New Features
 - Draft Statistics page
 
+### Bug Fixes
+- Hidden stages and rounds should no longer become inactive
+
+
 ## [1.13.17] - 2026-10-25 Boxscore Houserules
 
 ### New Features
