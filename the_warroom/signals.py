@@ -233,6 +233,9 @@ def handle_effort_change_update_draft_options(sender, instance, **kwargs):
     4's pools, so a guard scoped to the changed effort would leave the others stale.
     Firing on every effort save is also what keeps `chosen`, `seat` and `pick_number` from
     drifting — they're rebuilt from scratch each time, including on seat renumbering.
+
+    The same task also re-derives every effort's win_share, which depends on how many
+    seats in the game won -- another reason not to guard on the changed effort.
     """
     _enqueue_draft_options(instance.game_id)
 

@@ -2795,6 +2795,9 @@ class Effort(models.Model):
     starting_leader = models.CharField(max_length=20, choices=LeaderChoices.choices, null=True, blank=True)
     brazen_demagogue = models.BooleanField(default=False)
     win = models.BooleanField(default=False)
+    # Derived: this effort's share of the game's win (1 / number of winners, 0 for a
+    # loss). Written by refresh_game_win_shares from the post-save Celery task.
+    win_share = models.FloatField(default=0, editable=False)
     score = models.IntegerField(validators=[MinValueValidator(0)], null=True, blank=True)
     game = models.ForeignKey(Game, on_delete=models.CASCADE, related_name='efforts')
     faction_status = models.CharField(max_length=50, null=True, blank=True) #This should not be null.

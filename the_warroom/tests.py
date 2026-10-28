@@ -6865,3 +6865,102 @@ class HiddenLevelAutoCompleteTests(TestCase):
         self.assertEqual(self.tournament.status, CompetitionStatus.COMPLETED)
         self.assertEqual(self.stage.status, CompetitionStatus.ACTIVE)
         self.assertEqual(self.round.status, CompetitionStatus.ACTIVE)
+
+
+class EffortWinShareTests(TestCase):
+    """Effort.win_share: a game is worth 1.0, split evenly among its winners.
+
+    Most tests call refresh_game_win_shares directly, like DraftStatisticsTests does
+    with refresh_game_draft_options. The last one drives it through the effort signals
+    and the post-save task.
+    """
+
+    def setUp(self):
+        self.designer = Profile.objects.create(discord="wsdesigner")
+        self.factions = [
+            Faction.objects.create(title=f"WS Faction {i}", type="M", reach=5,
+                                   animal=f"ws{i}", designer=self.designer)
+            for i in range(4)
+        ]
+        self.players = [Profile.objects.create(discord=f"wsp{i}") for i in range(4)]
+
+    def _game(self, wins):
+        """A final game with one seat per entry in `wins` (True = that seat won)."""
+        game = Game.objects.create(final=True)
+        for seat, win in enumerate(wins, start=1):
+            Effort.objects.create(game=game, player=self.players[seat - 1],
+                                  faction=self.factions[seat - 1], seat=seat, win=win)
+        return game
+
+    def _refresh(self, game):
+        from the_warroom.services.win_share_service import refresh_game_win_shares
+        return refresh_game_win_shares(game)
+
+    def _shares(self, game):
+        return list(game.efforts.order_by('seat').values_list('win_share', flat=True))
+
+    def test_single_winner_gets_the_whole_game(self):
+        game = self._game([False, True, False, False])
+        self._refresh(game)
+        self.assertEqual(self._shares(game), [0, 1.0, 0, 0])
+
+    def test_shared_win_splits_evenly(self):
+        game = self._game([True, True, True, False])
+        self._refresh(game)
+        shares = self._shares(game)
+        for share in shares[:3]:
+            self.assertAlmostEqual(share, 1 / 3)
+        self.assertEqual(shares[3], 0)
+        self.assertAlmostEqual(sum(shares), 1.0)
+
+    def test_no_winner_gives_everyone_zero(self):
+        game = self._game([False, False, False, False])
+        self._refresh(game)
+        self.assertEqual(self._shares(game), [0, 0, 0, 0])
+
+    def test_losing_a_cowinner_gives_the_other_the_whole_game(self):
+        game = self._game([True, True, False, False])
+        self._refresh(game)
+        self.assertEqual(self._shares(game), [0.5, 0.5, 0, 0])
+
+        effort = game.efforts.get(seat=2)
+        effort.win = False
+        effort.save()
+        self._refresh(game)
+        self.assertEqual(self._shares(game), [1.0, 0, 0, 0])
+
+    def test_deleting_a_winner_recomputes_the_rest(self):
+        game = self._game([True, True, True, False])
+        self._refresh(game)
+        game.efforts.get(seat=3).delete()
+        self._refresh(game)
+        self.assertEqual(self._shares(game), [0.5, 0.5, 0])
+
+    def test_refresh_without_changes_writes_nothing(self):
+        game = self._game([True, True, True, False])
+        self.assertEqual(self._refresh(game), 3)
+        self.assertEqual(self._refresh(game), 0)
+
+    def test_saving_an_effort_updates_shares_through_the_task(self):
+        from the_warroom import tasks
+        # Celery isn't eager in tests: run this task inline and stub the other
+        # tasks effort/game saves queue, which would otherwise try to reach Redis.
+        for name in ('update_cached_winrates', 'update_game_player_count',
+                     'update_tournament_counts'):
+            p = mock.patch.object(getattr(tasks, name), 'delay')
+            p.start()
+            self.addCleanup(p.stop)
+        p = mock.patch.object(tasks.update_game_draft_options, 'delay',
+                              side_effect=tasks.update_game_draft_options)
+        p.start()
+        self.addCleanup(p.stop)
+
+        # Create the game inside the capture block too: nothing commits in a TestCase,
+        # so a draft-refresh callback queued outside it would stay pending and the
+        # per-transaction dedup would fold this game into it, out of the block's view.
+        with self.captureOnCommitCallbacks(execute=True):
+            game = self._game([True, True, False, False])
+            effort = game.efforts.get(seat=2)
+            effort.win = False
+            effort.save()
+        self.assertEqual(self._shares(game), [1.0, 0, 0, 0])
