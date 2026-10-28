@@ -6476,14 +6476,20 @@ class DraftStatisticsTests(TestCase):
                                              designer=self.designer)
         self.players = [Profile.objects.create(discord=f"dsp{i}") for i in range(6)]
 
-    def _game(self, picks, leftover, *, final=True, test_match=False, date=None):
-        """A drafted game. `picks` lists (faction, vagabond) from seat 1 up."""
+    def _game(self, picks, leftover, *, final=True, test_match=False, date=None,
+              leftover_vagabond=None, winners=()):
+        """A drafted game. `picks` lists (faction, vagabond) from seat 1 up;
+        `winners` lists the winning seats (their win_share is then derived)."""
         from the_warroom.services.draft_service import refresh_game_draft_options
+        from the_warroom.services.win_share_service import refresh_game_win_shares
         game = Game.objects.create(final=final, test_match=test_match,
-                                   undrafted_faction=leftover)
+                                   undrafted_faction=leftover,
+                                   undrafted_vagabond=leftover_vagabond)
         for seat, (fac, vb) in enumerate(picks, start=1):
             Effort.objects.create(game=game, player=self.players[seat - 1],
-                                  faction=fac, vagabond=vb, seat=seat)
+                                  faction=fac, vagabond=vb, seat=seat,
+                                  win=seat in winners)
+        refresh_game_win_shares(game)
         Game.objects.filter(pk=game.pk).update(cached_player_count=len(picks))
         if date is not None:
             Game.objects.filter(pk=game.pk).update(date_posted=date)
@@ -6596,6 +6602,44 @@ class DraftStatisticsTests(TestCase):
         # Nothing from the other three seats.
         self.assertEqual([c['offered'] for c in otters['seats']], [0, 0, 0, 1])
 
+    def test_win_rate_averages_win_share(self):
+        """Cats: sole winner in one game, a loser in another -- 50% over 2."""
+        self._four(winners=(4,))                          # Cats (seat 4) win alone
+        self._game([(self.otters, None), (self.mice, None),
+                    (self.birds, None), (self.cats, None)],
+                   leftover=self.lizards, winners=(1,))   # Otters win; Cats lose
+        stats = self._stats(min_offered=0)
+        cats = self._row(stats['factions'], self.cats)
+        self.assertEqual(cats['win_rate']['efforts'], 2)
+        self.assertAlmostEqual(cats['win_rate']['rate'], 0.5)
+        self.assertEqual(cats['win_rate']['percent'], 50)
+        self.assertAlmostEqual(cats['win_rate']['wins'], 1.0)
+
+    def test_a_shared_win_counts_as_a_share(self):
+        self._four(winners=(1, 4))                        # Otters and Cats share it
+        cats = self._row(self._stats(min_offered=0)['factions'], self.cats)
+        self.assertAlmostEqual(cats['win_rate']['rate'], 0.5)
+        self.assertAlmostEqual(cats['win_rate']['wins'], 0.5)
+        # Shown as wins/played, the fractional share included.
+        body = self._get(threshold=0).content.decode()
+        self.assertIn("0.5/1", body)
+
+    def test_an_only_undrafted_faction_has_no_win_rate(self):
+        self._four(winners=(4,))
+        lizards = self._row(self._stats(min_offered=0)['factions'], self.lizards)
+        self.assertIsNone(lizards['win_rate']['rate'])
+        self.assertEqual(lizards['win_rate']['efforts'], 0)
+
+    def test_a_players_win_rate_is_only_their_efforts(self):
+        self._four(winners=(4,))                          # players[3] wins with Cats
+        self._game([(self.cats, None), (self.mice, None),
+                    (self.birds, None), (self.otters, None)],
+                   leftover=self.lizards, winners=(4,))   # players[0] loses with Cats
+        stats = self._stats(min_offered=0, player=self.players[3])
+        cats = self._row(stats['factions'], self.cats)
+        self.assertEqual(cats['win_rate']['efforts'], 1)
+        self.assertAlmostEqual(cats['win_rate']['rate'], 1.0)
+
     # ── the page ─────────────────────────────────────────────────────────────
 
     def _get(self, **params):
@@ -6615,14 +6659,14 @@ class DraftStatisticsTests(TestCase):
         self.assertEqual(response.context['player_count'], 4)
 
     def test_the_factions_filter_still_counts_through_the_subquery(self):
-        """GameFilter's "contains all" filters annotate and .distinct() the
-        queryset; the stats read it as a pk subquery."""
+        """The filtered games reach the stats as a pk subquery."""
         self._four()
         self._game([(self.otters, None), (self.lizards, None),
                     (self.birds, None), (self.mice, None)], leftover=self.cats)
         response = self._get(factions=[self.cats.pk], threshold=0)
-        # Only the first game contains the Cats as a played faction.
-        self.assertEqual(response.context['stats']['games_counted'], 1)
+        # Cats are played in the first game and the undrafted leftover in the
+        # second: both drafts include them.
+        self.assertEqual(response.context['stats']['games_counted'], 2)
 
     def test_the_page_filters_to_one_players_picks(self):
         self._four()
@@ -6633,6 +6677,35 @@ class DraftStatisticsTests(TestCase):
                     if r['object'].pk == self.cats.pk)
         self.assertEqual(cats['overall']['offered'], 1)
         self.assertIn("own picks", response.content.decode())
+
+    def _games_counted(self, **params):
+        return self._get(threshold=0, **params).context['stats']['games_counted']
+
+    def test_the_factions_filter_counts_drafts_where_it_was_left_over(self):
+        """The fix: "in the draft", not just played. Lizards are the leftover."""
+        self._four()
+        self.assertEqual(self._games_counted(factions=[self.lizards.pk]), 1)
+
+    def test_several_factions_must_all_be_in_the_draft(self):
+        self._four()                                      # Cats played, Lizards left over
+        self._game([(self.otters, None), (self.mice, None),
+                    (self.birds, None), (self.lizards, None)], leftover=self.vb_faction)
+        self.assertEqual(self._games_counted(factions=[self.cats.pk, self.lizards.pk]), 1)
+        self.assertEqual(self._games_counted(factions=[self.otters.pk, self.lizards.pk]), 2)
+
+    def test_the_vagabonds_filter_counts_an_undrafted_character(self):
+        self._game([(self.otters, None), (self.mice, None),
+                    (self.birds, None), (self.cats, None)],
+                   leftover=self.vb_faction, leftover_vagabond=self.ranger)
+        self.assertEqual(self._games_counted(vagabonds=[self.ranger.pk]), 1)
+        self.assertEqual(self._games_counted(vagabonds=[self.thief.pk]), 0)
+
+    def test_columns_run_overall_seats_then_win_rate(self):
+        self._four(winners=(4,))
+        body = self._get(threshold=0).content.decode()
+        header = body[body.index('<thead>'):body.index('</thead>')]
+        self.assertLess(header.index('Overall'), header.index('Seat 1'))
+        self.assertLess(header.index('Seat 4'), header.index('Win Rate'))
 
     def test_the_empty_state(self):
         response = self._get()

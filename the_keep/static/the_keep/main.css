@@ -773,7 +773,12 @@ em, i {
 .draft-stats-none {
   color: #adb5bd;
 }
+/* Overall now leads the seats, and Win Rate follows them: a divider on the
+   side facing the seat columns sets each apart. */
 .draft-stats-overall {
+  border-right: 2px solid #e3e5e8;
+}
+.draft-stats-win {
   border-left: 2px solid #e3e5e8;
 }
 .draft-stats-low {
