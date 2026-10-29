@@ -13,6 +13,7 @@ from django.db import models
 from PIL import Image
 from django.db.models import Count, F, ExpressionWrapper, FloatField, Q, Case, When, Value
 from django.db.models.functions import Cast
+from the_warroom.services.win_rate import points_annotations, win_rate_pct
 from django.apps import apps
 from django.utils import timezone 
 from django.core.exceptions import ValidationError
@@ -1044,35 +1045,20 @@ class Profile(models.Model):
         # hydrates far more rows (every threshold-qualifying player).
         queryset = cls.objects.filter(efforts__in=effort_qs).only(*cls.LEADERBOARD_FIELDS)
 
-        # Now, annotate with the total efforts and win counts
+        # Now, annotate with the total efforts and win points (services/win_rate.py)
+        counted_q = Q(efforts__game__final=True, efforts__game__test_match=False)
         queryset = queryset.annotate(
-            total_efforts=Count('efforts', filter=Q(efforts__game__final=True, efforts__game__test_match=False)),
-            win_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__final=True, efforts__game__test_match=False)),
-            coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True, efforts__game__test_match=False))
+            total_efforts=Count('efforts', filter=counted_q),
+            **points_annotations('efforts__', counted_q),
         )
-        
+
         # Filter players who have enough efforts (before doing the annotation)
         queryset = queryset.filter(total_efforts__gte=game_threshold)
 
-
         # Annotate with win_rate after filtering
         queryset = queryset.annotate(
-            win_rate=Case(
-                When(total_efforts=0, then=Value(0)),
-                default=ExpressionWrapper(
-                    (Cast(F('win_count'), FloatField()) - ( Cast(F('coalition_count'), FloatField()) / 2 )) / Cast(F('total_efforts'), FloatField()) * 100,  # Win rate as percentage
-                    output_field=FloatField()
-                ),
-                output_field=FloatField()
-            ),
-            tourney_points=Case(
-                When(total_efforts=0, then=Value(0)),
-                default=ExpressionWrapper(
-                    Cast(F('win_count'), FloatField()) - ( Cast(F('coalition_count'), FloatField()) / 2 ),  # Win rate as percentage
-                    output_field=FloatField()
-                ),
-                output_field=FloatField()
-            )
+            win_rate=win_rate_pct('points', 'total_efforts'),
+            tourney_points=F('points'),
         )
 
         return queryset

@@ -10,6 +10,7 @@
 
 ### Bug Fixes
 - Hidden stages and rounds should no longer become inactive
+- Knaves captains are now saved on games auto-recorded from a box score
 
 ## [1.13.17] - 2026-10-25 Boxscore Houserules
 

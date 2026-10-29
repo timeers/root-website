@@ -1,8 +1,10 @@
 {% load i18n custom_filters %}
 {% comment %}
-One pick-rate table: a row per faction (or vagabond), a column per seat 1..N,
-then Overall. Each cell is the pick rate when offered, with taken/offered
-beneath it; "—" when never offered (unknown, not 0%). Rows offered fewer than
+One pick-rate table: a row per faction (or vagabond), then Overall (per game),
+a column per seat 1..N, and Win Rate. Each pick cell is the pick rate when
+offered, with taken/offered beneath it; "—" when never offered (unknown, not
+0%). Win Rate is that faction's win points over its efforts (WIN_RATE_MODE).
+Rows offered fewer than
 the threshold are muted and sorted last (draft_stats._table).
 
 Expects: rows, seats, label (the first column's heading).
@@ -12,10 +14,11 @@ Expects: rows, seats, label (the first column's heading).
     <thead>
       <tr>
         <th scope="col" class="draft-stats-name">{{ label }}</th>
+        <th scope="col" class="text-center draft-stats-overall">{% trans 'Overall' %}</th>
         {% for seat in seats %}
         <th scope="col" class="text-center">{% blocktrans %}Seat {{ seat }}{% endblocktrans %}</th>
         {% endfor %}
-        <th scope="col" class="text-center draft-stats-overall">{% trans 'Overall' %}</th>
+        <th scope="col" class="text-center draft-stats-win">{% trans 'Win Rate' %}</th>
       </tr>
     </thead>
     <tbody>
@@ -29,10 +32,23 @@ Expects: rows, seats, label (the first column's heading).
             {{ row.object.title }}
           </span>
         </th>
+        {% include 'the_warroom/partials/draft_stats_cell.html' with cell=row.overall low=row.low_sample overall=True %}
         {% for cell in row.seats %}
         {% include 'the_warroom/partials/draft_stats_cell.html' with cell=cell low=row.low_sample %}
         {% endfor %}
-        {% include 'the_warroom/partials/draft_stats_cell.html' with cell=row.overall low=row.low_sample overall=True %}
+        {% with win=row.win_rate %}
+        <td class="text-center draft-stats-cell draft-stats-win"
+            {% if win.rate is not None and not row.low_sample %}style="--rate: {{ win.rate|stringformat:'.3f' }};"{% endif %}>
+          {% if win.rate is None %}
+            <span class="draft-stats-none">—</span>
+          {% else %}
+            <span class="draft-stats-rate">{{ win.percent }}%</span>
+            {% comment %} wins/played, like the pick cells' taken/offered. Wins
+            are win points, so a half win shows: "12.5/30". {% endcomment %}
+            <span class="draft-stats-count">{{ win.wins|floatformat:"-1" }}/{{ win.efforts }}</span>
+          {% endif %}
+        </td>
+        {% endwith %}
       </tr>
       {% endfor %}
     </tbody>

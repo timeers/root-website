@@ -39,6 +39,7 @@ from django.views.generic import (
     DeleteView
 )
 from the_warroom.models import Game, ScoreCard, Effort, Tournament, Stage, Round
+from the_warroom.services.win_rate import points_annotations, win_rate_mode
 from the_gatehouse.models import Profile, Language, Website, DiscordGuild, DiscordGuildJoinRequest, Supporter, SiteArtwork
 from the_gatehouse.views import (designer_required_class_based_view,
                                  player_required, player_required_class_based_view,
@@ -1687,22 +1688,24 @@ def component_games(request, slug, component):
         else:
             efforts = Effort.objects.filter(game__in=filtered_games.values('id'))
 
+        # Points and the shown win count follow settings.WIN_RATE_MODE
+        # (services/win_rate.py). The legacy coalition_count is only computed in
+        # coalition mode.
         game_values = efforts.aggregate(
             total_efforts=Count('id'),
-            win_count=Count('id', filter=Q(win=True)),
-            coalition_count=Count('id', filter=Q(win=True, game__coalition_win=True))
+            **points_annotations(),
         )
 
         if component == "Captain" or obj.component == "Faction" or obj.component == "Vagabond":
             # Access the aggregated values from the dictionary returned by .aggregate()
             total_efforts = game_values['total_efforts']
-            win_count = game_values['win_count']
-            coalition_count = game_values['coalition_count']
+            win_count = game_values['display_wins'] or 0
+            coalition_count = game_values.get('coalition_count') or 0
+            tourney_points = game_values['points'] or 0
         if total_efforts > 0:
-            win_rate = (win_count - (coalition_count / 2)) / total_efforts * 100
+            win_rate = tourney_points / total_efforts * 100
         else:
             win_rate = 0
-        tourney_points = win_count - (coalition_count / 2)
     # Paginate games
     paginate_by = settings.PAGE_SIZE
     paginator = Paginator(filtered_games, paginate_by)  # Use the queryset directly
@@ -1745,6 +1748,7 @@ def component_games(request, slug, component):
         'coalition_count': coalition_count,
         'win_rate': win_rate,
         'tourney_points': tourney_points,
+        'win_rate_mode': win_rate_mode(),
         'total_efforts': total_efforts,
 
         'absolute_uri': absolute_uri,

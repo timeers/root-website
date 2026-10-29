@@ -1528,25 +1528,20 @@ def post_boxscore_result_task(thread_pk, channel_id, content, body_without_recor
             boxscore_message_id=(message_id if track else None),
             boxscore_message_body=(body_without_record_line if track else None))
         if autorecord and track:
-            _autorecord_posted_boxscore(thread_pk, message_id,
-                                        body_without_record_line, autorecord)
+            _autorecord_posted_boxscore(thread_pk, message_id, autorecord)
 
 
-def _autorecord_posted_boxscore(thread_pk, message_id, body_without_record_line,
-                                autorecord):
+def _autorecord_posted_boxscore(thread_pk, message_id, autorecord):
     """Record a box score's game now that its message -- and so its unique
     link -- exists. Never raises: the message is already posted, with its record
     link, which is exactly the fallback if this declines (and an exception here
     would make the task's autoretry post the message a second time).
 
-    On success record_game rewrites the tracked message to drop its record link.
-    It rewrites to whatever body the THREAD INSTANCE holds, so that body is
-    given the "Recorded as" line in memory only: if recording declines, nothing
-    is rewritten and the stored body is untouched.
+    On success record_game rewrites the tracked message to drop its record link,
+    using the body post_boxscore_result_task stored just before calling this.
     """
     from the_databot.models import LFGThread
-    from the_databot.services.boxscore_autorecord import (
-        _match_for, attempt_autorecord)
+    from the_databot.services.boxscore_autorecord import attempt_autorecord
     from the_gatehouse.models import Profile
 
     try:
@@ -1555,10 +1550,6 @@ def _autorecord_posted_boxscore(thread_pk, message_id, body_without_record_line,
         base = thread.thread_url()
         if recorder is None or not base:
             return
-        match = _match_for(thread)
-        if match is not None and match.name:
-            thread.boxscore_message_body = (
-                f"{body_without_record_line}\n\nRecorded as **{match.name}**.")
         attempt_autorecord(thread, recorder,
                            payload={"turn_timing": autorecord.get("turn_timing")},
                            link=f"{base}/{message_id}")

@@ -1,5 +1,5 @@
 import django_filters
-from django.db.models import Q, Count
+from django.db.models import Q, Count, Exists, OuterRef
 from .models import (Game, Tournament, game_counts_for_elo_system_q,
                      game_counts_for_tournament_q, elo_eligibility_q)
 from the_keep.models import Faction, Deck, Map, Vagabond
@@ -224,6 +224,21 @@ class DraftStatsFilter(GameFilter):
         empty_label=None, label='Players',
     )
 
+    # "In the draft", not "played": a draft page should count the drafts a
+    # faction was offered in, including those it was left undrafted in. The
+    # inherited fields (and BaseGameFilter's "contains all" pass) match played
+    # efforts only, so both are replaced here -- see filter_in_draft.
+    factions = django_filters.ModelMultipleChoiceFilter(
+        queryset=Faction.objects.none(), method='filter_in_draft',
+        label='Drafts with factions',
+        help_text='Played or left undrafted.',
+    )
+    vagabonds = django_filters.ModelMultipleChoiceFilter(
+        queryset=Vagabond.objects.none(), method='filter_in_draft',
+        label='Drafts with vagabonds',
+        help_text='Played or left undrafted.',
+    )
+
     # One player's OWN draft: unlike `players` (games they were in, every seat
     # counted), the stats keep only the seats this player sat in -- what they
     # took and what they passed on. The game-level narrowing here just skips
@@ -250,6 +265,32 @@ class DraftStatsFilter(GameFilter):
             classes = widget.attrs.get('class', '').split()
             if css not in classes:
                 widget.attrs['class'] = ' '.join(classes + [css])
+
+    def _apply_multi_filter(self, queryset, param_name, field_path):
+        # factions/vagabonds are matched by filter_in_draft instead; running the
+        # inherited pass too would put the played-only rule back.
+        if param_name in ('factions', 'vagabonds'):
+            return queryset
+        return super()._apply_multi_filter(queryset, param_name, field_path)
+
+    @staticmethod
+    def filter_in_draft(queryset, name, value):
+        """Drafts that included ALL the selected factions (or vagabonds) --
+        played by a seat, or left as the undrafted one.
+
+        Read from SeatDraftOption: every seat's pool together is exactly the
+        played factions plus the leftover, so having an option row means being
+        in the draft. One Exists per value keeps it "contains all" without the
+        join-and-count that multiplies rows.
+        """
+        if not value:
+            return queryset
+        from .models import SeatDraftOption
+        column = 'vagabond' if name == 'vagabonds' else 'faction'
+        for obj in value:
+            queryset = queryset.filter(Exists(SeatDraftOption.objects.filter(
+                effort__game=OuterRef('pk'), **{column: obj})))
+        return queryset
 
     @staticmethod
     def filter_picker(queryset, name, value):

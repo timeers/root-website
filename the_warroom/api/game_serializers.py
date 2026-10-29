@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from the_warroom.models import Game, Effort
+from the_warroom.services.win_rate import effort_points
 
 
 class ParticipantSerializer(serializers.ModelSerializer):
@@ -49,10 +50,11 @@ class ParticipantSerializer(serializers.ModelSerializer):
         return obj.discarded_captain.slug if obj.discarded_captain else None
 
     def get_tournament_score(self, obj):
-        # 1 for a solo win, 0.5 for a coalition win, 0 for a loss.
-        if not obj.win:
-            return 0
-        return 0.5 if obj.coalition_with_id else 1
+        # The effort's share of the win per WIN_RATE_MODE (services/win_rate.py):
+        # win_share (1 solo, 0.5 each of two winners, 1/3 of three), or in
+        # coalition mode the previous rule -- 0.5 for the effort holding
+        # coalition_with, 1 for any other win, 0 for a loss.
+        return round(effort_points(obj, 'coalition_with'), 3)
 
 
 class GameSerializer(serializers.ModelSerializer):

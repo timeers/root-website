@@ -20,6 +20,7 @@ from .models import Game, Tournament, Stage, Round, CompetitionStatus, EloSystem
 from .services.root_league_api import create_game_from_api, create_efforts_from_api, update_game_from_api
 from .services.winrate_service import calculate_and_cache_winrate
 from .services.draft_service import refresh_game_draft_options
+from .services.win_share_service import refresh_game_win_shares
 
 logger = logging.getLogger(__name__)
 
@@ -64,12 +65,27 @@ def update_game_player_count(game_id):
         game.refresh_cached_player_count()
 
 
+def recache_game_winrates(game):
+    """Recalculate the cached win rates of every player, faction and vagabond
+    in `game`."""
+    objects = set()
+    for effort in game.efforts.select_related('player', 'faction', 'vagabond'):
+        for obj in (effort.player, effort.faction, effort.vagabond):
+            if obj is not None:
+                objects.add(obj)
+    for obj in objects:
+        calculate_and_cache_winrate(obj)
+
+
 @shared_task
 def update_game_draft_options(game_id):
-    """Refresh the cached per-seat draft pools for a game.
+    """Refresh the per-game derived effort data: the cached per-seat draft pools,
+    each effort's win_share (then the cached win rates built on it). Named for its first job; kept so queued messages survive
+    deploys.
 
     Logs failures rather than swallowing them like the neighbouring tasks — a derivation
-    bug here would otherwise leave silently wrong offer-rate denominators.
+    bug here would otherwise leave silently wrong offer-rate denominators. Each refresh
+    has its own try so one failing doesn't block the other.
     """
     game = Game.objects.filter(pk=game_id).first()
     if game:
@@ -77,6 +93,19 @@ def update_game_draft_options(game_id):
             refresh_game_draft_options(game)
         except Exception:
             logger.exception('draft options refresh failed for game %s', game_id)
+        try:
+            refresh_game_win_shares(game)
+        except Exception:
+            logger.exception('win share refresh failed for game %s', game_id)
+        else:
+            # A changed winner count changes EVERY winner's share (and the
+            # coalition flag), but the signal-driven update_cached_winrates only
+            # re-caches the edited effort's objects, unordered against this task.
+            # Re-cache everything in the game now that its shares are current.
+            try:
+                recache_game_winrates(game)
+            except Exception:
+                logger.exception('win rate re-cache failed for game %s', game_id)
 
 
 @shared_task

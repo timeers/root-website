@@ -15,7 +15,7 @@
             </a>
         </td>
         <td class="text-end">{{ player.total_efforts }}</td>
-        <td class="text-end">{{ player.win_count }}</td>
+        <td class="text-end">{{ player.display_wins|floatformat:"-1" }}</td>
         <td class="text-end">{{ player.win_rate|floatformat:1 }}%</td>
     </tr>
 {% empty %}

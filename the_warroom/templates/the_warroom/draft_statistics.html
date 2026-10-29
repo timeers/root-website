@@ -62,11 +62,11 @@
                 {{ form.official }}
               </div>
               <div class="col-12 col-md-4">
-                <label class="form-label" for="{{ form.factions.id_for_label }}">{% trans 'Games with factions' %}</label>
+                <label class="form-label" for="{{ form.factions.id_for_label }}">{% trans 'Drafts with factions' %}</label>
                 {{ form.factions }}
               </div>
               <div class="col-12 col-md-4">
-                <label class="form-label" for="{{ form.vagabonds.id_for_label }}">{% trans 'Games with vagabonds' %}</label>
+                <label class="form-label" for="{{ form.vagabonds.id_for_label }}">{% trans 'Drafts with vagabonds' %}</label>
                 {{ form.vagabonds }}
               </div>
               <div class="col-12 col-md-4">
@@ -89,6 +89,12 @@
         {% blocktrans count counter=stats.games_counted %}Based on {{ counter }} drafted {{ player_count }}-player game.{% plural %}Based on {{ counter }} drafted {{ player_count }}-player games.{% endblocktrans %}
         {% blocktrans %}Each seat's percentage is how often that seat took the faction when it was available to them. Drafts runs in reverse seat order: seat {{ player_count }} picks first and seat 1 picks last.{% endblocktrans %}
         {% trans "Overall is per game: of the games a faction was in the draft, how often someone drafted it." %}
+        {% if win_rate_mode == 'win_share' %}
+        {% trans "Win Rate is each faction's average share of the win: a sole winner counts 100%, two winners 50% each, so shared wins aren't double-counted." %}
+        {% else %}
+        {% trans "Win Rate counts a coalition win as half a win, like the rest of the site." %}
+        {% endif %}
+        {% trans "The faction and vagabond filters match drafts they were in, whether played or left undrafted." %}
         {% blocktrans %}Factions in fewer than {{ threshold }} drafts are faded and listed last.{% endblocktrans %}
       </p>
 

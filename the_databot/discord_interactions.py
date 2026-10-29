@@ -596,21 +596,6 @@ def _boxscore_record_line(thread):
     return f"This game is already recorded — view it [here]({url})."
 
 
-def _boxscore_recorded_line(recorded):
-    """The line saying where an auto-recorded MATCH game went, or None.
-
-    A best-of-N's next game is picked by match order, so the summary names it:
-    a file recorded against the wrong game is then visible at a glance. A plain
-    LFG game holds one game and announces itself, so it says nothing extra.
-    """
-    match = getattr(recorded, "match", None) if recorded else None
-    try:
-        name = match.name if match is not None else None
-    except Exception:
-        name = None
-    return f"Recorded as **{name}**." if name else None
-
-
 def _boxscore_summary(title_lines, lines, component_lines, notes, record_line):
     """THE shape of every box score result message, so the four places that build
     one can't drift apart again -- which is exactly how the record link came to
@@ -13057,8 +13042,7 @@ def _boxscore_finish_posted(thread, title_lines, lines, component_lines, notes,
     # NOT gated on thread.game_id: a series thread never has one, so that test
     # would drop the link for exactly the threads that need a match-mode one.
     # _boxscore_record_line decides record-vs-view instead.
-    record_line = (_boxscore_recorded_line(recorded) if recorded
-                   else _boxscore_record_line(thread))
+    record_line = None if recorded else _boxscore_record_line(thread)
     content, body_without_record_line = _boxscore_summary(
         title_lines, lines, component_lines, notes, record_line)
     post_boxscore_result_task.delay(
@@ -13089,7 +13073,7 @@ def _boxscore_finish(thread, ref, payload, channel_id,
     """
     # See _boxscore_finish_posted: gated on the link, not thread.game_id,
     # which a series thread never has.
-    record_line = (_boxscore_recorded_line(recorded) if recorded
+    record_line = (None if recorded
                    else (_boxscore_record_line(thread) if ref.startswith("t:") else None))
     content, body_without_record_line = _boxscore_summary(
         title_lines, lines, component_lines, notes, record_line)

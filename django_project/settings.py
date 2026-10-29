@@ -385,6 +385,17 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 PAGE_SIZE = 25
 
+# How a win counts toward win rates and tournament points everywhere except
+# Elo (see the_warroom/services/win_rate.py):
+#   'win_share' -- a game is worth 1.0, split among its winners
+#                  (Effort.win_share): coalition 0.5 each, co-op 0.5 each,
+#                  three winners 1/3 each.
+#   'coalition' -- the previous rule, kept so it can be switched back to:
+#                  wins minus half the coalition wins (co-op = full wins).
+# After changing it, run `manage.py recalculate_winrates` so the cached
+# win-rate columns are rebuilt under the new rule.
+WIN_RATE_MODE = 'coalition'
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'the_warroom.api.authentication.ProfileApiKeyAuthentication',
