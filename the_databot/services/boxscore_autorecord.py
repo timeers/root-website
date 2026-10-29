@@ -21,7 +21,7 @@ from django.forms.models import modelformset_factory
 from the_warroom.forms import GameCreateFormV2, EffortCreateForm
 from the_warroom.models import Effort, Game, PlatformChoices
 from the_warroom.services.box_score_import import (
-    BoxScoreImportError, grid_cells_from_turns)
+    CAPTAIN_COUNT, BoxScoreImportError, grid_cells_from_turns)
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +203,9 @@ def build_form_data(thread, seats, entries, *, tournament, opts,
         data['random_clearing'] = 'on'
     _game_level_components(thread, opts, data)
 
+    from the_databot.services.lfg_game import captains_by_seat
+    seat_captains_map = captains_by_seat(thread)
+
     for i, (seat_no, profile, faction_slug, vagabond_slug) in enumerate(seats):
         entry = entries.get(seat_no, {})
         prefix = f'form-{i}-'
@@ -218,6 +221,23 @@ def build_form_data(thread, seats, entries, *, tournament, opts,
             vagabond = opts['vagabonds'].filter(slug=vagabond_slug).first()
             if vagabond:
                 data[prefix + 'vagabond'] = str(vagabond.pk)
+
+        # The record form prefills these from the same seat rows; leaving them
+        # out recorded every auto-recorded Knaves seat with no captains. Keyed by
+        # seat_no, not i, as the view does: a re-seat can leave gaps. A full
+        # complement or nothing -- EffortCreateForm requires exactly 3 or none, so
+        # a set the tournament narrowed short would decline the whole game.
+        seat_caps = seat_captains_map.get(seat_no)
+        if seat_caps:
+            captains = list(opts['captains'].filter(slug__in=seat_caps['captains']))
+            if len(captains) == CAPTAIN_COUNT:
+                captain_ids = [c.pk for c in captains]
+                data[prefix + 'captains'] = captain_ids
+                if seat_caps['discarded']:
+                    discarded = opts['captains'].filter(
+                        slug=seat_caps['discarded']).first()
+                    if discarded and discarded.pk not in captain_ids:
+                        data[prefix + 'discarded_captain'] = str(discarded.pk)
 
         # Effort.dominance IS the suit, not a per-turn flag.
         dominance = entry.get('dominance')

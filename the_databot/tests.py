@@ -19198,6 +19198,55 @@ class BoxScoreAutoRecordTests(_NoLoginSignalMixin, TestCase):
         self.assertEqual(
             sorted(game.efforts.values_list('score', flat=True)), [21, 30])
 
+    # ── captains ──
+
+    def _knaves_and_captains(self):
+        # Both form clean()s key captains off this exact title.
+        knaves = Faction.objects.create(
+            title="Knaves of the Deepwood", slug="ar-knaves", animal="Knave",
+            designer=self.designer, status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        captains = [Vagabond.objects.create(
+            title=f"AR Captain {i}", slug=f"ar-captain-{i}", animal="Raccoon",
+            designer=self.designer, captain=True, official=True,
+            status=StatusChoices.STABLE) for i in range(4)]
+        return knaves, captains
+
+    def test_a_knaves_seat_keeps_its_captains(self):
+        knaves, captains = self._knaves_and_captains()
+        seat = self.thread.seats.get(seat_number=1)
+        seat.faction = knaves
+        seat.discarded_captain = captains[3]
+        seat.save()
+        seat.captains.set(captains[:3])
+
+        effort = self._run().efforts.get(seat=1)
+        self.assertEqual(set(effort.captains.all()), set(captains[:3]))
+        self.assertEqual(effort.discarded_captain, captains[3])
+
+    def test_a_short_set_of_captains_still_records_without_them(self):
+        knaves, captains = self._knaves_and_captains()
+        seat = self.thread.seats.get(seat_number=1)
+        seat.faction = knaves
+        seat.save()
+        # Two is not a complement: EffortCreateForm takes exactly 3 or none, so
+        # writing these would decline the whole game.
+        seat.captains.set(captains[:2])
+
+        game = self._run()
+        self.assertIsNotNone(game)
+        self.assertFalse(game.efforts.get(seat=1).captains.exists())
+
+    def test_the_undrafted_captains_are_recorded(self):
+        knaves, captains = self._knaves_and_captains()
+        self.thread.undrafted_faction = knaves
+        self.thread.save()
+        self.thread.undrafted_captains.set(captains)
+
+        game = self._run()
+        self.assertEqual(game.undrafted_faction, knaves)
+        self.assertEqual(set(game.undrafted_captains.all()), set(captains))
+
     def test_the_winner_comes_from_the_tournament_score(self):
         game = self._run()
         winners = [e.player for e in game.efforts.filter(win=True)]
@@ -19586,6 +19635,28 @@ class BoxScoreMatchAutoRecordTests(_NoLoginSignalMixin, TestCase):
 
     # ── recording ───────────────────────────────────────────────────────────
 
+    def test_a_knaves_seat_in_the_file_keeps_its_captains(self):
+        designer = self.fox.designer
+        knaves = Faction.objects.create(
+            title="Knaves of the Deepwood", slug="ma-knaves", animal="Knave",
+            designer=designer, status=StatusChoices.STABLE, official=True,
+            component="Faction", type=Faction.TypeChoices.MILITANT)
+        captains = [Vagabond.objects.create(
+            title=f"MA Captain {i}", slug=f"ma-captain-{i}", animal="Raccoon",
+            designer=designer, captain=True, official=True,
+            status=StatusChoices.STABLE) for i in range(4)]
+        doc = self._doc(first=(knaves, 10))
+        doc["participants"][0]["captains"] = [c.slug for c in captains[:3]]
+        doc["participants"][0]["discarded_captain"] = captains[3].slug
+
+        self._upload(doc)
+        game = self._game_of(self.matches[0])
+        self.assertIsNotNone(game)
+        effort = game.efforts.get(seat=1)
+        self.assertEqual(effort.faction, knaves)
+        self.assertEqual(set(effort.captains.all()), set(captains[:3]))
+        self.assertEqual(effort.discarded_captain, captains[3])
+
     def test_a_clean_upload_records_the_first_open_match(self):
         result, summary, prompt, _t = self._upload(self._doc())
         game = self._game_of(self.matches[0])
@@ -19593,7 +19664,9 @@ class BoxScoreMatchAutoRecordTests(_NoLoginSignalMixin, TestCase):
         self.assertIsNone(prompt)
         self.assertEqual(self.matches[0].status, CompetitionStatus.COMPLETED)
         name = self.matches[0].name
-        self.assertIn(f"Recorded as **{name}**", summary)
+        # The summary just ends after the game details; only the uploader's
+        # reply says which match it went on.
+        self.assertNotIn("Recorded as", summary)
         self.assertIn(f"recorded as {name}", result["message"])
         # A series thread outlives any one game, so it is never linked to one.
         self.assertIsNone(self.thread.game_id)
@@ -19758,9 +19831,9 @@ class BoxScoreMatchAutoRecordTests(_NoLoginSignalMixin, TestCase):
         game = self._game_of(self.matches[0])
         self.assertIsNotNone(game)
         self.assertEqual(game.link, f"{self.thread.thread_url()}/555")
-        # The message loses its record link, and says where the game went.
+        # The message loses its record link and gains nothing in its place.
         body = edit.delay.call_args.args[2]
-        self.assertIn(f"Recorded as **{self.matches[0].name}**", body)
+        self.assertNotIn("Recorded as", body)
         self.assertNotIn("Review and record", body)
 
     def test_each_link_required_game_gets_its_own_link(self):
