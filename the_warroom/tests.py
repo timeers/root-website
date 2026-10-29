@@ -8,7 +8,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import connection
 from django.db.models import Prefetch
 from django.template.loader import render_to_string
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
@@ -274,6 +274,7 @@ class ExtraRoundsCountingTests(TestCase):
         self.assertEqual(self.game.get_tournament(), self.tour_a)
 
 
+@override_settings(WIN_RATE_MODE='win_share')
 class ExtraRoundsLeaderboardAggregateTests(TestCase):
     """Leaderboard AGGREGATES (not just counts) must not double-count a game that
     reaches a tournament through several rounds.
@@ -299,6 +300,9 @@ class ExtraRoundsLeaderboardAggregateTests(TestCase):
         self.game = Game.objects.create(round=self.round_a, final=True, test_match=False)
         Effort.objects.create(game=self.game, player=self.player,
                               faction=self.faction, win=True)
+        # The post-commit Celery task never runs inside a TestCase.
+        from the_warroom.services.win_share_service import refresh_game_win_shares
+        refresh_game_win_shares(self.game)
 
     def _winrate(self, tournament):
         from the_warroom.models import filtered_winrate
@@ -375,13 +379,13 @@ class ExtraRoundsLeaderboardAggregateTests(TestCase):
         players = Profile.leaderboard(effort_qs=qs, limit=10, game_threshold=1)
         self.assertEqual(len(players), 1)
         self.assertEqual(players[0].total_efforts, 1)
-        self.assertEqual(players[0].win_count, 1)
+        self.assertEqual(players[0].tourney_points, 1)
         self.assertEqual(players[0].win_rate, 100.0)
 
         factions = Faction.leaderboard(effort_qs=qs, limit=10, game_threshold=1)
         self.assertEqual(len(factions), 1)
         self.assertEqual(factions[0].total_efforts, 1)
-        self.assertEqual(factions[0].win_count, 1)
+        self.assertEqual(factions[0].tourney_points, 1)
 
     def test_extra_round_only_still_counts(self):
         """A game whose ONLY link to tournament B is via extra_rounds still counts."""
@@ -425,6 +429,11 @@ class ExtraRoundsLeaderboardAggregateTests(TestCase):
         ).get(pk=self.player.pk))
         self.assertEqual(row.total_efforts, 1)
         self.assertEqual(row.win_count, 1)
+
+
+@override_settings(WIN_RATE_MODE='coalition')
+class ExtraRoundsLeaderboardAggregateCoalitionModeTests(ExtraRoundsLeaderboardAggregateTests):
+    """The same no-inflation guards under the previous win rule."""
 
 
 class ExtraRoundsControlTests(TestCase):
@@ -6615,6 +6624,7 @@ class DraftStatisticsTests(TestCase):
         self.assertEqual(cats['win_rate']['percent'], 50)
         self.assertAlmostEqual(cats['win_rate']['wins'], 1.0)
 
+    @override_settings(WIN_RATE_MODE='win_share')
     def test_a_shared_win_counts_as_a_share(self):
         self._four(winners=(1, 4))                        # Otters and Cats share it
         cats = self._row(self._stats(min_offered=0)['factions'], self.cats)
@@ -6623,6 +6633,27 @@ class DraftStatisticsTests(TestCase):
         # Shown as wins/played, the fractional share included.
         body = self._get(threshold=0).content.decode()
         self.assertIn("0.5/1", body)
+
+    @override_settings(WIN_RATE_MODE='coalition')
+    def test_win_rate_follows_coalition_mode(self):
+        """Coalition mode: a co-op win is a full win each, a coalition half."""
+        self._four(winners=(1, 4))                        # co-op: Otters and Cats
+        cats = self._row(self._stats(min_offered=0)['factions'], self.cats)
+        self.assertAlmostEqual(cats['win_rate']['rate'], 1.0)
+        self.assertAlmostEqual(cats['win_rate']['wins'], 1)
+
+        game = self._four(winners=(1, 4))                 # now a coalition
+        effort = game.efforts.get(seat=1)
+        effort.coalition_with = self.cats
+        effort.save()                                     # sets game.coalition_win
+        # ...and re-saves the game, whose player count a task would restore.
+        Game.objects.filter(pk=game.pk).update(cached_player_count=4)
+        cats = self._row(self._stats(min_offered=0)['factions'], self.cats)
+        self.assertAlmostEqual(cats['win_rate']['wins'], 1.5)
+        self.assertEqual(cats['win_rate']['percent'], 75)
+        body = self._get(threshold=0).content.decode()
+        self.assertIn("1.5/2", body)
+        self.assertIn("counts a coalition win as half a win", body)
 
     def test_an_only_undrafted_faction_has_no_win_rate(self):
         self._four(winners=(4,))
@@ -7037,3 +7068,295 @@ class EffortWinShareTests(TestCase):
             effort.win = False
             effort.save()
         self.assertEqual(self._shares(game), [1.0, 0, 0, 0])
+
+
+class WinRateModeFixture:
+    """Shared games for the WIN_RATE_MODE tests, all in one tournament round.
+
+      solo       A wins alone                      (B loses)
+      coalition  A and B win, B coalition_with A   (C loses)
+      co-op      A and B win, no coalition         (C loses)
+      three-way  A, B and D win, B and D in
+                 coalition with A                  (C loses)
+
+    Per mode, A's points (4 efforts) and B's (4 efforts, losing the solo game):
+      win_share  A = 1 + .5 + .5 + 1/3 = 7/3,  B = .5 + .5 + 1/3 = 4/3
+      coalition  A = 1 + .5 + 1 + .5  = 3,    B = .5 + 1 + .5    = 2
+    and raw wins A = 4, B = 3 in both.
+    """
+
+    A_SHARE, B_SHARE = 7 / 3, 4 / 3
+    A_COALITION, B_COALITION = 3.0, 2.0
+
+    def setUp(self):
+        from the_warroom.services.win_share_service import refresh_game_win_shares
+        self.refresh = refresh_game_win_shares
+        self.designer = Profile.objects.create(discord="wr_designer")
+        self.a, self.b, self.c, self.d = (
+            Profile.objects.create(discord=f"wr_{n}", display_name=f"wr {n}")
+            for n in "abcd")
+        def faction(title):
+            return Faction.objects.create(title=title, type="M", reach=5,
+                                          animal=title.lower(), designer=self.designer)
+        self.fa, self.fb, self.fc, self.fd = (faction(f"WR {n}") for n in "ABCD")
+
+        self.tournament = Tournament.objects.create(name="WR Series", is_active=True)
+        self.stage = Stage.objects.create(tournament=self.tournament, name="WR S1",
+                                          order=1, is_active=True)
+        self.round = Round.objects.create(stage=self.stage, round_number=1, is_active=True)
+
+        self.solo = self._game([(self.a, self.fa, True, None),
+                                (self.b, self.fb, False, None)])
+        self.coalition = self._game([(self.a, self.fa, True, None),
+                                     (self.b, self.fb, True, self.fa),
+                                     (self.c, self.fc, False, None)])
+        self.coop = self._game([(self.a, self.fa, True, None),
+                                (self.b, self.fb, True, None),
+                                (self.c, self.fc, False, None)])
+        self.three = self._game([(self.a, self.fa, True, None),
+                                 (self.b, self.fb, True, self.fa),
+                                 (self.d, self.fd, True, self.fa),
+                                 (self.c, self.fc, False, None)])
+
+    def _game(self, seats, **kw):
+        game = Game.objects.create(round=self.round, final=True, test_match=False, **kw)
+        for seat, (player, fac, win, coalition_with) in enumerate(seats, start=1):
+            Effort.objects.create(game=game, player=player, faction=fac, seat=seat,
+                                  win=win, coalition_with=coalition_with)
+        # The post-commit Celery task never runs inside a TestCase.
+        self.refresh(game)
+        return game
+
+    def _expected(self, share, coalition):
+        from the_warroom.services.win_rate import win_rate_mode
+        return share if win_rate_mode() == 'win_share' else coalition
+
+
+@override_settings(WIN_RATE_MODE='win_share')
+class WinRateModeTests(WinRateModeFixture, TestCase):
+    """Every converted site in win_share mode. The coalition-mode subclass
+    below reruns them against the previous rules."""
+
+    def test_filtered_winrate(self):
+        from the_warroom.models import filtered_winrate
+        stats = filtered_winrate(player=self.a)
+        self.assertEqual(stats['total'], 4)
+        self.assertAlmostEqual(stats['win_points'],
+                               self._expected(self.A_SHARE, self.A_COALITION))
+        self.assertAlmostEqual(stats['win_rate'],
+                               self._expected(self.A_SHARE, self.A_COALITION) / 4 * 100)
+
+        faction = filtered_winrate(faction=self.fb)
+        self.assertAlmostEqual(faction['win_points'],
+                               self._expected(self.B_SHARE, self.B_COALITION))
+
+    def test_profile_and_faction_leaderboards(self):
+        from the_warroom.models import filtered_winrate
+        qs = filtered_winrate()['qs']
+        players = {p.pk: p for p in Profile.leaderboard(effort_qs=qs, limit=10,
+                                                         game_threshold=1)}
+        self.assertEqual(players[self.a.pk].total_efforts, 4)
+        self.assertAlmostEqual(players[self.a.pk].tourney_points,
+                               self._expected(self.A_SHARE, self.A_COALITION))
+        self.assertAlmostEqual(players[self.b.pk].win_rate,
+                               self._expected(self.B_SHARE, self.B_COALITION) / 4 * 100)
+
+        factions = {f.pk: f for f in Faction.leaderboard(effort_qs=qs, limit=10,
+                                                          game_threshold=1)}
+        self.assertAlmostEqual(factions[self.fa.pk].tourney_points,
+                               self._expected(self.A_SHARE, self.A_COALITION))
+        self.assertAlmostEqual(factions[self.fd.pk].tourney_points,
+                               self._expected(1 / 3, 0.5))
+
+    def test_cached_fields(self):
+        from the_warroom.services.winrate_service import calculate_and_cache_winrate
+        calculate_and_cache_winrate(self.b)
+        self.b.refresh_from_db()
+        self.assertEqual(self.b.cached_plays, 4)
+        self.assertAlmostEqual(self.b.cached_tourney_points,
+                               self._expected(self.B_SHARE, self.B_COALITION))
+        self.assertAlmostEqual(
+            self.b.cached_winrate,
+            round(self._expected(self.B_SHARE, self.B_COALITION) / 4 * 100, 1))
+
+    def test_component_stats_box(self):
+        response = self.client.get(reverse('faction-games', args=[self.fa.slug]))
+        self.assertEqual(response.status_code, 200)
+        ctx = response.context
+        self.assertEqual(ctx['total_efforts'], 4)
+        self.assertAlmostEqual(ctx['tourney_points'],
+                               self._expected(self.A_SHARE, self.A_COALITION))
+        self.assertAlmostEqual(ctx['win_rate'],
+                               self._expected(self.A_SHARE, self.A_COALITION) / 4 * 100)
+        # "Recorded Wins": the summed share, or the previous raw count.
+        self.assertAlmostEqual(ctx['win_count'], self._expected(self.A_SHARE, 4))
+
+    def test_rosters(self):
+        from the_warroom.views import (
+            _round_roster_queryset, _stage_roster_queryset, _tournament_roster_queryset,
+        )
+        for roster in (_tournament_roster_queryset(self.tournament),
+                       _stage_roster_queryset(self.stage),
+                       _round_roster_queryset(self.round)):
+            rows = {p.pk: p for p in roster}
+            self.assertEqual(rows[self.a.pk].total_efforts, 4)
+            self.assertAlmostEqual(rows[self.a.pk].points,
+                                   self._expected(self.A_SHARE, self.A_COALITION))
+            self.assertAlmostEqual(rows[self.a.pk].display_wins, self._expected(self.A_SHARE, 4))
+            self.assertAlmostEqual(rows[self.b.pk].win_rate,
+                                   self._expected(self.B_SHARE, self.B_COALITION) / 4 * 100)
+            self.assertAlmostEqual(rows[self.c.pk].points, 0)
+
+    def test_roster_ordering_uses_display_wins(self):
+        """Most efforts first (A and B 4, C 3), then the shown win figure: A's
+        (7/3, or the raw 4) outranks B's (4/3, or the raw 3)."""
+        from the_warroom.views import _tournament_roster_queryset
+        order = [p.pk for p in _tournament_roster_queryset(self.tournament)]
+        self.assertEqual(order[:3], [self.a.pk, self.b.pk, self.c.pk])
+
+    def test_stage_advancement_rate(self):
+        from the_warroom.views import _build_game_only_advancement_context
+        for profile in (self.a, self.b, self.c, self.d):
+            tp = TournamentPlayer.objects.create(profile=profile, tournament=self.tournament)
+            StageParticipant.objects.create(stage=self.stage, tournament_player=tp)
+        ctx = _build_game_only_advancement_context(self.stage)
+        players = ctx['eligible_players']
+        # Ordered by win rate: A (7/12 or the raw 4/4) first.
+        self.assertEqual(players[0]['sp'].tournament_player.profile, self.a)
+
+    def test_api_tournament_score(self):
+        from the_warroom.api.game_serializers import ParticipantSerializer
+        def score(game, player):
+            return ParticipantSerializer(game.efforts.get(player=player)).data['tournament_score']
+        self.assertEqual(score(self.solo, self.a), 1)
+        # Coalition: 0.5 each either way.
+        self.assertEqual(score(self.coalition, self.a), self._expected(0.5, 1))
+        self.assertEqual(score(self.coalition, self.b), 0.5)
+        # Co-op: split in win_share mode; 1 each under the previous rule.
+        self.assertEqual(score(self.coop, self.a), self._expected(0.5, 1))
+        self.assertEqual(score(self.three, self.d), self._expected(0.333, 0.5))
+        self.assertEqual(score(self.three, self.c), 0)
+
+    def test_effort_points(self):
+        from the_warroom.services.win_rate import effort_points
+        effort = self.three.efforts.get(player=self.b)
+        self.assertAlmostEqual(effort_points(effort, 'raw'), self._expected(1 / 3, 1))
+        self.assertAlmostEqual(effort_points(effort, 'coalition_with'),
+                               self._expected(1 / 3, 0.5))
+        loser = self.three.efforts.get(player=self.c)
+        self.assertEqual(effort_points(loser, 'raw'), 0)
+
+
+@override_settings(WIN_RATE_MODE='coalition')
+class WinRateCoalitionModeTests(WinRateModeTests):
+    """The same sites under WIN_RATE_MODE='coalition': each must give exactly
+    the numbers it gave before win_share, including the raw win columns."""
+
+
+@override_settings(WIN_RATE_MODE='win_share')
+class WinRateDuplicateRowTests(WinRateModeFixture, TestCase):
+    """A game reaching the tournament through several rounds repeats effort rows
+    in the join. Sum(win_share) can't de-duplicate (distinct=True drops equal
+    values), so the converted sites must avoid the repeats altogether."""
+
+    def setUp(self):
+        super().setUp()
+        for n in (2, 3):
+            extra = Round.objects.create(stage=self.stage, round_number=n, is_active=True)
+            for game in (self.solo, self.coalition, self.coop, self.three):
+                game.extra_rounds.add(extra)
+
+    def test_filtered_winrate_tournament(self):
+        from the_warroom.models import filtered_winrate
+        stats = filtered_winrate(player=self.b, tournament=self.tournament)
+        self.assertEqual(stats['total'], 4)
+        self.assertAlmostEqual(stats['win_points'], self.B_SHARE)
+
+    def test_tournament_roster(self):
+        from the_warroom.views import _tournament_roster_queryset
+        rows = {p.pk: p for p in _tournament_roster_queryset(self.tournament)}
+        self.assertEqual(rows[self.b.pk].total_efforts, 4)
+        self.assertAlmostEqual(rows[self.b.pk].points, self.B_SHARE)
+
+    def test_points_annotations_refuses_distinct(self):
+        from the_warroom.services.win_rate import points_annotations
+        with self.assertRaises(ValueError):
+            points_annotations(distinct=True)
+
+
+@override_settings(WIN_RATE_MODE='coalition')
+class WinRateDuplicateRowCoalitionModeTests(WinRateDuplicateRowTests):
+    B_SHARE = WinRateModeFixture.B_COALITION
+
+    def test_points_annotations_refuses_distinct(self):
+        from the_warroom.services.win_rate import points_annotations
+        # Coalition mode's Counts de-duplicate fine.
+        self.assertIn('points', points_annotations(distinct=True))
+
+
+@override_settings(WIN_RATE_MODE='win_share')
+class WinRateFixesTests(WinRateModeFixture, TestCase):
+    """Fixes that apply in both modes."""
+
+    def test_task_recaches_every_winner_after_shares(self):
+        """Flipping one effort's win changes the OTHER winners' shares; the task
+        re-caches them once the shares are current."""
+        from the_warroom.tasks import update_game_draft_options
+        from the_warroom.services.winrate_service import calculate_and_cache_winrate
+        calculate_and_cache_winrate(self.a)
+        # D loses the three-way game: A's share there goes 1/3 -> 1/2. No
+        # signals, as if only D's objects had been re-cached.
+        Effort.objects.filter(game=self.three, player=self.d).update(win=False)
+        update_game_draft_options(self.three.pk)
+        self.a.refresh_from_db()
+        self.assertAlmostEqual(self.a.cached_tourney_points, 1 + .5 + .5 + .5)
+
+    def test_coalition_win_cleared_on_edit(self):
+        self.coalition.refresh_from_db()
+        self.assertTrue(self.coalition.coalition_win)
+        effort = self.coalition.efforts.get(player=self.b)
+        effort.coalition_with = None
+        effort.save()
+        self.coalition.refresh_from_db()
+        self.assertFalse(self.coalition.coalition_win)
+
+    def test_coalition_win_kept_while_any_coalition_remains(self):
+        effort = self.three.efforts.get(player=self.b)
+        effort.coalition_with = None
+        effort.save()
+        self.three.refresh_from_db()
+        self.assertTrue(self.three.coalition_win)
+
+    def test_coalition_win_cleared_after_delete(self):
+        self.coalition.efforts.get(player=self.b).delete()
+        self.refresh(self.coalition)
+        self.coalition.refresh_from_db()
+        self.assertFalse(self.coalition.coalition_win)
+
+    @override_settings(WIN_RATE_MODE='coalition')
+    def test_removed_coalition_stops_halving_in_coalition_mode(self):
+        """The one intended change to coalition-mode numbers: a coalition edited
+        out of a game no longer halves its winners."""
+        from the_warroom.models import filtered_winrate
+        effort = self.coalition.efforts.get(player=self.b)
+        effort.coalition_with = None
+        effort.save()
+        # The coalition game is now an ordinary co-op: 1 each, so A gets 3.5.
+        self.assertAlmostEqual(filtered_winrate(player=self.a)['win_points'], 3.5)
+
+    def test_player_stats_boards_not_swapped(self):
+        response = self.client.get(reverse('player-stats', args=[self.a.slug]))
+        self.assertEqual(response.status_code, 200)
+        efforts = Effort.objects.filter(player=self.a, game__test_match=False,
+                                        game__final=True)
+        top = Faction.leaderboard(effort_qs=efforts, game_threshold=2)
+        most = Faction.leaderboard(top_quantity=True, effort_qs=efforts, game_threshold=1)
+        self.assertEqual([f.pk for f in response.context['top_factions']],
+                         [f.pk for f in top])
+        self.assertEqual([f.pk for f in response.context['most_factions']],
+                         [f.pk for f in most])
+
+    def test_faction_wins_and_losses(self):
+        self.assertEqual(self.fa.wins(), 4)
+        self.assertEqual(self.fc.losses(), 3)
+        self.assertEqual(self.fc.wins(), 0)

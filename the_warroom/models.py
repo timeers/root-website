@@ -2814,6 +2814,13 @@ class Effort(models.Model):
         if self.coalition_with and self.win:
             self.game.coalition_win = True
             update_game = True
+        elif self.game.coalition_win and not self.game.efforts.filter(
+                win=True, coalition_with__isnull=False).exists():
+            # The flag was only ever set, so a coalition edited out of the game
+            # left it stuck on (Elo and coalition-mode win rates read it). Deletes
+            # are covered by refresh_game_win_shares.
+            self.game.coalition_win = False
+            update_game = True
         if update_game:
             self.game.save()
 
@@ -2917,9 +2924,9 @@ class SeatDraftOption(models.Model):
 
 def filtered_winrate(player=None, faction=None, vagabond=None, deck=None, tournament=None, platform=None):
     """Win rate over Efforts, filtered by any combination of player, faction,
-    vagabond, deck, tournament (series), and platform. Mirrors the leaderboard
-    formula (coalition wins count as half) in a single aggregate query so the
-    result matches the site's leaderboards. Returns {total, games, win_points,
+    vagabond, deck, tournament (series), and platform. Points follow
+    settings.WIN_RATE_MODE (services/win_rate.py), in a single aggregate query
+    so the result matches the site's leaderboards. Returns {total, games, win_points,
     win_rate, qs}, where `total` is the effort count (the win-rate denominator),
     `games` is the distinct game count for display, and `qs` is the filtered
     Effort queryset (e.g. for feeding Faction.leaderboard)."""
@@ -2935,15 +2942,19 @@ def filtered_winrate(player=None, faction=None, vagabond=None, deck=None, tourna
     if platform:
         qs = qs.filter(game__platform=platform)
     if tournament:
-        qs = qs.filter(effort_counts_for_tournament_q(tournament)).distinct()
+        # A game__in subquery, not a join through extra_rounds: the join repeats
+        # effort rows, which a win_share Sum can't de-duplicate (see win_rate.py).
+        qs = qs.filter(game__in=Game.objects.filter(
+            game_counts_for_tournament_q(tournament)).values('pk'))
+    from the_warroom.services.win_rate import points_annotations
+    points = points_annotations()
     agg = qs.aggregate(
         total=Count('id', distinct=True),
         games=Count('game', distinct=True),
-        wins=Count('id', filter=Q(win=True), distinct=True),
-        coalition=Count('id', filter=Q(win=True, game__coalition_win=True), distinct=True),
+        win_points=points['points'],
     )
     total = agg['total'] or 0
-    win_points = (agg['wins'] or 0) - (agg['coalition'] or 0) / 2
+    win_points = agg['win_points'] or 0
     win_rate = (win_points / total * 100) if total else 0.0
     return {'total': total, 'games': agg['games'] or 0, 'win_points': win_points, 'win_rate': win_rate, 'qs': qs}
 

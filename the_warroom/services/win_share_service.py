@@ -34,4 +34,9 @@ def refresh_game_win_shares(game):
         share = win_share_for(efforts.filter(win=True).count())
         changed = efforts.filter(win=True).exclude(win_share=share).update(win_share=share)
         changed += efforts.filter(win=False).exclude(win_share=0).update(win_share=0)
+        # Game.coalition_win is derived from the efforts too. Effort.save keeps it
+        # current on edits; this catches deletes. update() skips Game signals.
+        coalition = efforts.filter(win=True, coalition_with__isnull=False).exists()
+        Game.objects.filter(pk=game.pk).exclude(coalition_win=coalition).update(
+            coalition_win=coalition)
     return changed

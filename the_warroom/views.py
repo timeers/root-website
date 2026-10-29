@@ -40,6 +40,7 @@ from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, Asse
                      game_counts_for_tournament_q,
                      first_supported_tab)
 from .services.grouping import GroupingService, build_opponent_history
+from .services.win_rate import annotate_roster, effort_points, win_rate_mode, win_rate_pct
 from .services.box_score_import import (
     BoxScoreImportError, grid_cells_from_turns, parse_box_score_json, resolve_import)
 from .forms import (GameCreateForm, GameCreateFormV2, EffortCreateForm,
@@ -411,6 +412,7 @@ def draft_statistics(request):
         'player_count': player_count,
         'threshold': min_offered,
         'picker': picker,
+        'win_rate_mode': win_rate_mode(),
         'has_filters': any(k in request.GET for k in filterset.form.fields
                            if k != 'player_count'),
     }
@@ -3342,35 +3344,25 @@ def tournament_games_page(request, slug):
     return render(request, template_name, context)
 
 
+def _roster_annotate(players, counts_q, scoped_games):
+    """Annotate a roster's Profile queryset with total_efforts, points,
+    display_wins (services/win_rate.py) and win_rate, ready to order.
+    `scoped_games` is the scope's counting games, already final-filtered."""
+    return annotate_roster(players, counts_q, scoped_games).annotate(
+        win_rate=win_rate_pct('points', 'total_efforts'),
+    )
+
+
 def _tournament_roster_queryset(tournament):
     """Build annotated roster queryset for a tournament."""
     counts_q = effort_counts_for_tournament_q(tournament, prefix='efforts__game')
-    return Profile.objects.filter(
+    players = Profile.objects.filter(
         counts_q |
         Q(tournament_participations__tournament=tournament)
-    ).distinct().annotate(
-        total_efforts=Count('efforts', distinct=True, filter=counts_q & Q(
-            efforts__game__final=True
-        )),
-        win_count=Count('efforts', distinct=True, filter=counts_q & Q(
-            efforts__win=True,
-            efforts__game__final=True
-        )),
-        coalition_count=Count('efforts', distinct=True, filter=counts_q & Q(
-            efforts__win=True,
-            efforts__game__coalition_win=True,
-            efforts__game__final=True
-        ))
-    ).annotate(
-        win_rate=Case(
-            When(total_efforts=0, then=Value(0)),
-            default=ExpressionWrapper(
-                (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2)) / Cast(F('total_efforts'), FloatField()) * 100,
-                output_field=FloatField()
-            ),
-            output_field=FloatField()
-        )
-    ).order_by('-total_efforts', '-win_count', '-win_rate', 'display_name')
+    ).distinct()
+    scoped_games = Game.objects.filter(game_counts_for_tournament_q(tournament), final=True)
+    return _roster_annotate(players, counts_q, scoped_games).order_by(
+        '-total_efforts', '-display_wins', '-win_rate', 'display_name')
 
 
 def _stage_roster_queryset(stage):
@@ -3380,29 +3372,12 @@ def _stage_roster_queryset(stage):
     ).values_list('tournament_player__profile_id', flat=True)
 
     counts_q = effort_counts_for_stage_q(stage, prefix='efforts__game')
-    return Profile.objects.filter(
+    players = Profile.objects.filter(
         counts_q | Q(id__in=stage_participant_ids)
-    ).distinct().annotate(
-        total_efforts=Count('efforts', distinct=True, filter=counts_q & Q(
-            efforts__game__final=True
-        )),
-        win_count=Count('efforts', distinct=True, filter=counts_q & Q(
-            efforts__win=True, efforts__game__final=True
-        )),
-        coalition_count=Count('efforts', distinct=True, filter=counts_q & Q(
-            efforts__win=True, efforts__game__coalition_win=True,
-            efforts__game__final=True
-        ))
-    ).annotate(
-        win_rate=Case(
-            When(total_efforts=0, then=Value(0)),
-            default=ExpressionWrapper(
-                (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2)) / Cast(F('total_efforts'), FloatField()) * 100,
-                output_field=FloatField()
-            ),
-            output_field=FloatField()
-        )
-    ).order_by('-total_efforts', '-win_count', '-win_rate', 'display_name')
+    ).distinct()
+    scoped_games = Game.objects.filter(game_counts_for_stage_q(stage), final=True)
+    return _roster_annotate(players, counts_q, scoped_games).order_by(
+        '-total_efforts', '-display_wins', '-win_rate', 'display_name')
 
 
 def _round_roster_queryset(round):
@@ -3412,29 +3387,12 @@ def _round_roster_queryset(round):
     ).values_list('tournament_player__profile_id', flat=True)
 
     counts_q = effort_counts_for_round_q(round, prefix='efforts__game')
-    return Profile.objects.filter(
+    players = Profile.objects.filter(
         counts_q | Q(id__in=stage_participant_ids)
-    ).distinct().annotate(
-        total_efforts=Count('efforts', distinct=True, filter=counts_q & Q(
-            efforts__game__final=True
-        )),
-        win_count=Count('efforts', distinct=True, filter=counts_q & Q(
-            efforts__win=True, efforts__game__final=True
-        )),
-        coalition_count=Count('efforts', distinct=True, filter=counts_q & Q(
-            efforts__win=True, efforts__game__coalition_win=True,
-            efforts__game__final=True
-        ))
-    ).annotate(
-        win_rate=Case(
-            When(total_efforts=0, then=Value(0)),
-            default=ExpressionWrapper(
-                (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2)) / Cast(F('total_efforts'), FloatField()) * 100,
-                output_field=FloatField()
-            ),
-            output_field=FloatField()
-        )
-    ).order_by('-total_efforts', '-win_count', '-win_rate', 'display_name')
+    ).distinct()
+    scoped_games = Game.objects.filter(game_counts_for_round_q(round), final=True)
+    return _roster_annotate(players, counts_q, scoped_games).order_by(
+        '-total_efforts', '-display_wins', '-win_rate', 'display_name')
 
 
 def tournament_roster_page(request, slug):
@@ -4877,28 +4835,11 @@ def stage_players_pagination(request, id):
         counts_q | Q(id__in=stage_participant_ids)
     ).distinct()
 
-    players = players.annotate(
-        total_efforts=Count('efforts', distinct=True, filter=counts_q & Q(efforts__game__final=True)),
-        win_count=Count('efforts', distinct=True, filter=counts_q & Q(efforts__win=True, efforts__game__final=True)),
-        coalition_count=Count('efforts', distinct=True, filter=counts_q & Q(efforts__win=True, efforts__game__coalition_win=True, efforts__game__final=True))
-    )
-    players = players.annotate(
-        win_rate=Case(
-            When(total_efforts=0, then=Value(0)),
-            default=ExpressionWrapper(
-                (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2)) / Cast(F('total_efforts'), FloatField()) * 100,
-                output_field=FloatField()
-            ),
-            output_field=FloatField()
-        ),
-        tourney_points=Case(
-            When(total_efforts=0, then=Value(0)),
-            default=ExpressionWrapper(
-                Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2),
-                output_field=FloatField()
-            ),
-            output_field=FloatField()
-        )
+    scoped_games = Game.objects.filter(game_counts_for_stage_q(stage), final=True)
+    # tourney_points is the points figure itself (halved coalition wins in
+    # coalition mode, as before), not display_wins.
+    players = _roster_annotate(players, counts_q, scoped_games).annotate(
+        tourney_points=F('points'),
     ).order_by('-total_efforts', '-tourney_points', '-win_rate', 'display_name')
 
     paginator = Paginator(players, settings.PAGE_SIZE)
@@ -9794,7 +9735,8 @@ def _build_game_only_advancement_context(stage):
             })
 
         total_games = len(player_efforts)
-        wins = sum(1 for e in player_efforts if e.win)
+        # Points per WIN_RATE_MODE; coalition mode keeps this site's raw win count.
+        wins = sum(effort_points(e, 'raw') for e in player_efforts)
         win_rate = (wins / total_games) if total_games > 0 else 0.0
         all_bye = total_games == 0
 

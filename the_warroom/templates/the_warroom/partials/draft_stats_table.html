@@ -3,7 +3,8 @@
 One pick-rate table: a row per faction (or vagabond), then Overall (per game),
 a column per seat 1..N, and Win Rate. Each pick cell is the pick rate when
 offered, with taken/offered beneath it; "—" when never offered (unknown, not
-0%). Win Rate is the average win_share of that faction's efforts. Rows offered fewer than
+0%). Win Rate is that faction's win points over its efforts (WIN_RATE_MODE).
+Rows offered fewer than
 the threshold are muted and sorted last (draft_stats._table).
 
 Expects: rows, seats, label (the first column's heading).
@@ -43,7 +44,7 @@ Expects: rows, seats, label (the first column's heading).
           {% else %}
             <span class="draft-stats-rate">{{ win.percent }}%</span>
             {% comment %} wins/played, like the pick cells' taken/offered. Wins
-            is the summed win_share, so a shared win adds its share: "12.5/30". {% endcomment %}
+            are win points, so a half win shows: "12.5/30". {% endcomment %}
             <span class="draft-stats-count">{{ win.wins|floatformat:"-1" }}/{{ win.efforts }}</span>
           {% endif %}
         </td>

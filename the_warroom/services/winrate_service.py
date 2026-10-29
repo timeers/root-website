@@ -35,8 +35,8 @@ def _filter_kwarg(obj):
 def _apply_cached_stats(obj):
     """Compute and set every cached_* field on obj (overall + per platform).
 
-    Uses the coalition-based leaderboard formula via filtered_winrate() — the
-    site's single source of truth — for the overall stats and once per platform.
+    Uses filtered_winrate() — the site's single source of truth, following
+    settings.WIN_RATE_MODE — for the overall stats and once per platform.
     Sets fields but does not save; callers persist (save/bulk_update).
     """
     from the_warroom.models import filtered_winrate
@@ -53,9 +53,10 @@ def _apply_cached_stats(obj):
 def calculate_and_cache_winrate(obj):
     """
     Recalculate and cache the winrate for a Faction, Vagabond, or Profile instance.
-    Uses the coalition-based leaderboard formula (coalition wins count as half),
-    the site's single source of truth via filtered_winrate():
-      - win_points = wins - coalition_wins / 2
+    Uses the site's single source of truth, filtered_winrate(), whose points
+    follow settings.WIN_RATE_MODE (services/win_rate.py):
+      - win_points = summed win_share ('win_share'), or
+                     wins - coalition_wins / 2 ('coalition')
       - win_rate   = win_points / total_plays * 100
     over efforts with game__final=True, game__test_match=False.
     Writes the overall cached_* fields plus a per-platform set (irl/dwd/tts),

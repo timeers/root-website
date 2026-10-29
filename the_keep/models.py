@@ -22,6 +22,7 @@ from django.db.models import (
     Q, Case, When, Value, OuterRef, Subquery, Max
     )
 from django.db.models.functions import Cast, Coalesce
+from the_warroom.services.win_rate import points_annotations, win_rate_pct
 from django.db.models.query import QuerySet 
 from django.utils import timezone 
 from django.utils.translation import get_language
@@ -1440,13 +1441,13 @@ class Vagabond(Post):
         # plays = self.get_plays_queryset()
         # wins = plays.filter(win=True, game__test_match=False)
         wins = self.efforts.filter(win=True, game__test_match=False, game__final=True)
-        return wins.count() if wins else 0
+        return wins.count()
     
     def losses(self):
         # plays = self.get_plays_queryset()
         # wins = plays.filter(win=True, game__test_match=False)
         losses = self.efforts.filter(win=False, game__test_match=False, game__final=True)
-        return losses.count() if losses else 0
+        return losses.count()
 
 
     def get_wins_queryset(self):
@@ -1651,12 +1652,12 @@ class Faction(Post):
     def wins(self):
         plays = self.get_plays_queryset()
         wins = plays.filter(win=True, game__test_match=False, game__final=True)
-        return wins.count() if plays else 0
+        return wins.count()
 
     def losses(self):
         plays = self.get_plays_queryset()
         losses = plays.filter(win=False, game__test_match=False, game__final=True)
-        return losses.count() if plays else 0
+        return losses.count()
 
     def get_wins_queryset(self):
         return self.efforts.all().filter(win=True, game__test_match=False, game__final=True)
@@ -1701,36 +1702,21 @@ class Faction(Post):
         if not include_fan_content:
             queryset = queryset.filter(official=True)
 
-        # Annotate with the total efforts and win counts
+        # Annotate with the total efforts and win points (services/win_rate.py)
         queryset = queryset.annotate(
             total_efforts=Count('efforts'),
-            win_count=Count('efforts', filter=Q(efforts__win=True)),
-            coalition_count=Count('efforts', filter=Q(efforts__win=True, efforts__game__coalition_win=True))
+            **points_annotations('efforts__'),
         )
-        
+
         # Filter factions who have enough efforts
         queryset = queryset.filter(total_efforts__gte=game_threshold)
-        
+
         # Annotate with win_rate after filtering
         queryset = queryset.annotate(
-            win_rate=Case(
-                When(total_efforts=0, then=Value(0)),
-                default=ExpressionWrapper(
-                    (Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2)) / Cast(F('total_efforts'), FloatField()) * 100,
-                    output_field=FloatField()
-                ),
-                output_field=FloatField()
-            ),
-            tourney_points=Case(
-                When(total_efforts=0, then=Value(0)),
-                default=ExpressionWrapper(
-                    Cast(F('win_count'), FloatField()) - (Cast(F('coalition_count'), FloatField()) / 2),
-                    output_field=FloatField()
-                ),
-                output_field=FloatField()
-            )
+            win_rate=win_rate_pct('points', 'total_efforts'),
+            tourney_points=F('points'),
         )
-        
+
         return queryset
 
     @classmethod

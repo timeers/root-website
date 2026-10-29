@@ -7,7 +7,6 @@
 
 ### Improvements
 - About page always links to Woodland Warriors
-- Win rate calculation changes
 
 ### Bug Fixes
 - Hidden stages and rounds should no longer become inactive

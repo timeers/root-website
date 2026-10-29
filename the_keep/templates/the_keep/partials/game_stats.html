@@ -16,9 +16,15 @@
                     <p class="article-content">with {{ total_efforts|intcomma }} Plays</p>
                 {% endif %}
 
-            <p class="article-content">{{ win_count|intcomma }} {% trans 'Recorded Wins' %}</p>
+            {% comment %} win_count follows WIN_RATE_MODE: the summed win_share
+            (shared wins split, so it can be fractional) or, in coalition mode,
+            the raw win count. In win_share mode it already is the points
+            figure, so the separate Points line only shows in coalition mode. {% endcomment %}
+            <p class="article-content">{{ win_count|floatformat:"-1g" }} {% trans 'Recorded Wins' %}</p>
             <p class="article-content">{{ win_rate|floatformat:2 }}% {% trans 'Winrate' %}</p>
+            {% if win_rate_mode == 'coalition' %}
             <p class="article-content">{{ tourney_points|intcomma }} {% trans 'Points (1/2 for Coalition Wins)' %}</p>
+            {% endif %}
         {% else %}
             <h2>{% trans 'Recorded Games' %} ({{ filtered_games }})</h2>
             <p class="article-content">{{ object.plays|intcomma }} {% trans 'Total Games' %}</p>

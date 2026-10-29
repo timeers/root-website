@@ -5,7 +5,8 @@ from the_warroom.services.win_share_service import refresh_game_win_shares
 
 
 class Command(BaseCommand):
-    help = "Recalculate Effort.win_share (each effort's share of its game's win)."
+    help = ("Recalculate Effort.win_share (each effort's share of its game's win) "
+            "and re-derive Game.coalition_win from the efforts.")
 
     def add_arguments(self, parser):
         parser.add_argument(
