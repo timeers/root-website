@@ -5,6 +5,9 @@
 ### New Features
 - Add All button added to the manage stage players page (adds all the registered series players to that stage)
 
+### Improvements
+- Series byes are grouped together with clearer wording
+
 ### Bug Fixes
 - Fixed naming of group members to not conflict
 - Deleting the last stage or round from a series disables that structure

@@ -34,7 +34,7 @@
     {% if not is_bracket_finalized %}
     <p class="text-muted">{% trans 'No matches have been scheduled yet.' %}</p>
     {% else %}
-    {% if not match_series and not create_series_url %}
+    {% if not match_series and not bye_participants and not create_series_url %}
     <p class="text-muted">{% trans 'No matches have been scheduled yet.' %}</p>
     {% endif %}
     {% comment %} Fluid card grid -- the column count follows the available width.
@@ -60,6 +60,16 @@
         </div>
         {% endif %}
     </div>
+    {% comment %} Its own series-card-grid so the card is a match card's width,
+    but outside the match grid: that grid's direct children are indexed for the
+    "Match N" labels. {% endcomment %}
+    {% if bye_participants %}
+    <div class="series-card-grid mt-3">
+        <div>
+            {% include 'the_warroom/partials/bye_list.html' with participants=bye_participants variant='matches' %}
+        </div>
+    </div>
+    {% endif %}
     {% endif %}
 
     {% if can_manage and is_bracket_finalized and edit_series_url %}

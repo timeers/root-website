@@ -6473,11 +6473,14 @@ def _stage_matches_context(request, tournament, stage):
     recordable_match_ids = set()
     is_participant_series = set()
     is_bracket_finalized = False
+    bye_participants = []
 
     if round:
         is_bracket_finalized = round.bracket_status == Round.BracketStatusChoices.FINALIZED
+        # Byes are listed together below the grid (bye_list.html), not as cards.
+        bye_participants = round.bye_participants()
         match_series = _order_match_series(
-            MatchSeries.objects.filter(round=round).select_related(
+            MatchSeries.objects.filter(round=round, is_bye=False).select_related(
                 'player_group',
             ).prefetch_related(
                 'winners__tournament_player__profile',
@@ -6503,6 +6506,7 @@ def _stage_matches_context(request, tournament, stage):
     context.update({
         'active_page': 'bracket',
         'match_series': match_series,
+        'bye_participants': bye_participants,
         'recordable_match_ids': recordable_match_ids,
         'is_participant_series': is_participant_series,
         'is_bracket_finalized': is_bracket_finalized,
@@ -6855,8 +6859,9 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
             f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed round matches: {round} ({tournament.name})'
         )
 
+    # Byes are listed together below the grid (bye_list.html), not as cards.
     match_series = _order_match_series(
-        MatchSeries.objects.filter(round=round).select_related(
+        MatchSeries.objects.filter(round=round, is_bye=False).select_related(
             'player_group',
         ).prefetch_related(
             'winners__tournament_player__profile',
@@ -6880,6 +6885,7 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
     context.update({
         'active_page': 'bracket',
         'match_series': match_series,
+        'bye_participants': round.bye_participants(),
         'recordable_match_ids': recordable_match_ids,
         'is_participant_series': is_participant_series,
     })

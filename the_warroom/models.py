@@ -1872,6 +1872,37 @@ class Round(models.Model):
             and not Game.objects.filter(game_counts_for_round_q(self)).exists()
         )
 
+    def bracket_matches(self):
+        """This round's matches without the byes, for the bracket view (byes are
+        listed together by bye_participants instead). Filtered in Python so a
+        prefetched matches__series is reused; .filter() would bypass it."""
+        return [m for m in self.matches.all() if not m.series.is_bye]
+
+    def bye_participants(self):
+        """The StageParticipants with a bye in this round, sorted by name.
+
+        Reads the prefetched matches when the caller loaded them (both bracket
+        views prefetch matches__series__winners__...), costing no queries;
+        otherwise it's one query. Iterating self.matches.all() unprefetched
+        would be a query per match.
+        """
+        if 'matches' in getattr(self, '_prefetched_objects_cache', {}):
+            seen = {}
+            for match in self.matches.all():
+                if match.series.is_bye:
+                    for participant in match.series.winners.all():
+                        seen[participant.pk] = participant
+            participants = list(seen.values())
+        else:
+            participants = list(
+                StageParticipant.objects
+                .filter(won_series__round=self, won_series__is_bye=True)
+                .select_related('tournament_player__profile')
+                .distinct()
+            )
+        return sorted(participants, key=lambda p: (
+            (p.tournament_player.profile.display_name or '').lower(), p.pk))
+
     def reopen_scheduling(self):
         """Put grouping and the bracket back to draft (see can_reopen_scheduling).
         Any groups are kept, as draft groups."""
