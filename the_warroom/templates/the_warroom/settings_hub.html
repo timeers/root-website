@@ -36,6 +36,28 @@
     {% endif %}
 
 </div>
+
+{% comment %} One shared confirmation for any settings-card form carrying
+data-confirm-title (and optionally data-confirm-body / data-confirm-button).
+Shared rather than per form because the hub stacks several sections, each
+rendering the same cards. {% endcomment %}
+<div class="modal fade" id="settingsConfirmModal" tabindex="-1" aria-labelledby="settingsConfirmTitle" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="settingsConfirmTitle"></h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0" id="settingsConfirmBody"></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-primary" id="settingsConfirmButton"></button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -69,6 +91,32 @@
             console.error(err);
             btn.disabled = false;
         });
+    });
+
+    // Confirm before submitting any form with data-confirm-title. form.submit()
+    // doesn't fire 'submit' again, so confirming can't re-open the dialog.
+    const confirmEl = document.getElementById('settingsConfirmModal');
+    if (!confirmEl) return;
+    let pendingForm = null;
+    document.addEventListener('submit', function (evt) {
+        const form = evt.target.closest('form[data-confirm-title]');
+        if (!form) return;
+        evt.preventDefault();
+        pendingForm = form;
+        document.getElementById('settingsConfirmTitle').textContent = form.dataset.confirmTitle;
+        document.getElementById('settingsConfirmBody').textContent = form.dataset.confirmBody || '';
+        document.getElementById('settingsConfirmButton').textContent =
+            form.dataset.confirmButton || '{{ _("Confirm")|escapejs }}';
+        bootstrap.Modal.getOrCreateInstance(confirmEl).show();
+    });
+    document.getElementById('settingsConfirmButton').addEventListener('click', function () {
+        if (!pendingForm) return;
+        this.disabled = true;
+        pendingForm.submit();
+    });
+    confirmEl.addEventListener('hidden.bs.modal', function () {
+        pendingForm = null;
+        document.getElementById('settingsConfirmButton').disabled = false;
     });
 })();
 </script>

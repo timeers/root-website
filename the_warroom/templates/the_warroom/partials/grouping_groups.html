@@ -70,7 +70,7 @@
                         {% endif %}
                         <!-- Members List -->
                         <ul class="list-group list-group-flush group-members {% if editable %}sortable-group{% endif %}" data-group-id="{{ group.id }}">
-                            {% for sp in group.members %}
+                            {% for sp in group.rendered_members %}
                             <li class="list-group-item d-flex align-items-center player-item" data-player-id="{{ sp.id }}" data-source="group">
                                 {% if editable %}<i class="bi bi-grip-vertical drag-handle me-2 text-muted"></i>{% endif %}
                                 {% if sp.profile.image %}
@@ -145,7 +145,7 @@ _groupCalendarData[{{ group.id }}] = {
     overlap_hours: {{ group.overlap_hours|default:"[]"|safe }}
 };
 {% endif %}
-{% for sp in group.members %}
+{% for sp in group.rendered_members %}
 {% if sp.resolved_hours %}
 _playerCalendarData[{{ sp.id }}] = {
     name: "{{ sp.profile.display_name|escapejs }}",

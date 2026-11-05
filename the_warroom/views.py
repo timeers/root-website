@@ -27,6 +27,7 @@ from django.db.models import Count, F, ExpressionWrapper, FloatField, IntegerFie
 from django.db.models.functions import Cast, Coalesce, Concat, Lower, NullIf
 from django.utils import timezone 
 from django.utils.cache import patch_vary_headers
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import get_language, gettext as _, gettext_lazy as _lazy
 from urllib.parse import quote, urlencode
 
@@ -3665,37 +3666,26 @@ def tournament_dynamic_create(request):
 
             # Any classification may link a guild (was League-only).
 
-            # Stages/rounds are enabled later via the settings hub; a new
-            # tournament starts flat with a single implicit Stage and Round.
-            tournament.use_stages = False
-            tournament.save()
-            form.save_m2m()  # Save ManyToMany relationships
+            # Atomic so a failure partway can't leave a tournament without its
+            # default stage.
+            with transaction.atomic():
+                # Stages/rounds are enabled later via the settings hub; a new
+                # tournament starts flat with a single implicit Stage and Round.
+                tournament.use_stages = False
+                tournament.save()
+                form.save_m2m()  # Save ManyToMany relationships
 
-            # Save moderators
-            moderator_ids = request.POST.getlist('moderators')
-            if moderator_ids:
-                valid_moderators = Profile.objects.filter(pk__in=moderator_ids)
-                tournament.moderators.set(valid_moderators)
+                # Save moderators
+                moderator_ids = request.POST.getlist('moderators')
+                if moderator_ids:
+                    valid_moderators = Profile.objects.filter(pk__in=moderator_ids)
+                    tournament.moderators.set(valid_moderators)
 
-            # Set default assets based on asset_mode and platform
-            set_default_tournament_assets(tournament)
+                # Set default assets based on asset_mode and platform
+                set_default_tournament_assets(tournament)
 
-            stage_name = 'Stage 1'
-            round_name = 'Round 1'
-
-            # Create the initial Stage and Round 1
-            # No stage_format: the stage starts hidden (use_stages off) and
-            # inherits default_format, so later format changes apply.
-            stage = Stage.objects.create(
-                tournament=tournament,
-                name=stage_name,
-                order=1,
-            )
-            Round.objects.create(
-                stage=stage,
-                name=round_name,
-                round_number=1,
-            )
+                # Create the initial Stage 1 and Round 1
+                tournament.ensure_default_stage()
 
             messages.success(request, f"Tournament '{tournament.name}' created successfully!")
             return redirect(tournament.get_absolute_url())
@@ -5651,15 +5641,19 @@ def _schedule_matches_context(tournament, rounds):
 
     schedule_rounds = []
     for r in rounds:
+        matches_enabled = r.bracket_status == Round.BracketStatusChoices.FINALIZED
         schedule_rounds.append({
             'round': r,
-            'matches_enabled': r.bracket_status == Round.BracketStatusChoices.FINALIZED,
+            'matches_enabled': matches_enabled,
             'manage_url': _schedule_round_manage_url(tournament, r),
             'enable_url': reverse('round-enable-matches', kwargs={
                 'tournament_slug': tournament.slug,
                 'stage_slug': r.stage.slug,
                 'round_slug': r.slug,
             }),
+            # Scheduling can be turned off again until a match or game exists.
+            'can_reopen': matches_enabled and r.can_reopen_scheduling(),
+            'reopen_url': _reopen_scheduling_url(tournament, r),
         })
 
     first = schedule_rounds[0]
@@ -5668,6 +5662,24 @@ def _schedule_matches_context(tournament, rounds):
         # Back-compat single-round values (used by the `{% if schedule_round %}` gate).
         'schedule_round': first['round'],
         'matches_enabled': first['matches_enabled'],
+    }
+
+
+def _reopen_scheduling_url(tournament, round):
+    return reverse('round-reopen-scheduling', kwargs={
+        'tournament_slug': tournament.slug,
+        'stage_slug': round.stage.slug,
+        'round_slug': round.slug,
+    })
+
+
+def _grouping_reopen_context(tournament, round, grouping_step):
+    """Whether the Player Grouping card offers "Undo skip" for `round` (only
+    once grouping was skipped and nothing has been built since)."""
+    can_reopen = grouping_step == 'matches_finalized' and round.can_reopen_scheduling()
+    return {
+        'can_reopen_grouping': can_reopen,
+        'reopen_grouping_url': _reopen_scheduling_url(tournament, round) if can_reopen else None,
     }
 
 
@@ -5737,6 +5749,7 @@ def _settings_level_context(level, tournament, stage=None, round=None, *, is_own
             'default_stage_rounds': default_stage_rounds,
             'grouping_step': grouping_step,
         })
+        ctx.update(_grouping_reopen_context(tournament, default_round, grouping_step))
         # Series-level scheduling only for flat (no-stages) series; multi-stage
         # series schedule per stage on each stage hub instead.
         series_rounds = list(default_stage_rounds) if (default_stage and not tournament.use_stages) else []
@@ -5767,6 +5780,7 @@ def _settings_level_context(level, tournament, stage=None, round=None, *, is_own
             # the shared footer's `stage|default:section.default_stage` resolves.
             'default_stage': stage,
         })
+        ctx.update(_grouping_reopen_context(tournament, hidden_round, grouping_step))
         # Stage-level scheduling: this stage's rounds (the single hidden default
         # round when use_rounds is off).
         ctx.update(_schedule_matches_context(tournament, stage_rounds))
@@ -5779,6 +5793,7 @@ def _settings_level_context(level, tournament, stage=None, round=None, *, is_own
             'has_games': Game.objects.filter(round__stage=stage).exists(),
             'grouping_step': _grouping_step(round),
         })
+        ctx.update(_grouping_reopen_context(tournament, round, ctx['grouping_step']))
         ctx.update(_schedule_matches_context(tournament, [round]))
 
     if level == 'series' and tournament.guild_id:
@@ -7633,11 +7648,11 @@ def stage_grouping_setup_view(request, tournament_slug, stage_slug):
         raise PermissionDenied()
 
     if stage.use_rounds:
-        return redirect('stage-settings-hub', tournament_slug=tournament_slug, stage_slug=stage_slug)
+        return redirect('stage-settings', tournament_slug=tournament_slug, stage_slug=stage_slug)
 
     round = stage.rounds.first()
     if not round:
-        return redirect('stage-settings-hub', tournament_slug=tournament_slug, stage_slug=stage_slug)
+        return redirect('stage-settings', tournament_slug=tournament_slug, stage_slug=stage_slug)
 
     return round_grouping_setup_view(request, tournament_slug, round.slug, stage_slug=stage_slug)
 
@@ -7672,9 +7687,29 @@ def stage_manage_players(request, tournament_slug, stage_slug):
         'eliminated_participants': eliminated_participants,
         'withdrawn_participants': withdrawn_participants,
         'advanced_participants': advanced_participants,
+        'not_in_stage_count': stage.tournament_players_not_in_stage().count(),
         'import_summary': request.session.pop('player_import_summary', None),
     }
     return render(request, 'the_warroom/stage_manage_players.html', context)
+
+
+@player_onboard_required
+@require_http_methods(["POST"])
+def stage_add_all_players(request, tournament_slug, stage_slug):
+    """Add every tournament player not yet in this stage, mirroring each one's
+    tournament status as a one-at-a-time add does (StageParticipant.status_for)."""
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied()
+
+    added = stage.add_all_tournament_players()
+    if added:
+        messages.success(request, f"Added {added} player{'s' if added != 1 else ''} to {stage.name}.")
+    else:
+        messages.info(request, f"Every tournament player is already in {stage.name}.")
+    return redirect('stage-manage-players', tournament_slug=tournament.slug, stage_slug=stage.slug)
 
 
 @player_onboard_required
@@ -7860,12 +7895,7 @@ def stage_move_player(request, tournament_slug, stage_slug):
 
         # Adding from search — mirror TournamentPlayer status into StageParticipant
         tournament_player = get_object_or_404(TournamentPlayer, tournament=tournament, profile=player)
-        tournament_status_map = {
-            TournamentPlayer.StatusChoices.REGISTERED: StageParticipant.ParticipantStatus.ACTIVE,
-            TournamentPlayer.StatusChoices.WAITLIST: StageParticipant.ParticipantStatus.ACTIVE,
-            TournamentPlayer.StatusChoices.ELIMINATED: StageParticipant.ParticipantStatus.ELIMINATED,
-        }
-        to_status = tournament_status_map.get(tournament_player.status, StageParticipant.ParticipantStatus.ACTIVE)
+        to_status = StageParticipant.status_for(tournament_player)
         sp, _ = StageParticipant.objects.get_or_create(
             stage=stage,
             tournament_player=tournament_player,
@@ -8166,8 +8196,8 @@ def round_grouping_setup_view(request, tournament_slug, round_slug, stage_slug=N
         # it per player would be N+1 across the whole roster.
         _rendered = list(ungrouped_players)
         for _group in groups:
-            _group.members = list(_group.tournament_players.select_related('profile').all())
-            _rendered.extend(_group.members)
+            _group.rendered_members = list(_group.tournament_players.select_related('profile').all())
+            _rendered.extend(_group.rendered_members)
 
         _schedules = schedules_for([tp.profile_id for tp in _rendered])
         for tp in _rendered:
@@ -8852,6 +8882,37 @@ def round_enable_matches(request, tournament_slug, stage_slug, round_slug):
         messages.success(request, 'Match scheduling enabled. You can now add matches.')
 
     return redirect('round-matches-page', tournament_slug=tournament.slug, stage_slug=stage.slug, round_slug=round.slug)
+
+
+@login_required
+@require_http_methods(["POST"])
+def round_reopen_scheduling(request, tournament_slug, stage_slug, round_slug):
+    """Undo "Skip grouping" / "Enable Match Scheduling": put the round's grouping
+    and bracket back to draft, while nothing has been built on it yet (see
+    Round.can_reopen_scheduling).
+
+    Redirects back to the settings hub the button was on -- the series, stage or
+    round hub -- via a validated `next`, falling back to the round's own hub.
+    """
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied
+
+    if round.can_reopen_scheduling():
+        round.reopen_scheduling()
+        messages.success(request, f'{round.name} is back to draft. You can set up groups or enable match scheduling again.')
+    else:
+        # A match or game was added after the page loaded, or it was never finalized.
+        messages.error(request, f"{round.name} can't be reopened: it already has matches or games.")
+
+    next_url = request.POST.get('next')
+    if not url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()},
+                                           require_https=request.is_secure()):
+        next_url = round.get_settings_url()
+    return redirect(next_url)
 
 
 def _build_series_edit_context(tournament, stage, round):
@@ -10094,6 +10155,11 @@ def tournament_disable_stages(request, tournament_slug):
     if tournament.stages.count() > 1:
         return HttpResponseBadRequest("Cannot disable stages while more than one stage exists.")
 
+    # Repair a tournament left without its default stage (or the stage without
+    # its default round) before hiding stages.
+    if tournament.ensure_default_stage() is None:
+        tournament.stages.first().ensure_default_round()
+
     if tournament.use_stages:
         tournament.use_stages = False
         tournament.save(update_fields=['use_stages'])
@@ -10119,6 +10185,9 @@ def stage_disable_rounds(request, tournament_slug, stage_slug):
 
     if stage.rounds.count() > 1:
         return HttpResponseBadRequest("Cannot disable rounds while more than one round exists.")
+
+    # Repair a stage left without its default round before hiding rounds.
+    stage.ensure_default_round()
 
     if stage.use_rounds:
         stage.use_rounds = False

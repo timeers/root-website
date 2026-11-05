@@ -446,6 +446,37 @@ def stage_post_save(sender, instance, created, *args, **kwargs):
     if created:
         slugify_stage_name(instance, save=True)
 
+
+# A tournament always keeps a (hidden) default stage and a stage a default round.
+# The check is deferred to on_commit and re-reads the parent: in a cascade Django
+# deletes children before their parent, so inside post_delete a tournament (or
+# stage) that is itself being deleted still exists. After commit it is gone and
+# the callback no-ops. robust=True: the delete has already committed, so a failure
+# here is logged rather than turned into a 500 (the disable toggles and the
+# ensure_default_stages command can still repair it).
+@receiver(post_delete, sender=Stage)
+def stage_post_delete_ensure_default(sender, instance, **kwargs):
+    tournament_id = instance.tournament_id
+
+    def _ensure():
+        tournament = Tournament.objects.filter(pk=tournament_id).first()
+        if tournament:  # gone => the whole tournament was deleted
+            tournament.ensure_default_stage()
+    transaction.on_commit(_ensure, robust=True)
+
+
+@receiver(post_delete, sender=Round)
+def round_post_delete_ensure_default(sender, instance, **kwargs):
+    stage_id = instance.stage_id
+    if not stage_id:  # legacy tournament-level round (stage=None): leave alone
+        return
+
+    def _ensure():
+        stage = Stage.objects.filter(pk=stage_id).first()
+        if stage:  # gone => the stage (or its tournament) was deleted
+            stage.ensure_default_round()
+    transaction.on_commit(_ensure, robust=True)
+
 @receiver(pre_save, sender=Game)
 def game_pre_save_snapshot(sender, instance, **kwargs):
     """Snapshot final, test_match, round, date_posted and elo systems so post_save can

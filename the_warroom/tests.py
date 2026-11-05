@@ -7360,3 +7360,467 @@ class WinRateFixesTests(WinRateModeFixture, TestCase):
         self.assertEqual(self.fa.wins(), 4)
         self.assertEqual(self.fc.losses(), 3)
         self.assertEqual(self.fc.wins(), 0)
+
+
+class DefaultStageRoundInvariantTests(TestCase):
+    """Deleting a tournament's last stage (or a stage's last round) recreates the
+    hidden default and turns use_stages/use_rounds off; deleting the tournament
+    (or the stage) itself must not. The work runs on_commit, so every delete is
+    wrapped in captureOnCommitCallbacks(execute=True)."""
+
+    def setUp(self):
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+
+        self.designer = User.objects.create_user(username="stagedesigner", password="x")
+        profile = self.designer.profile
+        profile.group = Profile.GroupChoices.PLAYER
+        profile.player_onboard = True
+        profile.save()
+
+        self.tournament = Tournament.objects.create(
+            name="Invariant Series", designer=profile, is_active=True, use_stages=True,
+        )
+        self.stage = Stage.objects.create(
+            tournament=self.tournament, name="Groups", order=1, use_rounds=True,
+        )
+        self.round = Round.objects.create(stage=self.stage, name="Week 1", round_number=1)
+
+    def _delete(self, obj):
+        with self.captureOnCommitCallbacks(execute=True):
+            obj.delete()
+
+    def _assert_default_stage(self):
+        self.tournament.refresh_from_db()
+        self.assertFalse(self.tournament.use_stages)
+        stages = list(self.tournament.stages.all())
+        self.assertEqual([s.name for s in stages], ['Stage 1'])
+        self.assertFalse(stages[0].use_rounds)
+        self.assertEqual([r.name for r in stages[0].rounds.all()], ['Round 1'])
+
+    def test_deleting_one_of_two_stages_creates_nothing(self):
+        other = Stage.objects.create(tournament=self.tournament, name="Finals", order=2)
+        Round.objects.create(stage=other, name="Final", round_number=1)
+        self._delete(other)
+        self.tournament.refresh_from_db()
+        self.assertTrue(self.tournament.use_stages)
+        self.assertEqual(list(self.tournament.stages.all()), [self.stage])
+
+    def test_deleting_last_stage_creates_default_stage_and_round(self):
+        self._delete(self.stage)
+        self._assert_default_stage()
+
+    def _add_players(self):
+        """One player per TournamentPlayer status, each in the original stage."""
+        players = {}
+        for status in TournamentPlayer.StatusChoices:
+            profile = Profile.objects.create(discord=f"invariant_{status}")
+            tp = TournamentPlayer.objects.create(tournament=self.tournament,
+                                                 profile=profile, status=status)
+            StageParticipant.objects.create(stage=self.stage, tournament_player=tp)
+            players[status] = tp
+        return players
+
+    def test_deleting_last_stage_carries_players_into_default_stage(self):
+        players = self._add_players()
+        self._delete(self.stage)
+        stage = self.tournament.stages.get()
+        statuses = dict(stage.participants.values_list('tournament_player_id', 'status'))
+        S = StageParticipant.ParticipantStatus
+        self.assertEqual(statuses, {
+            players[TournamentPlayer.StatusChoices.REGISTERED].pk: S.ACTIVE,
+            # Waitlisted players join too, as add_player does in a flat series.
+            players[TournamentPlayer.StatusChoices.WAITLIST].pk: S.ACTIVE,
+            players[TournamentPlayer.StatusChoices.ELIMINATED].pk: S.ELIMINATED,
+        })
+
+    def test_ensure_default_stage_is_idempotent_for_participants(self):
+        self._add_players()
+        self._delete(self.stage)
+        stage = self.tournament.stages.get()
+        self.assertIsNone(self.tournament.ensure_default_stage())
+        self.assertEqual(stage.participants.count(), len(TournamentPlayer.StatusChoices))
+
+    def test_deleting_tournament_recreates_nothing(self):
+        tournament_id = self.tournament.pk
+        self._delete(self.tournament)
+        self.assertFalse(Stage.objects.filter(tournament_id=tournament_id).exists())
+        self.assertFalse(Round.objects.filter(stage__tournament_id=tournament_id).exists())
+
+    def test_deleting_last_round_creates_default_round(self):
+        self._delete(self.round)
+        self.stage.refresh_from_db()
+        self.assertFalse(self.stage.use_rounds)
+        self.assertEqual([r.name for r in self.stage.rounds.all()], ['Round 1'])
+
+    def test_deleting_one_of_two_rounds_creates_nothing(self):
+        Round.objects.create(stage=self.stage, name="Week 2", round_number=2)
+        self._delete(self.round)
+        self.stage.refresh_from_db()
+        self.assertTrue(self.stage.use_rounds)
+        self.assertEqual([r.name for r in self.stage.rounds.all()], ['Week 2'])
+
+    def test_deleting_stage_does_not_recreate_its_rounds(self):
+        other = Stage.objects.create(tournament=self.tournament, name="Finals", order=2)
+        Round.objects.create(stage=other, name="Final", round_number=1)
+        stage_id = self.stage.pk
+        self._delete(self.stage)
+        self.assertFalse(Round.objects.filter(stage_id=stage_id).exists())
+        self.assertEqual(list(self.tournament.stages.all()), [other])
+
+    def test_stage_delete_view_creates_default_stage(self):
+        self.client.force_login(self.designer)
+        url = reverse('stage-delete', kwargs={
+            'tournament_slug': self.tournament.slug, 'stage_slug': self.stage.slug,
+        })
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.post(url)
+        self.assertEqual(resp.status_code, 302)
+        self._assert_default_stage()
+
+    def test_round_delete_view_creates_default_round(self):
+        self.client.force_login(self.designer)
+        url = reverse('round-delete', kwargs={
+            'tournament_slug': self.tournament.slug, 'stage_slug': self.stage.slug,
+            'round_slug': self.round.slug, 'pk': self.round.pk,
+        })
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.post(url)
+        self.assertEqual(resp.status_code, 302)
+        self.stage.refresh_from_db()
+        self.assertFalse(self.stage.use_rounds)
+        self.assertEqual([r.name for r in self.stage.rounds.all()], ['Round 1'])
+
+    def test_disable_stages_repairs_stageless_tournament(self):
+        # Old broken state: a plain delete outside captureOnCommitCallbacks never
+        # runs the on_commit repair inside TestCase.
+        self.stage.delete()
+        self.client.force_login(self.designer)
+        resp = self.client.post(reverse('tournament-disable-stages', kwargs={
+            'tournament_slug': self.tournament.slug,
+        }))
+        self.assertEqual(resp.status_code, 200)
+        self._assert_default_stage()
+
+    def test_create_view_creates_one_default_stage_and_round(self):
+        self.client.force_login(self.designer)
+        resp = self.client.post(reverse('tournament-dynamic-create'), {
+            'name': 'Fresh Series',
+            'classification': Tournament.ClassificationTypes.TOURNAMENT,
+            'platform': 'Root Digital',
+            'asset_mode': 1,
+            'recording_access': 'moderators',
+            'coalition_type': 'One',
+            'tab_order': ','.join(Tournament.NAV_TABS),
+            'max_players': 4,
+            'min_players': 4,
+            'leaderboard_positions': 10,
+            'game_threshold': 1,
+        })
+        self.assertEqual(resp.status_code, 302)
+        tournament = Tournament.objects.get(name='Fresh Series')
+        self.tournament = tournament
+        self._assert_default_stage()
+
+    def test_backfill_command(self):
+        from io import StringIO
+        from django.core.management import call_command
+
+        self.stage.delete()  # on_commit repair never runs outside the capture block
+        legacy = Tournament.objects.create(name="Legacy Playtests")
+        Round.objects.create(tournament=legacy, name="2020", round_number=1)
+
+        call_command('ensure_default_stages', stdout=StringIO())
+        self.assertFalse(self.tournament.stages.exists())  # dry run writes nothing
+
+        call_command('ensure_default_stages', '--apply', stdout=StringIO())
+        self._assert_default_stage()
+        self.assertFalse(legacy.stages.exists())  # legacy stage-less rounds: skipped
+
+
+class ReopenSchedulingTests(TestCase):
+    """Settings-hub "Skip grouping" and "Enable Match Scheduling" ask first, and
+    can be undone (round_reopen_scheduling) while nothing is built on the round.
+
+    The user_logged_in handler is disconnected for bare force_login requests,
+    as in ExtraRoundsControlTests.
+    """
+
+    def setUp(self):
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+
+        self.designer = ExtraRoundsControlTests._make_player("reopen_designer")
+        self.outsider = ExtraRoundsControlTests._make_player("reopen_outsider")
+        self.tournament = Tournament.objects.create(
+            name="Reopen Series", designer=self.designer.profile, is_active=True,
+            classification=Tournament.ClassificationTypes.TOURNAMENT, use_stages=True,
+        )
+        self.stage = Stage.objects.create(tournament=self.tournament, name="Reopen Stage",
+                                          order=1, is_active=True, use_rounds=True)
+        self.round = Round.objects.create(stage=self.stage, round_number=1, is_active=True)
+        self.client.force_login(self.designer)
+
+    def _kwargs(self):
+        return {'tournament_slug': self.tournament.slug, 'stage_slug': self.stage.slug,
+                'round_slug': self.round.slug}
+
+    def _reopen(self, **data):
+        return self.client.post(reverse('round-reopen-scheduling', kwargs=self._kwargs()), data)
+
+    def _skip(self):
+        return self.client.post(reverse('round-grouping-setup', kwargs=self._kwargs()),
+                                {'action': 'skip_grouping'})
+
+    def _enable(self):
+        return self.client.post(reverse('round-enable-matches', kwargs=self._kwargs()))
+
+    def _statuses(self):
+        self.round.refresh_from_db()
+        return self.round.grouping_status, self.round.bracket_status
+
+    DRAFT = (Round.GroupingStatusChoices.DRAFT, Round.BracketStatusChoices.DRAFT)
+    FINALIZED = (Round.GroupingStatusChoices.FINALIZED, Round.BracketStatusChoices.FINALIZED)
+
+    def _round_hub(self):
+        return self.client.get(reverse('round-settings', kwargs=self._kwargs()))
+
+    # ── reopening ────────────────────────────────────────────────────────────
+
+    def test_enable_then_reopen(self):
+        self.tournament.classification = Tournament.ClassificationTypes.GROUP
+        self.tournament.save()
+        self._enable()
+        self.assertEqual(self._statuses(), self.FINALIZED)
+        self._reopen()
+        self.assertEqual(self._statuses(), self.DRAFT)
+
+    def test_skip_then_reopen_restores_set_up_groups(self):
+        from the_warroom.views import _grouping_step
+        self._skip()
+        self.assertEqual(self._statuses(), self.FINALIZED)
+        response = self._reopen()
+        self.assertEqual(self._statuses(), self.DRAFT)
+        self.assertEqual(_grouping_step(self.round), 'no_groups')
+        self.assertRedirects(response, self.round.get_settings_url(),
+                             fetch_redirect_response=False)
+
+    def _assert_refused(self):
+        self.assertEqual(self._statuses(), self.FINALIZED)
+        self.assertFalse(self.round.can_reopen_scheduling())
+        self._reopen()
+        self.assertEqual(self._statuses(), self.FINALIZED)
+
+    def test_refused_with_match_series(self):
+        self._skip()
+        MatchSeries.objects.create(round=self.round)
+        self._assert_refused()
+
+    def test_refused_with_match(self):
+        self._skip()
+        Match.objects.create(round=self.round, series=MatchSeries.objects.create(round=self.round))
+        self._assert_refused()
+
+    def test_refused_with_game(self):
+        self._skip()
+        Game.objects.create(round=self.round, final=True)
+        self._assert_refused()
+
+    def test_refused_with_extra_round_game(self):
+        self._skip()
+        other = Round.objects.create(stage=self.stage, round_number=2, is_active=True)
+        Game.objects.create(round=other, final=True).extra_rounds.add(self.round)
+        self._assert_refused()
+
+    def test_refused_when_only_groups_are_finalized(self):
+        """Finalized groups waiting for a bracket are the normal flow, not a skip."""
+        self.round.grouping_status = Round.GroupingStatusChoices.FINALIZED
+        self.round.save()
+        self.assertFalse(self.round.can_reopen_scheduling())
+        self._reopen()
+        self.assertEqual(self._statuses(),
+                         (Round.GroupingStatusChoices.FINALIZED, Round.BracketStatusChoices.DRAFT))
+
+    # ── redirect, permission, method ─────────────────────────────────────────
+
+    def test_next_same_site_path_is_honoured(self):
+        self._skip()
+        hub = reverse('tournament-settings', kwargs={'slug': self.tournament.slug})
+        response = self._reopen(next=hub)
+        self.assertRedirects(response, hub, fetch_redirect_response=False)
+
+    def test_next_external_url_is_ignored(self):
+        self._skip()
+        response = self._reopen(next='https://evil.example/')
+        self.assertRedirects(response, self.round.get_settings_url(),
+                             fetch_redirect_response=False)
+
+    def test_outsider_forbidden(self):
+        self._skip()
+        self.client.force_login(self.outsider)
+        self.assertEqual(self._reopen().status_code, 403)
+        self.assertEqual(self._statuses(), self.FINALIZED)
+
+    def test_get_not_allowed(self):
+        response = self.client.get(reverse('round-reopen-scheduling', kwargs=self._kwargs()))
+        self.assertEqual(response.status_code, 405)
+
+    # ── the settings hub ─────────────────────────────────────────────────────
+
+    def test_skip_button_asks_first(self):
+        body = self._round_hub().content.decode()
+        self.assertIn('value="skip_grouping"', body)
+        self.assertIn('data-confirm-title="Skip grouping?"', body)
+        self.assertIn('id="settingsConfirmModal"', body)
+
+    def test_undo_skip_button_only_while_reopenable(self):
+        reopen_url = reverse('round-reopen-scheduling', kwargs=self._kwargs())
+        self.assertNotIn(reopen_url, self._round_hub().content.decode())
+        self._skip()
+        body = self._round_hub().content.decode()
+        self.assertIn(reopen_url, body)
+        self.assertIn('Undo skip, set up groups', body)
+        MatchSeries.objects.create(round=self.round)
+        self.assertNotIn(reopen_url, self._round_hub().content.decode())
+
+    def test_enable_button_asks_first_and_can_be_turned_off(self):
+        self.tournament.classification = Tournament.ClassificationTypes.GROUP
+        self.tournament.save()
+        body = self._round_hub().content.decode()
+        self.assertIn('data-confirm-title="Enable match scheduling?"', body)
+        self._enable()
+        body = self._round_hub().content.decode()
+        self.assertIn('Turn off match scheduling', body)
+        self.assertIn(reverse('round-reopen-scheduling', kwargs=self._kwargs()), body)
+
+    def test_flat_series_hub_offers_undo_and_returns_to_it(self):
+        """A flat series shows the grouping card on the series hub."""
+        Tournament.objects.filter(pk=self.tournament.pk).update(use_stages=False)
+        Stage.objects.filter(pk=self.stage.pk).update(use_rounds=False)
+        hub = reverse('tournament-settings', kwargs={'slug': self.tournament.slug})
+        self.assertIn('data-confirm-title="Skip grouping?"', self.client.get(hub).content.decode())
+        self._skip()
+        body = self.client.get(hub).content.decode()
+        self.assertIn('Undo skip, set up groups', body)
+        response = self._reopen(next=hub)
+        self.assertRedirects(response, hub, fetch_redirect_response=False)
+        self.assertEqual(self._statuses(), self.DRAFT)
+
+    def test_multi_round_schedule_rows_offer_turn_off(self):
+        self.tournament.classification = Tournament.ClassificationTypes.LEAGUE
+        self.tournament.save()
+        Round.objects.create(stage=self.stage, round_number=2, is_active=True)
+        self._enable()
+        stage_hub = reverse('stage-settings', kwargs={
+            'tournament_slug': self.tournament.slug, 'stage_slug': self.stage.slug})
+        body = self.client.get(stage_hub).content.decode()
+        self.assertIn(reverse('round-reopen-scheduling', kwargs=self._kwargs()), body)
+        self.assertIn('Turn off', body)
+        # The other round's Enable asks first too.
+        self.assertIn('data-confirm-title="Enable match scheduling?"', body)
+
+    # ── stage grouping URL redirects ─────────────────────────────────────────
+
+    def test_stage_grouping_url_redirects_when_stage_uses_rounds(self):
+        url = reverse('stage-grouping-setup', kwargs={
+            'tournament_slug': self.tournament.slug, 'stage_slug': self.stage.slug})
+        self.assertRedirects(self.client.get(url), reverse('stage-settings', kwargs={
+            'tournament_slug': self.tournament.slug, 'stage_slug': self.stage.slug}),
+            fetch_redirect_response=False)
+
+    def test_stage_grouping_url_redirects_when_stage_has_no_rounds(self):
+        empty = Stage.objects.create(tournament=self.tournament, name="Empty Stage",
+                                     order=2, is_active=True, use_rounds=False)
+        self.assertFalse(empty.rounds.exists())
+        url = reverse('stage-grouping-setup', kwargs={
+            'tournament_slug': self.tournament.slug, 'stage_slug': empty.slug})
+        self.assertRedirects(self.client.get(url), reverse('stage-settings', kwargs={
+            'tournament_slug': self.tournament.slug, 'stage_slug': empty.slug}),
+            fetch_redirect_response=False)
+
+
+class StageAddAllPlayersTests(TestCase):
+    """The stage player page's "Add All" button adds every tournament player not
+    in the stage yet, with the status a one-at-a-time add gives them."""
+
+    def setUp(self):
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+
+        self.designer = ExtraRoundsControlTests._make_player("addall_designer")
+        self.outsider = ExtraRoundsControlTests._make_player("addall_outsider")
+        self.tournament = Tournament.objects.create(
+            name="Add All Series", designer=self.designer.profile, is_active=True, use_stages=True)
+        self.stage = Stage.objects.create(tournament=self.tournament, name="Add All Stage",
+                                          order=1, is_active=True)
+        self.tps = {
+            status: TournamentPlayer.objects.create(
+                tournament=self.tournament, status=status,
+                profile=Profile.objects.create(discord=f"addall_{status}"))
+            for status in TournamentPlayer.StatusChoices
+        }
+        self.kwargs = {'tournament_slug': self.tournament.slug, 'stage_slug': self.stage.slug}
+        self.client.force_login(self.designer)
+
+    def _add_all(self):
+        return self.client.post(reverse('stage-add-all-players', kwargs=self.kwargs))
+
+    def _statuses(self):
+        return dict(self.stage.participants.values_list('tournament_player__status', 'status'))
+
+    def test_adds_everyone_with_mirrored_status(self):
+        response = self._add_all()
+        self.assertRedirects(response, reverse('stage-manage-players', kwargs=self.kwargs),
+                             fetch_redirect_response=False)
+        S, T = StageParticipant.ParticipantStatus, TournamentPlayer.StatusChoices
+        self.assertEqual(self._statuses(), {
+            T.REGISTERED: S.ACTIVE, T.WAITLIST: S.ACTIVE, T.ELIMINATED: S.ELIMINATED,
+        })
+
+    def test_leaves_existing_participants_alone(self):
+        registered = self.tps[TournamentPlayer.StatusChoices.REGISTERED]
+        StageParticipant.objects.create(stage=self.stage, tournament_player=registered,
+                                        status=StageParticipant.ParticipantStatus.ADVANCED)
+        self._add_all()
+        self.assertEqual(self.stage.participants.count(), 3)
+        self.assertEqual(self.stage.participants.get(tournament_player=registered).status,
+                         StageParticipant.ParticipantStatus.ADVANCED)
+        # Running it again adds nothing.
+        self._add_all()
+        self.assertEqual(self.stage.participants.count(), 3)
+
+    def test_only_this_tournaments_players(self):
+        other = Tournament.objects.create(name="Other Add All", is_active=True)
+        TournamentPlayer.objects.create(tournament=other,
+                                        profile=Profile.objects.create(discord="addall_other"))
+        self._add_all()
+        self.assertEqual(self.stage.participants.count(), 3)
+
+    def test_outsider_forbidden_and_get_not_allowed(self):
+        self.assertEqual(self.client.get(reverse('stage-add-all-players', kwargs=self.kwargs)).status_code, 405)
+        self.client.force_login(self.outsider)
+        self.assertEqual(self._add_all().status_code, 403)
+        self.assertFalse(self.stage.participants.exists())
+
+    def test_button_shows_only_while_players_are_missing(self):
+        page = reverse('stage-manage-players', kwargs=self.kwargs)
+        self.assertContains(self.client.get(page), 'Add All (3)')
+        self._add_all()
+        self.assertNotContains(self.client.get(page), 'Add All (')
+
+    def test_single_add_uses_the_same_status_rule(self):
+        eliminated = self.tps[TournamentPlayer.StatusChoices.ELIMINATED]
+        response = self.client.post(
+            reverse('stage-move-player', kwargs=self.kwargs),
+            data=json.dumps({'player_id': eliminated.profile_id, 'from_group': '', 'to_group': 'players'}),
+            content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.stage.participants.get(tournament_player=eliminated).status,
+                         StageParticipant.ParticipantStatus.ELIMINATED)
+        self.assertContains(response, 'data-group="eliminated"')

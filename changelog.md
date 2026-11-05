@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.13.19] - 2026-11-5 Grouping Bug Fixes
+
+### New Features
+- Add All button added to the manage stage players page (adds all the registered series players to that stage)
+
+### Bug Fixes
+- Fixed naming of group members to not conflict
+- Deleting the last stage or round from a series disables that structure
+- Added confirm modals to skipping grouping
+- Added undo option to manual grouping when nothing has been created
+
 ## [1.13.18] - 2026-10-27 Draft Statistics
 
 ### New Features
