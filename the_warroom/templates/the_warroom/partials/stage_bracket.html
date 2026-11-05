@@ -26,11 +26,17 @@ Expects:
                     </div>
                     <div class="card-body d-flex flex-column gap-2">
                         {% if round.is_bracket_finalized %}
-                            {% for match in round.matches.all %}
+                            {% comment %} Byes are listed together in one card after
+                            the matches rather than as a one-player card each. {% endcomment %}
+                            {% with matches=round.bracket_matches byes=round.bye_participants %}
+                            {% for match in matches %}
                                 {% include 'the_warroom/partials/bracket_match.html' %}
-                            {% empty %}
-                                <span class='text-center'>No matches</span>
                             {% endfor %}
+                            {% include 'the_warroom/partials/bye_list.html' with participants=byes %}
+                            {% if not matches and not byes %}
+                                <span class='text-center'>No matches</span>
+                            {% endif %}
+                            {% endwith %}
                         {% else %}
                             <span class='text-center text-muted'>{% trans 'No matches have been scheduled yet.' %}</span>
                         {% endif %}
@@ -48,13 +54,21 @@ Expects:
     <div class="series-card-grid p-3">
         {% for round in rounds %}
             {% if round.is_bracket_finalized %}
-                {% for match in round.matches.all %}
+                {% with matches=round.bracket_matches byes=round.bye_participants %}
+                {% for match in matches %}
                 <div>
                     {% include 'the_warroom/partials/bracket_match.html' %}
                 </div>
-                {% empty %}
-                    <span class='text-center'>No matches</span>
                 {% endfor %}
+                {% if byes %}
+                <div>
+                    {% include 'the_warroom/partials/bye_list.html' with participants=byes %}
+                </div>
+                {% endif %}
+                {% if not matches and not byes %}
+                    <span class='text-center'>No matches</span>
+                {% endif %}
+                {% endwith %}
             {% endif %}
         {% endfor %}
     </div>

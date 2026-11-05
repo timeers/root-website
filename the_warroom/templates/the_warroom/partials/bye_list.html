@@ -1,0 +1,44 @@
+{% load i18n %}
+{% comment %}
+One card listing a round's byes: the players who weren't grouped and advance
+automatically. Replaces a card per bye on the bracket and matches pages.
+Expects:
+  - `participants`: StageParticipants (Round.bye_participants()).
+  - `variant`: 'matches' for the matches page, where the card mirrors
+    series_card_matches.html (a card-header with the bold title and badge);
+    anything else gives the compact bracket style of bracket_match.html.
+Renders nothing when empty.
+{% endcomment %}
+{% if participants %}
+<div class="card bye-list{% if variant == 'matches' %} h-100{% endif %}">
+    {% if variant == 'matches' %}
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <strong>{% trans 'Byes' %}</strong>
+        <span class="badge bg-secondary">{{ participants|length }}</span>
+    </div>
+    <div class="card-body">
+        <p class="text-muted small mb-2">{% trans 'These players advance automatically.' %}</p>
+    {% else %}
+    <div class="card-body py-2 px-3">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+            <small class="fw-bold">{% trans 'Byes' %}</small>
+            <span class="badge bg-secondary">{{ participants|length }}</span>
+        </div>
+        <p class="text-muted small mb-1">{% trans 'These players advance automatically.' %}</p>
+    {% endif %}
+        {% for participant in participants %}
+        {% with profile=participant.tournament_player.profile %}
+        <div class="d-flex align-items-center {% if variant == 'matches' %}gap-2 mb-1{% else %}gap-1 small{% endif %}">
+            {% if profile.image %}
+            <img src="{{ profile.image.url }}" alt="" class="rounded-circle flex-shrink-0" style="{% if variant == 'matches' %}width:22px;height:22px;{% else %}width:18px;height:18px;{% endif %}">
+            {% elif variant == 'matches' %}
+            <i class="bi bi-person-circle"></i>
+            {% endif %}
+            <span class="player-name-clamp" title="{{ profile.display_name }}">{{ profile.display_name }}</span>
+            <i class="bi bi-arrow-right-circle text-info ms-auto flex-shrink-0"></i>
+        </div>
+        {% endwith %}
+        {% endfor %}
+    </div>
+</div>
+{% endif %}

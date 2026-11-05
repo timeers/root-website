@@ -7824,3 +7824,127 @@ class StageAddAllPlayersTests(TestCase):
         self.assertEqual(self.stage.participants.get(tournament_player=eliminated).status,
                          StageParticipant.ParticipantStatus.ELIMINATED)
         self.assertContains(response, 'data-group="eliminated"')
+
+
+class ByeListDisplayTests(TestCase):
+    """Byes show as one "Byes" section per round on the bracket and matches
+    pages, not as a one-player match card each. Byes are built the way
+    services/bracket.py builds them."""
+
+    def setUp(self):
+        self.tournament = Tournament.objects.create(name="Bye Display Series", is_active=True,
+                                                    use_stages=True)
+        self.stage = Stage.objects.create(tournament=self.tournament, name="Bye Stage",
+                                          order=1, is_active=True, use_rounds=True)
+        self.round = Round.objects.create(
+            stage=self.stage, name="Bye Round", round_number=1, is_active=True,
+            grouping_status=Round.GroupingStatusChoices.FINALIZED,
+            bracket_status=Round.BracketStatusChoices.FINALIZED)
+
+        grouped = [self._participant(f"Grouped Player {i}") for i in range(2)]
+        group = PlayerGroup.objects.create(round=self.round, group_number=1, name="Table Alpha")
+        series = MatchSeries.objects.create(round=self.round, player_group=group)
+        Match.objects.create(round=self.round, series=series)
+        for seat, sp in enumerate(grouped, start=1):
+            MatchSeat.objects.create(series=series, stage_participant=sp, seat_number=seat)
+
+        self.zed = self._bye(self._participant("Zed Bye"))
+        self.amy = self._bye(self._participant("amy Bye"))
+
+    def _participant(self, name):
+        profile = Profile.objects.create(discord=name.lower().replace(' ', '_'), display_name=name)
+        tp = TournamentPlayer.objects.create(tournament=self.tournament, profile=profile)
+        return StageParticipant.objects.create(stage=self.stage, tournament_player=tp)
+
+    def _bye(self, sp):
+        series = MatchSeries.objects.create(round=self.round, is_bye=True, number_of_games=0,
+                                            status=CompetitionStatus.COMPLETED)
+        series.winners.add(sp)
+        Match.objects.create(round=self.round, series=series, status=CompetitionStatus.COMPLETED)
+        MatchSeat.objects.create(series=series, stage_participant=sp, seat_number=1)
+        return sp
+
+    def _prefetched_round(self):
+        return Round.objects.prefetch_related(
+            'matches__series__winners__tournament_player__profile').get(pk=self.round.pk)
+
+    def _stage_kwargs(self):
+        return {'tournament_slug': self.tournament.slug, 'stage_slug': self.stage.slug}
+
+    # ── model ────────────────────────────────────────────────────────────────
+
+    def test_bye_participants_sorted_and_only_byes(self):
+        self.assertEqual(self.round.bye_participants(), [self.amy, self.zed])
+
+    def test_bye_participants_same_from_prefetched_round(self):
+        self.assertEqual(self._prefetched_round().bye_participants(), [self.amy, self.zed])
+
+    def test_bracket_matches_excludes_byes(self):
+        matches = self._prefetched_round().bracket_matches()
+        self.assertEqual(len(matches), 1)
+        self.assertFalse(matches[0].series.is_bye)
+
+    # ── pages ────────────────────────────────────────────────────────────────
+
+    def _assert_bye_section(self, body):
+        self.assertEqual(body.count('card bye-list'), 1)
+        self.assertIn('These players advance automatically.', body)
+        self.assertLess(body.index('amy Bye'), body.index('Zed Bye'))
+        # The old one-card-per-bye markup is gone.
+        self.assertNotIn('badge bg-info">Bye', body)
+
+    def test_stage_bracket_page(self):
+        body = self.client.get(reverse('stage-bracket-page', kwargs=self._stage_kwargs())).content.decode()
+        self._assert_bye_section(body)
+        self.assertIn('Table Alpha', body)
+
+    def test_series_bracket_page(self):
+        body = self.client.get(reverse('tournament-bracket-page',
+                                       kwargs={'slug': self.tournament.slug})).content.decode()
+        self._assert_bye_section(body)
+        self.assertIn('Table Alpha', body)
+
+    def test_matches_pages(self):
+        for url in (reverse('stage-matches-page', kwargs=self._stage_kwargs()),
+                    reverse('round-matches-page', kwargs={**self._stage_kwargs(),
+                                                          'round_slug': self.round.slug})):
+            response = self.client.get(url)
+            body = response.content.decode()
+            self._assert_bye_section(body)
+            # Styled like a match card: a card-header with the bold title.
+            self.assertInHTML('<strong>Byes</strong>', body)
+            self.assertEqual([s.player_group.name for s in response.context['match_series']],
+                             ['Table Alpha'])
+
+    def test_byes_only_round_isnt_called_empty(self):
+        MatchSeries.objects.filter(round=self.round, is_bye=False).delete()
+        body = self.client.get(reverse('stage-matches-page', kwargs=self._stage_kwargs())).content.decode()
+        self.assertNotIn('No matches have been scheduled yet.', body)
+        self._assert_bye_section(body)
+
+    def test_draft_bracket_shows_no_byes(self):
+        Round.objects.filter(pk=self.round.pk).update(bracket_status=Round.BracketStatusChoices.DRAFT)
+        body = self.client.get(reverse('stage-bracket-page', kwargs=self._stage_kwargs())).content.decode()
+        self.assertNotIn('bye-list', body)
+
+    # ── queries ──────────────────────────────────────────────────────────────
+
+    def _count_queries(self, url):
+        with CaptureQueriesContext(connection) as ctx:
+            self.client.get(url)
+        return len(ctx.captured_queries)
+
+    def test_more_byes_cost_no_more_queries(self):
+        urls = [reverse('stage-bracket-page', kwargs=self._stage_kwargs()),
+                reverse('tournament-bracket-page', kwargs={'slug': self.tournament.slug}),
+                reverse('stage-matches-page', kwargs=self._stage_kwargs())]
+        for url in urls:
+            self.client.get(url)  # warm per-process caches the first load fills
+        before = [self._count_queries(url) for url in urls]
+        self._bye(self._participant("Third Bye"))
+        self.assertEqual([self._count_queries(url) for url in urls], before)
+
+    def test_prefetched_round_finds_byes_without_queries(self):
+        round = self._prefetched_round()
+        with self.assertNumQueries(0):
+            self.assertEqual(round.bye_participants(), [self.amy, self.zed])
