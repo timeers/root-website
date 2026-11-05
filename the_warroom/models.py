@@ -968,6 +968,29 @@ class Tournament(models.Model):
         only_stage = self.stages.first()
         return bool(only_stage and not only_stage.use_rounds)
 
+    def ensure_default_stage(self):
+        """Give a tournament with no stages the generic hidden "Stage 1" (with its
+        default "Round 1") and turn use_stages off. Returns the new stage, or None
+        if the tournament already had one. Idempotent: used by the create view,
+        after the last stage is deleted (signals.py), from the disable-stages
+        toggle, and by the ensure_default_stages command.
+
+        The tournament's existing players join the new stage: deleting the last
+        stage took their StageParticipants with it (see
+        Stage.add_all_tournament_players)."""
+        with transaction.atomic():
+            if self.stages.exists():
+                return None
+            if self.use_stages:
+                self.use_stages = False
+                self.save(update_fields=['use_stages'])
+            # No stage_format: the stage is hidden (use_stages off) and inherits
+            # default_format, so later format changes apply.
+            stage = Stage.objects.create(tournament=self, name='Stage 1', order=1)
+            stage.ensure_default_round()
+            stage.add_all_tournament_players()
+            return stage
+
     def _bracket_url_name(self):
         """The bracket tab links to the bracket page only when there is a
         multi-stage/round layout to lay out; otherwise it is really showing
@@ -1361,6 +1384,19 @@ class Stage(models.Model):
         help_text="Whether this stage is currently active and visible to users"
     )
 
+    def ensure_default_round(self):
+        """Give a stage with no rounds the generic hidden "Round 1" and turn
+        use_rounds off. Returns the new round, or None if the stage already had
+        one. Idempotent: called after the last round is deleted (signals.py),
+        from the disable-rounds toggle, and by the ensure_default_stages command."""
+        with transaction.atomic():
+            if self.rounds.exists():
+                return None
+            if self.use_rounds:
+                self.use_rounds = False
+                self.save(update_fields=['use_rounds'])
+            return Round.objects.create(stage=self, name='Round 1', round_number=1)
+
     def get_game_threshold(self):
         return self.game_threshold if self.game_threshold is not None else self.tournament.game_threshold
 
@@ -1533,6 +1569,21 @@ class Stage(models.Model):
             stage=self,
             defaults={'status': StageParticipant.ParticipantStatus.ACTIVE}
         )
+
+    def tournament_players_not_in_stage(self):
+        """The tournament's players who aren't participants in this stage yet."""
+        return self.tournament.tournament_players.exclude(stage_participations__stage=self)
+
+    def add_all_tournament_players(self):
+        """Add every tournament player not already in this stage, with the status
+        StageParticipant.status_for gives them. Returns how many were added."""
+        new = [
+            StageParticipant(stage=self, tournament_player=tp,
+                             status=StageParticipant.status_for(tp))
+            for tp in self.tournament_players_not_in_stage()
+        ]
+        StageParticipant.objects.bulk_create(new)
+        return len(new)
 
     def get_format(self):
         """Get the effective format for this stage"""
@@ -1802,6 +1853,32 @@ class Round(models.Model):
         """True once this round's bracket is finalized and its matches are live.
         Mirrors the gate used on the matches page (_stage_matches_context)."""
         return self.bracket_status == self.BracketStatusChoices.FINALIZED
+
+    def can_reopen_scheduling(self):
+        """True when this round's bracket is finalized but nothing has been built
+        on it yet: no matches, no match series, no games (extra-round games
+        included).
+
+        That's the state "Skip grouping" and "Enable Match Scheduling" leave
+        behind, so it can be safely put back to draft. The normal grouping flow
+        always creates match series before finalizing the bracket, so a round
+        finalized that way never qualifies; grouping finalized on its own (real
+        groups waiting for a bracket) isn't reopenable either.
+        """
+        return (
+            self.bracket_status == self.BracketStatusChoices.FINALIZED
+            and not self.matches.exists()
+            and not self.series.exists()
+            and not Game.objects.filter(game_counts_for_round_q(self)).exists()
+        )
+
+    def reopen_scheduling(self):
+        """Put grouping and the bracket back to draft (see can_reopen_scheduling).
+        Any groups are kept, as draft groups."""
+        self.grouping_status = self.GroupingStatusChoices.DRAFT
+        self.bracket_status = self.BracketStatusChoices.DRAFT
+        self.grouping_notes = ''
+        self.save(update_fields=['grouping_status', 'bracket_status', 'grouping_notes'])
 
     def _stage_slug(self):
         return self.stage.slug if self.stage else None
@@ -3450,6 +3527,15 @@ class StageParticipant(models.Model):
         choices=ParticipantStatus.choices,
         default=ParticipantStatus.ACTIVE
     )
+
+    @classmethod
+    def status_for(cls, tournament_player):
+        """The status a tournament player joins a stage with: eliminated players
+        stay eliminated (so they aren't grouped again); everyone else, waitlisted
+        players included, joins active."""
+        if tournament_player.status == TournamentPlayer.StatusChoices.ELIMINATED:
+            return cls.ParticipantStatus.ELIMINATED
+        return cls.ParticipantStatus.ACTIVE
 
 class MatchSeat(models.Model):
     series = models.ForeignKey(MatchSeries, on_delete=models.CASCADE)

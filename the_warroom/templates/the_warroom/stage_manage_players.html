@@ -29,8 +29,18 @@
 
     <!-- Search to Add Players -->
     <div class="card mb-4">
-        <div class="card-header bg-light">
-            <i class="bi bi-search me-2"></i>Add Players to Stage
+        <div class="card-header bg-light d-flex justify-content-between align-items-center">
+            <span><i class="bi bi-search me-2"></i>Add Players to Stage</span>
+            {% if not_in_stage_count %}
+            {% comment %} Adds every tournament player not in the stage yet, each
+            with the status a one-at-a-time add would give them. {% endcomment %}
+            <form method="post" action="{% url 'stage-add-all-players' tournament_slug=tournament.slug stage_slug=stage.slug %}" class="mb-0">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-people-fill me-1"></i>Add All ({{ not_in_stage_count }})
+                </button>
+            </form>
+            {% endif %}
         </div>
         <div class="card-body">
             <input type="text"
