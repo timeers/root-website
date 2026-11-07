@@ -1,0 +1,226 @@
+{% load i18n %}
+{% comment %}
+Byes dialog for the matches page, modelled on series_edit_modal.html: remove
+current byes, add stage participants who aren't in a match this round, then
+Save posts to round_edit_byes and swaps #bye-card without a reload.
+
+Data comes from json_script (not |safe into a script) and rows are built with
+textContent, so a display name can never break out into markup.
+Expects: edit_byes_url, byes_json ({current: [...], eligible: [...]}).
+{% endcomment %}
+{{ byes_json|json_script:"bye-data" }}
+
+<div class="modal fade" id="byeEditModal" tabindex="-1" aria-labelledby="byeEditModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title root-title" id="byeEditModalLabel">{% trans 'Edit Byes' %}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted small">{% trans 'Players with a bye advance automatically. Only players who are not in a match this round can be given one.' %}</p>
+
+                <div class="mb-3">
+                    <label class="form-label text-muted small"><i class="bi bi-person-check-fill"></i> {% trans 'Current Byes' %}</label>
+                    <ul class="list-group" id="byeEditCurrent"></ul>
+                    <p class="text-muted small mb-0 mt-1" id="byeEditCurrentEmpty">{% trans 'No byes this round.' %}</p>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label text-muted small" for="byeEditSearch"><i class="bi bi-person-fill-add"></i> {% trans 'Add Bye' %}</label>
+                    <input type="text" class="form-control mb-2" id="byeEditSearch" placeholder="{% trans 'Search players...' %}" autocomplete="off">
+                    <ul class="list-group" id="byeEditResults" style="max-height: 240px; overflow-y: auto;"></ul>
+                </div>
+
+                <div class="alert alert-danger d-none mb-0" id="byeEditError" role="alert"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{% trans 'Cancel' %}</button>
+                <button type="button" class="btn btn-primary" id="saveByeEditBtn" onclick="saveByeEdit()">
+                    <i class="bi bi-check-lg"></i> {% trans 'Save' %}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+var _byeEditUrl = '{{ edit_byes_url|escapejs }}';
+var _byeCsrfToken = '{{ csrf_token }}';
+// {current: [{id, display_name, image_url, status}], eligible: [...]}; replaced
+// after every save (and by match edits that delete a bye) so reopening is current.
+var _byeData = JSON.parse(document.getElementById('bye-data').textContent);
+var _byeCurrent = [];   // the dialog's working copy of current byes
+var _byeAddedIds = [];
+var _byeRemovedIds = [];
+
+function _byeSetData(byes) {
+    if (byes) _byeData = byes;
+}
+
+function _byePlayerLabel(sp) {
+    // Avatar + name (+ status badge when not active), built without innerHTML.
+    const wrap = document.createElement('div');
+    wrap.className = 'd-flex align-items-center';
+    if (sp.image_url) {
+        const img = document.createElement('img');
+        img.src = sp.image_url;
+        img.alt = '';
+        img.className = 'rounded-circle me-2';
+        img.style.width = '24px';
+        img.style.height = '24px';
+        wrap.appendChild(img);
+    } else {
+        const icon = document.createElement('i');
+        icon.className = 'bi bi-person-circle me-2';
+        wrap.appendChild(icon);
+    }
+    const name = document.createElement('span');
+    name.textContent = sp.display_name;
+    wrap.appendChild(name);
+    if (sp.status && sp.status !== 'active') {
+        const badge = document.createElement('span');
+        const color = sp.status === 'eliminated' ? 'danger' : sp.status === 'advanced' ? 'info' : 'warning';
+        badge.className = `badge bg-${color} ms-1`;
+        badge.textContent = sp.status;
+        wrap.appendChild(badge);
+    }
+    return wrap;
+}
+
+function _byeIconButton(cls, icon, title, onClick) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `btn btn-sm ${cls}`;
+    btn.title = title;
+    const i = document.createElement('i');
+    i.className = `bi ${icon}`;
+    btn.appendChild(i);
+    btn.onclick = onClick;
+    return btn;
+}
+
+function _byeRender() {
+    const list = document.getElementById('byeEditCurrent');
+    list.replaceChildren();
+    _byeCurrent.forEach(sp => {
+        const li = document.createElement('li');
+        li.className = 'list-group-item d-flex align-items-center justify-content-between';
+        li.appendChild(_byePlayerLabel(sp));
+        li.appendChild(_byeIconButton('btn-outline-danger', 'bi-x-lg', '{{ _("Remove")|escapejs }}', () => _byeRemove(sp.id)));
+        list.appendChild(li);
+    });
+    document.getElementById('byeEditCurrentEmpty').classList.toggle('d-none', _byeCurrent.length > 0);
+    _byeRenderResults();
+}
+
+function _byeAvailable() {
+    // Eligible players not yet added here, plus current byes removed here
+    // (they're back to unmatched, so they can be re-added).
+    const currentIds = new Set(_byeCurrent.map(sp => sp.id));
+    const pool = _byeData.eligible.concat(_byeData.current);
+    return pool.filter(sp => !currentIds.has(sp.id));
+}
+
+function _byeRenderResults() {
+    const results = document.getElementById('byeEditResults');
+    results.replaceChildren();
+    const query = document.getElementById('byeEditSearch').value.trim().toLowerCase();
+    const matches = _byeAvailable().filter(
+        sp => !query || (sp.display_name || '').toLowerCase().includes(query));
+    matches.forEach(sp => {
+        const li = document.createElement('li');
+        li.className = 'list-group-item list-group-item-action d-flex align-items-center justify-content-between py-1';
+        li.appendChild(_byePlayerLabel(sp));
+        li.appendChild(_byeIconButton('btn-outline-primary', 'bi-plus-lg', '{{ _("Add")|escapejs }}', () => _byeAdd(sp.id)));
+        results.appendChild(li);
+    });
+    if (!matches.length) {
+        const li = document.createElement('li');
+        li.className = 'list-group-item text-muted text-center';
+        const small = document.createElement('small');
+        small.textContent = query ? '{{ _("No players found")|escapejs }}' : '{{ _("Every player is in a match or has a bye.")|escapejs }}';
+        li.appendChild(small);
+        results.appendChild(li);
+    }
+}
+
+function _byeAdd(id) {
+    const sp = _byeAvailable().find(p => p.id === id);
+    if (!sp) return;
+    _byeCurrent.push(sp);
+    const removedIdx = _byeRemovedIds.indexOf(id);
+    if (removedIdx > -1) _byeRemovedIds.splice(removedIdx, 1);  // undoing a removal
+    else _byeAddedIds.push(id);
+    _byeRender();
+}
+
+function _byeRemove(id) {
+    _byeCurrent = _byeCurrent.filter(sp => sp.id !== id);
+    const addedIdx = _byeAddedIds.indexOf(id);
+    if (addedIdx > -1) _byeAddedIds.splice(addedIdx, 1);  // never saved: just drop it
+    else _byeRemovedIds.push(id);
+    _byeRender();
+}
+
+function openByeEditModal() {
+    _byeCurrent = _byeData.current.slice();
+    _byeAddedIds = [];
+    _byeRemovedIds = [];
+    document.getElementById('byeEditSearch').value = '';
+    document.getElementById('byeEditError').classList.add('d-none');
+    _byeRender();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('byeEditModal')).show();
+}
+
+function _byeShowError(message) {
+    const el = document.getElementById('byeEditError');
+    el.textContent = message;
+    el.classList.remove('d-none');
+}
+
+// Replace the Byes card (also called after match edits that delete a bye).
+function _byeSwapCard(html, byes) {
+    const wrapper = document.getElementById('bye-card');
+    if (wrapper && html !== undefined) wrapper.innerHTML = html;
+    _byeSetData(byes);
+}
+
+function saveByeEdit() {
+    const saveBtn = document.getElementById('saveByeEditBtn');
+    if (!_byeAddedIds.length && !_byeRemovedIds.length) {
+        bootstrap.Modal.getInstance(document.getElementById('byeEditModal'))?.hide();
+        return;
+    }
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> {{ _("Saving...")|escapejs }}';
+
+    fetch(_byeEditUrl, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': _byeCsrfToken},
+        body: JSON.stringify({
+            add_participant_ids: _byeAddedIds,
+            remove_participant_ids: _byeRemovedIds,
+        }),
+    })
+    .then(response => response.json().then(data => ({ok: response.ok, data})))
+    .then(({ok, data}) => {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-check-lg"></i> {{ _("Save")|escapejs }}';
+        if (!ok || !data.success) {
+            _byeShowError(data.error || '{{ _("Unknown error")|escapejs }}');
+            return;
+        }
+        bootstrap.Modal.getInstance(document.getElementById('byeEditModal'))?.hide();
+        _byeSwapCard(data.html, data.byes);
+    })
+    .catch(error => {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-check-lg"></i> {{ _("Save")|escapejs }}';
+        console.error('Error:', error);
+        _byeShowError('{{ _("An error occurred while saving.")|escapejs }}');
+    });
+}
+
+document.getElementById('byeEditSearch').addEventListener('input', _byeRenderResults);
+</script>

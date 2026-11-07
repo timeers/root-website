@@ -147,6 +147,11 @@ share the fetch/card-swap plumbing and the CSRF token. {% endcomment %}
         wrapper.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
             if (!bootstrap.Tooltip.getInstance(el)) new bootstrap.Tooltip(el);
         });
+        // Linking re-seats the series from the game's players, which deletes any
+        // bye they held this round: refresh the Byes card too.
+        if (data.byes_html !== undefined && typeof _byeSwapCard === 'function') {
+            _byeSwapCard(data.byes_html, data.byes);
+        }
     }
 
     function _showError(id, message) {

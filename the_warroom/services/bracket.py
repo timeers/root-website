@@ -115,27 +115,52 @@ class BracketService:
                 ).first()
                 if not sp:
                     continue
-
-                bye_series = MatchSeries.objects.create(
-                    round=round,
-                    is_bye=True,
-                    number_of_games=0,
-                    status=CompetitionStatus.COMPLETED,
-                )
-                bye_series.winners.add(sp)
-
-                Match.objects.create(
-                    round=round,
-                    series=bye_series,
-                    status=CompetitionStatus.COMPLETED,
-                )
-                MatchSeat.objects.create(
-                    series=bye_series,
-                    stage_participant=sp,
-                    seat_number=1,
-                )
+                cls.create_bye(round, sp)
 
         return warnings
+
+    # ── Byes ────────────────────────────────────────────────────────
+
+    @classmethod
+    @transaction.atomic
+    def create_bye(cls, round, stage_participant):
+        """Give `stage_participant` a bye in `round`: a completed bye series they
+        win, with one completed match and their seat. Shared by bracket
+        generation and the matches page's Byes dialog. Returns the series."""
+        bye_series = MatchSeries.objects.create(
+            round=round,
+            is_bye=True,
+            number_of_games=0,
+            status=CompetitionStatus.COMPLETED,
+        )
+        bye_series.winners.add(stage_participant)
+        Match.objects.create(
+            round=round,
+            series=bye_series,
+            status=CompetitionStatus.COMPLETED,
+        )
+        MatchSeat.objects.create(
+            series=bye_series,
+            stage_participant=stage_participant,
+            seat_number=1,
+        )
+        return bye_series
+
+    @classmethod
+    @transaction.atomic
+    def remove_byes(cls, round, stage_participant):
+        """Delete `stage_participant`'s bye series in `round` (matched by winner
+        or by seat); the matches and seats cascade. Returns how many series
+        were deleted."""
+        from django.db.models import Q
+        bye_ids = list(MatchSeries.objects.filter(
+            Q(winners=stage_participant) | Q(matchseat__stage_participant=stage_participant),
+            round=round, is_bye=True,
+        ).values_list('pk', flat=True).distinct())
+        if not bye_ids:
+            return 0
+        MatchSeries.objects.filter(pk__in=bye_ids).delete()
+        return len(bye_ids)
 
     # ── Advancement logic ───────────────────────────────────────────
 

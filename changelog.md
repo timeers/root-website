@@ -4,6 +4,7 @@
 
 ### New Features
 - Add All button added to the manage stage players page (adds all the registered series players to that stage)
+- New card to manage tournament byes
 
 ### Improvements
 - Series byes are grouped together with clearer wording
