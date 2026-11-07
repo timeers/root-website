@@ -641,6 +641,15 @@ function saveSeriesEdit() {
             }
             if (data.series) _seriesDataMap[data.series_id] = data.series;
         }
+        // Seating a player deletes any bye they held this round. The bracket setup
+        // page shows byes as their own cards; the matches page has the Byes card.
+        (data.removed_bye_series_ids || []).forEach(id => {
+            document.getElementById(`series-card-${id}`)?.remove();
+            delete _seriesDataMap[id];
+        });
+        if (data.byes_html !== undefined && typeof _byeSwapCard === 'function') {
+            _byeSwapCard(data.byes_html, data.byes);
+        }
     })
     .catch(error => {
         saveBtn.disabled = false;

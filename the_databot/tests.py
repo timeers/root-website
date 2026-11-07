@@ -13672,6 +13672,12 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
 
     def setUp(self):
         super().setUp()
+        # The task reads the forum's archive setting once per batch (a Discord GET).
+        archive_patch = mock.patch(
+            "the_databot.services.discordservice.channel_archive_duration",
+            return_value=4320)
+        self.archive_lookup = archive_patch.start()
+        self.addCleanup(archive_patch.stop)
         self.guild = DiscordGuild.objects.create(guild_id="920100", name="Task Guild",
                                                  bot_member=True)
         self.actor = Profile.objects.create(discord="actor", discord_id="90")
@@ -13922,6 +13928,32 @@ class CreateMatchThreadsTaskTests(_NoLoginSignalMixin, TestCase):
         for call in create.call_args_list:
             self.assertEqual(call.kwargs["tag_id"], "55501")
 
+    def test_every_post_and_retry_carries_the_forums_archive_duration(self):
+        create = self._run(side_effect=[(None, 1.0, 429), ("777011", None, None)])
+        self.assertEqual(create.call_count, 2)
+        for call in create.call_args_list:
+            self.assertEqual(call.kwargs["auto_archive_duration"], 4320)
+        self.archive_lookup.assert_called_once_with(self.FORUM[0]["id"])
+
+    def test_the_archive_setting_is_read_once_per_batch(self):
+        for number in (2, 3):
+            group = PlayerGroup.objects.create(
+                round=self.round, group_number=number, name=f"Group {number}")
+            series = MatchSeries.objects.create(
+                round=self.round, player_group=group, number_of_games=1)
+            Match.objects.create(round=self.round, series=series, match_number=number)
+        create = self._run(side_effect=[("777101", None, None), ("777102", None, None),
+                                        ("777103", None, None)])
+        self.assertEqual(create.call_count, 3)
+        self.archive_lookup.assert_called_once()
+
+    def test_no_lookup_when_nothing_needs_a_thread(self):
+        self._run()                        # links Group A's thread
+        self.archive_lookup.reset_mock()
+        create = self._run(thread_id="777002")
+        create.assert_not_called()
+        self.archive_lookup.assert_not_called()
+
     def test_a_400_with_no_tag_set_names_the_likely_cause(self):
         """The production symptom: retrying is pointless until a tag is chosen, so say
         so rather than inviting an identical failure."""
@@ -14000,6 +14032,14 @@ class CreateForumThreadResultTests(TestCase):
 
     CHANNEL = "300000000000000033"
 
+    def setUp(self):
+        # Without a passed duration the function reads the forum's setting (a GET).
+        archive_patch = mock.patch(
+            "the_databot.services.discordservice.channel_archive_duration",
+            return_value=4320)
+        self.archive_lookup = archive_patch.start()
+        self.addCleanup(archive_patch.stop)
+
     def _post(self, status=None, json_body=None, text="", exc=None):
         """Patch requests.post with a response that raise_for_status()es on `status`."""
         import requests
@@ -14024,6 +14064,27 @@ class CreateForumThreadResultTests(TestCase):
         self.assertEqual(thread_id, "77")
         self.assertIsNone(status)
         self.assertEqual(post.call_args.kwargs["json"]["applied_tags"], ["55501"])
+
+    def test_the_forums_archive_setting_is_sent(self):
+        from the_databot.services.discordservice import create_forum_thread_result
+        with self._post(json_body={"id": "77"}) as post:
+            create_forum_thread_result(self.CHANNEL, "Group A", content="hi")
+        self.archive_lookup.assert_called_once_with(self.CHANNEL)
+        self.assertEqual(post.call_args.kwargs["json"]["auto_archive_duration"], 4320)
+
+    def test_a_passed_duration_is_sent_without_a_lookup(self):
+        from the_databot.services.discordservice import create_forum_thread_result
+        with self._post(json_body={"id": "77"}) as post:
+            create_forum_thread_result(self.CHANNEL, "Group A", content="hi",
+                                       auto_archive_duration=60)
+        self.archive_lookup.assert_not_called()
+        self.assertEqual(post.call_args.kwargs["json"]["auto_archive_duration"], 60)
+
+    def test_the_lfg_wrapper_passes_the_duration_through(self):
+        from the_databot.services.discordservice import create_forum_thread
+        with self._post(json_body={"id": "77"}) as post:
+            create_forum_thread(self.CHANNEL, "Game", content="hi", auto_archive_duration=1440)
+        self.assertEqual(post.call_args.kwargs["json"]["auto_archive_duration"], 1440)
 
     def test_no_tag_omits_applied_tags(self):
         from the_databot.services.discordservice import create_forum_thread_result
@@ -21903,3 +21964,91 @@ class UnusedTimeFieldsTests(TestCase):
             for entry in option["yes"] + option["no"]:
                 self.assertIn(f"<@{entry['id']}>", field["value"])
             self.assertLessEqual(len(field["value"]), 1024)
+
+
+
+def _archive_response(json_body=None, status=200, exc=None):
+    """A mock requests.get for channel_archive_duration."""
+    import requests
+    if exc is not None:
+        return mock.patch("the_databot.services.discordservice.requests.get", side_effect=exc)
+    resp = mock.Mock()
+    resp.status_code = status
+    resp.json.return_value = {} if json_body is None else json_body
+    if status >= 400:
+        resp.raise_for_status.side_effect = requests.HTTPError(f"{status}", response=resp)
+    else:
+        resp.raise_for_status.return_value = None
+    return mock.patch("the_databot.services.discordservice.requests.get", return_value=resp)
+
+
+class ChannelArchiveDurationTests(TestCase):
+    """channel_archive_duration: the channel's "Hide After Inactivity", or a week
+    whenever it can't be read."""
+
+    def _duration(self, **kwargs):
+        from the_databot.services.discordservice import channel_archive_duration
+        with _archive_response(**kwargs) as get:
+            return channel_archive_duration("123"), get
+
+    def test_allowed_values_are_returned(self):
+        for value in (60, 1440, 4320, 10080):
+            duration, get = self._duration(json_body={"default_auto_archive_duration": value})
+            self.assertEqual(duration, value)
+            self.assertTrue(get.call_args.args[0].endswith("/channels/123"))
+
+    def test_unreadable_settings_fall_back_to_a_week(self):
+        import requests
+        cases = [
+            {"json_body": {}},                                         # missing
+            {"json_body": {"default_auto_archive_duration": None}},    # null
+            {"json_body": {"default_auto_archive_duration": 2880}},    # not allowed
+            {"json_body": []},                                         # odd shape
+            {"status": 403},
+            {"exc": requests.ConnectionError("down")},
+        ]
+        for case in cases:
+            duration, _ = self._duration(**case)
+            self.assertEqual(duration, 10080, case)
+
+    def test_not_cached(self):
+        from the_databot.services.discordservice import channel_archive_duration
+        with _archive_response(json_body={"default_auto_archive_duration": 4320}) as get:
+            channel_archive_duration("123")
+            channel_archive_duration("123")
+        self.assertEqual(get.call_count, 2)
+
+
+class CreateMessageThreadTests(TestCase):
+    """create_message_thread (LFG in an ordinary channel) always sends a duration."""
+
+    def _post(self):
+        resp = mock.Mock()
+        resp.raise_for_status.return_value = None
+        resp.json.return_value = {"id": "88"}
+        return mock.patch("the_databot.services.discordservice.requests.post",
+                          return_value=resp)
+
+    def test_the_channels_setting_is_sent(self):
+        from the_databot.services.discordservice import create_message_thread
+        with self._post() as post, mock.patch(
+                "the_databot.services.discordservice.channel_archive_duration",
+                return_value=4320) as lookup:
+            self.assertEqual(create_message_thread("chan", "msg", "Game"), "88")
+        lookup.assert_called_once_with("chan")
+        self.assertEqual(post.call_args.kwargs["json"]["auto_archive_duration"], 4320)
+
+    def test_a_passed_duration_is_sent_without_a_lookup(self):
+        from the_databot.services.discordservice import create_message_thread
+        with self._post() as post, mock.patch(
+                "the_databot.services.discordservice.channel_archive_duration") as lookup:
+            create_message_thread("chan", "msg", "Game", auto_archive_duration=60)
+        lookup.assert_not_called()
+        self.assertEqual(post.call_args.kwargs["json"]["auto_archive_duration"], 60)
+
+    def test_an_unreadable_setting_sends_a_week(self):
+        import requests
+        from the_databot.services.discordservice import create_message_thread
+        with self._post() as post, _archive_response(exc=requests.Timeout("slow")):
+            create_message_thread("chan", "msg", "Game")
+        self.assertEqual(post.call_args.kwargs["json"]["auto_archive_duration"], 10080)

@@ -1903,6 +1903,21 @@ class Round(models.Model):
         return sorted(participants, key=lambda p: (
             (p.tournament_player.profile.display_name or '').lower(), p.pk))
 
+    def matched_participant_ids(self):
+        """Ids of the StageParticipants "in a match" this round: seated in a
+        non-bye series, or in one of the round's player groups (which stage
+        advancement counts too). Group membership is stored as TournamentPlayers,
+        so it's mapped back to this stage's participants."""
+        if not self.stage_id:
+            return set()
+        seated = MatchSeat.objects.filter(
+            series__round=self, series__is_bye=False,
+        ).values_list('stage_participant_id', flat=True)
+        grouped = StageParticipant.objects.filter(
+            stage_id=self.stage_id, tournament_player__player_groups__round=self,
+        ).values_list('pk', flat=True)
+        return set(seated) | set(grouped)
+
     def reopen_scheduling(self):
         """Put grouping and the bracket back to draft (see can_reopen_scheduling).
         Any groups are kept, as draft groups."""

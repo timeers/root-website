@@ -6520,6 +6520,7 @@ def _stage_matches_context(request, tournament, stage):
 
     if context.get('can_manage') and is_bracket_finalized and round:
         context.update(_build_series_edit_context(tournament, stage, round))
+        context.update(_bye_edit_context(request, tournament, stage, round))
         context['create_series_url'] = reverse('round-create-series', kwargs={
             'tournament_slug': tournament.slug,
             'stage_slug': stage.slug,
@@ -6893,6 +6894,7 @@ def round_matches_page(request, tournament_slug, round_slug, stage_slug=None):
     # Add series edit modal context for managers
     if context.get('can_manage') and context.get('is_bracket_finalized'):
         context.update(_build_series_edit_context(tournament, stage, round))
+        context.update(_bye_edit_context(request, tournament, stage, round))
         context['create_series_url'] = reverse('round-create-series', kwargs={
             'tournament_slug': tournament.slug,
             'stage_slug': stage.slug,
@@ -8921,6 +8923,137 @@ def round_reopen_scheduling(request, tournament_slug, stage_slug, round_slug):
     return redirect(next_url)
 
 
+def _bye_entry(sp):
+    profile = sp.tournament_player.profile
+    return {
+        'id': sp.id,
+        'display_name': profile.display_name,
+        'image_url': profile.image.url if profile.image else '',
+        'status': sp.status,
+    }
+
+
+def _byes_editable(tournament):
+    """Byes are only edited on Tournament-classification series: Leagues and
+    Game Groups don't normally have byes, so they get no empty Byes card or
+    dialog (an existing bye still shows, read-only)."""
+    return tournament.classification == Tournament.ClassificationTypes.TOURNAMENT
+
+
+def _bye_card_payload(request, round, can_manage):
+    """The matches page's Byes card and the Byes dialog's data for `round`.
+
+    `html` is the rendered card. `byes` is {current, eligible}: the round's byes,
+    and the stage participants (any status) who could get one -- not in a match
+    this round and not already on a bye. Shared by the page, round_edit_byes
+    and the endpoints whose seat changes can delete a bye.
+    """
+    from django.template.loader import render_to_string
+    current = round.bye_participants()
+    taken = round.matched_participant_ids() | {sp.id for sp in current}
+    eligible = (StageParticipant.objects.filter(stage_id=round.stage_id)
+                .exclude(pk__in=taken)
+                .select_related('tournament_player__profile')
+                .order_by('tournament_player__profile__display_name', 'pk'))
+    html = render_to_string('the_warroom/partials/bye_list.html', {
+        'participants': current,
+        'variant': 'matches',
+        'editable': can_manage and _byes_editable(round.stage.tournament),
+    }, request=request)
+    return {
+        'html': html,
+        'byes': {
+            'current': [_bye_entry(sp) for sp in current],
+            'eligible': [_bye_entry(sp) for sp in eligible],
+        },
+    }
+
+
+def _removed_byes_payload(request, round, bye_ids_before, card_type):
+    """After a seat change: the bye series it deleted (removed_bye_series_ids, so
+    the bracket setup page can drop their cards) and, on the matches page, the
+    refreshed Byes card (byes_html, byes)."""
+    after = set(MatchSeries.objects.filter(round=round, is_bye=True).values_list('pk', flat=True))
+    payload = {'removed_bye_series_ids': sorted(bye_ids_before - after)}
+    if card_type == 'matches':
+        bye_card = _bye_card_payload(request, round, True)
+        payload['byes_html'] = bye_card['html']
+        payload['byes'] = bye_card['byes']
+    return payload
+
+
+def _bye_edit_context(request, tournament, stage, round):
+    """Template context for the Byes dialog on the matches page (none for
+    Leagues and Game Groups, see _byes_editable)."""
+    if not _byes_editable(tournament):
+        return {}
+    return {
+        'edit_byes_url': reverse('round-edit-byes', kwargs={
+            'tournament_slug': tournament.slug,
+            'stage_slug': stage.slug,
+            'round_slug': round.slug,
+        }),
+        'byes_json': _bye_card_payload(request, round, True)['byes'],
+    }
+
+
+@login_required
+@require_http_methods(['POST'])
+def round_edit_byes(request, tournament_slug, stage_slug, round_slug):
+    """Add or remove byes in a finalized round, from the matches page's Byes
+    dialog. Only stage participants not in a match this round can be given a
+    bye. Returns the re-rendered Byes card and the dialog's fresh data."""
+    from django.http import JsonResponse
+    from .services.bracket import BracketService
+
+    tournament = get_object_or_404(Tournament, slug=tournament_slug)
+    stage = get_object_or_404(Stage, slug=stage_slug, tournament=tournament)
+    round = get_object_or_404(Round, slug=round_slug, stage=stage)
+
+    if not tournament.has_permission(request.user.profile):
+        raise PermissionDenied
+
+    if not _byes_editable(tournament):
+        return JsonResponse({'error': 'Byes can only be edited in Tournament series.'}, status=400)
+    if round.bracket_status != Round.BracketStatusChoices.FINALIZED:
+        return JsonResponse({'error': 'Bracket must be finalized before editing byes.'}, status=400)
+
+    try:
+        data = json.loads(request.body)
+        add_ids = [int(i) for i in data.get('add_participant_ids', [])]
+        remove_ids = [int(i) for i in data.get('remove_participant_ids', [])]
+    except (ValueError, TypeError):
+        return JsonResponse({'error': 'Invalid request.'}, status=400)
+
+    with transaction.atomic():
+        for sp in StageParticipant.objects.filter(stage=stage, pk__in=remove_ids):
+            BracketService.remove_byes(round, sp)
+
+        to_add = {sp.id: sp for sp in StageParticipant.objects.filter(
+            stage=stage, pk__in=add_ids).select_related('tournament_player__profile')}
+        missing = set(add_ids) - set(to_add)
+        if missing:
+            transaction.set_rollback(True)
+            return JsonResponse({'error': 'Player not found in this stage.'}, status=400)
+        matched = round.matched_participant_ids()
+        has_bye = {sp.id for sp in round.bye_participants()}
+        for sp_id in add_ids:
+            sp = to_add[sp_id]
+            if sp.id in matched:
+                transaction.set_rollback(True)
+                return JsonResponse({
+                    'error': f'{sp.tournament_player.profile.display_name} is already in a match this round.'
+                }, status=400)
+            if sp.id in has_bye:
+                continue
+            BracketService.create_bye(round, sp)
+            has_bye.add(sp.id)
+
+        BracketService.reevaluate_round_status(round)
+
+    return JsonResponse({'success': True, **_bye_card_payload(request, round, True)})
+
+
 def _build_series_edit_context(tournament, stage, round):
     """Build context variables needed for the series edit modal on both pages."""
     edit_url = reverse('round-edit-series', kwargs={
@@ -9111,6 +9244,10 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
         data = json.loads(request.body)
         series_id = data.get('series_id')
         series = get_object_or_404(MatchSeries, id=series_id, round=round)
+        # Seating a player deletes any bye they hold this round (the MatchSeat
+        # signal); diffed below so the page can drop those byes too.
+        bye_ids_before = set(MatchSeries.objects.filter(
+            round=round, is_bye=True).values_list('pk', flat=True))
 
         # --- PlayerGroup metadata ---
         group = series.player_group
@@ -9311,12 +9448,14 @@ def round_edit_series(request, tournament_slug, stage_slug, round_slug):
                     'is_bracket_finalized': True,
                 }, request=request)
 
-            return JsonResponse({'success': True, 'html': html, 'series_id': series.id, 'series': _build_series_response(series_fresh)})
+            payload = {'success': True, 'html': html, 'series_id': series.id,
+                       'series': _build_series_response(series_fresh)}
+            payload.update(_removed_byes_payload(request, round, bye_ids_before, card_type))
+            return JsonResponse(payload)
 
-        return JsonResponse({
-            'success': True,
-            'series': _build_series_response(series),
-        })
+        payload = {'success': True, 'series': _build_series_response(series)}
+        payload.update(_removed_byes_payload(request, round, bye_ids_before, card_type))
+        return JsonResponse(payload)
 
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
@@ -9598,6 +9737,9 @@ def _match_link_candidates(request, match):
 def _match_do_link_game(request, match, tournament, data, series_index):
     """Attach a game to the match: link, roster sync, nickname."""
     from django.http import JsonResponse
+    # The roster sync re-seats the series, which deletes byes (MatchSeat signal).
+    bye_ids_before = set(MatchSeries.objects.filter(
+        round=match.round, is_bye=True).values_list('pk', flat=True))
 
     game_id = data.get('game_id')
     if not game_id:
@@ -9670,7 +9812,9 @@ def _match_do_link_game(request, match, tournament, data, series_index):
 
     html, _ = _render_series_matches_card(
         request, match.series, match.round, tournament, series_index=series_index)
-    return JsonResponse({'success': True, 'html': html, 'series_id': match.series_id})
+    payload = {'success': True, 'html': html, 'series_id': match.series_id}
+    payload.update(_removed_byes_payload(request, match.round, bye_ids_before, 'matches'))
+    return JsonResponse(payload)
 
 
 def _match_unlink_game(request, match, tournament, series_index):

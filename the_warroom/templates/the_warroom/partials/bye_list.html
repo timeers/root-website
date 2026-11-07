@@ -7,17 +7,31 @@ Expects:
   - `variant`: 'matches' for the matches page, where the card mirrors
     series_card_matches.html (a card-header with the bold title and badge);
     anything else gives the compact bracket style of bracket_match.html.
-Renders nothing when empty.
+  - `editable`: matches page, for people who can manage the tournament. Adds
+    the edit button (opens bye_edit_modal.html) and shows the card even with
+    no byes, so byes can be added.
+Renders nothing when empty and not editable.
 {% endcomment %}
-{% if participants %}
+{% if participants or editable %}
 <div class="card bye-list{% if variant == 'matches' %} h-100{% endif %}">
     {% if variant == 'matches' %}
     <div class="card-header d-flex justify-content-between align-items-center">
         <strong>{% trans 'Byes' %}</strong>
-        <span class="badge bg-secondary">{{ participants|length }}</span>
+        <div class="d-flex align-items-center gap-1">
+            <span class="badge bg-secondary">{{ participants|length }}</span>
+            {% if editable %}
+            <button type="button" class="btn btn-sm btn-outline-secondary p-0 px-1" onclick="openByeEditModal()" title="{% trans 'Edit Byes' %}">
+                <i class="bi bi-gear-wide-connected"></i>
+            </button>
+            {% endif %}
+        </div>
     </div>
     <div class="card-body">
+        {% if participants %}
         <p class="text-muted small mb-2">{% trans 'These players advance automatically.' %}</p>
+        {% else %}
+        <p class="text-muted small mb-0">{% trans 'No byes this round.' %}</p>
+        {% endif %}
     {% else %}
     <div class="card-body py-2 px-3">
         <div class="d-flex justify-content-between align-items-center mb-1">

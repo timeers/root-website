@@ -141,21 +141,58 @@ def _is_terminal_edit_error(exc):
     return response is not None and response.status_code in (403, 404)
 
 
+# Discord's allowed thread archive times, in minutes (1 hour .. 1 week).
+_ARCHIVE_DURATIONS = (60, 1440, 4320, 10080)
+_MAX_ARCHIVE_DURATION = 10080
+
+
+def channel_archive_duration(channel_id):
+    """The channel's "Hide After Inactivity" setting (default_auto_archive_duration)
+    in minutes, to send explicitly when the bot creates a thread there: Discord's
+    docs say that setting is what its APPS apply, and bot-created posts were seen
+    not to follow a change to it.
+
+    Falls back to a week (10080) whenever the setting can't be read -- a failed or
+    non-2xx request, a missing/null field, or a value Discord doesn't allow. A
+    thread archiving late is far less annoying than one archiving early. That
+    includes a channel nobody configured, which Discord's apps would show as 24
+    hours: "no setting we can read" deliberately means a week here, not a bug.
+
+    Fetched fresh (no cache, unlike get_forum_channel_info) so a settings change
+    applies to the very next thread. Never raises; failures are logged as warnings
+    since the thread is still created."""
+    try:
+        response = requests.get(
+            f"{DISCORD_API}/channels/{channel_id}",
+            headers=_bot_headers(),
+            timeout=5,
+        )
+        response.raise_for_status()
+        duration = response.json().get("default_auto_archive_duration")
+    except (requests.RequestException, ValueError, AttributeError) as e:
+        logger.warning("Couldn't read archive duration for channel %s (%s); using a week",
+                       channel_id, e)
+        return _MAX_ARCHIVE_DURATION
+    if duration in _ARCHIVE_DURATIONS:
+        return duration
+    return _MAX_ARCHIVE_DURATION
+
+
 def create_message_thread(channel_id, message_id, name, auto_archive_duration=None):
     """Create a thread hanging off an existing message. Returns the thread id
     (a snowflake string) on success, or None on failure. Never raises.
 
-    `auto_archive_duration` (minutes: 60, 1440, 4320 or 10080) is omitted by
-    default, so Discord applies the channel's own default_auto_archive_duration --
-    the server decides how long LFG threads stay active, as with forum posts.
+    `auto_archive_duration` (minutes: 60, 1440, 4320 or 10080) is always sent. When
+    None it's looked up from the channel (channel_archive_duration): the channel's
+    own setting, or a week when that can't be read.
 
     No DEBUG_VALUE guard: this is a public, user-initiated action in the channel
     where the /lfg command was used (like the /lfg message and its button edits,
     which also post live), not an unsolicited DM."""
     name = (name or "Game")[:100]  # Discord thread name cap
-    body = {"name": name}
-    if auto_archive_duration is not None:
-        body["auto_archive_duration"] = auto_archive_duration
+    if auto_archive_duration is None:
+        auto_archive_duration = channel_archive_duration(channel_id)
+    body = {"name": name, "auto_archive_duration": auto_archive_duration}
     try:
         r = requests.post(
             f"{DISCORD_API}/channels/{channel_id}/messages/{message_id}/threads",
@@ -176,7 +213,8 @@ def create_message_thread(channel_id, message_id, name, auto_archive_duration=No
         return None
 
 
-def create_forum_thread(forum_channel_id, name, content=None, embeds=None, tag_id=None):
+def create_forum_thread(forum_channel_id, name, content=None, embeds=None, tag_id=None,
+                        auto_archive_duration=None):
     """Create a new thread (post) in a forum channel. Unlike a message thread, this
     posts a fresh starter message (content/embeds) rather than hanging off an
     existing one. `tag_id` optionally applies one forum tag to the post. Returns the
@@ -188,12 +226,13 @@ def create_forum_thread(forum_channel_id, name, content=None, embeds=None, tag_i
     the single-thread callers (/lfg), which have nothing useful to do with the
     difference."""
     thread_id, _retry_after = create_forum_thread_detailed(
-        forum_channel_id, name, content=content, embeds=embeds, tag_id=tag_id)
+        forum_channel_id, name, content=content, embeds=embeds, tag_id=tag_id,
+        auto_archive_duration=auto_archive_duration)
     return thread_id
 
 
 def create_forum_thread_detailed(forum_channel_id, name, content=None, embeds=None,
-                                 tag_id=None):
+                                 tag_id=None, auto_archive_duration=None):
     """create_forum_thread, but returning (thread_id, retry_after).
 
     `retry_after` is the seconds Discord asked us to wait when the request was rate
@@ -210,12 +249,13 @@ def create_forum_thread_detailed(forum_channel_id, name, content=None, embeds=No
     this two-value shape is kept because it's the established idiom here (rename_channel
     shares it) and callers already destructure it as a pair."""
     thread_id, retry_after, _status = create_forum_thread_result(
-        forum_channel_id, name, content=content, embeds=embeds, tag_id=tag_id)
+        forum_channel_id, name, content=content, embeds=embeds, tag_id=tag_id,
+        auto_archive_duration=auto_archive_duration)
     return thread_id, retry_after
 
 
 def create_forum_thread_result(forum_channel_id, name, content=None, embeds=None,
-                               tag_id=None):
+                               tag_id=None, auto_archive_duration=None):
     """create_forum_thread_detailed, plus the HTTP status of a failed attempt.
 
     Returns (thread_id, retry_after, status). `status` is Discord's response code when
@@ -225,6 +265,10 @@ def create_forum_thread_result(forum_channel_id, name, content=None, embeds=None
     count. The distinction that matters in practice is 4xx-that-won't-self-heal --
     notably 400 on a forum with "require tag" set, which rejects every post lacking
     `applied_tags` -- versus a transient error where retrying is the right advice.
+
+    `auto_archive_duration` is always sent; when None it's looked up from the forum
+    (channel_archive_duration). A bulk caller looks it up once and passes it, so a
+    batch makes one lookup rather than one per thread.
     Never raises."""
     name = (name or "Game")[:100]
     message = {}
@@ -238,10 +282,13 @@ def create_forum_thread_result(forum_channel_id, name, content=None, embeds=None
         message["embeds"] = embeds
     if not message:
         message["content"] = "​"  # Discord requires a non-empty starter message
-    # No auto_archive_duration: Discord then applies the forum channel's own
-    # default_auto_archive_duration, so each server controls how long its match and
-    # LFG posts stay active. (Forcing 1440 hid multi-day match threads after 24h.)
-    body = {"name": name, "message": message}
+    # Always sent, read from the forum's own "Hide After Inactivity" setting so each
+    # server controls how long its match and LFG posts stay active -- left out,
+    # bot-created posts didn't follow that setting. Not a fixed value: forcing 1440
+    # once hid multi-day match threads after 24h. A week when it can't be read.
+    if auto_archive_duration is None:
+        auto_archive_duration = channel_archive_duration(forum_channel_id)
+    body = {"name": name, "message": message, "auto_archive_duration": auto_archive_duration}
     if tag_id:
         body["applied_tags"] = [str(tag_id)]
     try:

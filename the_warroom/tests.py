@@ -7948,3 +7948,235 @@ class ByeListDisplayTests(TestCase):
         round = self._prefetched_round()
         with self.assertNumQueries(0):
             self.assertEqual(round.bye_participants(), [self.amy, self.zed])
+
+
+class EditByesTests(TestCase):
+    """Byes can be added and removed from the matches page's Byes dialog
+    (round_edit_byes), and seating a player in a real match deletes their bye."""
+
+    def setUp(self):
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        from the_warroom.services.bracket import BracketService
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+        self.BracketService = BracketService
+
+        self.designer = ExtraRoundsControlTests._make_player("byes_designer")
+        self.outsider = ExtraRoundsControlTests._make_player("byes_outsider")
+        self.tournament = Tournament.objects.create(
+            name="Edit Byes Series", designer=self.designer.profile, is_active=True,
+            use_stages=True, classification=Tournament.ClassificationTypes.TOURNAMENT)
+        self.stage = Stage.objects.create(tournament=self.tournament, name="Edit Byes Stage",
+                                          order=1, is_active=True, use_rounds=True)
+        self.round = Round.objects.create(
+            stage=self.stage, name="Edit Byes Round", round_number=1, is_active=True,
+            grouping_status=Round.GroupingStatusChoices.FINALIZED,
+            bracket_status=Round.BracketStatusChoices.FINALIZED)
+
+        self.seated = [self._participant(f"Seated {i}") for i in range(2)]
+        self.group = PlayerGroup.objects.create(round=self.round, group_number=1, name="Table One")
+        self.group.tournament_players.add(*[sp.tournament_player for sp in self.seated])
+        self.series = MatchSeries.objects.create(round=self.round, player_group=self.group)
+        Match.objects.create(round=self.round, series=self.series)
+        for seat, sp in enumerate(self.seated, start=1):
+            MatchSeat.objects.create(series=self.series, stage_participant=sp, seat_number=seat)
+
+        self.bye_a = self._participant("Bye Alpha")
+        self.bye_b = self._participant("Bye Beta")
+        BracketService.create_bye(self.round, self.bye_a)
+        BracketService.create_bye(self.round, self.bye_b)
+        self.free = self._participant("Free Active")
+        self.free_eliminated = self._participant(
+            "Free Eliminated", status=StageParticipant.ParticipantStatus.ELIMINATED)
+
+        self.kwargs = {'tournament_slug': self.tournament.slug, 'stage_slug': self.stage.slug,
+                       'round_slug': self.round.slug}
+        self.client.force_login(self.designer)
+
+    def _participant(self, name, status=StageParticipant.ParticipantStatus.ACTIVE):
+        profile = Profile.objects.create(discord=name.lower().replace(' ', '_'), display_name=name)
+        tp = TournamentPlayer.objects.create(tournament=self.tournament, profile=profile)
+        return StageParticipant.objects.create(stage=self.stage, tournament_player=tp, status=status)
+
+    def _byes(self):
+        return set(self.round.bye_participants())
+
+    def _edit_byes(self, add=(), remove=()):
+        return self.client.post(
+            reverse('round-edit-byes', kwargs=self.kwargs),
+            data=json.dumps({'add_participant_ids': [sp.id for sp in add],
+                             'remove_participant_ids': [sp.id for sp in remove]}),
+            content_type='application/json')
+
+    def _matches_url(self):
+        return reverse('round-matches-page', kwargs=self.kwargs)
+
+    # ── service ──────────────────────────────────────────────────────────────
+
+    def test_create_bye_builds_the_generation_rows(self):
+        series = MatchSeries.objects.get(round=self.round, is_bye=True, winners=self.bye_a)
+        self.assertEqual(series.status, CompetitionStatus.COMPLETED)
+        self.assertEqual(series.number_of_games, 0)
+        self.assertEqual([m.status for m in series.matches.all()], [CompetitionStatus.COMPLETED])
+        self.assertEqual([(s.stage_participant, s.seat_number) for s in series.matchseat_set.all()],
+                         [(self.bye_a, 1)])
+
+    def test_generation_still_creates_byes(self):
+        Round.objects.filter(pk=self.round.pk).update(bracket_status=Round.BracketStatusChoices.DRAFT)
+        self.round.refresh_from_db()
+        self.BracketService.generate_round_bracket(self.round, create_byes=True)
+        # Generation gives byes to ACTIVE ungrouped participants only.
+        self.assertEqual(self._byes(), {self.bye_a, self.bye_b, self.free})
+
+    def test_remove_byes_deletes_series_match_and_seat(self):
+        series_id = MatchSeries.objects.get(round=self.round, is_bye=True, winners=self.bye_a).pk
+        self.assertEqual(self.BracketService.remove_byes(self.round, self.bye_a), 1)
+        self.assertFalse(MatchSeries.objects.filter(pk=series_id).exists())
+        self.assertFalse(Match.objects.filter(series_id=series_id).exists())
+        self.assertFalse(MatchSeat.objects.filter(series_id=series_id).exists())
+
+    def test_matched_ids_include_a_group_member_without_a_seat(self):
+        self.group.tournament_players.add(self.free.tournament_player)
+        self.assertIn(self.free.id, self.round.matched_participant_ids())
+        self.assertTrue({sp.id for sp in self.seated} <= self.round.matched_participant_ids())
+        self.assertNotIn(self.bye_a.id, self.round.matched_participant_ids())
+
+    # ── rule 3: a seat in a real match drops the bye ─────────────────────────
+
+    def test_seat_created_directly_drops_bye(self):
+        MatchSeat.objects.create(series=self.series, stage_participant=self.bye_a, seat_number=3)
+        self.assertEqual(self._byes(), {self.bye_b})
+
+    def test_creating_a_bye_keeps_it(self):
+        self.BracketService.create_bye(self.round, self.free)
+        self.assertIn(self.free, self._byes())
+
+    def test_edit_series_seat_drops_bye_and_reports_it(self):
+        bye_id = MatchSeries.objects.get(round=self.round, is_bye=True, winners=self.bye_a).pk
+        response = self.client.post(
+            reverse('round-edit-series', kwargs=self.kwargs),
+            data=json.dumps({'series_id': self.series.id, 'name': 'Table One',
+                             'add_seat_participant_ids': [self.bye_a.id],
+                             'card_type': 'matches', 'series_index': 1}),
+            content_type='application/json')
+        data = response.json()
+        self.assertTrue(data['success'], data)
+        self.assertEqual(data['removed_bye_series_ids'], [bye_id])
+        self.assertNotIn('Bye Alpha', data['byes_html'])
+        self.assertIn('Bye Beta', data['byes_html'])
+        self.assertEqual(self._byes(), {self.bye_b})
+
+    # ── endpoint ─────────────────────────────────────────────────────────────
+
+    def test_add_any_status_and_remove(self):
+        response = self._edit_byes(add=[self.free, self.free_eliminated], remove=[self.bye_a])
+        data = response.json()
+        self.assertTrue(data['success'], data)
+        self.assertEqual(self._byes(), {self.bye_b, self.free, self.free_eliminated})
+        self.assertIn('Free Eliminated', data['html'])
+        self.assertNotIn('Bye Alpha', data['html'])
+        eligible = {e['id'] for e in data['byes']['eligible']}
+        # The removed bye is free again; matched players and current byes aren't offered.
+        self.assertEqual(eligible, {self.bye_a.id})
+        self.assertEqual({e['id'] for e in data['byes']['current']},
+                         {self.bye_b.id, self.free.id, self.free_eliminated.id})
+
+    def test_refuses_a_matched_player_without_partial_changes(self):
+        response = self._edit_byes(add=[self.seated[0]], remove=[self.bye_a])
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('already in a match', response.json()['error'])
+        self.assertEqual(self._byes(), {self.bye_a, self.bye_b})
+
+    def test_refuses_another_stages_participant(self):
+        other_stage = Stage.objects.create(tournament=self.tournament, name="Other Stage", order=2)
+        tp = TournamentPlayer.objects.create(tournament=self.tournament,
+                                             profile=Profile.objects.create(discord="other_stage_sp"))
+        other = StageParticipant.objects.create(stage=other_stage, tournament_player=tp)
+        self.assertEqual(self._edit_byes(add=[other]).status_code, 400)
+
+    def test_refuses_draft_bracket(self):
+        Round.objects.filter(pk=self.round.pk).update(bracket_status=Round.BracketStatusChoices.DRAFT)
+        self.assertEqual(self._edit_byes(add=[self.free]).status_code, 400)
+        self.assertNotIn(self.free, self._byes())
+
+    def test_outsider_forbidden_and_get_not_allowed(self):
+        self.assertEqual(self.client.get(reverse('round-edit-byes', kwargs=self.kwargs)).status_code, 405)
+        self.client.force_login(self.outsider)
+        self.assertEqual(self._edit_byes(add=[self.free]).status_code, 403)
+        self.assertNotIn(self.free, self._byes())
+
+    # ── page ─────────────────────────────────────────────────────────────────
+
+    def test_editor_sees_card_and_dialog_with_no_byes(self):
+        MatchSeries.objects.filter(round=self.round, is_bye=True).delete()
+        body = self.client.get(self._matches_url()).content.decode()
+        self.assertIn('No byes this round.', body)
+        self.assertIn('onclick="openByeEditModal()"', body)
+        self.assertIn('id="byeEditModal"', body)
+
+    def test_anonymous_viewer(self):
+        self.client.logout()
+        body = self.client.get(self._matches_url()).content.decode()
+        self.assertIn('Bye Alpha', body)
+        self.assertNotIn('openByeEditModal()', body)
+        MatchSeries.objects.filter(round=self.round, is_bye=True).delete()
+        self.assertNotIn('bye-list', self.client.get(self._matches_url()).content.decode())
+
+    def test_bracket_pages_have_no_edit_button(self):
+        for url in (reverse('stage-bracket-page', kwargs={'tournament_slug': self.tournament.slug,
+                                                          'stage_slug': self.stage.slug}),
+                    reverse('tournament-bracket-page', kwargs={'slug': self.tournament.slug})):
+            body = self.client.get(url).content.decode()
+            self.assertIn('Bye Alpha', body)
+            self.assertNotIn('openByeEditModal()', body)
+
+    def test_names_are_escaped_in_the_dialog_data(self):
+        """The Byes dialog's data is a json_script block, so a name can't close the
+        script tag. (Checked on that block alone: the match edit dialog's own
+        data on this page is written with |safe.)"""
+        import re
+        self._participant('</script><b>x')
+        body = self.client.get(self._matches_url()).content.decode()
+        block = re.search(r'<script id="bye-data" type="application/json">(.*?)</script>',
+                          body, re.S).group(1)
+        self.assertNotIn('</script>', block)
+        self.assertIn('\\u003C/script\\u003E\\u003Cb\\u003Ex', block)
+
+    # ── Leagues and Game Groups ──────────────────────────────────────────────
+
+    def _as_classification(self, classification):
+        Tournament.objects.filter(pk=self.tournament.pk).update(classification=classification)
+
+    def test_no_empty_card_or_dialog_for_leagues_and_groups(self):
+        MatchSeries.objects.filter(round=self.round, is_bye=True).delete()
+        for classification in (Tournament.ClassificationTypes.LEAGUE,
+                               Tournament.ClassificationTypes.GROUP):
+            self._as_classification(classification)
+            body = self.client.get(self._matches_url()).content.decode()
+            self.assertNotIn('bye-list', body, classification)
+            self.assertNotIn('id="byeEditModal"', body, classification)
+
+    def test_existing_byes_show_read_only_for_leagues(self):
+        self._as_classification(Tournament.ClassificationTypes.LEAGUE)
+        body = self.client.get(self._matches_url()).content.decode()
+        self.assertIn('Bye Alpha', body)
+        self.assertNotIn('openByeEditModal()', body)
+
+    def test_endpoint_refuses_leagues_and_groups(self):
+        for classification in (Tournament.ClassificationTypes.LEAGUE,
+                               Tournament.ClassificationTypes.GROUP):
+            self._as_classification(classification)
+            self.assertEqual(self._edit_byes(add=[self.free]).status_code, 400)
+        self.assertNotIn(self.free, self._byes())
+
+    def test_match_edit_refresh_keeps_league_card_read_only(self):
+        self._as_classification(Tournament.ClassificationTypes.LEAGUE)
+        data = self.client.post(
+            reverse('round-edit-series', kwargs=self.kwargs),
+            data=json.dumps({'series_id': self.series.id, 'name': 'Table One',
+                             'add_seat_participant_ids': [self.bye_a.id],
+                             'card_type': 'matches', 'series_index': 1}),
+            content_type='application/json').json()
+        self.assertIn('Bye Beta', data['byes_html'])
+        self.assertNotIn('openByeEditModal()', data['byes_html'])

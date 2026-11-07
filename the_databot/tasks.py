@@ -500,7 +500,8 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
     from the_warroom.models import (CompetitionStatus, Match, MatchSeries, Round,
                                     Tournament)
     from the_warroom.services.channel_posts import resolve_tournament_channel
-    from the_databot.services.discordservice import create_forum_thread_result
+    from the_databot.services.discordservice import (channel_archive_duration,
+                                                     create_forum_thread_result)
     from the_databot.services.lfg_game import group_roster, link_group_thread
     from the_databot.services.thread_messages import record_url, render_thread_message
 
@@ -537,6 +538,10 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
 
     rate_limited = False
     bad_request = False
+    # The forum's "Hide After Inactivity", read once per batch and only once a thread
+    # will actually be created, then sent with every post (create_forum_thread_result
+    # would otherwise look it up for each one).
+    archive_duration = None
     for index, series in enumerate(series_qs):
         group = series.player_group
         # Re-check under the current row: the page's count may be minutes stale, and
@@ -581,8 +586,11 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
         if index:
             time.sleep(_THREAD_CREATE_INTERVAL)
 
+        if archive_duration is None:
+            archive_duration = channel_archive_duration(forum_id)
         thread_id, retry_after, status = create_forum_thread_result(
-            forum_id, title, content=content, tag_id=tag_id)
+            forum_id, title, content=content, tag_id=tag_id,
+            auto_archive_duration=archive_duration)
 
         # A 429 is not a failure -- the request was refused for pacing, and the same
         # call will succeed after the wait. Without this the remaining groups would
@@ -593,9 +601,10 @@ def create_match_threads_task(round_id, profile_id, tournament_id):
             logger.warning("create_match_threads_task: rate limited, waiting %ss", wait)
             time.sleep(wait)
             # The retry must carry the tag too -- without it a rate-limited item would
-            # fail again for an entirely unrelated reason.
+            # fail again for an entirely unrelated reason. (And the same duration.)
             thread_id, retry_after, status = create_forum_thread_result(
-                forum_id, title, content=content, tag_id=tag_id)
+                forum_id, title, content=content, tag_id=tag_id,
+                auto_archive_duration=archive_duration)
 
         if not thread_id:
             failed += 1

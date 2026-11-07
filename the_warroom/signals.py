@@ -5,7 +5,7 @@ from django.db.models.signals import pre_delete, pre_save, post_save, post_delet
 from django.dispatch import receiver
 from django.db.models import Min
 from django.utils import timezone
-from .models import Effort, Game, ScoreCard, Tournament, Round, Stage, Match, CompetitionStatus, EloSystem, EloSeason
+from .models import Effort, Game, ScoreCard, Tournament, Round, Stage, Match, MatchSeat, CompetitionStatus, EloSystem, EloSeason
 from .services.slugify_titles import slugify_tournament_name, slugify_round_name, slugify_stage_name, slugify_elo_system_name
 
 
@@ -440,6 +440,21 @@ def stage_pre_save(sender, instance, update_fields=None, *args, **kwargs):
         slugify_stage_name(instance, save=False)
     elif instance.pk and _slug_should_follow_name(instance, Stage, update_fields):
         slugify_stage_name(instance, save=False)
+
+@receiver(post_save, sender=MatchSeat)
+def match_seat_post_save_drop_bye(sender, instance, created, **kwargs):
+    """A player seated in a real match this round can't also have a bye in it:
+    delete their bye. A signal rather than per-view code because seats are added
+    from the match edit dialog, game linking, the Discord join flow and bracket
+    generation. Bye seats are skipped, so creating a bye can't delete itself."""
+    if not created:
+        return
+    series = instance.series
+    if series.is_bye:
+        return
+    from .services.bracket import BracketService
+    BracketService.remove_byes(series.round, instance.stage_participant)
+
 
 @receiver(post_save, sender=Stage)
 def stage_post_save(sender, instance, created, *args, **kwargs):
