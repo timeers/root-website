@@ -8,6 +8,7 @@
 
 ### Improvements
 - Series byes are grouped together with clearer wording
+- Creating threads and forum posts checks and sets the default archive duration. Falls back to 7 days if the call fails
 
 ### Bug Fixes
 - Fixed naming of group members to not conflict
