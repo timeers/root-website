@@ -1012,6 +1012,18 @@ class ForgedFactionSyncForm(forms.Form):
             )
 
     @property
+    def has_changes(self):
+        """True when any row on the sync page can be applied. The forge detail
+        page's "Updates Available" uses this too, so the two can't disagree."""
+        return (
+            any(not row[5] for row in self.diff_rows)
+            or any(not e['in_sync'] for e in self.piece_plan)
+            or any(not e['in_sync'] for e in self.deck_plan)
+            or any(not e['in_sync'] for e in self.tts_asset_plan)
+            or bool(self.tts_plan and not self.tts_plan['in_sync'])
+        )
+
+    @property
     def tts_forced_field_names(self):
         """Out-of-date rows the TTS conversion depends on. Empty means every
         asset the keep TTS JSON references is already a current keep copy."""

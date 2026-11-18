@@ -427,6 +427,18 @@ class ForgeTTSSyncTests(TestCase):
         new_piece = KeepPiece.objects.get(parent=self.keep, name='Ambush')
         self.assertTrue(KeepDeckGroup.objects.filter(post=self.keep, piece=new_piece).exists())
 
+    def test_deck_only_change_counts_as_sync_available(self):
+        # Fields and pieces in sync; only the deck differs. The detail page's
+        # "Updates Available" must still light up.
+        forged = ForgedFaction.objects.get(pk=self.forged.pk)
+        KeepFaction.objects.filter(pk=self.keep.pk).update(color=forged.color)
+        forged = ForgedFaction.objects.get(pk=self.forged.pk)
+        form = ForgedFactionSyncForm(forged=forged)
+        self.assertEqual([row[0] for row in form.diff_rows if not row[5]], [])
+        self.assertTrue(all(e['in_sync'] for e in form.piece_plan))
+        self.assertFalse(form.deck_plan[0]['in_sync'])
+        self.assertTrue(form.has_changes)
+
     def test_clone_starts_unpublished(self):
         ForgedFaction.objects.filter(pk=self.forged.pk).update(
             tts_status=ForgedFaction.TTSStatus.APPROVED, tts_json=_save_with({'Name': 'x'}),

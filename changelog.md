@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.13.19] - 2026-11-18 TTS Library
+## [1.14.0] - 2026-11-18 TTS Library
 
 ### New Features
 - TTS Library loader object for Tabletop Simulator

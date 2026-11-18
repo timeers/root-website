@@ -32,8 +32,6 @@ from .forms_publish import (
     ForgedFactionLinkForm,
     ForgedFactionSubmitForm,
     ForgedFactionSyncForm,
-    build_diff,
-    build_piece_plan,
     submit_prerequisites_missing,
 )
 
@@ -423,18 +421,12 @@ def forgedfaction_detail(request, pk):
         # last_updated vs target.date_modified isn't reliable — last_updated
         # bubbles on bookkeeping writes that don't change any synced field,
         # and conversely some real diffs (e.g. icon-name drift) don't move
-        # those timestamps. Mirror the sync page's logic instead: any non-
-        # in-sync diff row, or any piece needing create/update, counts.
+        # those timestamps. Use the sync form's own rule: any field, piece,
+        # deck, TTS asset or TTS Library row that can be applied counts.
         if target is None:
             sync_available = False
         else:
-            field_changes = any(not row[5] for row in build_diff(faction))
-            piece_changes = False
-            if target_mode == 'faction':
-                piece_changes = any(
-                    not entry['in_sync'] for entry in build_piece_plan(faction)
-                )
-            sync_available = field_changes or piece_changes
+            sync_available = ForgedFactionSyncForm(forged=faction).has_changes
         publish_context = {
             'submit_ready': not submit_missing and not name_taken,
             'submit_missing': submit_missing,
@@ -3633,12 +3625,7 @@ def forgedfaction_sync(request, pk):
     else:
         form = ForgedFactionSyncForm(forged=forged)
 
-    field_changes = any(not row[5] for row in form.diff_rows)
-    piece_changes = any(not entry['in_sync'] for entry in form.piece_plan)
-    deck_changes = any(not entry['in_sync'] for entry in form.deck_plan)
-    asset_changes = any(not entry['in_sync'] for entry in form.tts_asset_plan)
-    tts_changes = bool(form.tts_plan and not form.tts_plan['in_sync'])
-    has_changes = field_changes or piece_changes or deck_changes or asset_changes or tts_changes
+    has_changes = form.has_changes
     return render(request, 'the_forge/forgedfaction_sync.html', {
         'faction': forged,
         'form': form,
