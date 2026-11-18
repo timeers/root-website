@@ -459,20 +459,22 @@ class TTSLoaderObjectView(TTSLoaderView):
             "Name": "Custom_Tile",
             "Nickname": "Root Database Library",
             "Description": "Search and spawn factions, maps and more from therootdatabase.com.",
-            # Scale is a starting point; tune it with the panel's
-            # position/scale in tts/loader.lua once seen in game.
+            # Same footprint as the TTS Faction Board (scale 15.5, 0.1 thick):
+            # the background has the board's ~1.31 aspect, and the panel in
+            # tts/loader.lua is sized to this tile's ~240 x 180 UI area.
             "Transform": {
                 "posX": 0.0, "posY": 1.0, "posZ": 0.0,
                 "rotX": 0.0, "rotY": 0.0, "rotZ": 0.0,
-                "scaleX": 1.0, "scaleY": 1.0, "scaleZ": 1.0,
+                "scaleX": 15.5, "scaleY": 1.0, "scaleZ": 15.5,
             },
             "Locked": True,
             "CustomImage": {
-                "ImageURL": request.build_absolute_uri(static('images/RDBFrogLogo.png')),
-                "ImageSecondaryURL": "",
+                # Self-hosted (fingerprinted static URL), so TTS refetches it if replaced.
+                "ImageURL": request.build_absolute_uri(static('images/tts/library_background.jpg')),
+                "ImageSecondaryURL": request.build_absolute_uri(static('images/tts/library_background.jpg')),
                 "ImageScalar": 1.0,
                 "WidthScale": 0.0,
-                "CustomTile": {"Type": 0, "Thickness": 0.2, "Stackable": False, "Stretch": True},
+                "CustomTile": {"Type": 0, "Thickness": 0.1, "Stackable": False, "Stretch": True},
             },
             "LuaScript": script,
             "LuaScriptState": "",
