@@ -146,8 +146,12 @@ class SetupStepCardInline(admin.TabularInline):
 
 @admin.register(ForgedFaction)
 class ForgedFactionAdmin(admin.ModelAdmin):
-    list_display = ('faction_name', 'designer', 'color', 'background_preset')
-    list_filter = ('background_preset',)
+    list_display = ('faction_name', 'component', 'designer', 'color', 'background_preset')
+    list_filter = ('component', 'background_preset')
+    # component is fixed at creation; published_faction is deprecated (see
+    # backfill_forge_published_post) and must not be edited.
+    readonly_fields = ('component', 'published_faction')
+    raw_id_fields = ('published_post',)
     search_fields = ('faction_name',)
     inlines = [PieceInline]
 

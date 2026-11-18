@@ -151,7 +151,8 @@ def forged_deck_sheet_upload_path(instance, filename):
     slug = faction.slug if faction else None
     return upload_path(
         slug_parts=[slug, 'decks', _deck_group_slug(instance.group)],
-        filename='sheet.webp',
+        # One file per CardDeck: a pinned 'sheet.webp' made deck 1 delete deck 0's sheet.
+        filename=f'sheet_{instance.deck_index}.webp',
     )
 
 

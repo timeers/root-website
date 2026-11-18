@@ -7,7 +7,7 @@
 </div>
 
 <div class="mb-3">
-  <h2 class="root-title m-0">Link "{{ faction.faction_name }}" to an existing Faction</h2>
+  <h2 class="root-title m-0">Link "{{ faction.faction_name }}" to an existing {% if faction.is_clockwork %}Clockwork {% endif %}Faction</h2>
   <p class="text-muted mb-0">Linking does not change the existing Faction. After linking, use Sync to push selected forge values across. Each existing Faction can only be linked to one ForgedFaction at a time.</p>
 </div>
 

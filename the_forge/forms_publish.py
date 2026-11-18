@@ -1,4 +1,7 @@
+import hashlib
 import html
+import json
+import os
 import re
 
 from django import forms
@@ -8,7 +11,15 @@ from django.utils.html import strip_tags
 from .services.upload_paths import copy_image_field
 
 from the_keep.forms import FactionCreateForm
-from the_keep.models import Faction, Piece as KeepPiece, PostTranslation
+from the_keep.models import (
+    Card as KeepCard,
+    DeckGroup as KeepDeckGroup,
+    Faction,
+    Piece as KeepPiece,
+    PostTranslation,
+    TTSAsset,
+)
+from the_keep.utils import tts_json_hash
 
 from .models import (
     CharacterImage,
@@ -231,8 +242,8 @@ def build_diff(forged):
     whose values already match are flagged ``in_sync=True`` so the template can
     show them as "Up to date" without an Apply checkbox."""
     rows = []
-    if forged.published_faction_id:
-        faction = forged.published_faction
+    if forged.published_post_id:
+        faction = forged.published_keep_post
         for field in FACTION_SYNC_FIELDS:
             proposed = _proposed_for_faction(forged, field)
             if proposed in (None, ''):
@@ -243,7 +254,9 @@ def build_diff(forged):
                 source_attr, keep_version_attr = FACTION_IMAGE_VERSION_MAP[field]
                 forge_version = _forge_preview_version(forged, source_attr)
                 keep_version = getattr(faction, keep_version_attr, 0) or 0
-                in_sync = forge_version <= keep_version
+                # A missing keep image is never "in sync": Post.save() can bump
+                # the version on an empty field, so versions alone can lie.
+                in_sync = bool(current) and forge_version <= keep_version
             elif field == 'small_icon':
                 # Comparing the keep faction's small_icon bytes against the
                 # forge faction_icon bytes doesn't work — the keep side
@@ -284,7 +297,7 @@ def build_diff(forged):
                 source_attr, trans_version_attr = TRANSLATION_IMAGE_VERSION_MAP[field]
                 forge_version = _forge_preview_version(forged, source_attr)
                 trans_version = getattr(translation, trans_version_attr, 0) or 0
-                in_sync = forge_version <= trans_version
+                in_sync = bool(current) and forge_version <= trans_version
             else:
                 in_sync = _values_equal(current, proposed, is_image)
             rows.append((
@@ -308,12 +321,12 @@ def _resolved_piece_name(forge_piece):
 
 def build_piece_plan(forged):
     """For Faction sync mode, compute per-piece actions: match forge pieces to
-    existing keep pieces on ``forged.published_faction`` by case-insensitive
+    existing keep pieces on ``forged.published_keep_post`` by case-insensitive
     name + identical type, and decide create/update/in_sync per piece. Never
     proposes deletion of keep pieces that have no forge counterpart."""
-    if not forged.published_faction_id:
+    if not forged.published_post_id:
         return []
-    keep_pieces = list(forged.published_faction.pieces.all())
+    keep_pieces = list(forged.published_keep_post.pieces.all())
     plan = []
     for forge_piece in forged.pieces.all():
         resolved_name = _resolved_piece_name(forge_piece)
@@ -360,6 +373,228 @@ def build_piece_plan(forged):
     return plan
 
 
+# ── Tabletop Simulator: forge -> keep conversion support ────────────────────
+# The keep's tts_json is rebuilt from keep-owned copies of every forge asset the
+# TTS export references (see services/tts_convert.py). These plans cover the
+# assets build_diff/build_piece_plan don't: decks, and the decree/markers.
+
+# diff rows whose values end up in the TTS JSON. Ticking the TTS row forces
+# these (plus every piece/deck/tts-asset row) so the conversion never has to
+# reference a forge file. color is here because it drives the boards'
+# ColorDiffuse without changing any image.
+TTS_FORCED_FIELDS = ('small_icon', 'board_image', 'board_2_image', 'card_image', 'color')
+
+
+def _md5(text):
+    return hashlib.md5(text.encode('utf-8')).hexdigest()
+
+
+def _file_sig(image_field):
+    """Name + mtime, so an overwrite at a pinned path still changes the sig."""
+    if not image_field:
+        return ''
+    try:
+        mtime = os.path.getmtime(image_field.path)
+    except (OSError, ValueError, NotImplementedError):
+        mtime = 0
+    return f'{image_field.name}@{mtime}'
+
+
+def forge_deck_fingerprint(group):
+    """Everything about a forge deck group that the keep copy reproduces."""
+    parts = [group.name or '', _file_sig(group.back_image)]
+    for card in group.ordered_cards:
+        parts.append('|'.join([
+            card.name or '',
+            card.text or '',
+            json.dumps(card.tags or [], sort_keys=True),
+            _file_sig(card.front_image),
+        ]))
+    return _md5('\n'.join(parts))
+
+
+def build_deck_plan(forged, piece_plan):
+    """One entry per forge card piece with cards. The keep side is the
+    DeckGroup on the matched keep piece in the keep Faction's own language,
+    because the keep TTS export only reads decks.filter(language=post.language)."""
+    if not forged.published_post_id:
+        return []
+    faction = forged.published_keep_post
+    if not faction.language_id:
+        return []
+    keep_piece_by_forge_pk = {e['forge_piece'].pk: e['keep_piece'] for e in piece_plan}
+    plan = []
+    for forge_piece in forged.pieces.filter(type='C').select_related('deck_group').order_by('pk'):
+        group = getattr(forge_piece, 'deck_group', None)
+        if not (group and group.has_actual_cards):
+            continue
+        keep_piece = keep_piece_by_forge_pk.get(forge_piece.pk)
+        keep_group = None
+        if keep_piece is not None:
+            keep_group = KeepDeckGroup.objects.filter(
+                post=faction, piece=keep_piece, language=faction.language,
+            ).first()
+        fingerprint = forge_deck_fingerprint(group)
+        in_sync = keep_group is not None and keep_group.source_fingerprint == fingerprint
+        plan.append({
+            'forge_piece': forge_piece,
+            'forge_group': group,
+            'keep_piece': keep_piece,
+            'keep_group': keep_group,
+            'fingerprint': fingerprint,
+            'card_count': len(group.ordered_cards),
+            'keep_card_count': keep_group.cards.count() if keep_group else 0,
+            'action': 'create' if keep_group is None else ('in_sync' if in_sync else 'update'),
+            'in_sync': in_sync,
+        })
+    return plan
+
+
+def apply_deck_entry(entry, faction, keep_piece):
+    """Copy one forge deck group into the keep, updating cards in place by
+    position so FAQ.reference_cards links on existing cards survive."""
+    forge_group = entry['forge_group']
+    group = entry['keep_group'] or KeepDeckGroup(
+        post=faction, piece=keep_piece, language=faction.language,
+    )
+    group.name = forge_group.name or keep_piece.name
+    if forge_group.back_image:
+        group.back_image = copy_image_field(forge_group.back_image)
+    group.save()
+
+    forge_cards = list(forge_group.ordered_cards)
+    keep_cards = list(group.cards.order_by('order'))
+    for index, forge_card in enumerate(forge_cards):
+        keep_card = keep_cards[index] if index < len(keep_cards) else KeepCard(group=group)
+        keep_card.name = forge_card.name
+        keep_card.text = forge_card.text
+        keep_card.tags = list(forge_card.tags or [])
+        # Card.save() deletes the replaced front image.
+        keep_card.front_image = copy_image_field(forge_card.front_image)
+        keep_card.save()
+    for surplus in keep_cards[len(forge_cards):]:
+        surplus.delete()
+
+    # TTSDeckGroup.build only creates CardDecks when none exist, so reconcile
+    # here: one per 99 cards, and drop any past the end (their sprite files go
+    # with them via the CardDeck post_delete signal).
+    needed = (len(forge_cards) - 1) // 99 + 1 if forge_cards else 0
+    for stale in group.decks.filter(deck_index__gte=needed):
+        stale.delete()
+    for deck_number in range(needed):
+        group.get_or_create_deck_for_card_index(deck_number * 99)
+
+    group.source_fingerprint = entry['fingerprint']
+    group.save(update_fields=['source_fingerprint'])
+    return group
+
+
+def forge_tts_asset_sources(forged):
+    """(role, label, forge image, fingerprint) for the TTS images that live in
+    keep TTSAssets. The decree only counts while include_decree is on."""
+    sources = []
+    sheet = _safe_related(forged, 'faction_sheet')
+    if sheet and sheet.include_decree and sheet.decree_preview:
+        sources.append((TTSAsset.RoleChoices.DECREE, 'Decree', sheet.decree_preview,
+                        f'{sheet.decree_fingerprint}:{sheet.decree_preview.name}'))
+    markers = (
+        (TTSAsset.RoleChoices.VP_MARKER, 'VP Marker', forged.vp_marker),
+        (TTSAsset.RoleChoices.RELATIONSHIP_MARKER, 'Relationship Marker', forged.relationship_marker),
+    )
+    for role, label, image in markers:
+        if image:
+            sources.append((role, label, image, f'{forged.markers_version}:{_file_sig(image)}'))
+    return sources
+
+
+def build_tts_asset_plan(forged):
+    if not forged.published_post_id:
+        return []
+    keep_assets = {a.role: a for a in forged.published_keep_post.tts_assets.all()}
+    plan = []
+    for role, label, forge_image, fingerprint in forge_tts_asset_sources(forged):
+        keep_asset = keep_assets.get(role)
+        in_sync = keep_asset is not None and keep_asset.source_fingerprint == fingerprint
+        plan.append({
+            'role': role,
+            'label': label,
+            'forge_image': forge_image,
+            'keep_asset': keep_asset,
+            'fingerprint': fingerprint,
+            'in_sync': in_sync,
+        })
+    return plan
+
+
+def apply_tts_asset_entry(entry, faction):
+    asset = entry['keep_asset'] or TTSAsset(post=faction, role=entry['role'])
+    asset.image = copy_image_field(entry['forge_image'])
+    asset.source_fingerprint = entry['fingerprint']
+    asset.save()
+    return asset
+
+
+def forge_tts_fingerprint(forged):
+    """Hash of every forge input to the TTS export. Unlike the per-row plans it
+    also changes on REMOVALS (a deleted piece/deck/marker, the decree turned
+    off), which build_piece_plan never proposes and so would never flag."""
+    sheet = _safe_related(forged, 'faction_sheet')
+    back = _safe_related(forged, 'faction_back')
+    card = _safe_related(forged, 'setup_card')
+    decks = []
+    pieces = []
+    for piece in forged.pieces.all().select_related('deck_group').order_by('pk'):
+        pieces.append([piece.pk, piece.type, piece.name or '', piece.quantity,
+                       piece.front_version or 0, piece.back_version or 0])
+        group = getattr(piece, 'deck_group', None)
+        if piece.type == 'C' and group and group.has_actual_cards:
+            decks.append([piece.pk, forge_deck_fingerprint(group)])
+    inputs = {
+        'sheet': [sheet.preview_version, sheet.include_decree, sheet.decree_fingerprint,
+                  sheet.snap_points] if sheet else None,
+        'back': back.preview_version if back else None,
+        'card': card.preview_version if card else None,
+        'color': forged.color,
+        'name': forged.faction_name,
+        'icon': forged.faction_icon.name if forged.faction_icon else '',
+        'markers': [forged.markers_version,
+                    forged.vp_marker.name if forged.vp_marker else '',
+                    forged.relationship_marker.name if forged.relationship_marker else ''],
+        'pieces': pieces,
+        'decks': decks,
+    }
+    return _md5(json.dumps(inputs, sort_keys=True, default=str))
+
+
+def build_tts_plan(forged, diff_rows, piece_plan, deck_plan, asset_plan):
+    """The TTS row. In sync only when the keep JSON is exactly what the last
+    sync wrote, the forge inputs haven't changed since, and every forced row is
+    up to date."""
+    if not forged.published_post_id:
+        return None
+    if not any(_safe_related(forged, attr) for attr in ('faction_sheet', 'faction_back', 'setup_card')):
+        return None
+    faction = forged.published_keep_post
+    stale_fields = [row[1] for row in diff_rows if row[0] in TTS_FORCED_FIELDS and not row[5]]
+    stale_count = (
+        len(stale_fields)
+        + sum(1 for e in piece_plan if not e['in_sync'])
+        + sum(1 for e in deck_plan if not e['in_sync'])
+        + sum(1 for e in asset_plan if not e['in_sync'])
+    )
+    keep_json = faction.tts_json
+    json_matches = bool(keep_json) and tts_json_hash(keep_json) == forged.tts_synced_hash
+    source_matches = forge_tts_fingerprint(forged) == forged.tts_source_fingerprint
+    return {
+        'in_sync': json_matches and source_matches and stale_count == 0,
+        'keep_object_count': len(keep_json.get('ObjectStates', [])) if isinstance(keep_json, dict) else 0,
+        # Keep JSON exists but isn't what the forge sync last wrote (pasted in the admin).
+        'keep_replaced': bool(keep_json) and not json_matches,
+        'forge_changed': not source_matches,
+        'stale_count': stale_count,
+    }
+
+
 def submit_prerequisites_missing(forged):
     """List human-readable forge pieces that must exist before submit is allowed.
 
@@ -374,7 +609,7 @@ def submit_prerequisites_missing(forged):
         missing.append('Faction Sheet')
     if back is None:
         missing.append('Faction Back')
-    if card is None:
+    if card is None and forged.uses_setup_card:  # Clockwork has no Adset Card
         missing.append('Setup Card')
     if not forged.faction_icon:
         missing.append('Faction Icon')
@@ -457,6 +692,16 @@ class ForgedFactionSubmitForm(FactionCreateForm):
             initial.setdefault('type', card.type)
 
         super().__init__(*args, **kwargs)
+
+        # Clockwork drafts have no Adset Card, so no reach or Militant/Insurgent
+        # type. Mirror the keep's ClockworkCreateForm: drop the fields and set
+        # type 'C' on the instance (FactionCreateForm's type choices don't
+        # include it). Faction.save() then sets component='Clockwork'.
+        if forged_faction.is_clockwork:
+            self.fields.pop('type', None)
+            self.fields.pop('reach', None)
+            self.instance.type = 'C'
+            self.instance.reach = 0
 
         # PostCreateForm.__init__ overrides language.initial from user profile; force it back to the forge's language.
         if 'language' in self.fields and forged_faction.language_id:
@@ -617,9 +862,12 @@ class ForgedFactionLinkForm(forms.Form):
         profile = self.user.profile
         forged = self.forged
 
+        # Candidates match the draft's own type: a Clockwork draft only links
+        # to keep Clockworks, a Faction draft only to keep Factions.
         faction_qs = Faction.objects.filter(
             designer=profile,
-            source_forged_faction__isnull=True,
+            component=forged.component,
+            source_forged_post__isnull=True,
             language=forged.language,
         )
         if not show_all:
@@ -630,7 +878,7 @@ class ForgedFactionLinkForm(forms.Form):
             source_forged_faction__isnull=True,
             translated_title__iexact=forged.faction_name,
             language=forged.language,
-            post__component__in=['Faction', 'Clockwork'],
+            post__component=forged.component,
         ).select_related('post', 'language')
 
         # Cross-language candidates: any Faction the user designed in
@@ -640,6 +888,7 @@ class ForgedFactionLinkForm(forms.Form):
         # title here — the user is starting a new translation.
         cross_lang_factions = Faction.objects.filter(
             designer=profile,
+            component=forged.component,
         ).exclude(
             language=forged.language,
         ).exclude(
@@ -705,18 +954,21 @@ class ForgedFactionLinkForm(forms.Form):
         if prefix == self.PREFIX_FACTION:
             obj = Faction.objects.filter(
                 pk=pk, designer=profile,
-                source_forged_faction__isnull=True,
+                component=self.forged.component,
+                source_forged_post__isnull=True,
                 language=self.forged.language,
             ).first()
         elif prefix == self.PREFIX_TRANSLATION:
             obj = PostTranslation.objects.filter(
                 pk=pk, post__designer=profile,
+                post__component=self.forged.component,
                 source_forged_faction__isnull=True,
                 language=self.forged.language,
             ).first()
         elif prefix == self.PREFIX_NEW_TRANSLATION:
             obj = Faction.objects.filter(
                 pk=pk, designer=profile,
+                component=self.forged.component,
             ).exclude(language=self.forged.language).exclude(
                 translations__language=self.forged.language,
             ).first()
@@ -740,6 +992,11 @@ class ForgedFactionSyncForm(forms.Form):
         self.forged = forged
         self.diff_rows = build_diff(forged)
         self.piece_plan = build_piece_plan(forged)
+        self.deck_plan = build_deck_plan(forged, self.piece_plan)
+        self.tts_asset_plan = build_tts_asset_plan(forged)
+        self.tts_plan = build_tts_plan(
+            forged, self.diff_rows, self.piece_plan, self.deck_plan, self.tts_asset_plan,
+        )
         super().__init__(*args, **kwargs)
         for field_name, label, _current, _proposed, _is_image, in_sync in self.diff_rows:
             if in_sync:
@@ -754,10 +1011,65 @@ class ForgedFactionSyncForm(forms.Form):
                 required=False, initial=True,
                 label=f"{entry['type_display']}: {entry['resolved_name']}",
             )
+        for entry in self.deck_plan:
+            if entry['in_sync']:
+                continue
+            self.fields[f'deck_{entry["forge_piece"].pk}'] = forms.BooleanField(
+                required=False, initial=True, label=f"Deck: {entry['forge_group']}",
+            )
+        for entry in self.tts_asset_plan:
+            if entry['in_sync']:
+                continue
+            self.fields[f'ttsasset_{entry["role"]}'] = forms.BooleanField(
+                required=False, initial=True, label=entry['label'],
+            )
+        if self.tts_plan and not self.tts_plan['in_sync']:
+            self.fields['sync_tts_json'] = forms.BooleanField(
+                required=False, initial=True, label='Tabletop Simulator',
+            )
+
+    @property
+    def has_changes(self):
+        """True when any row on the sync page can be applied. The forge detail
+        page's "Updates Available" uses this too, so the two can't disagree."""
+        return (
+            any(not row[5] for row in self.diff_rows)
+            or any(not e['in_sync'] for e in self.piece_plan)
+            or any(not e['in_sync'] for e in self.deck_plan)
+            or any(not e['in_sync'] for e in self.tts_asset_plan)
+            or bool(self.tts_plan and not self.tts_plan['in_sync'])
+        )
+
+    @property
+    def tts_forced_field_names(self):
+        """Out-of-date rows the TTS conversion depends on. Empty means every
+        asset the keep TTS JSON references is already a current keep copy."""
+        names = [f'sync_{row[0]}' for row in self.diff_rows
+                 if row[0] in TTS_FORCED_FIELDS and not row[5]]
+        names += [f'piece_{e["forge_piece"].pk}' for e in self.piece_plan if not e['in_sync']]
+        names += [f'deck_{e["forge_piece"].pk}' for e in self.deck_plan if not e['in_sync']]
+        names += [f'ttsasset_{e["role"]}' for e in self.tts_asset_plan if not e['in_sync']]
+        return names
+
+    def clean(self):
+        cleaned = super().clean()
+        # The keep TTS JSON must only reference keep files, so syncing it
+        # applies every asset row it depends on (the template also locks them).
+        if cleaned.get('sync_tts_json'):
+            for name in self.tts_forced_field_names:
+                if name in self.fields:
+                    cleaned[name] = True
+        # A deck attaches to a keep piece, so a deck whose piece isn't on the
+        # keep yet also applies that piece's create row.
+        for entry in self.deck_plan:
+            pk = entry['forge_piece'].pk
+            if cleaned.get(f'deck_{pk}') and entry['keep_piece'] is None and f'piece_{pk}' in self.fields:
+                cleaned[f'piece_{pk}'] = True
+        return cleaned
 
     @property
     def mode(self):
-        if self.forged.published_faction_id:
+        if self.forged.published_post_id:
             return 'faction'
         if self.forged.published_translation_id:
             return 'translation'
@@ -767,7 +1079,7 @@ class ForgedFactionSyncForm(forms.Form):
         if not self.is_valid():
             raise ValueError('Form must be valid before save()')
         if self.mode == 'faction':
-            target = self.forged.published_faction
+            target = self.forged.published_keep_post
             proposed_fn = _proposed_for_faction
         elif self.mode == 'translation':
             target = self.forged.published_translation
@@ -843,5 +1155,23 @@ class ForgedFactionSyncForm(forms.Form):
                         keep_piece.back_image = _copy_image_field(forge_piece.back_image)
                         keep_piece.back_version = forge_piece.back_version or 0
                     keep_piece.save()
+                # build_deck_plan resolved keep pieces before this save; record
+                # the created/updated one so the deck pass below can attach to it.
+                entry['keep_piece'] = keep_piece
+
+            keep_piece_by_forge_pk = {e['forge_piece'].pk: e['keep_piece'] for e in self.piece_plan}
+            for entry in self.deck_plan:
+                pk = entry['forge_piece'].pk
+                if entry['in_sync'] or not self.cleaned_data.get(f'deck_{pk}'):
+                    continue
+                keep_piece = keep_piece_by_forge_pk.get(pk)
+                if keep_piece is None or keep_piece.pk is None:
+                    continue
+                apply_deck_entry(entry, target, keep_piece)
+
+            for entry in self.tts_asset_plan:
+                if entry['in_sync'] or not self.cleaned_data.get(f'ttsasset_{entry["role"]}'):
+                    continue
+                apply_tts_asset_entry(entry, target)
 
         return target

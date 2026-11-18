@@ -15,7 +15,7 @@
   <p class="text-muted mb-0">Faction Board, Back and Adset cards only update when downloaded.</p>
 </div>
 
-{% if not diff_rows and not piece_plan %}
+{% if not diff_rows and not piece_plan and not deck_plan and not tts_asset_plan and not tts_plan %}
   <div class="alert alert-info">Nothing to compare — your Forge draft has no values for the sync-eligible fields yet.</div>
 {% else %}
   {% if not has_changes %}
@@ -168,8 +168,129 @@
         </div>
         <p class="form-text mb-3">Existing pieces on the Faction without a matching name are not touched and are not shown above.</p>
       {% endif %}
+
+      {% if deck_plan %}
+        <h5 class="root-title mt-4">Decks</h5>
+        <div class="card p-0 mb-3">
+          <table class="table mb-0 align-middle">
+            <thead>
+              <tr>
+                <th style="width: 30%;">Deck</th>
+                <th style="width: 26%;">Current</th>
+                <th style="width: 26%;">From Forge</th>
+                <th style="width: 18%;">Apply</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for entry in deck_plan %}
+                <tr{% if entry.in_sync %} class="text-muted"{% endif %}>
+                  <td><strong>{{ entry.forge_group }}</strong></td>
+                  <td>
+                    {% if entry.action == 'create' %}<span class="text-muted">— new deck —</span>{% else %}{{ entry.keep_card_count }} card{{ entry.keep_card_count|pluralize }}{% endif %}
+                  </td>
+                  <td>{{ entry.card_count }} card{{ entry.card_count|pluralize }}</td>
+                  <td class="text-center">
+                    {% if entry.in_sync %}
+                      <span class="badge bg-secondary">Up to date</span>
+                    {% else %}
+                      {% if entry.action == 'create' %}<span class="badge bg-success me-2">New</span>{% endif %}
+                      <input type="checkbox" class="form-check-input" name="deck_{{ entry.forge_piece.pk }}" id="id_deck_{{ entry.forge_piece.pk }}" checked>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p class="form-text mb-3">Cards are updated in place, so FAQ references to existing cards are kept.</p>
+      {% endif %}
+
+      {% if tts_asset_plan or tts_plan %}
+        <h5 class="root-title mt-4">Tabletop Simulator</h5>
+        <div class="card p-0 mb-3">
+          <table class="table mb-0 align-middle">
+            <thead>
+              <tr>
+                <th style="width: 30%;">Item</th>
+                <th style="width: 26%;">Current</th>
+                <th style="width: 26%;">From Forge</th>
+                <th style="width: 18%;">Apply</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for entry in tts_asset_plan %}
+                <tr{% if entry.in_sync %} class="text-muted"{% endif %}>
+                  <td><strong>{{ entry.label }}</strong></td>
+                  <td>
+                    {% if entry.keep_asset %}<img src="{{ entry.keep_asset.image.url }}" alt="" style="max-width: 96px; max-height: 96px;">{% else %}<span class="text-muted">— none —</span>{% endif %}
+                  </td>
+                  <td><img src="{{ entry.forge_image.url }}" alt="" style="max-width: 96px; max-height: 96px;"></td>
+                  <td class="text-center">
+                    {% if entry.in_sync %}
+                      <span class="badge bg-secondary">Up to date</span>
+                    {% else %}
+                      <input type="checkbox" class="form-check-input" name="ttsasset_{{ entry.role }}" id="id_ttsasset_{{ entry.role }}" checked>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+              {% if tts_plan %}
+                <tr{% if tts_plan.in_sync %} class="text-muted"{% endif %}>
+                  <td>
+                    <strong>TTS Library</strong>
+                    <div class="small text-muted">What the TTS Library spawns for this Faction.</div>
+                  </td>
+                  <td>
+                    {% if tts_plan.keep_object_count %}{{ tts_plan.keep_object_count }} object{{ tts_plan.keep_object_count|pluralize }}{% else %}<span class="text-muted">— none —</span>{% endif %}
+                    {% if tts_plan.keep_replaced %}<div class="small text-warning">Edited outside the Forge; syncing replaces it.</div>{% endif %}
+                  </td>
+                  <td>
+                    {% if tts_plan.in_sync %}Matches the Forge{% else %}Rebuilt from the Forge{% endif %}
+                    {% if not tts_plan.in_sync and tts_plan.stale_count %}<div class="small text-muted">Also applies {{ tts_plan.stale_count }} out-of-date row{{ tts_plan.stale_count|pluralize }} above.</div>{% endif %}
+                  </td>
+                  <td class="text-center">
+                    {% if tts_plan.in_sync %}
+                      <span class="badge bg-secondary">Up to date</span>
+                    {% else %}
+                      <input type="checkbox" class="form-check-input" name="sync_tts_json" id="id_sync_tts_json" checked>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
     {% else %}
       <p class="form-text mt-3 mb-3 text-muted"><em>Pieces aren't synced for translations. Manage them via the original Faction.</em></p>
+    {% endif %}
+
+    {% if tts_plan and not tts_plan.in_sync %}
+      {{ tts_forced_field_names|json_script:"tts-forced-fields" }}
+      <script>
+        {% comment %}
+          The keep TTS object may only reference keep files, so while the TTS row
+          is ticked every row it depends on is ticked and locked. The server
+          enforces the same thing; this just keeps the form honest.
+        {% endcomment %}
+        (function () {
+          const tts = document.getElementById('id_sync_tts_json');
+          if (!tts) return;
+          const forced = JSON.parse(document.getElementById('tts-forced-fields').textContent)
+            .map(name => document.querySelector(`input[name="${name}"]`))
+            .filter(Boolean);
+          function sync() {
+            forced.forEach(box => {
+              if (tts.checked) box.checked = true;
+              box.disabled = tts.checked;
+            });
+          }
+          tts.addEventListener('change', sync);
+          // Disabled inputs aren't submitted; re-enable just before submit.
+          tts.form.addEventListener('submit', () => forced.forEach(box => { box.disabled = false; }));
+          sync();
+        })();
+      </script>
     {% endif %}
 
     <div class="d-flex justify-content-end gap-2 mb-5">

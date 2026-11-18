@@ -1,5 +1,6 @@
 from django.urls import path
-from .api_views import search_posts
+from .api_views import (search_posts, TTSCatalogView, TTSKeepDetailView, TTSForgeDetailView,
+                        TTSLoaderVersionView, TTSLoaderScriptView, TTSLoaderObjectView)
 from . import views
 
 urlpatterns = [
@@ -57,6 +58,14 @@ urlpatterns = [
     path("hx/search/", views.search_view, name='search'),
     path('universal-search/', views.universal_search, name='universal-search'),
     path('api/search/', search_posts, name='api-search-posts'),
+    # Tabletop Simulator loader object (public, read-only)
+    path('api/tts/catalog/', TTSCatalogView.as_view(), name='api-tts-catalog'),
+    path('api/tts/keep/<slug:slug>/', TTSKeepDetailView.as_view(), name='api-tts-keep-detail'),
+    path('api/tts/forge/<int:pk>/', TTSForgeDetailView.as_view(), name='api-tts-forge-detail'),
+    # TTS Library object, served from tts/loader.lua (unlisted)
+    path('api/tts/loader/version/', TTSLoaderVersionView.as_view(), name='api-tts-loader-version'),
+    path('api/tts/loader.lua', TTSLoaderScriptView.as_view(), name='api-tts-loader-script'),
+    path('api/tts/loader/object.json', TTSLoaderObjectView.as_view(), name='api-tts-loader-object'),
 
     path('new/', views.new_components, name='new-components'),
     path('new/faction/', views.FactionCreateView.as_view(), name='faction-create'),

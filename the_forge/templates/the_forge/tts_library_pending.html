@@ -1,0 +1,199 @@
+{% extends "the_keep/base.html" %}
+{% load i18n %}
+{% block title %}{{ title }} | {% endblock %}
+{% block content %}
+
+<div class="container">
+    <h1 class='root-title'>{{ title }}</h1>
+
+    {% if pending_factions %}
+        <article class="d-flex content-section">
+            <div class="w-100">
+                <p class="text-muted mb-3">
+                    <i class="bi bi-info-circle"></i>
+                    {{ pending_factions|length }} pending submission{{ pending_factions|length|pluralize }}
+                </p>
+
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Faction</th>
+                                <th>Designer</th>
+                                <th>Submitted</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for faction in pending_factions %}
+                                <tr>
+                                    <td>
+                                        <a href="{% url 'forge-faction-detail' pk=faction.pk %}">
+                                            {% if faction.faction_icon %}
+                                                <img class="lg-faction-icon me-2" src="{{ faction.faction_icon.url }}" alt="{{ faction.faction_name }}">
+                                            {% endif %}
+                                            {{ faction.faction_name }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        {% if faction.designer %}
+                                            <a href="{{ faction.designer.get_absolute_url }}">
+                                                <img class="lg-avatar-icon me-2" src="{{ faction.designer.image.url }}" alt="{{ faction.designer.name }}">
+                                                {{ faction.designer.name }}
+                                            </a>
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if faction.tts_submitted_at %}
+                                            <small class="text-muted">{{ faction.tts_submitted_at|timesince }} ago</small>
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <button type="button"
+                                                class="btn btn-primary btn-sm"
+                                                data-bs-toggle="modal"
+                                                data-bs-target="#reviewModal{{ faction.pk }}">
+                                            <i class="bi bi-chat-square-text"></i> Review
+                                        </button>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                {% for faction in pending_factions %}
+                    <!-- Review Modal -->
+                    <div class="modal fade" id="reviewModal{{ faction.pk }}" tabindex="-1" aria-labelledby="reviewModalLabel{{ faction.pk }}" aria-hidden="true">
+                        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title" id="reviewModalLabel{{ faction.pk }}">
+                                        <i class="bi bi-pc-display"></i>
+                                        Review: {{ faction.faction_name }}
+                                    </h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <div class="mb-4">
+                                        <div class="row">
+                                            <div class="col-md-5">
+                                                {% if faction.faction_sheet.image_preview %}
+                                                    <img src="{{ faction.faction_sheet.image_preview.url }}" alt="{{ faction.faction_name }} board" class="img-fluid rounded mb-2">
+                                                {% elif faction.faction_back.image_preview %}
+                                                    <img src="{{ faction.faction_back.image_preview.url }}" alt="{{ faction.faction_name }} board" class="img-fluid rounded mb-2">
+                                                {% endif %}
+                                            </div>
+                                            <div class="col-md-7">
+                                                <h6 class="text-uppercase text-muted mb-2" style="font-size: 0.85rem; font-weight: 600;">
+                                                    <i class="bi bi-info-circle me-1"></i> Submission Details
+                                                </h6>
+                                                <div class="p-3 bg-light border rounded">
+                                                    <p class="mb-2"><strong>Designer:</strong>
+                                                        {% if faction.designer %}
+                                                            <a href="{{ faction.designer.get_absolute_url }}">{{ faction.designer.name }}</a>
+                                                        {% else %}
+                                                            <span class="text-muted">—</span>
+                                                        {% endif %}
+                                                    </p>
+                                                    <p class="mb-2"><strong>Submitted:</strong>
+                                                        {% if faction.tts_submitted_at %}{{ faction.tts_submitted_at|timesince }} ago{% else %}<span class="text-muted">—</span>{% endif %}
+                                                    </p>
+                                                    <p class="mb-0"><strong>TTS JSON built:</strong>
+                                                        {% if faction.tts_json_generated %}{{ faction.tts_json_generated|date:"M j, Y H:i" }}{% else %}<span class="text-muted">—</span>{% endif %}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="d-flex gap-2 flex-wrap">
+                                        <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-info" target="_blank">
+                                            <i class="bi bi-box-arrow-up-right"></i> View Forged Faction
+                                        </a>
+                                        <a href="{% url 'forge-tts-library-json' pk=faction.pk %}" class="btn btn-outline-secondary">
+                                            <i class="bi bi-download"></i> Download TTS JSON
+                                        </a>
+                                    </div>
+                                </div>
+                                <div class="modal-footer flex-column align-items-stretch">
+                                    <div class="w-100 mb-2 text-start">
+                                        <label for="reject-message-{{ faction.pk }}" class="form-label">
+                                            {% trans "Feedback for the designer (optional)" %}
+                                        </label>
+                                        <textarea id="reject-message-{{ faction.pk }}"
+                                                  class="form-control"
+                                                  rows="3"
+                                                  placeholder="{% trans 'Let the designer know what needs to change before resubmitting.' %}"></textarea>
+                                    </div>
+                                    <div class="d-flex justify-content-end gap-2">
+                                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                                            Cancel
+                                        </button>
+                                        <button type="button"
+                                                class="btn btn-danger"
+                                                onclick="if(confirm('Reject this TTS Library submission? The designer will be notified and can resubmit.')) { submitAction({{ faction.pk }}, 'reject'); }">
+                                            <i class="bi bi-x-circle"></i> Reject
+                                        </button>
+                                        <button type="button"
+                                                class="btn btn-success"
+                                                onclick="if(confirm('Approve and add this faction to the TTS Library?')) { submitAction({{ faction.pk }}, 'approve'); }">
+                                            <i class="bi bi-check-circle"></i> Approve
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </article>
+    {% else %}
+        <article class="d-flex content-section">
+            <div class="w-100 text-center py-5">
+                <i class="bi bi-inbox" style="font-size: 3rem; color: #999;"></i>
+                <p class="text-muted mt-3">{% trans "No pending TTS Library submissions" %}</p>
+            </div>
+        </article>
+    {% endif %}
+</div>
+
+{% endblock content %}
+
+{% block scripts %}
+<script>
+function submitAction(factionId, action) {
+    const form = document.createElement('form');
+    form.method = 'POST';
+
+    if (action === 'approve') {
+        form.action = "{% url 'forge-tts-library-approve' 0 %}".replace('/0/', '/' + factionId + '/');
+    } else {
+        form.action = "{% url 'forge-tts-library-reject' 0 %}".replace('/0/', '/' + factionId + '/');
+
+        // Include the admin's feedback with the rejection
+        const messageField = document.getElementById('reject-message-' + factionId);
+        if (messageField) {
+            const messageInput = document.createElement('input');
+            messageInput.type = 'hidden';
+            messageInput.name = 'message';
+            messageInput.value = messageField.value;
+            form.appendChild(messageInput);
+        }
+    }
+
+    const csrfInput = document.createElement('input');
+    csrfInput.type = 'hidden';
+    csrfInput.name = 'csrfmiddlewaretoken';
+    csrfInput.value = '{{ csrf_token }}';
+    form.appendChild(csrfInput);
+
+    document.body.appendChild(form);
+    form.submit();
+}
+</script>
+{% endblock scripts %}

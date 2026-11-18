@@ -5,7 +5,7 @@ from django.dispatch import receiver
 from .models import (
     Map, Deck, Faction, Vagabond, Hireling, Landmark, Tweak,
     Expansion, LawGroup, RulesFile, DeckGroup, Card, CardDeck,
-    Post
+    Post, TTSAsset,
 )
 from the_gatehouse.models import Profile
 from .services.slugify_titles import (
@@ -107,6 +107,12 @@ def delete_card_image(sender, instance, **kwargs):
 def delete_deck_sprite_sheet(sender, instance, **kwargs):
     if instance.sprite_sheet and os.path.isfile(instance.sprite_sheet.path):
         os.remove(instance.sprite_sheet.path)
+
+# Delete TTS asset images
+@receiver(post_delete, sender=TTSAsset)
+def delete_tts_asset_image(sender, instance, **kwargs):
+    if instance.image and os.path.isfile(instance.image.path):
+        os.remove(instance.image.path)
 
 # Delete deck group back images
 @receiver(post_delete, sender=DeckGroup)

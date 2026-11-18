@@ -1,6 +1,6 @@
 # api_views.py
 from django.http import JsonResponse
-from .models import Deck, Faction, Map, Vagabond, Hireling, Landmark, Tweak, Post, PostTranslation
+from .models import Deck, Faction, Map, Vagabond, Hireling, Landmark, Tweak, Post, PostTranslation, StatusChoices
 from .serializers import (
     MapSerializer, DeckSerializer, LandmarkSerializer, TweakSerializer, 
     HirelingSerializer, VagabondSerializer, FactionSerializer
@@ -8,6 +8,17 @@ from .serializers import (
 from the_gatehouse.models import Profile
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
+from rest_framework.views import APIView
+from rest_framework.throttling import ScopedRateThrottle
+from django.shortcuts import get_object_or_404
+import hashlib
+import json
+import os
+import re
+from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
+from django.http import HttpResponse
+from django.templatetags.static import static
 from django.utils.translation import get_language
 
 from django.db.models import OuterRef, Subquery, F, Value
@@ -271,3 +282,205 @@ def search_posts(request):
             return Response({"message": "No matching post found"}, status=404)
     else:
         return Response({"message": "No search query provided"}, status=400)
+
+
+# ── Tabletop Simulator loader ───────────────────────────────────────────────
+# Read-only and public: the TTS loader object can't log in. Throttled per
+# caller because the project default (UserRateThrottle) ignores anonymous
+# requests entirely.
+
+# Posts the TTS Library lists: publicly active only (no Abandoned / Rejected /
+# Submitted). Enum members, not ints -- status values are strings ('1').
+TTS_LISTED_STATUSES = (
+    StatusChoices.STABLE, StatusChoices.TESTING,
+    StatusChoices.DEVELOPMENT, StatusChoices.INACTIVE,
+)
+
+
+class TTSLoaderView(APIView):
+    authentication_classes = []
+    permission_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'tts_loader'
+
+
+def _site_url(image):
+    from .services.tts import SiteURLRequest
+    return SiteURLRequest().build_absolute_uri(image.url) if image else ''
+
+
+def _number(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _tts_objects_payload(title, tts_json):
+    """Each object pre-encoded as a string so the Lua side hands it straight to
+    spawnObjectJSON (MoonSharp's JSON is very slow on big deck blobs), with its
+    position pulled out here so Lua never decodes an object at all."""
+    objects = []
+    for obj in tts_json.get('ObjectStates', []):
+        transform = obj.get('Transform') or {}
+        objects.append({
+            'x': _number(transform.get('posX')),
+            'y': _number(transform.get('posY')),
+            'z': _number(transform.get('posZ')),
+            'json': json.dumps(obj),
+        })
+    return {'title': title, 'objects': objects}
+
+
+class TTSCatalogView(TTSLoaderView):
+    """Everything the loader can spawn, without the blobs."""
+
+    def get(self, request):
+        from the_forge.models import ForgedFaction
+
+        keep_posts = (
+            Post.objects.filter(tts_json__isnull=False, status__in=TTS_LISTED_STATUSES)
+            .select_related('designer')
+            .only('slug', 'title', 'component', 'designers_list', 'small_icon', 'designer__display_name')
+            .order_by('component', 'title')
+        )
+        forge_factions = (
+            ForgedFaction.objects.filter(tts_status=ForgedFaction.TTSStatus.APPROVED, tts_json__isnull=False)
+            .select_related('designer')
+            .only('pk', 'faction_name', 'component', 'faction_icon', 'designer__display_name')
+            .order_by('faction_name')
+        )
+        return Response({
+            'keep': [{
+                'slug': post.slug,
+                'title': post.title,
+                'component': post.component or '',
+                'designers': post.designers_list or (post.designer.display_name if post.designer else ''),
+                'icon': _site_url(post.small_icon),
+            } for post in keep_posts],
+            'forge': [{
+                'id': forged.pk,
+                'title': forged.faction_name,
+                'component': forged.component,
+                'designer': forged.designer.display_name if forged.designer else '',
+                'icon': _site_url(forged.faction_icon),
+            } for forged in forge_factions],
+        })
+
+
+class TTSKeepDetailView(TTSLoaderView):
+    def get(self, request, slug):
+        post = get_object_or_404(
+            Post.objects.filter(tts_json__isnull=False, status__in=TTS_LISTED_STATUSES)
+            .only('title', 'tts_json'),
+            slug=slug,
+        )
+        return Response(_tts_objects_payload(post.title, post.tts_json))
+
+
+class TTSForgeDetailView(TTSLoaderView):
+    def get(self, request, pk):
+        from the_forge.models import ForgedFaction
+
+        forged = get_object_or_404(
+            ForgedFaction.objects.filter(tts_status=ForgedFaction.TTSStatus.APPROVED, tts_json__isnull=False)
+            .only('faction_name', 'tts_json'),
+            pk=pk,
+        )
+        return Response(_tts_objects_payload(forged.faction_name, forged.tts_json))
+
+
+# ── TTS Library object: served straight from tts/loader.lua ─────────────────
+# The repo file is the single source. These endpoints serve it with its version
+# and BASE_URL filled in, and wrap it in a ready-made object; objects built that
+# way update themselves on load (see checkForUpdate in the script). Unlisted:
+# nothing on the site links here yet.
+
+_LOADER_VERSION_LINE = re.compile(r'^LOADER_VERSION = "[^"]*"$', re.MULTILINE)
+_LOADER_BASE_URL_LINE = re.compile(r'^BASE_URL = "[^"]*"$', re.MULTILINE)
+_loader_cache = {}   # (path, mtime) -> (version, raw text)
+
+
+def _loader_source():
+    """(version, raw text) of tts/loader.lua, re-read only when the file changes."""
+    path = os.path.join(settings.BASE_DIR, 'tts', 'loader.lua')
+    key = (str(path), os.path.getmtime(path))
+    cached = _loader_cache.get(key)
+    if cached is None:
+        with open(path, encoding='utf-8') as fh:
+            raw = fh.read()
+        # Each marker must appear exactly once, or a served script could never
+        # match its advertised version and the self-update would loop.
+        for pattern, name in ((_LOADER_VERSION_LINE, 'LOADER_VERSION'), (_LOADER_BASE_URL_LINE, 'BASE_URL')):
+            if len(pattern.findall(raw)) != 1:
+                raise ImproperlyConfigured(f'tts/loader.lua needs exactly one top-level {name} = "..." line')
+        version = hashlib.sha256(raw.encode('utf-8')).hexdigest()[:12]
+        _loader_cache.clear()
+        cached = _loader_cache[key] = (version, raw)
+    return cached
+
+
+def _loader_script(request):
+    """(version, script) with LOADER_VERSION and BASE_URL filled in.
+
+    BASE_URL is the host that served this request, NOT settings.SITE_URL:
+    locally SITE_URL is production, so a dev-downloaded object would otherwise
+    read from and self-update against production. Every object stays tied to
+    the server it came from."""
+    version, raw = _loader_source()
+    base_url = request.build_absolute_uri('/').rstrip('/')
+    script = _LOADER_VERSION_LINE.sub(f'LOADER_VERSION = "{version}"', raw, count=1)
+    script = _LOADER_BASE_URL_LINE.sub(f'BASE_URL = "{base_url}"', script, count=1)
+    return version, script
+
+
+class TTSLoaderVersionView(TTSLoaderView):
+    def get(self, request):
+        version, _script = _loader_script(request)
+        return Response({'version': version})
+
+
+class TTSLoaderScriptView(TTSLoaderView):
+    def get(self, request):
+        _version, script = _loader_script(request)
+        return HttpResponse(script, content_type='text/plain; charset=utf-8')
+
+
+class TTSLoaderObjectView(TTSLoaderView):
+    """A TTS Save Object file: one locked tile carrying the current script.
+    Drop it in Tabletop Simulator's Saved Objects folder."""
+
+    def get(self, request):
+        from .services.tts import generate_tts_guid, wrap_tts_save
+
+        _version, script = _loader_script(request)
+        tile = {
+            "GUID": generate_tts_guid(),
+            "Name": "Custom_Tile",
+            "Nickname": "Root Database Library",
+            "Description": "Search and spawn factions, maps and more from therootdatabase.com.",
+            # Scale is a starting point; tune it with the panel's
+            # position/scale in tts/loader.lua once seen in game.
+            "Transform": {
+                "posX": 0.0, "posY": 1.0, "posZ": 0.0,
+                "rotX": 0.0, "rotY": 0.0, "rotZ": 0.0,
+                "scaleX": 1.0, "scaleY": 1.0, "scaleZ": 1.0,
+            },
+            "Locked": True,
+            "CustomImage": {
+                "ImageURL": request.build_absolute_uri(static('images/RDBFrogLogo.png')),
+                "ImageSecondaryURL": "",
+                "ImageScalar": 1.0,
+                "WidthScale": 0.0,
+                "CustomTile": {"Type": 0, "Thickness": 0.2, "Stackable": False, "Stretch": True},
+            },
+            "LuaScript": script,
+            "LuaScriptState": "",
+            "XmlUI": "",
+        }
+        response = HttpResponse(
+            json.dumps(wrap_tts_save([tile], save_name='Root Database Library'), indent=2),
+            content_type='application/json',
+        )
+        response['Content-Disposition'] = 'attachment; filename="Root Database Library.json"'
+        return response

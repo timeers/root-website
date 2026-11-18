@@ -8,14 +8,17 @@ from django.urls import path, reverse
 from django.shortcuts import render
 from django.http import HttpResponseRedirect 
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 
 from the_gatehouse.models import Profile
 from the_warroom.admin import CsvImportForm
 
 from .models import (Map, Deck, Landmark, Vagabond, Hireling, Faction, Expansion,
                      PostBookmark, Piece, Tweak, PNPAsset, PostTranslation, FAQ, LawGroup, Law, RulesFile,
-                     Card, CardDeck, DeckGroup,
+                     Card, CardDeck, DeckGroup, TTSAsset, Post,
                      )
+from .services.tts import build_tts_objects, wrap_tts_save, SiteURLRequest
+from .utils import validate_tts_save
 from .forms import (FactionImportForm, MapImportForm, VagabondImportForm, DeckImportForm,
                    PieceImportForm, LandmarkImportForm, HirelingImportForm)
 
@@ -30,6 +33,39 @@ class PostTranslationInline(admin.StackedInline):
 class CardInline(admin.StackedInline):
     model = Card
     extra = 0
+
+class TTSAssetInline(admin.StackedInline):
+    model = TTSAsset
+    extra = 0
+
+
+@admin.action(description="Generate TTS JSON")
+def generate_tts_json(modeladmin, request, queryset):
+    """Build tts_json from the_keep's TTS builder. Factions linked to a forge
+    faction are skipped: their richer JSON comes from the forge sync page."""
+    from the_forge.models import ForgedFaction
+
+    generated, skipped = [], []
+    for post in queryset:
+        if ForgedFaction.objects.filter(published_post_id=post.pk).exists():
+            skipped.append(f"{post.title} (update via forge sync)")
+            continue
+        save_file = wrap_tts_save(build_tts_objects(post, request=SiteURLRequest()), save_name=post.title)
+        # .update() below skips field validators, so validate explicitly.
+        try:
+            validate_tts_save(save_file)
+        except ValidationError:
+            skipped.append(f"{post.title} (nothing to export)")
+            continue
+        # Queryset update: tts_json lives on the Post table, and this avoids
+        # Post.save() side effects.
+        Post.objects.filter(pk=post.pk).update(tts_json=save_file)
+        generated.append(post.title)
+
+    if generated:
+        modeladmin.message_user(request, f"Generated TTS JSON for {len(generated)}: {', '.join(generated)}")
+    if skipped:
+        modeladmin.message_user(request, f"Skipped {len(skipped)}: {', '.join(skipped)}", level=messages.WARNING)
 
 class FAQAdmin(admin.ModelAdmin):
     list_display = ('post__title', 'question', 'language')
@@ -91,6 +127,7 @@ class MapAdmin(admin.ModelAdmin):
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
     inlines = [PieceInline, PostTranslationInline]
+    actions = [generate_tts_json]
 
     def get_urls(self):
         urls = super().get_urls()
@@ -203,6 +240,7 @@ class DeckAdmin(admin.ModelAdmin):
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
     inlines = [PieceInline, PostTranslationInline]
+    actions = [generate_tts_json]
 
     def get_urls(self):
         urls = super().get_urls()
@@ -305,12 +343,14 @@ class TweakAdmin(admin.ModelAdmin):
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
     inlines = [PieceInline, PostTranslationInline]
+    actions = [generate_tts_json]
 
 class LandmarkAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
     inlines = [PieceInline, PostTranslationInline]
+    actions = [generate_tts_json]
 
     def get_urls(self):
         urls = super().get_urls()
@@ -430,6 +470,7 @@ class HirelingAdmin(admin.ModelAdmin):
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
     inlines = [PieceInline, PostTranslationInline]
+    actions = [generate_tts_json]
 
     def get_urls(self):
         urls = super().get_urls()
@@ -567,7 +608,8 @@ class FactionAdmin(admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status', 'type', 'reach', 'animal')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
-    inlines = [PieceInline, PostTranslationInline]
+    inlines = [PieceInline, PostTranslationInline, TTSAssetInline]
+    actions = [generate_tts_json]
 
 
 
@@ -988,6 +1030,7 @@ class VagabondAdmin(admin.ModelAdmin):
     search_fields = ['title']
     raw_id_fields = ['designer']
     inlines = [PieceInline, PostTranslationInline]
+    actions = [generate_tts_json]
     def get_urls(self):
         urls = super().get_urls()
         new_urls = [path('upload-vagabond-csv/', self.upload_vagabond_csv)]

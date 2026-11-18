@@ -267,3 +267,205 @@ class ProfileCreditUrlTests(TestCase):
         Profile.objects.filter(pk=plain.pk).update(slug=None)
         plain.refresh_from_db()
         self.assertIsNone(plain.credit_url)
+
+
+# ── Tabletop Simulator loader ───────────────────────────────────────────────
+
+from django.core.cache import cache
+from django.core.exceptions import ValidationError
+from django.test import override_settings
+from django.urls import reverse
+
+from the_gatehouse.models import Profile
+from the_keep.admin import generate_tts_json
+from the_keep.models import Faction, Post, StatusChoices
+from the_keep.services.tts import SiteURLRequest
+from the_keep.utils import tts_json_hash, validate_tts_save
+
+_LOCMEM = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
+
+
+def _tts_save(nickname='Board', x=1.5, y=2, z=-3):
+    return {'SaveName': 'Test', 'ObjectStates': [{
+        'Name': 'Custom_Tile', 'Nickname': nickname,
+        'Transform': {'posX': x, 'posY': y, 'posZ': z},
+    }]}
+
+
+class TTSJsonHelperTests(TestCase):
+    def test_validator_accepts_a_save_file(self):
+        validate_tts_save(_tts_save())
+
+    def test_validator_rejects_other_shapes(self):
+        for bad in ([1], {'Name': 'x'}, {'ObjectStates': []}, {'ObjectStates': [{'x': 1}]}, 'str'):
+            with self.subTest(bad=bad), self.assertRaises(ValidationError):
+                validate_tts_save(bad)
+
+    def test_hash_ignores_key_order(self):
+        # Postgres jsonb reorders keys, so a re-read value must hash the same.
+        self.assertEqual(tts_json_hash({'a': 1, 'b': [{'c': 2, 'd': 3}]}),
+                         tts_json_hash({'b': [{'d': 3, 'c': 2}], 'a': 1}))
+        self.assertEqual(tts_json_hash(None), '')
+
+    @override_settings(SITE_URL='https://example.test')
+    def test_site_url_request_pins_host(self):
+        self.assertEqual(SiteURLRequest().build_absolute_uri('/media/x.webp'),
+                         'https://example.test/media/x.webp')
+
+
+@override_settings(CACHES=_LOCMEM, SITE_URL='https://example.test')
+class TTSLoaderApiTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        from the_forge.models import ForgedFaction
+        self.designer = Profile.objects.create(discord='ttsdesigner', display_name='TTS Designer')
+        self.listed = Faction.objects.create(title='Listed Fox', animal='Fox', designer=self.designer,
+                                             component='Faction', status=StatusChoices.STABLE,
+                                             tts_json=_tts_save())
+        # Has JSON but isn't publicly active, so the library must hide it.
+        self.rejected = Faction.objects.create(title='Rejected Fox', animal='Fox', designer=self.designer,
+                                               component='Faction', status=StatusChoices.REJECTED,
+                                               tts_json=_tts_save())
+        Faction.objects.create(title='Submitted Fox', animal='Fox', designer=self.designer,
+                               component='Faction', status=StatusChoices.SUBMITTED, tts_json=_tts_save())
+        self.unlisted = Faction.objects.create(title='Plain Fox', animal='Fox', designer=self.designer,
+                                               component='Faction')
+        self.published = ForgedFaction.objects.create(designer=self.designer, faction_name='Forge Pub',
+                                                      tts_status=ForgedFaction.TTSStatus.APPROVED,
+                                                      tts_json=_tts_save('Forge Board'))
+        # Submitted and rejected factions have snapshots but aren't approved.
+        self.hidden = ForgedFaction.objects.create(designer=self.designer, faction_name='Forge Hidden',
+                                                   tts_status=ForgedFaction.TTSStatus.SUBMITTED,
+                                                   tts_json=_tts_save())
+        ForgedFaction.objects.create(designer=self.designer, faction_name='Forge Rejected',
+                                     tts_status=ForgedFaction.TTSStatus.REJECTED, tts_json=_tts_save())
+
+    def test_catalog_lists_only_loadable_items_without_blobs(self):
+        response = self.client.get(reverse('api-tts-catalog'))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual([p['slug'] for p in data['keep']], [self.listed.slug])
+        self.assertEqual([f['id'] for f in data['forge']], [self.published.pk])
+        # The Forge tab's type buttons are built from this field.
+        self.assertEqual(data['forge'][0]['component'], 'Faction')
+        self.assertNotIn('ObjectStates', response.content.decode())
+
+    def test_keep_detail_returns_pre_encoded_objects_with_positions(self):
+        response = self.client.get(reverse('api-tts-keep-detail', args=[self.listed.slug]))
+        self.assertEqual(response.status_code, 200)
+        obj = response.json()['objects'][0]
+        self.assertEqual((obj['x'], obj['y'], obj['z']), (1.5, 2.0, -3.0))
+        self.assertEqual(json.loads(obj['json'])['Nickname'], 'Board')
+
+    def test_unlisted_items_404(self):
+        self.assertEqual(self.client.get(reverse('api-tts-keep-detail', args=[self.unlisted.slug])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('api-tts-keep-detail', args=[self.rejected.slug])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('api-tts-forge-detail', args=[self.hidden.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('api-tts-forge-detail', args=[self.published.pk])).status_code, 200)
+
+    def test_throttled_for_anonymous_callers(self):
+        # DRF reads THROTTLE_RATES at import, so patch the dict, not settings.
+        from rest_framework.throttling import ScopedRateThrottle
+        url = reverse('api-tts-catalog')
+        with mock.patch.dict(ScopedRateThrottle.THROTTLE_RATES, {'tts_loader': '2/hour'}):
+            codes = [self.client.get(url).status_code for _ in range(3)]
+        self.assertEqual(codes, [200, 200, 429])
+
+
+class GenerateTTSJsonActionTests(TestCase):
+    def setUp(self):
+        self.designer = Profile.objects.create(discord='actiondesigner')
+        self.modeladmin = mock.Mock()
+
+    def test_skips_forge_linked_and_empty_posts(self):
+        from the_forge.models import ForgedFaction
+        linked = Faction.objects.create(title='Linked Fox', animal='Fox', designer=self.designer,
+                                        component='Faction')
+        ForgedFaction.objects.create(designer=self.designer, faction_name='Linked Fox',
+                                     published_post=linked)
+        # A Tweak has nothing for the keep builder to export.
+        from the_keep.models import Tweak
+        tweak = Tweak.objects.create(title='Rule', designer=self.designer, component='Tweak')
+
+        generate_tts_json(self.modeladmin, mock.Mock(), Post.objects.filter(pk__in=[linked.pk, tweak.pk]))
+
+        self.assertIsNone(Post.objects.get(pk=linked.pk).tts_json)
+        self.assertIsNone(Post.objects.get(pk=tweak.pk).tts_json)
+        message = self.modeladmin.message_user.call_args_list[-1].args[1]
+        self.assertIn('update via forge sync', message)
+        self.assertIn('nothing to export', message)
+
+
+# ── TTS Library object served from tts/loader.lua ───────────────────────────
+
+from pathlib import Path
+
+from django.core.exceptions import ImproperlyConfigured
+
+from the_keep import api_views
+
+_LOADER_FIXTURE = '''-- fixture
+LOADER_VERSION = "dev"
+BASE_URL = "https://www.therootdatabase.com"
+function onLoad() end
+'''
+
+
+@override_settings(CACHES=_LOCMEM)
+class TTSLoaderObjectTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        api_views._loader_cache.clear()
+        self.base = Path(tempfile.mkdtemp(prefix='tts-loader-test-'))
+        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+        (self.base / 'tts').mkdir()
+        self.script_path = self.base / 'tts' / 'loader.lua'
+        self.script_path.write_text(_LOADER_FIXTURE)
+        override = override_settings(BASE_DIR=self.base)
+        override.enable()
+        self.addCleanup(override.disable)
+
+    def _version(self):
+        return self.client.get(reverse('api-tts-loader-version')).json()['version']
+
+    def test_version_follows_the_file(self):
+        first = self._version()
+        self.assertRegex(first, r'^[0-9a-f]{12}$')
+        self.script_path.write_text(_LOADER_FIXTURE + '-- edited\n')
+        os.utime(self.script_path, (1, 1))  # force a new mtime even within the same second
+        self.assertNotEqual(self._version(), first)
+
+    def test_script_has_version_and_request_host_filled_in(self):
+        version = self._version()
+        response = self.client.get(reverse('api-tts-loader-script'))
+        self.assertTrue(response['Content-Type'].startswith('text/plain'))
+        body = response.content.decode()
+        self.assertIn(f'LOADER_VERSION = "{version}"', body)
+        # The request host, not settings.SITE_URL (which is production locally).
+        self.assertIn('BASE_URL = "http://testserver"', body)
+        self.assertNotIn('"dev"', body)
+
+    def test_object_carries_the_served_script(self):
+        script = self.client.get(reverse('api-tts-loader-script')).content.decode()
+        response = self.client.get(reverse('api-tts-loader-object'))
+        self.assertIn('attachment', response['Content-Disposition'])
+        save = json.loads(response.content)
+        validate_tts_save(save)
+        tile = save['ObjectStates'][0]
+        self.assertEqual(tile['LuaScript'], script)
+        self.assertEqual(tile['Nickname'], 'Root Database Library')
+        self.assertTrue(tile['Locked'])
+
+    def test_missing_marker_is_never_served(self):
+        self.script_path.write_text('BASE_URL = "x"\n')
+        with self.assertRaises(ImproperlyConfigured):
+            api_views._loader_source()
+
+
+class RealLoaderScriptTests(TestCase):
+    def test_repo_script_keeps_both_markers(self):
+        # Editing tts/loader.lua must not break the self-update's substitution.
+        api_views._loader_cache.clear()
+        version, raw = api_views._loader_source()
+        self.assertIn('LOADER_VERSION = "dev"', raw)
+        self.assertRegex(version, r'^[0-9a-f]{12}$')

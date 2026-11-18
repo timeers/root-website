@@ -1,0 +1,21 @@
+{% extends "the_keep/base.html" %}
+{% load i18n %}
+
+{% block content %}
+<div class="my-2">
+  <a href="{% url 'forge-home' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i> The Forge</a>
+</div>
+<div class='root-title'>
+    <h1 class='d-flex justify-content-center'>{% trans 'Forge a New' %}</h1>
+    <a href="{% url 'forge-faction-create' %}">
+        <article class="content-section post-card d-flex justify-content-center">
+            {% trans 'Faction' %}
+        </article>
+    </a>
+    <a href="{% url 'forge-clockwork-create' %}">
+        <article class="content-section post-card d-flex justify-content-center">
+            {% trans 'Clockwork Faction' %}
+        </article>
+    </a>
+</div>
+{% endblock %}
