@@ -1,6 +1,6 @@
 # api_views.py
 from django.http import JsonResponse
-from .models import Deck, Faction, Map, Vagabond, Hireling, Landmark, Tweak, Post, PostTranslation
+from .models import Deck, Faction, Map, Vagabond, Hireling, Landmark, Tweak, Post, PostTranslation, StatusChoices
 from .serializers import (
     MapSerializer, DeckSerializer, LandmarkSerializer, TweakSerializer, 
     HirelingSerializer, VagabondSerializer, FactionSerializer
@@ -282,6 +282,14 @@ def search_posts(request):
 # caller because the project default (UserRateThrottle) ignores anonymous
 # requests entirely.
 
+# Posts the TTS Library lists: publicly active only (no Abandoned / Rejected /
+# Submitted). Enum members, not ints -- status values are strings ('1').
+TTS_LISTED_STATUSES = (
+    StatusChoices.STABLE, StatusChoices.TESTING,
+    StatusChoices.DEVELOPMENT, StatusChoices.INACTIVE,
+)
+
+
 class TTSLoaderView(APIView):
     authentication_classes = []
     permission_classes = []
@@ -324,7 +332,7 @@ class TTSCatalogView(TTSLoaderView):
         from the_forge.models import ForgedFaction
 
         keep_posts = (
-            Post.objects.filter(tts_json__isnull=False)
+            Post.objects.filter(tts_json__isnull=False, status__in=TTS_LISTED_STATUSES)
             .select_related('designer')
             .only('slug', 'title', 'component', 'designers_list', 'small_icon', 'designer__display_name')
             .order_by('component', 'title')
@@ -356,7 +364,9 @@ class TTSCatalogView(TTSLoaderView):
 class TTSKeepDetailView(TTSLoaderView):
     def get(self, request, slug):
         post = get_object_or_404(
-            Post.objects.filter(tts_json__isnull=False).only('title', 'tts_json'), slug=slug,
+            Post.objects.filter(tts_json__isnull=False, status__in=TTS_LISTED_STATUSES)
+            .only('title', 'tts_json'),
+            slug=slug,
         )
         return Response(_tts_objects_payload(post.title, post.tts_json))
 

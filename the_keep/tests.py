@@ -278,7 +278,7 @@ from django.urls import reverse
 
 from the_gatehouse.models import Profile
 from the_keep.admin import generate_tts_json
-from the_keep.models import Faction, Post
+from the_keep.models import Faction, Post, StatusChoices
 from the_keep.services.tts import SiteURLRequest
 from the_keep.utils import tts_json_hash, validate_tts_save
 
@@ -320,7 +320,14 @@ class TTSLoaderApiTests(TestCase):
         from the_forge.models import ForgedFaction
         self.designer = Profile.objects.create(discord='ttsdesigner', display_name='TTS Designer')
         self.listed = Faction.objects.create(title='Listed Fox', animal='Fox', designer=self.designer,
-                                             component='Faction', tts_json=_tts_save())
+                                             component='Faction', status=StatusChoices.STABLE,
+                                             tts_json=_tts_save())
+        # Has JSON but isn't publicly active, so the library must hide it.
+        self.rejected = Faction.objects.create(title='Rejected Fox', animal='Fox', designer=self.designer,
+                                               component='Faction', status=StatusChoices.REJECTED,
+                                               tts_json=_tts_save())
+        Faction.objects.create(title='Submitted Fox', animal='Fox', designer=self.designer,
+                               component='Faction', status=StatusChoices.SUBMITTED, tts_json=_tts_save())
         self.unlisted = Faction.objects.create(title='Plain Fox', animal='Fox', designer=self.designer,
                                                component='Faction')
         self.published = ForgedFaction.objects.create(designer=self.designer, faction_name='Forge Pub',
@@ -339,6 +346,8 @@ class TTSLoaderApiTests(TestCase):
         data = response.json()
         self.assertEqual([p['slug'] for p in data['keep']], [self.listed.slug])
         self.assertEqual([f['id'] for f in data['forge']], [self.published.pk])
+        # The Forge tab's type buttons are built from this field.
+        self.assertEqual(data['forge'][0]['component'], 'Faction')
         self.assertNotIn('ObjectStates', response.content.decode())
 
     def test_keep_detail_returns_pre_encoded_objects_with_positions(self):
@@ -350,6 +359,7 @@ class TTSLoaderApiTests(TestCase):
 
     def test_unlisted_items_404(self):
         self.assertEqual(self.client.get(reverse('api-tts-keep-detail', args=[self.unlisted.slug])).status_code, 404)
+        self.assertEqual(self.client.get(reverse('api-tts-keep-detail', args=[self.rejected.slug])).status_code, 404)
         self.assertEqual(self.client.get(reverse('api-tts-forge-detail', args=[self.hidden.pk])).status_code, 404)
         self.assertEqual(self.client.get(reverse('api-tts-forge-detail', args=[self.published.pk])).status_code, 200)
 

@@ -24,7 +24,7 @@ COMPONENT_TYPES = {"Faction", "Clockwork", "Vagabond", "Map", "Deck", "Hireling"
 
 catalog = {keep = {}, forge = {}}
 section = "keep"          -- "keep" or "forge"
-typeFilter = nil          -- nil = all component types
+typeFilter = {}           -- per tab: typeFilter[section] = component, or nil for all
 searchText = ""
 rowItems = {}             -- row index -> catalog entry currently shown there
 busy = false
@@ -123,7 +123,8 @@ function errorText(request)
 end
 
 local function matches(entry)
-  if section == "keep" and typeFilter and entry.component ~= typeFilter then
+  local wanted = typeFilter[section]
+  if wanted and entry.component ~= wanted then
     return false
   end
   if searchText == "" then
@@ -138,19 +139,25 @@ function refreshUi()
   -- Tabs and the type row
   self.UI.setAttribute("tab_keep", "color", section == "keep" and "#C8A86B" or "#EFE6D2")
   self.UI.setAttribute("tab_forge", "color", section == "forge" and "#C8A86B" or "#EFE6D2")
-  self.UI.setAttribute("types", "active", section == "keep" and "true" or "false")
+  -- Type buttons: only the types this tab actually has
+  local list = section == "keep" and catalog.keep or catalog.forge
   local present = {}
-  for _, entry in ipairs(catalog.keep) do
+  for _, entry in ipairs(list) do
     present[entry.component] = true
   end
-  self.UI.setAttribute("type_all", "color", typeFilter == nil and "#C8A86B" or "#EFE6D2")
+  -- A remembered type that's gone (e.g. after Refresh) falls back to All, so a
+  -- hidden filter can never leave the list empty.
+  if typeFilter[section] and not present[typeFilter[section]] then
+    typeFilter[section] = nil
+  end
+  local selected = typeFilter[section]
+  self.UI.setAttribute("type_all", "color", selected == nil and "#C8A86B" or "#EFE6D2")
   for _, t in ipairs(COMPONENT_TYPES) do
     self.UI.setAttribute("type_" .. t, "active", present[t] and "true" or "false")
-    self.UI.setAttribute("type_" .. t, "color", typeFilter == t and "#C8A86B" or "#EFE6D2")
+    self.UI.setAttribute("type_" .. t, "color", selected == t and "#C8A86B" or "#EFE6D2")
   end
 
   -- Rows: fill the first N matches, hide the rest
-  local list = section == "keep" and catalog.keep or catalog.forge
   rowItems = {}
   local total = 0
   for _, entry in ipairs(list) do
@@ -166,7 +173,7 @@ function refreshUi()
     if entry then
       local who = entry.designers or entry.designer or ""
       local label = entry.title
-      if section == "keep" and entry.component ~= "" then
+      if entry.component and entry.component ~= "" then
         label = label .. "  [" .. entry.component .. "]"
       end
       if who ~= "" then
@@ -202,7 +209,11 @@ end
 
 function onTypeClick(player, mouseButton, id)
   local chosen = string.sub(id, 6)          -- strip "type_"
-  typeFilter = (chosen == "all") and nil or chosen
+  if chosen == "all" then
+    typeFilter[section] = nil
+  else
+    typeFilter[section] = chosen
+  end
   whenUiReady(refreshUi)
 end
 
