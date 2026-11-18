@@ -154,10 +154,21 @@ class ForgedFaction(models.Model):
         related_name='source_forged_faction',
     )
 
-    # Tabletop Simulator loader. tts_json is a snapshot of the forge TTS export
-    # (refreshed on every export) and is listed in the loader's "The Forge"
-    # section while publish_to_tts is on. It keeps forge URLs on purpose.
-    publish_to_tts = models.BooleanField(default=False)
+    # Tabletop Simulator Library. tts_json is a snapshot of the forge TTS export
+    # (refreshed on every export, so approved factions update live) and is
+    # listed in the loader's "The Forge" section once an admin approves it.
+    # It keeps forge URLs on purpose.
+    class TTSStatus(models.TextChoices):
+        NOT_SUBMITTED = '', 'Not submitted'
+        SUBMITTED = 'submitted', 'Submitted'
+        APPROVED = 'approved', 'Approved'
+        REJECTED = 'rejected', 'Rejected'
+
+    tts_status = models.CharField(
+        max_length=10, choices=TTSStatus.choices, blank=True, default='', db_index=True,
+    )
+    tts_submitted_at = models.DateTimeField(null=True, blank=True)
+    tts_rejection_reason = models.TextField(blank=True, default='')
     tts_json = models.JSONField(null=True, blank=True, validators=[validate_tts_save])
     tts_json_generated = models.DateTimeField(null=True, blank=True)
     # Forge -> keep TTS conversion bookkeeping (see forms_publish TTS sync row):

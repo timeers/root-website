@@ -31,7 +31,12 @@ urlpatterns = [
     path('forge/faction/<int:pk>/cards/pdf/', views.forgedfaction_cards_pdf, name='forge-faction-cards-pdf'),
     path('forge/faction/<int:pk>/cardboard/', views.forgedfaction_cardboard_edit, name='forge-faction-cardboard-edit'),
     path('forge/faction/<int:pk>/tts/', views.forgedfaction_tts, name='forge-faction-tts'),
-    path('forge/faction/<int:pk>/tts/publish/', views.forgedfaction_tts_publish, name='forge-faction-tts-publish'),
+    path('forge/faction/<int:pk>/tts/submit/', views.forgedfaction_tts_submit, name='forge-faction-tts-submit'),
+    path('forge/faction/<int:pk>/tts/withdraw/', views.forgedfaction_tts_withdraw, name='forge-faction-tts-withdraw'),
+    path('forge/tts-library/pending/', views.tts_library_pending, name='forge-tts-library-pending'),
+    path('forge/tts-library/<int:pk>/approve/', views.tts_library_approve, name='forge-tts-library-approve'),
+    path('forge/tts-library/<int:pk>/reject/', views.tts_library_reject, name='forge-tts-library-reject'),
+    path('forge/tts-library/<int:pk>/json/', views.tts_library_json, name='forge-tts-library-json'),
 
     # FactionSheet Front
     path('forge/faction/<int:faction_pk>/front/new/', views.factionsheet_create, name='forge-sheet-create'),

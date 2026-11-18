@@ -302,8 +302,9 @@ class AdaptiveInkTests(TestCase):
 # ── Tabletop Simulator loader / forge -> keep conversion ────────────────────
 
 from django.urls import reverse
+from django.utils import timezone
 
-from the_gatehouse.models import Language
+from the_gatehouse.models import Language, UserNotification
 from the_keep.models import (
     Card as KeepCard, CardDeck as KeepCardDeck, DeckGroup as KeepDeckGroup,
     Faction as KeepFaction, Piece as KeepPiece,
@@ -426,38 +427,16 @@ class ForgeTTSSyncTests(TestCase):
         new_piece = KeepPiece.objects.get(parent=self.keep, name='Ambush')
         self.assertTrue(KeepDeckGroup.objects.filter(post=self.keep, piece=new_piece).exists())
 
-    def test_publish_toggle_is_designer_only(self):
-        # force_login fires user_logged_in, whose handler needs a real request
-        # (same workaround as the_gatehouse's _NoLoginSignalMixin).
-        from django.contrib.auth.signals import user_logged_in
-        from the_gatehouse.signals import user_logged_in_handler
-        user_logged_in.disconnect(user_logged_in_handler)
-        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
-
-        url = reverse('forge-faction-tts-publish', args=[self.forged.pk])
-        fake = (_save_with({'Name': 'Custom_Tile'}), None, (None, None, None))
-        with mock.patch('the_forge.views._build_forged_tts_save', return_value=fake):
-            other = User.objects.create_user(username='someoneelse', password='pw')
-            self.client.force_login(other)
-            self.client.post(url, {'publish': 'on'})
-            self.assertFalse(ForgedFaction.objects.get(pk=self.forged.pk).publish_to_tts)
-
-            self.client.force_login(self.user)
-            self.client.post(url, {'publish': 'on'})
-            forged = ForgedFaction.objects.get(pk=self.forged.pk)
-            self.assertTrue(forged.publish_to_tts)
-            self.assertEqual(forged.tts_json['ObjectStates'][0]['Name'], 'Custom_Tile')
-
-            self.client.post(url, {})
-            self.assertFalse(ForgedFaction.objects.get(pk=self.forged.pk).publish_to_tts)
-
     def test_clone_starts_unpublished(self):
         ForgedFaction.objects.filter(pk=self.forged.pk).update(
-            publish_to_tts=True, tts_json=_save_with({'Name': 'x'}),
+            tts_status=ForgedFaction.TTSStatus.APPROVED, tts_json=_save_with({'Name': 'x'}),
+            tts_submitted_at=timezone.now(), tts_rejection_reason='old',
             tts_synced_hash='abc', tts_source_fingerprint='def',
         )
         copy = clone_forged_faction(ForgedFaction.objects.get(pk=self.forged.pk))
-        self.assertFalse(copy.publish_to_tts)
+        self.assertEqual(copy.tts_status, ForgedFaction.TTSStatus.NOT_SUBMITTED)
+        self.assertIsNone(copy.tts_submitted_at)
+        self.assertEqual(copy.tts_rejection_reason, '')
         self.assertIsNone(copy.tts_json)
         self.assertEqual((copy.tts_synced_hash, copy.tts_source_fingerprint), ('', ''))
 
@@ -508,3 +487,150 @@ class ForgeTTSConversionEndToEndTests(TestCase):
         ForgedFaction.objects.filter(pk=self.forged.pk).update(vp_marker='')
         stale = ForgedFactionSyncForm(forged=ForgedFaction.objects.get(pk=self.forged.pk))
         self.assertFalse(stale.tts_plan['in_sync'])
+
+
+@override_settings(MEDIA_ROOT=_TTS_MEDIA)
+class TTSLibrarySubmissionTests(TestCase):
+    """Designer submits to the TTS Library; an admin approves or rejects."""
+
+    def setUp(self):
+        # force_login fires user_logged_in, whose handler needs a real request
+        # (same workaround as the_gatehouse's _NoLoginSignalMixin).
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+
+        self.user = User.objects.create_user(username='ttsdesigner', password='pw')
+        self.designer = Profile.objects.get(user=self.user)
+        self.admin_user = User.objects.create_user(username='ttsadmin', password='pw')
+        Profile.objects.filter(user=self.admin_user).update(group='A')
+        self.other_user = User.objects.create_user(username='ttsother', password='pw')
+        self.forged = ForgedFaction.objects.create(designer=self.designer, faction_name='Library Fox')
+        FactionBack.objects.create(faction=self.forged)
+
+        fake_save = (_save_with({'Name': 'Custom_Tile'}), None, (None, None, None))
+        for target, kwargs in (
+            ('the_forge.views._build_forged_tts_save', {'return_value': fake_save}),
+            ('the_forge.views.send_rich_discord_message_task.delay', {}),
+            ('the_forge.views.send_discord_message_task.delay', {}),
+        ):
+            patcher = mock.patch(target, **kwargs)
+            setattr(self, target.rsplit('.', 2)[-2] if target.endswith('.delay') else 'build', patcher.start())
+            self.addCleanup(patcher.stop)
+
+    def _status(self):
+        return ForgedFaction.objects.get(pk=self.forged.pk).tts_status
+
+    def _set(self, **fields):
+        ForgedFaction.objects.filter(pk=self.forged.pk).update(**fields)
+
+    def test_only_the_designer_can_submit(self):
+        url = reverse('forge-faction-tts-submit', args=[self.forged.pk])
+        self.client.force_login(self.other_user)
+        self.client.post(url)
+        self.assertEqual(self._status(), ForgedFaction.TTSStatus.NOT_SUBMITTED)
+
+        self.client.force_login(self.user)
+        self.client.post(url)
+        forged = ForgedFaction.objects.get(pk=self.forged.pk)
+        self.assertEqual(forged.tts_status, ForgedFaction.TTSStatus.SUBMITTED)
+        self.assertIsNotNone(forged.tts_submitted_at)
+        self.assertEqual(forged.tts_json['ObjectStates'][0]['Name'], 'Custom_Tile')
+        self.assertEqual(self.send_rich_discord_message_task.call_count, 1)
+        self.assertIn('forge/tts-library/pending/', self.send_rich_discord_message_task.call_args.kwargs['url'])
+
+    def test_resubmit_after_rejection_clears_the_reason(self):
+        self._set(tts_status=ForgedFaction.TTSStatus.REJECTED, tts_rejection_reason='Fix the board')
+        self.client.force_login(self.user)
+        self.client.post(reverse('forge-faction-tts-submit', args=[self.forged.pk]))
+        forged = ForgedFaction.objects.get(pk=self.forged.pk)
+        self.assertEqual(forged.tts_status, ForgedFaction.TTSStatus.SUBMITTED)
+        self.assertEqual(forged.tts_rejection_reason, '')
+
+    def test_withdraw_and_remove(self):
+        self.client.force_login(self.user)
+        url = reverse('forge-faction-tts-withdraw', args=[self.forged.pk])
+        self._set(tts_status=ForgedFaction.TTSStatus.SUBMITTED)
+        self.client.post(url)
+        self.assertEqual(self._status(), ForgedFaction.TTSStatus.NOT_SUBMITTED)
+        self.send_discord_message_task.assert_not_called()
+
+        self._set(tts_status=ForgedFaction.TTSStatus.APPROVED)
+        self.client.post(url)
+        self.assertEqual(self._status(), ForgedFaction.TTSStatus.NOT_SUBMITTED)
+        self.send_discord_message_task.assert_called_once()
+
+    def test_review_is_admin_only(self):
+        self._set(tts_status=ForgedFaction.TTSStatus.SUBMITTED, tts_json=_save_with({'Name': 'x'}))
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(reverse('forge-tts-library-pending')).status_code, 403)
+        self.assertEqual(self.client.post(reverse('forge-tts-library-approve', args=[self.forged.pk])).status_code, 403)
+        self.assertEqual(self._status(), ForgedFaction.TTSStatus.SUBMITTED)
+
+    def test_approve_notifies_the_designer(self):
+        self._set(tts_status=ForgedFaction.TTSStatus.SUBMITTED, tts_json=_save_with({'Name': 'x'}))
+        self.client.force_login(self.admin_user)
+        self.client.post(reverse('forge-tts-library-approve', args=[self.forged.pk]))
+        self.assertEqual(self._status(), ForgedFaction.TTSStatus.APPROVED)
+        note = UserNotification.objects.get(profile=self.designer)
+        self.assertIn('approved', note.message)
+
+    def test_reject_stores_feedback_and_notifies(self):
+        self._set(tts_status=ForgedFaction.TTSStatus.SUBMITTED, tts_json=_save_with({'Name': 'x'}))
+        self.client.force_login(self.admin_user)
+        self.client.post(reverse('forge-tts-library-reject', args=[self.forged.pk]), {'message': 'Fix the board'})
+        forged = ForgedFaction.objects.get(pk=self.forged.pk)
+        self.assertEqual(forged.tts_status, ForgedFaction.TTSStatus.REJECTED)
+        self.assertEqual(forged.tts_rejection_reason, 'Fix the board')
+        self.assertIn('Fix the board', UserNotification.objects.get(profile=self.designer).message)
+
+    def test_review_of_withdrawn_submission_is_a_no_op(self):
+        # Designer withdrew before the admin clicked Approve.
+        self._set(tts_json=_save_with({'Name': 'x'}))
+        self.client.force_login(self.admin_user)
+        self.client.post(reverse('forge-tts-library-approve', args=[self.forged.pk]))
+        self.assertEqual(self._status(), ForgedFaction.TTSStatus.NOT_SUBMITTED)
+        self.assertFalse(UserNotification.objects.filter(profile=self.designer).exists())
+
+    def test_pending_page_lists_only_submitted(self):
+        self._set(tts_status=ForgedFaction.TTSStatus.SUBMITTED, tts_submitted_at=timezone.now())
+        ForgedFaction.objects.create(designer=self.designer, faction_name='Approved Fox',
+                                     tts_status=ForgedFaction.TTSStatus.APPROVED)
+        self.client.force_login(self.admin_user)
+        response = self.client.get(reverse('forge-tts-library-pending'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([f.pk for f in response.context['pending_factions']], [self.forged.pk])
+
+    def test_detail_card_message_follows_status(self):
+        # The detail page sits behind the forge onboarding gate.
+        Profile.objects.filter(pk=self.designer.pk).update(
+            group='D', player_onboard=True, forge_onboard=True)
+        self.client.force_login(self.user)
+        url = reverse('forge-faction-detail', args=[self.forged.pk])
+        cases = [
+            ({}, 'Add to the TTS Library'),
+            ({'tts_status': ForgedFaction.TTSStatus.SUBMITTED, 'tts_submitted_at': timezone.now()}, 'Awaiting Approval'),
+            ({'tts_status': ForgedFaction.TTSStatus.APPROVED}, 'In the TTS Library'),
+            ({'tts_status': ForgedFaction.TTSStatus.REJECTED, 'tts_rejection_reason': 'Needs a decree'}, 'Needs a decree'),
+        ]
+        for fields, expected in cases:
+            with self.subTest(expected=expected):
+                if fields:
+                    self._set(**fields)
+                content = self.client.get(url).content.decode()
+                self.assertIn(expected, content)
+                # The publish control no longer lives in the Download dropdown.
+                self.assertNotIn('Publish to TTS Library', content)
+
+    def test_admin_sees_review_panel_on_submitted_faction(self):
+        Profile.objects.filter(user=self.admin_user).update(player_onboard=True, forge_onboard=True)
+        self.client.force_login(self.admin_user)
+        url = reverse('forge-faction-detail', args=[self.forged.pk])
+        self.assertNotIn('TTS Library Review', self.client.get(url).content.decode())
+        self._set(tts_status=ForgedFaction.TTSStatus.SUBMITTED, tts_submitted_at=timezone.now())
+        content = self.client.get(url).content.decode()
+        self.assertIn('TTS Library Review', content)
+        self.assertIn(reverse('forge-tts-library-approve', args=[self.forged.pk]), content)
+        # The designer's own submit card is for editors only.
+        self.assertNotIn('Awaiting Approval', content)

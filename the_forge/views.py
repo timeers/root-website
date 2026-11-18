@@ -17,7 +17,8 @@ from django.views.decorators.http import require_http_methods, require_POST
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.urls import reverse
-from the_gatehouse.views import admin_onboard_required, forge_onboard_required, player_required
+from django.utils import timezone
+from the_gatehouse.views import admin_onboard_required, admin_required, forge_onboard_required, player_required
 from .inline_images import picker_image_map, picker_keywords, sheet_inline_images, sheet_picker_keywords
 from .layout_autogrow import ensure_step_parent_fits
 
@@ -445,6 +446,17 @@ def forgedfaction_detail(request, pk):
             'publish_target_url': target_url,
             'sync_available': sync_available,
         }
+    # TTS Library card. A submitted/approved faction always shows its status;
+    # "not ready" only gates a fresh submit or a resubmit.
+    if faction.tts_status in (ForgedFaction.TTSStatus.SUBMITTED, ForgedFaction.TTSStatus.APPROVED):
+        tts_state = faction.tts_status
+    elif not (sheet or back or setup_card):
+        tts_state = 'not_ready'
+    elif faction.tts_status == ForgedFaction.TTSStatus.REJECTED:
+        tts_state = 'rejected'
+    else:
+        tts_state = 'can_submit'
+    profile = getattr(request.user, 'profile', None)
     return render(request, 'the_forge/forgedfaction_detail.html', {
         'faction': faction,
         'can_edit': can_edit,
@@ -453,6 +465,8 @@ def forgedfaction_detail(request, pk):
         'setup_card': setup_card,
         'components': components,
         'card_pieces': card_pieces,
+        'tts_state': tts_state,
+        'is_admin': bool(profile and profile.admin),
         **publish_context,
     })
 
@@ -3046,26 +3060,165 @@ def forgedfaction_tts(request, pk):
     return _attach_preview_versions(response, sheet=sheet, back=back, card=card)
 
 
+# ── TTS Library: designer submits, an admin approves ────────────────────────
+
+TTSStatus = ForgedFaction.TTSStatus
+
+
+def _forge_detail_url(faction):
+    return f"{settings.SITE_URL}{reverse('forge-faction-detail', kwargs={'pk': faction.pk})}"
+
+
 @login_required
 @require_POST
-def forgedfaction_tts_publish(request, pk):
-    """Toggle listing this faction in the TTS loader's "The Forge" section."""
+def forgedfaction_tts_submit(request, pk):
+    """Submit (or resubmit after a rejection) for listing in the TTS Library."""
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if faction.tts_status not in (TTSStatus.NOT_SUBMITTED, TTSStatus.REJECTED):
+        messages.info(request, "This faction is already submitted to the TTS Library.")
+        return redirect('forge-faction-detail', pk=faction.pk)
+
+    # The admin reviews this snapshot, so build it now (same path as the export).
+    error = _store_forge_tts_snapshot(faction, refresh_previews=True)
+    if error:
+        messages.error(request, f"Couldn't submit to the TTS Library: {error}")
+        return redirect('forge-faction-detail', pk=faction.pk)
+
+    updated = ForgedFaction.objects.filter(
+        pk=faction.pk, tts_status__in=[TTSStatus.NOT_SUBMITTED, TTSStatus.REJECTED],
+    ).update(tts_status=TTSStatus.SUBMITTED, tts_submitted_at=timezone.now(), tts_rejection_reason='')
+    if updated:
+        send_rich_discord_message_task.delay(
+            f'[{faction.faction_name}]({_forge_detail_url(faction)})',
+            category='report', title='Submitted to TTS Library',
+            fields=[{'name': 'Submitted by:', 'value': request.user.profile.name}],
+            url=f"{settings.SITE_URL}{reverse('forge-tts-library-pending')}",
+        )
+        messages.success(request, "Submitted to the TTS Library. An admin will review it soon.")
+    return redirect('forge-faction-detail', pk=faction.pk)
+
+
+@login_required
+@require_POST
+def forgedfaction_tts_withdraw(request, pk):
+    """Withdraw a pending submission, or remove an approved faction from the library."""
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
 
-    publish = request.POST.get('publish') == 'on'
-    if publish:
-        error = _store_forge_tts_snapshot(faction, refresh_previews=True)
-        if error:
-            messages.error(request, f"Couldn't publish to Tabletop Simulator: {error}")
-            return redirect('forge-faction-detail', pk=faction.pk)
-        ForgedFaction.objects.filter(pk=faction.pk).update(publish_to_tts=True)
-        messages.success(request, "Published to the Tabletop Simulator loader.")
+    was_approved = faction.tts_status == TTSStatus.APPROVED
+    updated = ForgedFaction.objects.filter(
+        pk=faction.pk, tts_status__in=[TTSStatus.SUBMITTED, TTSStatus.APPROVED],
+    ).update(tts_status=TTSStatus.NOT_SUBMITTED, tts_submitted_at=None)
+    if not updated:
+        messages.info(request, "This faction isn't in the TTS Library.")
+    elif was_approved:
+        send_discord_message_task.delay(
+            f"Removed from TTS Library by its designer: {faction.faction_name} ({_forge_detail_url(faction)})",
+            'report',
+        )
+        messages.success(request, "Removed from the TTS Library.")
     else:
-        ForgedFaction.objects.filter(pk=faction.pk).update(publish_to_tts=False)
-        messages.success(request, "Removed from the Tabletop Simulator loader.")
+        messages.success(request, "Submission withdrawn.")
     return redirect('forge-faction-detail', pk=faction.pk)
+
+
+@admin_required
+def tts_library_pending(request):
+    """Admin queue of Forged Factions waiting to be added to the TTS Library."""
+    pending = (
+        ForgedFaction.objects.filter(tts_status=TTSStatus.SUBMITTED)
+        .select_related('designer', 'faction_sheet', 'faction_back')
+        .order_by('tts_submitted_at')
+    )
+    return render(request, 'the_forge/tts_library_pending.html', {
+        'pending_factions': pending,
+        'title': 'Pending TTS Library Submissions',
+    })
+
+
+def _redirect_after_review(request, faction):
+    # Reviews can come from the pending queue or the faction page itself.
+    if request.POST.get('next') == 'detail':
+        return redirect('forge-faction-detail', pk=faction.pk)
+    return redirect('forge-tts-library-pending')
+
+
+@admin_required
+@require_POST
+def tts_library_approve(request, pk):
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if not faction.tts_json:
+        messages.error(request, f"'{faction.faction_name}' has no TTS JSON to list yet.")
+        return _redirect_after_review(request, faction)
+
+    updated = ForgedFaction.objects.filter(pk=faction.pk, tts_status=TTSStatus.SUBMITTED).update(
+        tts_status=TTSStatus.APPROVED, tts_rejection_reason='',
+    )
+    if not updated:
+        messages.info(request, f"'{faction.faction_name}' was already reviewed or withdrawn.")
+        return _redirect_after_review(request, faction)
+
+    admin_profile = request.user.profile
+    send_discord_message_task.delay(
+        f"TTS Library approved: {faction.faction_name} by {admin_profile.name}", 'report',
+    )
+    UserNotification.create_notification(
+        profile=faction.designer,
+        message=f"Your faction '{faction.faction_name}' has been approved and added to the TTS Library!",
+        message_type=MessageChoices.SUCCESS,
+        related_url=reverse('forge-faction-detail', kwargs={'pk': faction.pk}),
+        sender=admin_profile,
+    )
+    messages.success(request, f"Approved '{faction.faction_name}' for the TTS Library.")
+    return _redirect_after_review(request, faction)
+
+
+@admin_required
+@require_POST
+def tts_library_reject(request, pk):
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    message = request.POST.get('message', '').strip()
+
+    updated = ForgedFaction.objects.filter(pk=faction.pk, tts_status=TTSStatus.SUBMITTED).update(
+        tts_status=TTSStatus.REJECTED, tts_rejection_reason=message,
+    )
+    if not updated:
+        messages.info(request, f"'{faction.faction_name}' was already reviewed or withdrawn.")
+        return _redirect_after_review(request, faction)
+
+    admin_profile = request.user.profile
+    send_discord_message_task.delay(
+        f"TTS Library rejected: {faction.faction_name} by {admin_profile.name}", 'report',
+    )
+    default_msg = (
+        f"Your faction '{faction.faction_name}' was not added to the TTS Library. "
+        f"You can make changes and resubmit it."
+    )
+    UserNotification.create_notification(
+        profile=faction.designer,
+        message=f"{default_msg}\n\n{message}" if message else default_msg,
+        message_type=MessageChoices.WARNING,
+        related_url=reverse('forge-faction-detail', kwargs={'pk': faction.pk}),
+        sender=admin_profile,
+    )
+    messages.warning(request, f"Rejected '{faction.faction_name}'.")
+    return _redirect_after_review(request, faction)
+
+
+@admin_required
+def tts_library_json(request, pk):
+    """The stored snapshot exactly as the library would serve it, so an admin can
+    try it in TTS before approving (the regular export is designer-only)."""
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if not faction.tts_json:
+        return HttpResponse("No TTS JSON stored yet.", status=404, content_type='text/plain')
+    response = HttpResponse(json.dumps(faction.tts_json, indent=2), content_type='application/json')
+    safe_name = (faction.faction_name or str(faction.pk)).replace('"', '').replace('\\', '')
+    response['Content-Disposition'] = f'attachment; filename="{safe_name}.json"'
+    return response
 
 
 @login_required

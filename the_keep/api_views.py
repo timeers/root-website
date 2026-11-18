@@ -330,7 +330,7 @@ class TTSCatalogView(TTSLoaderView):
             .order_by('component', 'title')
         )
         forge_factions = (
-            ForgedFaction.objects.filter(publish_to_tts=True, tts_json__isnull=False)
+            ForgedFaction.objects.filter(tts_status=ForgedFaction.TTSStatus.APPROVED, tts_json__isnull=False)
             .select_related('designer')
             .only('pk', 'faction_name', 'faction_icon', 'designer__display_name')
             .order_by('faction_name')
@@ -365,7 +365,7 @@ class TTSForgeDetailView(TTSLoaderView):
         from the_forge.models import ForgedFaction
 
         forged = get_object_or_404(
-            ForgedFaction.objects.filter(publish_to_tts=True, tts_json__isnull=False)
+            ForgedFaction.objects.filter(tts_status=ForgedFaction.TTSStatus.APPROVED, tts_json__isnull=False)
             .only('faction_name', 'tts_json'),
             pk=pk,
         )

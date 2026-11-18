@@ -324,9 +324,14 @@ class TTSLoaderApiTests(TestCase):
         self.unlisted = Faction.objects.create(title='Plain Fox', animal='Fox', designer=self.designer,
                                                component='Faction')
         self.published = ForgedFaction.objects.create(designer=self.designer, faction_name='Forge Pub',
-                                                      publish_to_tts=True, tts_json=_tts_save('Forge Board'))
+                                                      tts_status=ForgedFaction.TTSStatus.APPROVED,
+                                                      tts_json=_tts_save('Forge Board'))
+        # Submitted and rejected factions have snapshots but aren't approved.
         self.hidden = ForgedFaction.objects.create(designer=self.designer, faction_name='Forge Hidden',
-                                                   publish_to_tts=False, tts_json=_tts_save())
+                                                   tts_status=ForgedFaction.TTSStatus.SUBMITTED,
+                                                   tts_json=_tts_save())
+        ForgedFaction.objects.create(designer=self.designer, faction_name='Forge Rejected',
+                                     tts_status=ForgedFaction.TTSStatus.REJECTED, tts_json=_tts_save())
 
     def test_catalog_lists_only_loadable_items_without_blobs(self):
         response = self.client.get(reverse('api-tts-catalog'))

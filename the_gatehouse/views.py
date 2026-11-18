@@ -4118,6 +4118,13 @@ def admin_dashboard(request):
     from the_keep.models import StatusChoices
     pending_posts_count = Post.objects.filter(status=StatusChoices.SUBMITTED).count()
 
+    # Forged Factions submitted to the TTS Library. Local import: the_forge.views
+    # imports this module at load time.
+    from the_forge.models import ForgedFaction
+    pending_tts_count = ForgedFaction.objects.filter(
+        tts_status=ForgedFaction.TTSStatus.SUBMITTED
+    ).count()
+
     law_url = reverse('manage-law-updates')
     admin_url = reverse('admin:index')
     guild_invites_url = reverse('pending-guild-invites')
@@ -4201,6 +4208,21 @@ def admin_dashboard(request):
                     "label": "View Pending Posts",
                     "link": pending_posts_url,
                     "class": 'primary' if pending_posts_count > 0 else 'secondary',
+                 },
+            ],
+        },
+        {
+            "title": "TTS Library",
+            "subtitle": "Forged Factions Awaiting Review",
+            "image": "/static/images/ambush.jpg",
+            "fields": [
+                {"title": "Pending Submissions", "content": pending_tts_count},
+            ],
+            "buttons": [
+                {
+                    "label": "View Submissions",
+                    "link": reverse('forge-tts-library-pending'),
+                    "class": 'primary' if pending_tts_count > 0 else 'secondary',
                  },
             ],
         },
