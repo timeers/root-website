@@ -1,11 +1,5 @@
 # Changelog
 
-## [1.14.0] - 2026-11-18 TTS Library
-
-### New Features
-- TTS Library loader object for Tabletop Simulator
-- Submit your Forged Factions to be added to the TTS Library (requires admin approval)
-
 ## [1.13.18] - 2026-10-27 Draft Statistics
 
 ### New Features

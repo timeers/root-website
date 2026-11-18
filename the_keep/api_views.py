@@ -11,7 +11,14 @@ from rest_framework.decorators import api_view
 from rest_framework.views import APIView
 from rest_framework.throttling import ScopedRateThrottle
 from django.shortcuts import get_object_or_404
+import hashlib
 import json
+import os
+import re
+from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
+from django.http import HttpResponse
+from django.templatetags.static import static
 from django.utils.translation import get_language
 
 from django.db.models import OuterRef, Subquery, F, Value
@@ -381,3 +388,99 @@ class TTSForgeDetailView(TTSLoaderView):
             pk=pk,
         )
         return Response(_tts_objects_payload(forged.faction_name, forged.tts_json))
+
+
+# ── TTS Library object: served straight from tts/loader.lua ─────────────────
+# The repo file is the single source. These endpoints serve it with its version
+# and BASE_URL filled in, and wrap it in a ready-made object; objects built that
+# way update themselves on load (see checkForUpdate in the script). Unlisted:
+# nothing on the site links here yet.
+
+_LOADER_VERSION_LINE = re.compile(r'^LOADER_VERSION = "[^"]*"$', re.MULTILINE)
+_LOADER_BASE_URL_LINE = re.compile(r'^BASE_URL = "[^"]*"$', re.MULTILINE)
+_loader_cache = {}   # (path, mtime) -> (version, raw text)
+
+
+def _loader_source():
+    """(version, raw text) of tts/loader.lua, re-read only when the file changes."""
+    path = os.path.join(settings.BASE_DIR, 'tts', 'loader.lua')
+    key = (str(path), os.path.getmtime(path))
+    cached = _loader_cache.get(key)
+    if cached is None:
+        with open(path, encoding='utf-8') as fh:
+            raw = fh.read()
+        # Each marker must appear exactly once, or a served script could never
+        # match its advertised version and the self-update would loop.
+        for pattern, name in ((_LOADER_VERSION_LINE, 'LOADER_VERSION'), (_LOADER_BASE_URL_LINE, 'BASE_URL')):
+            if len(pattern.findall(raw)) != 1:
+                raise ImproperlyConfigured(f'tts/loader.lua needs exactly one top-level {name} = "..." line')
+        version = hashlib.sha256(raw.encode('utf-8')).hexdigest()[:12]
+        _loader_cache.clear()
+        cached = _loader_cache[key] = (version, raw)
+    return cached
+
+
+def _loader_script(request):
+    """(version, script) with LOADER_VERSION and BASE_URL filled in.
+
+    BASE_URL is the host that served this request, NOT settings.SITE_URL:
+    locally SITE_URL is production, so a dev-downloaded object would otherwise
+    read from and self-update against production. Every object stays tied to
+    the server it came from."""
+    version, raw = _loader_source()
+    base_url = request.build_absolute_uri('/').rstrip('/')
+    script = _LOADER_VERSION_LINE.sub(f'LOADER_VERSION = "{version}"', raw, count=1)
+    script = _LOADER_BASE_URL_LINE.sub(f'BASE_URL = "{base_url}"', script, count=1)
+    return version, script
+
+
+class TTSLoaderVersionView(TTSLoaderView):
+    def get(self, request):
+        version, _script = _loader_script(request)
+        return Response({'version': version})
+
+
+class TTSLoaderScriptView(TTSLoaderView):
+    def get(self, request):
+        _version, script = _loader_script(request)
+        return HttpResponse(script, content_type='text/plain; charset=utf-8')
+
+
+class TTSLoaderObjectView(TTSLoaderView):
+    """A TTS Save Object file: one locked tile carrying the current script.
+    Drop it in Tabletop Simulator's Saved Objects folder."""
+
+    def get(self, request):
+        from .services.tts import generate_tts_guid, wrap_tts_save
+
+        _version, script = _loader_script(request)
+        tile = {
+            "GUID": generate_tts_guid(),
+            "Name": "Custom_Tile",
+            "Nickname": "Root Database Library",
+            "Description": "Search and spawn factions, maps and more from therootdatabase.com.",
+            # Scale is a starting point; tune it with the panel's
+            # position/scale in tts/loader.lua once seen in game.
+            "Transform": {
+                "posX": 0.0, "posY": 1.0, "posZ": 0.0,
+                "rotX": 0.0, "rotY": 0.0, "rotZ": 0.0,
+                "scaleX": 1.0, "scaleY": 1.0, "scaleZ": 1.0,
+            },
+            "Locked": True,
+            "CustomImage": {
+                "ImageURL": request.build_absolute_uri(static('images/RDBFrogLogo.png')),
+                "ImageSecondaryURL": "",
+                "ImageScalar": 1.0,
+                "WidthScale": 0.0,
+                "CustomTile": {"Type": 0, "Thickness": 0.2, "Stackable": False, "Stretch": True},
+            },
+            "LuaScript": script,
+            "LuaScriptState": "",
+            "XmlUI": "",
+        }
+        response = HttpResponse(
+            json.dumps(wrap_tts_save([tile], save_name='Root Database Library'), indent=2),
+            content_type='application/json',
+        )
+        response['Content-Disposition'] = 'attachment; filename="Root Database Library.json"'
+        return response

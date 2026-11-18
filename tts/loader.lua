@@ -1,13 +1,20 @@
 --[[
-  Root Database loader for Tabletop Simulator.
+  Root Database Library for Tabletop Simulator.
 
-  Paste this onto any object (a tile or a token works well). It lists
-  everything the site has published for TTS:
-    * The Keep  -- posts whose Post.tts_json an admin has set
-    * The Forge -- Forged Factions whose designer turned on "Publish to TTS"
+  Lists everything the site has published for TTS:
+    * The Keep  -- active posts whose Post.tts_json is set
+    * The Forge -- Forged drafts an admin approved for the TTS Library
   Search, pick one, and its objects spawn beside this object.
 
-  Endpoints (the_keep/api_views.py):
+  This file (tts/loader.lua) is the single source. The site serves it from
+    GET /api/tts/loader.lua           -> this script, LOADER_VERSION/BASE_URL filled in
+    GET /api/tts/loader/version/      -> { version }
+    GET /api/tts/loader/object.json   -> a ready-made object carrying this script
+  and an object built that way updates itself on load when the deployed file
+  changes. A copy pasted straight from the repo keeps LOADER_VERSION = "dev"
+  and never updates itself.
+
+  Data endpoints (the_keep/api_views.py):
     GET /api/tts/catalog/           -> { keep = [...], forge = [...] }
     GET /api/tts/keep/<slug>/       -> { title, objects = [{x, y, z, json}] }
     GET /api/tts/forge/<id>/        -> same shape
@@ -15,6 +22,9 @@
   this script never runs MoonSharp's (slow) JSON on the big object blobs.
 ]]
 
+-- Both filled in by the server when it serves this script; keep these two
+-- lines' format (the_keep/api_views.py substitutes them by regex).
+LOADER_VERSION = "dev"
 BASE_URL = "https://www.therootdatabase.com"
 
 MAX_ROWS = 50             -- result rows built once; filtering only toggles them
@@ -56,7 +66,7 @@ local function buildXml()
 </Defaults>
 <Panel position="0 0 -20" rotation="180 180 0" width="560" height="760" scale="0.25 0.25 1" color="#2B2118EE">
   <VerticalLayout padding="12" spacing="8" childForceExpandHeight="false">
-    <Text fontSize="26" fontStyle="Bold" preferredHeight="36">Root Database Loader</Text>
+    <Text fontSize="26" fontStyle="Bold" preferredHeight="36">Root Database Library</Text>
     <HorizontalLayout spacing="6" preferredHeight="40">
       ]] .. buttonXml("tab_keep", "The Keep", "onTabClick", 'color="#C8A86B"') .. [[
       ]] .. buttonXml("tab_forge", "The Forge", "onTabClick") .. [[
@@ -95,6 +105,41 @@ end
 function onLoad()
   self.UI.setXml(buildXml())
   fetchCatalog()
+  checkForUpdate()
+end
+
+-- ── Self-update ───────────────────────────────────────────────────────────
+
+-- If the server has a newer version of this script, swap it in and reload.
+-- Any failure just keeps the current script.
+function checkForUpdate()
+  if LOADER_VERSION == "dev" then
+    return    -- pasted from the repo for local testing: never overwrite it
+  end
+  WebRequest.get(BASE_URL .. "/api/tts/loader/version/", function(request)
+    if request.is_error or request.response_code ~= 200 then
+      return
+    end
+    local data = JSON.decode(request.text)
+    local version = data and data.version
+    if not version or version == LOADER_VERSION then
+      return
+    end
+    WebRequest.get(BASE_URL .. "/api/tts/loader.lua", function(scriptRequest)
+      if scriptRequest.is_error or scriptRequest.response_code ~= 200 then
+        return
+      end
+      -- Loop guard: only apply a script that really is the advertised version
+      -- (a deploy landing between the two requests just waits for next load).
+      local marker = 'LOADER_VERSION = "' .. version .. '"'
+      if not string.find(scriptRequest.text, marker, 1, true) then
+        return
+      end
+      print("Root Database Library updated to " .. version)
+      self.setLuaScript(scriptRequest.text)
+      self.reload()
+    end)
+  end)
 end
 
 -- ── Catalog + filtering ───────────────────────────────────────────────────

@@ -394,3 +394,78 @@ class GenerateTTSJsonActionTests(TestCase):
         message = self.modeladmin.message_user.call_args_list[-1].args[1]
         self.assertIn('update via forge sync', message)
         self.assertIn('nothing to export', message)
+
+
+# ── TTS Library object served from tts/loader.lua ───────────────────────────
+
+from pathlib import Path
+
+from django.core.exceptions import ImproperlyConfigured
+
+from the_keep import api_views
+
+_LOADER_FIXTURE = '''-- fixture
+LOADER_VERSION = "dev"
+BASE_URL = "https://www.therootdatabase.com"
+function onLoad() end
+'''
+
+
+@override_settings(CACHES=_LOCMEM)
+class TTSLoaderObjectTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        api_views._loader_cache.clear()
+        self.base = Path(tempfile.mkdtemp(prefix='tts-loader-test-'))
+        self.addCleanup(shutil.rmtree, self.base, ignore_errors=True)
+        (self.base / 'tts').mkdir()
+        self.script_path = self.base / 'tts' / 'loader.lua'
+        self.script_path.write_text(_LOADER_FIXTURE)
+        override = override_settings(BASE_DIR=self.base)
+        override.enable()
+        self.addCleanup(override.disable)
+
+    def _version(self):
+        return self.client.get(reverse('api-tts-loader-version')).json()['version']
+
+    def test_version_follows_the_file(self):
+        first = self._version()
+        self.assertRegex(first, r'^[0-9a-f]{12}$')
+        self.script_path.write_text(_LOADER_FIXTURE + '-- edited\n')
+        os.utime(self.script_path, (1, 1))  # force a new mtime even within the same second
+        self.assertNotEqual(self._version(), first)
+
+    def test_script_has_version_and_request_host_filled_in(self):
+        version = self._version()
+        response = self.client.get(reverse('api-tts-loader-script'))
+        self.assertTrue(response['Content-Type'].startswith('text/plain'))
+        body = response.content.decode()
+        self.assertIn(f'LOADER_VERSION = "{version}"', body)
+        # The request host, not settings.SITE_URL (which is production locally).
+        self.assertIn('BASE_URL = "http://testserver"', body)
+        self.assertNotIn('"dev"', body)
+
+    def test_object_carries_the_served_script(self):
+        script = self.client.get(reverse('api-tts-loader-script')).content.decode()
+        response = self.client.get(reverse('api-tts-loader-object'))
+        self.assertIn('attachment', response['Content-Disposition'])
+        save = json.loads(response.content)
+        validate_tts_save(save)
+        tile = save['ObjectStates'][0]
+        self.assertEqual(tile['LuaScript'], script)
+        self.assertEqual(tile['Nickname'], 'Root Database Library')
+        self.assertTrue(tile['Locked'])
+
+    def test_missing_marker_is_never_served(self):
+        self.script_path.write_text('BASE_URL = "x"\n')
+        with self.assertRaises(ImproperlyConfigured):
+            api_views._loader_source()
+
+
+class RealLoaderScriptTests(TestCase):
+    def test_repo_script_keeps_both_markers(self):
+        # Editing tts/loader.lua must not break the self-update's substitution.
+        api_views._loader_cache.clear()
+        version, raw = api_views._loader_source()
+        self.assertIn('LOADER_VERSION = "dev"', raw)
+        self.assertRegex(version, r'^[0-9a-f]{12}$')
