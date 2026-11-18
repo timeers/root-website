@@ -4,6 +4,7 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
 
 from the_gatehouse.models import Profile
+from the_keep.models import Post, post_model_for_component
 from the_keep.utils import validate_hex_color, delete_old_image, validate_tts_save
 
 from .services.clone_flag import clone_in_progress
@@ -34,6 +35,14 @@ def _default_language():
 
 
 class ForgedFaction(models.Model):
+    """A forge draft of any keep Post type.
+
+    The name is historical: `component` says which keep Post this draft becomes
+    (Faction and Clockwork today; the other types are backend-only so far).
+    Pieces, decks and cards hang off every draft regardless of type. The
+    FactionSheet / FactionBack / SetupCard parts only apply to faction drafts
+    (see is_faction / uses_setup_card).
+    """
     BACKGROUND_TILE_SIZE_MIN = 10
     BACKGROUND_TILE_SIZE_MAX = 33
     BACKGROUND_TILE_SIZE_DEFAULT = 33
@@ -141,11 +150,34 @@ class ForgedFaction(models.Model):
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
 
+    # Which keep Post type this draft becomes. Reuses the keep's choices so the
+    # two can't drift. Set once at creation (Faction or Clockwork today) and
+    # never edited.
+    component = models.CharField(
+        max_length=20, choices=Post.ComponentChoices.choices,
+        default=Post.ComponentChoices.FACTION,
+        # db_default too: old code still running during a deploy (Apache before
+        # its restart, Celery's duplicate task) inserts without this column.
+        db_default=Post.ComponentChoices.FACTION.value,
+        db_index=True,
+    )
+
+    # The keep Post this draft was published as or linked to (any Post type).
+    published_post = models.OneToOneField(
+        'the_keep.Post',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='source_forged_post',
+    )
+    # DEPRECATED -- replaced by published_post. backfill_forge_published_post
+    # moves values out of it. TODO: remove this field (and that command) once
+    # the command has run in every environment and this column is NULL
+    # everywhere. The "legacy_" reverse name makes any missed lookup fail loudly.
     published_faction = models.OneToOneField(
         'the_keep.Faction',
         null=True, blank=True,
         on_delete=models.SET_NULL,
-        related_name='source_forged_faction',
+        related_name='legacy_source_forged_faction',
     )
     published_translation = models.OneToOneField(
         'the_keep.PostTranslation',
@@ -179,19 +211,65 @@ class ForgedFaction(models.Model):
     def __str__(self):
         return self.faction_name
 
+    FACTION_COMPONENTS = (Post.ComponentChoices.FACTION, Post.ComponentChoices.CLOCKWORK)
+
+    @property
+    def is_faction(self):
+        """Faction-only parts (sheet/back, publish/link/sync to a keep Faction,
+        TTS Library) apply only to these drafts."""
+        return self.component in self.FACTION_COMPONENTS
+
+    @property
+    def uses_setup_card(self):
+        """Only regular Factions have an ADSET (setup) card; Clockwork doesn't."""
+        return self.component == Post.ComponentChoices.FACTION
+
+    @property
+    def is_clockwork(self):
+        return self.component == Post.ComponentChoices.CLOCKWORK
+
+    @property
+    def published_keep_post(self):
+        """The linked keep post as its concrete subclass (Faction, Map,
+        Vagabond...), or None. Cached until published_post changes."""
+        pk = self.published_post_id
+        if not pk:
+            return None
+        cached = getattr(self, '_published_keep_post', None)
+        if cached is None or cached.pk != pk:
+            model = post_model_for_component(self.component) or Post
+            cached = model.objects.filter(pk=pk).first()
+            if cached is None and model is not Post:
+                # Component and linked post disagree (e.g. an admin edit): fall
+                # back to the base Post so callers that read .title still work.
+                cached = Post.objects.filter(pk=pk).first()
+            self._published_keep_post = cached
+        return cached
+
     @property
     def is_published_linked(self):
-        """True when this ForgedFaction is linked to a the_keep Faction or
-        PostTranslation. Forms gate name/language editing on this so the
-        link target's title and locale don't drift away from the source."""
-        return bool(self.published_faction_id or self.published_translation_id)
+        """True when this draft is linked to a the_keep Post or PostTranslation.
+        Forms gate name/language editing on this so the link target's title and
+        locale don't drift away from the source."""
+        return bool(self.published_post_id or self.published_translation_id)
 
     def clean(self):
         from django.core.exceptions import ValidationError
-        if self.published_faction_id and self.published_translation_id:
+        if self.published_post_id and self.published_translation_id:
             raise ValidationError(
-                "A ForgedFaction can be linked to a Faction or a translation, not both."
+                "A forge draft can be linked to a post or a translation, not both."
             )
+        # A draft may only link to a keep post of its own type (Clockwork and
+        # Faction share the Faction model, so they count as the same).
+        own_model = post_model_for_component(self.component)
+        if self.published_post_id:
+            linked = Post.objects.filter(pk=self.published_post_id).values_list('component', flat=True).first()
+            if linked is not None and post_model_for_component(linked) is not own_model:
+                raise ValidationError("The linked post isn't the same type as this draft.")
+        if self.published_translation_id:
+            linked = self.published_translation.post.component
+            if post_model_for_component(linked) is not own_model:
+                raise ValidationError("The linked translation isn't for the same type as this draft.")
 
     def get_background_path(self):
         if self.background_preset:
@@ -1212,3 +1290,9 @@ class ForgedCard(models.Model):
         if self.tags:
             parts.append(' '.join(self.tags))
         return '\n'.join(parts).strip()
+
+
+# ForgedFaction drafts every keep Post type (see ForgedFaction.component); the
+# class keeps its historical name so no table rename is needed. New code that
+# isn't about factions can use this alias.
+ForgedPost = ForgedFaction

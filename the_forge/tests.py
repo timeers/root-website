@@ -56,7 +56,7 @@ class CloneForgedFactionTests(TestCase):
         self.designer = Profile.objects.create(discord='designer')
         self.source = ForgedFaction.objects.create(
             designer=self.designer, faction_name='Original',
-            published_faction=None,
+            published_post=None,
         )
         sheet = FactionSheet.objects.create(
             faction=self.source, snap_points=[{'x': 1, 'y': 2}],
@@ -120,7 +120,7 @@ class CloneForgedFactionTests(TestCase):
         self.assertTrue(copy.slug)
         self.assertNotEqual(copy.slug, self.source.slug)
         self.assertEqual(copy.designer_id, self.source.designer_id)
-        self.assertIsNone(copy.published_faction_id)
+        self.assertIsNone(copy.published_post_id)
         self.assertIsNone(copy.published_translation_id)
 
     def test_images_are_copied_not_shared(self):
@@ -361,7 +361,7 @@ class ForgeTTSSyncTests(TestCase):
         self.keep = KeepFaction.objects.create(title='Keep Fox', animal='Fox', designer=self.designer,
                                                component='Faction')
         self.forged = ForgedFaction.objects.create(designer=self.designer, faction_name='Keep Fox',
-                                                   published_faction=self.keep)
+                                                   published_post=self.keep)
         FactionBack.objects.create(faction=self.forged)
         self.forge_piece = Piece.objects.create(faction=self.forged, type='C', quantity=2, name='Ambush')
         self.group = ForgedDeckGroup.objects.create(piece=self.forge_piece, name='Ambush')
@@ -463,7 +463,7 @@ class ForgeTTSConversionEndToEndTests(TestCase):
         self.keep = KeepFaction.objects.create(title='E2E Fox', animal='Fox', designer=self.designer,
                                                component='Faction')
         self.forged = ForgedFaction.objects.create(
-            designer=self.designer, faction_name='E2E Fox', published_faction=self.keep,
+            designer=self.designer, faction_name='E2E Fox', published_post=self.keep,
             vp_marker=_png('vp.png'),
         )
         back = FactionBack.objects.create(faction=self.forged)
@@ -646,3 +646,212 @@ class TTSLibrarySubmissionTests(TestCase):
         self.assertIn(reverse('forge-tts-library-approve', args=[self.forged.pk]), content)
         # The designer's own submit card is for editors only.
         self.assertNotIn('Awaiting Approval', content)
+
+
+# ── Forge post types (component), Clockwork, and the published_post link ─────
+
+from io import StringIO
+
+from django.core.exceptions import ValidationError
+from django.core.management import call_command
+
+from the_keep.models import Map as KeepMap
+from .forms_publish import ForgedFactionLinkForm, ForgedFactionSubmitForm, submit_prerequisites_missing
+from .views import _link_candidate_exists
+
+
+@override_settings(MEDIA_ROOT=_TTS_MEDIA)
+class ForgeComponentTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+
+        Language.objects.create(code='en', name='English')
+        self.user = User.objects.create_user(username='typedesigner', password='pw')
+        self.designer = Profile.objects.get(user=self.user)
+        Profile.objects.filter(pk=self.designer.pk).update(group='D', player_onboard=True, forge_onboard=True)
+        self.designer.refresh_from_db()
+
+    def _draft(self, component='Faction', **kwargs):
+        return ForgedFaction.objects.create(designer=self.designer, faction_name=kwargs.pop('name', 'Draft'),
+                                            component=component, **kwargs)
+
+    def test_type_flags(self):
+        self.assertEqual(self._draft(name='Plain').component, 'Faction')
+        for component, is_faction, setup in (('Faction', True, True), ('Clockwork', True, False),
+                                             ('Map', False, False), ('Deck', False, False)):
+            with self.subTest(component=component):
+                draft = ForgedFaction(component=component)
+                self.assertEqual((draft.is_faction, draft.uses_setup_card), (is_faction, setup))
+
+    def test_any_type_holds_pieces_decks_and_cards_and_clones_them(self):
+        draft = self._draft('Deck', name='Deck Draft')
+        piece = Piece.objects.create(faction=draft, type='C', quantity=1, name='Cards')
+        group = ForgedDeckGroup.objects.create(piece=piece, name='Cards')
+        ForgedCard.objects.create(group=group, name='A', front_image=_png('a.png'))
+        copy = clone_forged_faction(draft)
+        self.assertEqual(copy.component, 'Deck')
+        self.assertEqual(ForgedCard.objects.filter(group__piece__faction=copy).count(), 1)
+
+    def test_non_faction_drafts_are_kept_out_of_faction_flows(self):
+        draft = self._draft('Map', name='Map Draft')
+        self.client.force_login(self.user)
+        detail = reverse('forge-faction-detail', args=[draft.pk])
+        for name in ('forge-faction-submit', 'forge-faction-sync'):
+            self.assertRedirects(self.client.get(reverse(name, args=[draft.pk])), detail, fetch_redirect_response=False)
+        self.assertRedirects(self.client.post(reverse('forge-sheet-create', args=[draft.pk])), detail,
+                             fetch_redirect_response=False)
+        content = self.client.get(detail).content.decode()
+        self.assertNotIn('Submit as New', content)
+        self.assertNotIn('Add to the TTS Library', content)
+
+    def test_chooser_and_typed_create(self):
+        self.client.force_login(self.user)
+        content = self.client.get(reverse('forge-new')).content.decode()
+        self.assertIn(reverse('forge-faction-create'), content)
+        self.assertIn(reverse('forge-clockwork-create'), content)
+        self.assertIn('New Forged Clockwork Faction',
+                      self.client.get(reverse('forge-clockwork-create')).content.decode())
+        for url, expected in ((reverse('forge-clockwork-create'), 'Clockwork'),
+                              (reverse('forge-faction-create'), 'Faction')):
+            with self.subTest(expected=expected):
+                self.client.post(url, {'faction_name': f'{expected} Made', 'language': Language.objects.get().pk,
+                                       'color': '#5f788a', 'secondary_color': '#000000',
+                                       'background_tile_size': 33})
+                self.assertEqual(ForgedFaction.objects.get(faction_name=f'{expected} Made').component, expected)
+
+    def test_clockwork_has_no_adset_card(self):
+        draft = self._draft('Clockwork', name='Gears')
+        FactionSheet.objects.create(faction=draft)
+        FactionBack.objects.create(faction=draft)
+        self.client.force_login(self.user)
+        detail = reverse('forge-faction-detail', args=[draft.pk])
+        self.assertRedirects(self.client.post(reverse('forge-setup-card-create', args=[draft.pk])), detail,
+                             fetch_redirect_response=False)
+        self.assertFalse(SetupCard.objects.filter(faction=draft).exists())
+        self.assertNotIn('Setup Card', submit_prerequisites_missing(draft))
+        content = self.client.get(detail).content.decode()
+        self.assertNotIn('Adset Card</h4>', content)
+        self.assertNotIn('Adset Card', [r['label'] for r in self.client.get(detail).context['submit_requirements']])
+
+    def test_clockwork_submit_form_publishes_type_c(self):
+        draft = self._draft('Clockwork', name='Gears')
+        FactionSheet.objects.create(faction=draft)
+        FactionBack.objects.create(faction=draft)
+        form = ForgedFactionSubmitForm(forged_faction=draft, user=self.user)
+        self.assertNotIn('type', form.fields)
+        self.assertNotIn('reach', form.fields)
+        self.assertEqual((form.instance.type, form.instance.reach), ('C', 0))
+        # The keep turns type 'C' into a Clockwork on save.
+        form.instance.title, form.instance.designer, form.instance.animal = 'Gears', self.designer, 'Fox'
+        form.instance.save()
+        self.assertEqual(form.instance.component, 'Clockwork')
+
+    def test_link_candidates_match_the_draft_type(self):
+        KeepFaction.objects.create(title='Gears', animal='Fox', designer=self.designer, type='M', reach=6)
+        clockwork_draft = self._draft('Clockwork', name='Gears')
+        self.assertFalse(_link_candidate_exists(self.designer, clockwork_draft))
+        keep_clockwork = KeepFaction.objects.create(title='Cogs', animal='Fox', designer=self.designer, type='C')
+        ForgedFaction.objects.filter(pk=clockwork_draft.pk).update(faction_name='Cogs')
+        clockwork_draft.refresh_from_db()
+        self.assertTrue(_link_candidate_exists(self.designer, clockwork_draft))
+        form = ForgedFactionLinkForm(user=self.user, forged=clockwork_draft)
+        values = [value for value, _label in form.fields['target'].choices]
+        self.assertEqual(values, [f'faction:{keep_clockwork.pk}'])
+        faction = KeepFaction.objects.get(title='Gears')
+        bad = ForgedFactionLinkForm({'target': f'faction:{faction.pk}'}, user=self.user, forged=clockwork_draft)
+        self.assertFalse(bad.is_valid())
+
+    def test_linked_faction_is_no_longer_a_candidate(self):
+        keep = KeepFaction.objects.create(title='Linked', animal='Fox', designer=self.designer, type='M', reach=6)
+        self._draft(name='Other', published_post=keep)
+        self.assertFalse(KeepFaction.objects.filter(pk=keep.pk, source_forged_post__isnull=True).exists())
+        self.assertFalse(_link_candidate_exists(self.designer, self._draft(name='Linked')))
+
+    def test_published_keep_post_returns_the_concrete_type(self):
+        keep_faction = KeepFaction.objects.create(title='Fox Folk', animal='Fox', designer=self.designer, type='M', reach=6)
+        keep_map = KeepMap.objects.create(title='Fall Map', designer=self.designer)
+        faction_draft = self._draft(name='Fox Folk', published_post=keep_faction)
+        self.assertIsInstance(faction_draft.published_keep_post, KeepFaction)
+        map_draft = self._draft('Map', name='Fall Map', published_post=keep_map)
+        self.assertIsInstance(map_draft.published_keep_post, KeepMap)
+        # A mismatched component falls back to the base Post instead of None.
+        other_map = KeepMap.objects.create(title='Winter Map', designer=self.designer)
+        mismatched = self._draft('Vagabond', name='Odd')
+        ForgedFaction.objects.filter(pk=mismatched.pk).update(published_post=other_map)
+        mismatched.refresh_from_db()
+        self.assertEqual(mismatched.published_keep_post.pk, other_map.pk)
+        # The cache follows the link.
+        map_draft.published_post = None
+        self.assertIsNone(map_draft.published_keep_post)
+
+    def test_clean_rejects_type_mismatched_links(self):
+        keep_faction = KeepFaction.objects.create(title='Fox Folk', animal='Fox', designer=self.designer, type='M', reach=6)
+        with self.assertRaises(ValidationError):
+            ForgedFaction(component='Vagabond', published_post=keep_faction).clean()
+        ForgedFaction(component='Clockwork', published_post=keep_faction).clean()  # same Faction model
+        from the_keep.models import PostTranslation
+        translation = PostTranslation.objects.create(post=keep_faction, language=Language.objects.get(),
+                                                     translated_title='Zorros')
+        with self.assertRaises(ValidationError):
+            ForgedFaction(component='Map', published_translation=translation).clean()
+        with self.assertRaises(ValidationError):
+            ForgedFaction(published_post=keep_faction, published_translation=translation).clean()
+
+    def test_unlink_clears_both_links(self):
+        keep = KeepFaction.objects.create(title='Fox Folk', animal='Fox', designer=self.designer, type='M', reach=6)
+        draft = self._draft(name='Fox Folk', published_post=keep)
+        ForgedFaction.objects.filter(pk=draft.pk).update(published_faction=keep)
+        self.client.force_login(self.user)
+        self.client.post(reverse('forge-faction-unlink', args=[draft.pk]))
+        draft.refresh_from_db()
+        self.assertIsNone(draft.published_post_id)
+        self.assertIsNone(draft.published_faction_id)
+
+
+class BackfillForgePublishedPostTests(TestCase):
+    def setUp(self):
+        Language.objects.create(code='en', name='English')
+        self.designer = Profile.objects.create(discord='backfill')
+        self.keep = KeepFaction.objects.create(title='Fox Folk', animal='Fox', designer=self.designer, type='M', reach=6)
+
+    def _run(self, *args):
+        out = StringIO()
+        call_command('backfill_forge_published_post', *args, stdout=out)
+        return out.getvalue()
+
+    def test_moves_the_link_and_is_idempotent(self):
+        draft = ForgedFaction.objects.create(designer=self.designer, faction_name='Fox Folk')
+        ForgedFaction.objects.filter(pk=draft.pk).update(published_faction=self.keep)
+        unlinked = ForgedFaction.objects.create(designer=self.designer, faction_name='Loose')
+
+        self.assertIn('would have moved 1', self._run('--dry-run'))
+        draft.refresh_from_db()
+        self.assertIsNone(draft.published_post_id)
+
+        self.assertIn('moved 1', self._run())
+        draft.refresh_from_db()
+        self.assertEqual((draft.published_post_id, draft.published_faction_id), (self.keep.pk, None))
+
+        self.assertIn('moved 0', self._run())
+        unlinked.refresh_from_db()
+        self.assertIsNone(unlinked.published_post_id)
+
+    def test_disagreeing_links_are_reported_and_left_alone(self):
+        other = KeepFaction.objects.create(title='Other', animal='Fox', designer=self.designer, type='M', reach=6)
+        draft = ForgedFaction.objects.create(designer=self.designer, faction_name='Fox Folk', published_post=other)
+        ForgedFaction.objects.filter(pk=draft.pk).update(published_faction=self.keep)
+        self.assertIn('Skipped', self._run())
+        draft.refresh_from_db()
+        self.assertEqual((draft.published_post_id, draft.published_faction_id), (other.pk, self.keep.pk))
+
+
+class ForgedFactionAdminTests(TestCase):
+    def test_component_and_legacy_link_are_read_only(self):
+        from django.contrib import admin
+        model_admin = admin.site._registry[ForgedFaction]
+        self.assertIn('component', model_admin.readonly_fields)
+        self.assertIn('published_faction', model_admin.readonly_fields)
+        self.assertIn('published_post', model_admin.raw_id_fields)

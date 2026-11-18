@@ -7,7 +7,7 @@
 </div>
 
 <div class="mb-3">
-  <h2 class="root-title m-0">Submit "{{ faction.faction_name }}" as a Faction</h2>
+  <h2 class="root-title m-0">Submit "{{ faction.faction_name }}" as a {% if faction.is_clockwork %}Clockwork {% endif %}Faction</h2>
   <p class="text-muted mb-0">Your faction will be submitted and linked as is. 
     You can make changes later in the Forge but any changes will not be reflected on the submitted faction until you sync again. 
     Think of the Forge as a place to iterate your rough draft and syncing to the Database as a checkpoint in your faction's development.

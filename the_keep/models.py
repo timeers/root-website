@@ -2166,6 +2166,20 @@ PIECE_NAME_TRANSLATIONS = {
 
 
 
+def post_model_for_component(component):
+    """The Post subclass for a Post.ComponentChoices value (Clockwork is a Faction)."""
+    return {
+        Post.ComponentChoices.MAP: Map,
+        Post.ComponentChoices.DECK: Deck,
+        Post.ComponentChoices.LANDMARK: Landmark,
+        Post.ComponentChoices.TWEAK: Tweak,
+        Post.ComponentChoices.HIRELING: Hireling,
+        Post.ComponentChoices.VAGABOND: Vagabond,
+        Post.ComponentChoices.FACTION: Faction,
+        Post.ComponentChoices.CLOCKWORK: Faction,
+    }.get(component)
+
+
 class Piece(models.Model):
     class TypeChoices(models.TextChoices):
         WARRIOR = 'W'

@@ -37,7 +37,7 @@ SKIP_REVERSE = set()
 EXCLUDE_FIELDS = {
     # Publish links (OneToOne — copying would break the unique constraint; a
     # duplicate must start as an unpublished draft).
-    'published_faction', 'published_translation',
+    'published_post', 'published_faction', 'published_translation',
     # Sync/regeneration bookkeeping and generated artifacts.
     'icon_synced_name', 'last_generated',
     'preview_fingerprint', 'preview_version', 'decree_fingerprint', 'sprite_hash',

@@ -47,7 +47,7 @@ def generate_tts_json(modeladmin, request, queryset):
 
     generated, skipped = [], []
     for post in queryset:
-        if ForgedFaction.objects.filter(published_faction_id=post.pk).exists():
+        if ForgedFaction.objects.filter(published_post_id=post.pk).exists():
             skipped.append(f"{post.title} (update via forge sync)")
             continue
         save_file = wrap_tts_save(build_tts_objects(post, request=SiteURLRequest()), save_name=post.title)

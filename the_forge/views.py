@@ -24,7 +24,7 @@ from .layout_autogrow import ensure_step_parent_fits
 
 from the_gatehouse.models import MessageChoices, UserNotification
 from the_gatehouse.utils import build_absolute_uri
-from the_keep.models import Faction, PostTranslation
+from the_keep.models import Faction, Post, PostTranslation
 from the_keep.utils import delete_old_image
 from the_gatehouse.tasks import send_discord_message_task, send_rich_discord_message_task
 
@@ -226,6 +226,29 @@ def _forbid_if_not_editor(request, obj):
     return None
 
 
+def _no_content_message(faction):
+    if faction.uses_setup_card:
+        return "No content yet — create a Front, Back, or Setup Card first."
+    return "No content yet — create a Front or Back first."
+
+
+def _forbid_if_not_faction(request, forged):
+    """Faction-only flows (sheet/back, submit/link/sync to a keep Faction, TTS
+    Library) are limited to Faction and Clockwork drafts."""
+    if not forged.is_faction:
+        messages.error(request, "That isn't available for this type of draft.")
+        return redirect('forge-faction-detail', pk=forged.pk)
+    return None
+
+
+def _forbid_if_no_setup_card(request, forged):
+    """Only regular Factions have an Adset (setup) card; Clockwork doesn't."""
+    if not forged.uses_setup_card:
+        messages.error(request, "This draft doesn't have an Adset Card.")
+        return redirect('forge-faction-detail', pk=forged.pk)
+    return None
+
+
 def _maybe_update_parent_paper_background(request, content_box):
     """Express child rows submit `paper_background` for their parent ContentBox."""
     if content_box is None or 'paper_background' not in request.POST:
@@ -315,18 +338,28 @@ def forgedfaction_name_check(request):
 
 
 @forge_onboard_required
-def forgedfaction_create(request):
+def forge_new(request):
+    """Pick what kind of draft to start; the type is fixed once created."""
+    return render(request, 'the_forge/forge_new.html')
+
+
+@forge_onboard_required
+def forgedfaction_create(request, component=Post.ComponentChoices.FACTION):
+    # `component` comes from the URL (forge/faction/new/ or forge/clockwork/new/),
+    # never from the form, so a draft's type can't change after creation.
     if request.method == 'POST':
         form = ForgedFactionForm(request.POST, request.FILES)
         if form.is_valid():
             faction = form.save(commit=False)
             faction.designer = request.user.profile
+            faction.component = component
             faction.save()
             return redirect('forge-faction-detail', pk=faction.pk)
     else:
         form = ForgedFactionForm()
     return render(request, 'the_forge/forgedfaction_form.html', {
         'form': form, 'is_create': True,
+        'component': component,
         'background_presets': _background_preset_options(),
     })
 
@@ -356,13 +389,14 @@ def forgedfaction_detail(request, pk):
     )
     can_edit = user_can_edit_forge(request, faction)
     publish_context = {}
-    if can_edit:
+    # Publishing to a keep Faction only applies to Faction / Clockwork drafts.
+    if can_edit and faction.is_faction:
         submit_missing = submit_prerequisites_missing(faction)
 
         # Unique-name check: don't allow submit if the name is already taken
         # by a published Faction or PostTranslation (matches the server-side
         # clean_title_uniqueness rule in ForgedFactionSubmitForm).
-        existing_published_id = faction.published_faction_id
+        existing_published_id = faction.published_post_id
         name_taken = (
             Faction.objects.exclude(id=existing_published_id)
             .filter(title__iexact=faction.faction_name).exists()
@@ -375,7 +409,7 @@ def forgedfaction_detail(request, pk):
         # Adset Card warning: type / reach must agree with the Faction model's
         # consistency rule. Insurgent factions have reach ≤ 6; Militant ≥ 6.
         adset_warning = None
-        if setup_card is not None and setup_card.reach:
+        if faction.uses_setup_card and setup_card is not None and setup_card.reach:
             if setup_card.type == 'I' and setup_card.reach > 6:
                 adset_warning = (
                     f'Reach is {setup_card.reach} but Type is Insurgent. '
@@ -398,14 +432,15 @@ def forgedfaction_detail(request, pk):
             },
             {'label': 'Faction Board', 'done': sheet is not None},
             {'label': 'Faction Board Back', 'done': back is not None},
-            {
+        ]
+        # Clockwork factions have no Adset Card.
+        if faction.uses_setup_card:
+            submit_requirements.append({
                 'label': 'Adset Card',
                 'done': setup_card is not None,
                 'warning': adset_warning,
-            },
-            {'label': 'Faction Icon', 'done': bool(faction.faction_icon)},
-
-        ]
+            })
+        submit_requirements.append({'label': 'Faction Icon', 'done': bool(faction.faction_icon)})
         link_candidate_exists = _link_candidate_exists(request.user.profile, faction)
         target, target_mode, target_label = _resolved_published(faction)
         if target_mode == 'faction':
@@ -459,6 +494,7 @@ def forgedfaction_detail(request, pk):
         'card_pieces': card_pieces,
         'tts_state': tts_state,
         'is_admin': bool(profile and profile.admin),
+        'is_faction': faction.is_faction,
         **publish_context,
     })
 
@@ -623,6 +659,8 @@ def forgedfaction_duplicate_status(request, task_id):
 def factionsheet_create(request, faction_pk):
     faction = get_object_or_404(ForgedFaction, pk=faction_pk)
     if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if (resp := _forbid_if_not_faction(request, faction)):
         return resp
     sheet, _ = FactionSheet.objects.get_or_create(faction=faction)
     return redirect('forge-sheet-edit', pk=sheet.pk)
@@ -963,6 +1001,8 @@ def factionback_create(request, faction_pk):
     faction = get_object_or_404(ForgedFaction, pk=faction_pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
+    if (resp := _forbid_if_not_faction(request, faction)):
+        return resp
     back, _ = FactionBack.objects.get_or_create(faction=faction)
     return redirect('forge-back-edit', pk=back.pk)
 
@@ -1221,6 +1261,8 @@ def forgedfaction_cardboard_edit(request, pk):
 def setup_card_create(request, faction_pk):
     faction = get_object_or_404(ForgedFaction, pk=faction_pk)
     if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if (resp := _forbid_if_no_setup_card(request, faction)):
         return resp
     card, _ = SetupCard.objects.get_or_create(faction=faction)
     return redirect('forge-setup-card-edit', pk=card.pk)
@@ -2629,7 +2671,7 @@ def forgedfaction_pdf(request, pk):
 
             if not parts:
                 return HttpResponse(
-                    "No content yet — create a Front, Back, or Setup Card first.",
+                    _no_content_message(faction),
                     status=404, content_type='text/plain',
                 )
 
@@ -2673,7 +2715,9 @@ def forgedfaction_components_pdf(request, pk):
     )
     if not has_components:
         return HttpResponse(
-            "No components yet — add a setup card, faction markers, or building/token pieces first.",
+            ("No components yet — add a setup card, faction markers, or building/token pieces first."
+             if faction.uses_setup_card else
+             "No components yet — add faction markers or building/token pieces first."),
             status=404, content_type='text/plain',
         )
 
@@ -2861,7 +2905,7 @@ def _build_forged_tts_save(request, faction, refresh_previews=True):
     card = getattr(faction, 'setup_card', None)
     parts = (sheet, back, card)
     if not sheet and not back and not card:
-        return None, "No content yet — create a Front, Back, or Setup Card first.", parts
+        return None, _no_content_message(faction), parts
 
     if refresh_previews:
         # Refresh any stale previews as a side effect of the TTS export. Each render
@@ -3068,6 +3112,8 @@ def forgedfaction_tts_submit(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
+    if (resp := _forbid_if_not_faction(request, faction)):
+        return resp
     if faction.tts_status not in (TTSStatus.NOT_SUBMITTED, TTSStatus.REJECTED):
         messages.info(request, "This faction is already submitted to the TTS Library.")
         return redirect('forge-faction-detail', pk=faction.pk)
@@ -3273,9 +3319,11 @@ def _link_candidate_exists(profile, forged):
     """Cheap exists() check matching the three sources in ForgedFactionLinkForm."""
     if profile is None or forged is None:
         return False
+    # Candidates match the draft's own type (Clockwork only links to Clockwork).
     same_lang_faction = Faction.objects.filter(
         designer=profile,
-        source_forged_faction__isnull=True,
+        component=forged.component,
+        source_forged_post__isnull=True,
         title__iexact=forged.faction_name,
         language=forged.language,
     ).exists()
@@ -3284,7 +3332,7 @@ def _link_candidate_exists(profile, forged):
         source_forged_faction__isnull=True,
         translated_title__iexact=forged.faction_name,
         language=forged.language,
-        post__component__in=['Faction', 'Clockwork'],
+        post__component=forged.component,
     ).exists()
     # Cross-language candidates: any Faction the user designed in another
     # language that doesn't already have a translation in the draft's
@@ -3292,6 +3340,7 @@ def _link_candidate_exists(profile, forged):
     # intentionally don't filter by title here.
     cross_lang_faction = Faction.objects.filter(
         designer=profile,
+        component=forged.component,
     ).exclude(language=forged.language).exclude(
         translations__language=forged.language,
     ).exists()
@@ -3301,8 +3350,8 @@ def _link_candidate_exists(profile, forged):
 def _resolved_published(forged):
     """Return (target, mode, label) for whichever publish link is set, or
     (None, None, None) if not linked."""
-    if forged.published_faction_id:
-        f = forged.published_faction
+    if forged.published_post_id:
+        f = forged.published_keep_post
         return f, 'faction', f.title
     if forged.published_translation_id:
         t = forged.published_translation
@@ -3316,7 +3365,9 @@ def forgedfaction_submit(request, pk):
     forged = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, forged)):
         return resp
-    if forged.published_faction_id or forged.published_translation_id:
+    if (resp := _forbid_if_not_faction(request, forged)):
+        return resp
+    if forged.published_post_id or forged.published_translation_id:
         messages.info(request, "This forge draft is already published.")
         return redirect('forge-faction-detail', pk=forged.pk)
 
@@ -3334,7 +3385,7 @@ def forgedfaction_submit(request, pk):
     # here too. Matches the name_taken check in forgedfaction_detail and the
     # clean_title_uniqueness rule in ForgedFactionSubmitForm.
     name_taken = (
-        Faction.objects.exclude(id=forged.published_faction_id)
+        Faction.objects.exclude(id=forged.published_post_id)
         .filter(title__iexact=forged.faction_name).exists()
         or PostTranslation.objects.filter(
             translated_title__iexact=forged.faction_name,
@@ -3385,9 +3436,9 @@ def forgedfaction_submit(request, pk):
             faction.save()
             form.save_m2m()
 
-            forged.published_faction = faction
+            forged.published_post = faction
             forged.icon_synced_name = forged.faction_icon.name if forged.faction_icon else ''
-            forged.save(update_fields=['published_faction', 'icon_synced_name'])
+            forged.save(update_fields=['published_post', 'icon_synced_name'])
 
             # Mirrors the manual submit path in the_keep.views.PostCreateView:
             # a PENDING post announces to the review queue (the `url` is what
@@ -3441,7 +3492,9 @@ def forgedfaction_link(request, pk):
     forged = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, forged)):
         return resp
-    if forged.published_faction_id or forged.published_translation_id:
+    if (resp := _forbid_if_not_faction(request, forged)):
+        return resp
+    if forged.published_post_id or forged.published_translation_id:
         messages.info(request, "This forge draft is already published.")
         return redirect('forge-faction-detail', pk=forged.pk)
 
@@ -3454,8 +3507,8 @@ def forgedfaction_link(request, pk):
             mode = form.resolved_mode
             target = form.resolved
             if mode == ForgedFactionLinkForm.PREFIX_FACTION:
-                forged.published_faction = target
-                forged.save(update_fields=['published_faction'])
+                forged.published_post = target
+                forged.save(update_fields=['published_post'])
                 messages.success(request, f"Linked to existing Faction '{target.title}'.")
             elif mode == ForgedFactionLinkForm.PREFIX_TRANSLATION:
                 forged.published_translation = target
@@ -3500,12 +3553,17 @@ def forgedfaction_unlink(request, pk):
     forged = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, forged)):
         return resp
-    if not (forged.published_faction_id or forged.published_translation_id):
+    if not (forged.published_post_id or forged.published_translation_id):
         messages.info(request, "This forge draft isn't linked to anything.")
         return redirect('forge-faction-detail', pk=forged.pk)
 
     _, _, label = _resolved_published(forged)
     update_fields = []
+    if forged.published_post_id:
+        forged.published_post = None
+        update_fields.append('published_post')
+    # Also clear the deprecated field so backfill_forge_published_post can
+    # never move a stale value back and re-link this draft.
     if forged.published_faction_id:
         forged.published_faction = None
         update_fields.append('published_faction')
@@ -3535,7 +3593,7 @@ def _sync_keep_tts_json(forged_pk):
 
     # Fresh instances: the sync form's cached relations predate its own save().
     forged = ForgedFaction.objects.get(pk=forged_pk)
-    faction = Faction.objects.get(pk=forged.published_faction_id)
+    faction = Faction.objects.get(pk=forged.published_post_id)
 
     # Re-check after the save: a forge edit or re-render mid-request would leave
     # a forge asset newer than its keep copy.
@@ -3578,6 +3636,8 @@ def _sync_keep_tts_json(forged_pk):
 def forgedfaction_sync(request, pk):
     forged = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, forged)):
+        return resp
+    if (resp := _forbid_if_not_faction(request, forged)):
         return resp
 
     _refresh_all_element_previews(forged)

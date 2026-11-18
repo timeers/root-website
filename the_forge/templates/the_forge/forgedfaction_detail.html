@@ -180,6 +180,7 @@
       </div>
 
       <!-- Setup Card -->
+      {% if faction.uses_setup_card %}
       <div class="forge-detail-col">
         <div class="card p-3 h-100 d-flex flex-column">
           <h4 class="root-title text-center mb-0">Adset Card</h4>
@@ -227,6 +228,7 @@
           {% endif %}
         </div>
       </div>
+      {% endif %}
 
       <!-- Faction Markers -->
       <div class="forge-detail-col">
@@ -395,7 +397,7 @@
 
 <!-- Future Submit Section -->
 
-{% if can_edit %}
+{% if can_edit and is_faction %}
 <div class="card forge-publish-card mt-4 position-relative">
   <div class="card-body">
     <div class="d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between">
@@ -468,7 +470,7 @@
           </div>
         {% elif submit_ready %}
           <a href="{% url 'forge-faction-submit' pk=faction.pk %}" class="btn btn-primary">
-            <i class="bi bi-upload me-1"></i>Submit as New Faction
+            <i class="bi bi-upload me-1"></i>Submit as New {% if faction.is_clockwork %}Clockwork {% endif %}Faction
           </a>
         {% elif link_candidate_exists %}
           <a href="{% url 'forge-faction-link' pk=faction.pk %}" class="btn btn-primary">
@@ -476,7 +478,7 @@
           </a>
         {% else %}
           <button type="button" class="btn btn-primary" disabled>
-            <i class="bi bi-upload me-1"></i>Submit as New Faction
+            <i class="bi bi-upload me-1"></i>Submit as New {% if faction.is_clockwork %}Clockwork {% endif %}Faction
           </button>
         {% endif %}
       </div>
@@ -502,7 +504,7 @@
 {% endif %} 
 
 <!-- TTS Library Section -->
-{% if can_edit %}
+{% if can_edit and is_faction %}
 <div class="card forge-publish-card mt-4 position-relative">
   <div class="card-body">
     <div class="d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between">
@@ -520,7 +522,7 @@
         </h5>
         <div class="text-muted small mb-0">
           {% if tts_state == 'not_ready' %}
-            Create a Front, Back, or Adset Card before submitting to the Tabletop Simulator Library.
+            Create a Front{% if faction.uses_setup_card %}, Back, or Adset Card{% else %} or Back{% endif %} before submitting to the Tabletop Simulator Library.
           {% elif tts_state == 'can_submit' %}
             Submit this faction to be listed in the Tabletop Simulator Library. An admin will review it first.
           {% elif tts_state == 'submitted' %}

@@ -242,8 +242,8 @@ def build_diff(forged):
     whose values already match are flagged ``in_sync=True`` so the template can
     show them as "Up to date" without an Apply checkbox."""
     rows = []
-    if forged.published_faction_id:
-        faction = forged.published_faction
+    if forged.published_post_id:
+        faction = forged.published_keep_post
         for field in FACTION_SYNC_FIELDS:
             proposed = _proposed_for_faction(forged, field)
             if proposed in (None, ''):
@@ -321,12 +321,12 @@ def _resolved_piece_name(forge_piece):
 
 def build_piece_plan(forged):
     """For Faction sync mode, compute per-piece actions: match forge pieces to
-    existing keep pieces on ``forged.published_faction`` by case-insensitive
+    existing keep pieces on ``forged.published_keep_post`` by case-insensitive
     name + identical type, and decide create/update/in_sync per piece. Never
     proposes deletion of keep pieces that have no forge counterpart."""
-    if not forged.published_faction_id:
+    if not forged.published_post_id:
         return []
-    keep_pieces = list(forged.published_faction.pieces.all())
+    keep_pieces = list(forged.published_keep_post.pieces.all())
     plan = []
     for forge_piece in forged.pieces.all():
         resolved_name = _resolved_piece_name(forge_piece)
@@ -417,9 +417,9 @@ def build_deck_plan(forged, piece_plan):
     """One entry per forge card piece with cards. The keep side is the
     DeckGroup on the matched keep piece in the keep Faction's own language,
     because the keep TTS export only reads decks.filter(language=post.language)."""
-    if not forged.published_faction_id:
+    if not forged.published_post_id:
         return []
-    faction = forged.published_faction
+    faction = forged.published_keep_post
     if not faction.language_id:
         return []
     keep_piece_by_forge_pk = {e['forge_piece'].pk: e['keep_piece'] for e in piece_plan}
@@ -508,9 +508,9 @@ def forge_tts_asset_sources(forged):
 
 
 def build_tts_asset_plan(forged):
-    if not forged.published_faction_id:
+    if not forged.published_post_id:
         return []
-    keep_assets = {a.role: a for a in forged.published_faction.tts_assets.all()}
+    keep_assets = {a.role: a for a in forged.published_keep_post.tts_assets.all()}
     plan = []
     for role, label, forge_image, fingerprint in forge_tts_asset_sources(forged):
         keep_asset = keep_assets.get(role)
@@ -570,11 +570,11 @@ def build_tts_plan(forged, diff_rows, piece_plan, deck_plan, asset_plan):
     """The TTS row. In sync only when the keep JSON is exactly what the last
     sync wrote, the forge inputs haven't changed since, and every forced row is
     up to date."""
-    if not forged.published_faction_id:
+    if not forged.published_post_id:
         return None
     if not any(_safe_related(forged, attr) for attr in ('faction_sheet', 'faction_back', 'setup_card')):
         return None
-    faction = forged.published_faction
+    faction = forged.published_keep_post
     stale_fields = [row[1] for row in diff_rows if row[0] in TTS_FORCED_FIELDS and not row[5]]
     stale_count = (
         len(stale_fields)
@@ -609,7 +609,7 @@ def submit_prerequisites_missing(forged):
         missing.append('Faction Sheet')
     if back is None:
         missing.append('Faction Back')
-    if card is None:
+    if card is None and forged.uses_setup_card:  # Clockwork has no Adset Card
         missing.append('Setup Card')
     if not forged.faction_icon:
         missing.append('Faction Icon')
@@ -692,6 +692,16 @@ class ForgedFactionSubmitForm(FactionCreateForm):
             initial.setdefault('type', card.type)
 
         super().__init__(*args, **kwargs)
+
+        # Clockwork drafts have no Adset Card, so no reach or Militant/Insurgent
+        # type. Mirror the keep's ClockworkCreateForm: drop the fields and set
+        # type 'C' on the instance (FactionCreateForm's type choices don't
+        # include it). Faction.save() then sets component='Clockwork'.
+        if forged_faction.is_clockwork:
+            self.fields.pop('type', None)
+            self.fields.pop('reach', None)
+            self.instance.type = 'C'
+            self.instance.reach = 0
 
         # PostCreateForm.__init__ overrides language.initial from user profile; force it back to the forge's language.
         if 'language' in self.fields and forged_faction.language_id:
@@ -852,9 +862,12 @@ class ForgedFactionLinkForm(forms.Form):
         profile = self.user.profile
         forged = self.forged
 
+        # Candidates match the draft's own type: a Clockwork draft only links
+        # to keep Clockworks, a Faction draft only to keep Factions.
         faction_qs = Faction.objects.filter(
             designer=profile,
-            source_forged_faction__isnull=True,
+            component=forged.component,
+            source_forged_post__isnull=True,
             language=forged.language,
         )
         if not show_all:
@@ -865,7 +878,7 @@ class ForgedFactionLinkForm(forms.Form):
             source_forged_faction__isnull=True,
             translated_title__iexact=forged.faction_name,
             language=forged.language,
-            post__component__in=['Faction', 'Clockwork'],
+            post__component=forged.component,
         ).select_related('post', 'language')
 
         # Cross-language candidates: any Faction the user designed in
@@ -875,6 +888,7 @@ class ForgedFactionLinkForm(forms.Form):
         # title here — the user is starting a new translation.
         cross_lang_factions = Faction.objects.filter(
             designer=profile,
+            component=forged.component,
         ).exclude(
             language=forged.language,
         ).exclude(
@@ -940,18 +954,21 @@ class ForgedFactionLinkForm(forms.Form):
         if prefix == self.PREFIX_FACTION:
             obj = Faction.objects.filter(
                 pk=pk, designer=profile,
-                source_forged_faction__isnull=True,
+                component=self.forged.component,
+                source_forged_post__isnull=True,
                 language=self.forged.language,
             ).first()
         elif prefix == self.PREFIX_TRANSLATION:
             obj = PostTranslation.objects.filter(
                 pk=pk, post__designer=profile,
+                post__component=self.forged.component,
                 source_forged_faction__isnull=True,
                 language=self.forged.language,
             ).first()
         elif prefix == self.PREFIX_NEW_TRANSLATION:
             obj = Faction.objects.filter(
                 pk=pk, designer=profile,
+                component=self.forged.component,
             ).exclude(language=self.forged.language).exclude(
                 translations__language=self.forged.language,
             ).first()
@@ -1052,7 +1069,7 @@ class ForgedFactionSyncForm(forms.Form):
 
     @property
     def mode(self):
-        if self.forged.published_faction_id:
+        if self.forged.published_post_id:
             return 'faction'
         if self.forged.published_translation_id:
             return 'translation'
@@ -1062,7 +1079,7 @@ class ForgedFactionSyncForm(forms.Form):
         if not self.is_valid():
             raise ValueError('Form must be valid before save()')
         if self.mode == 'faction':
-            target = self.forged.published_faction
+            target = self.forged.published_keep_post
             proposed_fn = _proposed_for_faction
         elif self.mode == 'translation':
             target = self.forged.published_translation

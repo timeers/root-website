@@ -372,7 +372,7 @@ class GenerateTTSJsonActionTests(TestCase):
         linked = Faction.objects.create(title='Linked Fox', animal='Fox', designer=self.designer,
                                         component='Faction')
         ForgedFaction.objects.create(designer=self.designer, faction_name='Linked Fox',
-                                     published_faction=linked)
+                                     published_post=linked)
         # A Tweak has nothing for the keep builder to export.
         from the_keep.models import Tweak
         tweak = Tweak.objects.create(title='Rule', designer=self.designer, component='Tweak')

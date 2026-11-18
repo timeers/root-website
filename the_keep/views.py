@@ -3050,12 +3050,10 @@ def post_settings_hub(request, slug):
     # Only admin can delete
     can_delete = profile.admin
 
-    # Linked ForgedFaction (Forge source), if any. The reverse OneToOne
-    # accessor raises when unset, so catch that and fall back to None.
-    try:
-        forged_faction = obj.source_forged_faction
-    except (AttributeError, ObjectDoesNotExist):
-        forged_faction = None
+    # Linked forge draft (its source), if any. An explicit query rather than the
+    # reverse accessor: obj is a Post subclass instance.
+    from the_forge.models import ForgedFaction
+    forged_faction = ForgedFaction.objects.filter(published_post_id=obj.pk).first()
 
     context = {
         'object': obj,

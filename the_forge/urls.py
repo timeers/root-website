@@ -11,7 +11,9 @@ urlpatterns = [
     # ForgedFaction
     path('forge/factions/', views.forgedfaction_admin_list, name='forge-faction-admin-list'),
     path('forge/faction/', views.forgedfaction_list, name='forge-faction-list'),
+    path('forge/new/', views.forge_new, name='forge-new'),
     path('forge/faction/new/', views.forgedfaction_create, name='forge-faction-create'),
+    path('forge/clockwork/new/', views.forgedfaction_create, {'component': 'Clockwork'}, name='forge-clockwork-create'),
     path('forge/faction/name-check/', views.forgedfaction_name_check, name='forge-faction-name-check'),
     path('forge/faction/<int:pk>/', views.forgedfaction_detail, name='forge-faction-detail'),
     path('forge/faction/<int:pk>/edit/', views.forgedfaction_edit, name='forge-faction-edit'),

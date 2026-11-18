@@ -31,6 +31,7 @@
           <span class="forge-faction-card__swatch" style="background:{{ faction.color }};"></span>
         {% endif %}
         <h4 class="root-title mb-0 forge-faction-card__name">{{ faction.faction_name }}</h4>
+        {% if faction.is_clockwork %}<span class="badge text-bg-secondary">Clockwork</span>{% endif %}
       </div>
       {% if admin_view and faction.designer %}
         <div class="d-flex align-items-center gap-2 mb-3">
