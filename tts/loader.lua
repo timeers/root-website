@@ -58,13 +58,16 @@ local function buildXml()
       'active="false" preferredHeight="34" fontSize="16" textAlignment="MiddleLeft"'))
   end
 
-  -- position/rotation put the panel on top of a flat object; adjust for yours.
+  -- Sized for a Custom_Tile at scale 15.5 (same as the TTS Faction Board): the
+  -- tile face holds about 240 x 180 UI units, with -20 on z lifting the UI above
+  -- the surface and no rotation needed. The panel is laid out at 4x and scaled
+  -- down by 0.25 (928 x 688 -> 232 x 172) to sit just inside the edges.
   return [[
 <Defaults>
   <Button fontSize="16" color="#EFE6D2" textColor="#2B2118"/>
   <Text color="#EFE6D2"/>
 </Defaults>
-<Panel position="0 0 -20" rotation="180 180 0" width="560" height="760" scale="0.25 0.25 1" color="#2B2118EE">
+<Panel position="0 0 -20" width="928" height="688" scale="0.25 0.25 1" color="#2B2118EE">
   <VerticalLayout padding="12" spacing="8" childForceExpandHeight="false">
     <Text fontSize="26" fontStyle="Bold" preferredHeight="36">Root Database Library</Text>
     <HorizontalLayout spacing="6" preferredHeight="40">
@@ -78,7 +81,7 @@ local function buildXml()
       ]] .. table.concat(typeButtons, "\n      ") .. [[
     </GridLayout>
     <Text id="status" fontSize="15" preferredHeight="24" alignment="MiddleLeft">Loading...</Text>
-    <VerticalScrollView preferredHeight="480" scrollSensitivity="30">
+    <VerticalScrollView preferredHeight="410" scrollSensitivity="30">
       <VerticalLayout id="rows" spacing="4" childForceExpandHeight="false" contentSizeFitter="vertical">
         ]] .. table.concat(rows, "\n        ") .. [[
       </VerticalLayout>
