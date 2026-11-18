@@ -153,7 +153,8 @@ def deck_back_upload_path(instance, filename):
 def deck_sheet_upload_path(instance, filename):
     return upload_path(
         slug_parts=["posts", instance.group.post.slug, language_code(instance.group), "decks", instance.group.slug],
-        filename="sheet.webp",
+        # One file per CardDeck: a pinned "sheet.webp" made deck 1 delete deck 0's sheet.
+        filename=f"sheet_{instance.deck_index}.webp",
         force_ext='webp'
     )
 
@@ -162,6 +163,13 @@ def card_upload_path(instance, filename):
     return upload_path(
         slug_parts=["posts", instance.group.post.slug, language_code(instance.group), "decks", instance.group.slug, "cards"],
         filename=None,
+        force_ext='webp'
+    )
+
+def tts_asset_upload_path(instance, filename):
+    return upload_path(
+        slug_parts=["posts", instance.post.slug, "tts"],
+        filename=f"{instance.role}.webp",
         force_ext='webp'
     )
 

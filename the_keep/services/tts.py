@@ -6,7 +6,10 @@ import math
 
 from PIL import Image
 
+from urllib.parse import urljoin
+
 from django.conf import settings
+from django.templatetags.static import static
 
 from the_keep.models import CardDeck
 
@@ -47,6 +50,16 @@ CRAFTED_ITEMS_SNAP_POINTS = [
 #     {"Position": {"x": -0.939, "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
 #     {"Position": {"x": -1.09,  "y": 0.1, "z": -0.65}, "Rotation": {"x": 0.0, "y": 0.0, "z": 0.0}},
 # ]
+
+class SiteURLRequest:
+    """Stand-in for `request` when building TTS JSON that gets STORED (tts_json).
+
+    tts_image_url() makes absolute URLs from the request host, so a stored blob
+    would otherwise depend on whichever host an admin happened to use (an IP,
+    the bare domain, localhost). This pins them to settings.SITE_URL."""
+    def build_absolute_uri(self, location):
+        return urljoin(settings.SITE_URL.rstrip('/') + '/', location)
+
 
 def generate_tts_guid():
     return "".join(random.choices("0123456789abcdef", k=6))
@@ -394,6 +407,10 @@ class TTSDeckGroup:
         deck_id = starting_deck_id
 
         for carddeck in self.group.decks.all():
+            # A shrunk group can leave a CardDeck past the last card; exporting it
+            # would produce an empty DeckCustom that TTS fails to load.
+            if not carddeck.cards_in_deck:
+                continue
             decks.append(
                 TTSSpriteDeck(
                     carddeck=carddeck,
@@ -431,6 +448,33 @@ class TTSDeckGroup:
 
 
 
+
+
+def build_tts_objects(post, request=None):
+    """The TTS object dicts for a keep Post: faction board, ADSET/VB card and
+    the post's deck groups in its own language."""
+    objects = []
+    next_deck_id = 1
+
+    if post.component in ["Faction", "Clockwork"]:
+        objects.append(TTSBoard(post, request=request).to_dict())
+
+    if post.component == "Faction":
+        adset_card = TTSSingleCardDeck(post.card_image, static("images/ADSET.png"), deck_id=next_deck_id, request=request, card_name="Adset Card")
+        objects.append(adset_card.to_object())
+        next_deck_id += 1
+
+    if post.component == "Vagabond" and post.card_image:
+        vb_card = TTSSingleCardDeck(post.card_image, static("images/Vagabond Card Back.png"), deck_id=next_deck_id, request=request, card_name="VB Card")
+        objects.append(vb_card.to_object())
+        next_deck_id += 1
+
+    for deck_group in post.decks.filter(language=post.language):
+        for deck in TTSDeckGroup(deck_group, request=request).build(starting_deck_id=next_deck_id):
+            objects.append(deck.to_object())
+            next_deck_id += 1
+
+    return objects
 
 
 def wrap_tts_save(objects, save_name=""):

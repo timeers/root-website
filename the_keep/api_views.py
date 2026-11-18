@@ -8,6 +8,10 @@ from .serializers import (
 from the_gatehouse.models import Profile
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
+from rest_framework.views import APIView
+from rest_framework.throttling import ScopedRateThrottle
+from django.shortcuts import get_object_or_404
+import json
 from django.utils.translation import get_language
 
 from django.db.models import OuterRef, Subquery, F, Value
@@ -271,3 +275,98 @@ def search_posts(request):
             return Response({"message": "No matching post found"}, status=404)
     else:
         return Response({"message": "No search query provided"}, status=400)
+
+
+# ── Tabletop Simulator loader ───────────────────────────────────────────────
+# Read-only and public: the TTS loader object can't log in. Throttled per
+# caller because the project default (UserRateThrottle) ignores anonymous
+# requests entirely.
+
+class TTSLoaderView(APIView):
+    authentication_classes = []
+    permission_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'tts_loader'
+
+
+def _site_url(image):
+    from .services.tts import SiteURLRequest
+    return SiteURLRequest().build_absolute_uri(image.url) if image else ''
+
+
+def _number(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _tts_objects_payload(title, tts_json):
+    """Each object pre-encoded as a string so the Lua side hands it straight to
+    spawnObjectJSON (MoonSharp's JSON is very slow on big deck blobs), with its
+    position pulled out here so Lua never decodes an object at all."""
+    objects = []
+    for obj in tts_json.get('ObjectStates', []):
+        transform = obj.get('Transform') or {}
+        objects.append({
+            'x': _number(transform.get('posX')),
+            'y': _number(transform.get('posY')),
+            'z': _number(transform.get('posZ')),
+            'json': json.dumps(obj),
+        })
+    return {'title': title, 'objects': objects}
+
+
+class TTSCatalogView(TTSLoaderView):
+    """Everything the loader can spawn, without the blobs."""
+
+    def get(self, request):
+        from the_forge.models import ForgedFaction
+
+        keep_posts = (
+            Post.objects.filter(tts_json__isnull=False)
+            .select_related('designer')
+            .only('slug', 'title', 'component', 'designers_list', 'small_icon', 'designer__display_name')
+            .order_by('component', 'title')
+        )
+        forge_factions = (
+            ForgedFaction.objects.filter(publish_to_tts=True, tts_json__isnull=False)
+            .select_related('designer')
+            .only('pk', 'faction_name', 'faction_icon', 'designer__display_name')
+            .order_by('faction_name')
+        )
+        return Response({
+            'keep': [{
+                'slug': post.slug,
+                'title': post.title,
+                'component': post.component or '',
+                'designers': post.designers_list or (post.designer.display_name if post.designer else ''),
+                'icon': _site_url(post.small_icon),
+            } for post in keep_posts],
+            'forge': [{
+                'id': forged.pk,
+                'title': forged.faction_name,
+                'designer': forged.designer.display_name if forged.designer else '',
+                'icon': _site_url(forged.faction_icon),
+            } for forged in forge_factions],
+        })
+
+
+class TTSKeepDetailView(TTSLoaderView):
+    def get(self, request, slug):
+        post = get_object_or_404(
+            Post.objects.filter(tts_json__isnull=False).only('title', 'tts_json'), slug=slug,
+        )
+        return Response(_tts_objects_payload(post.title, post.tts_json))
+
+
+class TTSForgeDetailView(TTSLoaderView):
+    def get(self, request, pk):
+        from the_forge.models import ForgedFaction
+
+        forged = get_object_or_404(
+            ForgedFaction.objects.filter(publish_to_tts=True, tts_json__isnull=False)
+            .only('faction_name', 'tts_json'),
+            pk=pk,
+        )
+        return Response(_tts_objects_payload(forged.faction_name, forged.tts_json))

@@ -1,3 +1,4 @@
+import json
 import colorsys
 import shutil
 import tempfile
@@ -296,3 +297,214 @@ class AdaptiveInkTests(TestCase):
             off = fingerprint_back(back)
         self.assertNotEqual(on, off)
 
+
+
+# ── Tabletop Simulator loader / forge -> keep conversion ────────────────────
+
+from django.urls import reverse
+
+from the_gatehouse.models import Language
+from the_keep.models import (
+    Card as KeepCard, CardDeck as KeepCardDeck, DeckGroup as KeepDeckGroup,
+    Faction as KeepFaction, Piece as KeepPiece,
+)
+from .forms_publish import (
+    ForgedFactionSyncForm, apply_deck_entry, build_deck_plan, build_piece_plan,
+    forge_tts_fingerprint,
+)
+from .services.tts_convert import convert_save, find_forge_urls
+
+_TTS_MEDIA = tempfile.mkdtemp(prefix='forge-tts-test-')
+
+
+def _save_with(*objects):
+    return {'SaveName': 'x', 'ObjectStates': list(objects)}
+
+
+class TTSConvertTests(TestCase):
+    def test_convert_rewrites_only_mapped_strings(self):
+        save = _save_with({
+            'Name': 'Custom_Tile', 'Nickname': 'Board',
+            'CustomImage': {'ImageURL': '{verifycache}https://s/media/forge/factions/f/board/front.webp'},
+            'Description': 'keep me',
+        })
+        url_map = {'{verifycache}https://s/media/forge/factions/f/board/front.webp':
+                   '{verifycache}https://s/media/uploads/posts/f/board.webp'}
+        converted = convert_save(save, url_map)
+        self.assertEqual(converted['ObjectStates'][0]['CustomImage']['ImageURL'],
+                         '{verifycache}https://s/media/uploads/posts/f/board.webp')
+        self.assertEqual(converted['ObjectStates'][0]['Description'], 'keep me')
+        # The input is untouched (deep copy).
+        self.assertIn('/media/forge/', save['ObjectStates'][0]['CustomImage']['ImageURL'])
+        self.assertEqual(find_forge_urls(converted), [])
+
+    def test_find_forge_urls_names_leftovers(self):
+        save = _save_with(
+            {'Name': 'Deck', 'Nickname': 'Ambush', 'CustomDeck': {'1': {'FaceURL': 'https://s/media/forge/x/sheet_0.webp'}}},
+            {'Name': 'Custom_Tile', 'Nickname': 'Board', 'CustomImage': {'ImageURL': 'https://s/media/uploads/b.webp'}},
+        )
+        self.assertEqual(find_forge_urls(save), ['Ambush'])
+
+
+@override_settings(MEDIA_ROOT=_TTS_MEDIA)
+class ForgeTTSSyncTests(TestCase):
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(_TTS_MEDIA, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        Language.objects.create(code='en', name='English')
+        self.user = User.objects.create_user(username='forgetts', password='pw')
+        self.designer = Profile.objects.get(user=self.user)
+        self.keep = KeepFaction.objects.create(title='Keep Fox', animal='Fox', designer=self.designer,
+                                               component='Faction')
+        self.forged = ForgedFaction.objects.create(designer=self.designer, faction_name='Keep Fox',
+                                                   published_faction=self.keep)
+        FactionBack.objects.create(faction=self.forged)
+        self.forge_piece = Piece.objects.create(faction=self.forged, type='C', quantity=2, name='Ambush')
+        self.group = ForgedDeckGroup.objects.create(piece=self.forge_piece, name='Ambush')
+        self.card_a = ForgedCard.objects.create(group=self.group, name='A', front_image=_png('a.png'), tags=['x'])
+        self.card_b = ForgedCard.objects.create(group=self.group, name='B', front_image=_png('b.png'))
+        self.keep_piece = KeepPiece.objects.create(parent=self.keep, name='Ambush', type='C', quantity=2)
+
+    def _deck_entry(self):
+        forged = ForgedFaction.objects.get(pk=self.forged.pk)
+        return build_deck_plan(forged, build_piece_plan(forged))[0]
+
+    def test_deck_sync_round_trip_updates_cards_in_place(self):
+        entry = self._deck_entry()
+        self.assertEqual(entry['action'], 'create')
+        group = apply_deck_entry(entry, self.keep, self.keep_piece)
+        self.assertEqual(group.language.code, 'en')
+        self.assertEqual([c.name for c in group.cards.order_by('order')], ['A', 'B'])
+        self.assertTrue(self._deck_entry()['in_sync'])
+
+        card_pks = list(group.cards.order_by('order').values_list('pk', flat=True))
+        ForgedCard.objects.filter(pk=self.card_a.pk).update(tags=['x', 'y'])  # tags-only edit
+        entry = self._deck_entry()
+        self.assertFalse(entry['in_sync'])
+        apply_deck_entry(entry, self.keep, self.keep_piece)
+        self.assertEqual(list(group.cards.order_by('order').values_list('pk', flat=True)), card_pks)
+        self.assertEqual(KeepCard.objects.get(pk=card_pks[0]).tags, ['x', 'y'])
+
+    def test_deck_shrink_drops_surplus_cards_and_card_decks(self):
+        group = apply_deck_entry(self._deck_entry(), self.keep, self.keep_piece)
+        KeepCardDeck.objects.create(group=group, deck_index=3)  # stale, past the end
+        self.card_b.delete()
+        apply_deck_entry(self._deck_entry(), self.keep, self.keep_piece)
+        self.assertEqual(group.cards.count(), 1)
+        self.assertEqual(list(group.decks.values_list('deck_index', flat=True)), [0])
+
+    def test_fingerprint_catches_removals_and_color(self):
+        base = forge_tts_fingerprint(ForgedFaction.objects.get(pk=self.forged.pk))
+        ForgedFaction.objects.filter(pk=self.forged.pk).update(color='#123456')
+        recolored = forge_tts_fingerprint(ForgedFaction.objects.get(pk=self.forged.pk))
+        self.assertNotEqual(base, recolored)
+        Piece.objects.create(faction=self.forged, type='B', quantity=1, name='Roost')
+        added = forge_tts_fingerprint(ForgedFaction.objects.get(pk=self.forged.pk))
+        Piece.objects.filter(faction=self.forged, name='Roost').delete()
+        self.assertNotEqual(added, forge_tts_fingerprint(ForgedFaction.objects.get(pk=self.forged.pk)))
+
+    def test_tts_row_forces_dependent_rows(self):
+        Piece.objects.create(faction=self.forged, type='B', quantity=3, name='Roost')
+        forged = ForgedFaction.objects.get(pk=self.forged.pk)
+        roost = forged.pieces.get(name='Roost')
+        form = ForgedFactionSyncForm({'sync_tts_json': 'on'}, forged=forged)
+        self.assertIn(f'piece_{roost.pk}', form.tts_forced_field_names)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertTrue(form.cleaned_data[f'piece_{roost.pk}'])
+        self.assertTrue(form.cleaned_data[f'deck_{self.forge_piece.pk}'])
+
+    def test_deck_row_pulls_in_its_new_piece(self):
+        self.keep_piece.delete()
+        forged = ForgedFaction.objects.get(pk=self.forged.pk)
+        form = ForgedFactionSyncForm({f'deck_{self.forge_piece.pk}': 'on'}, forged=forged)
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertTrue(form.cleaned_data[f'piece_{self.forge_piece.pk}'])
+        form.save()
+        new_piece = KeepPiece.objects.get(parent=self.keep, name='Ambush')
+        self.assertTrue(KeepDeckGroup.objects.filter(post=self.keep, piece=new_piece).exists())
+
+    def test_publish_toggle_is_designer_only(self):
+        # force_login fires user_logged_in, whose handler needs a real request
+        # (same workaround as the_gatehouse's _NoLoginSignalMixin).
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+
+        url = reverse('forge-faction-tts-publish', args=[self.forged.pk])
+        fake = (_save_with({'Name': 'Custom_Tile'}), None, (None, None, None))
+        with mock.patch('the_forge.views._build_forged_tts_save', return_value=fake):
+            other = User.objects.create_user(username='someoneelse', password='pw')
+            self.client.force_login(other)
+            self.client.post(url, {'publish': 'on'})
+            self.assertFalse(ForgedFaction.objects.get(pk=self.forged.pk).publish_to_tts)
+
+            self.client.force_login(self.user)
+            self.client.post(url, {'publish': 'on'})
+            forged = ForgedFaction.objects.get(pk=self.forged.pk)
+            self.assertTrue(forged.publish_to_tts)
+            self.assertEqual(forged.tts_json['ObjectStates'][0]['Name'], 'Custom_Tile')
+
+            self.client.post(url, {})
+            self.assertFalse(ForgedFaction.objects.get(pk=self.forged.pk).publish_to_tts)
+
+    def test_clone_starts_unpublished(self):
+        ForgedFaction.objects.filter(pk=self.forged.pk).update(
+            publish_to_tts=True, tts_json=_save_with({'Name': 'x'}),
+            tts_synced_hash='abc', tts_source_fingerprint='def',
+        )
+        copy = clone_forged_faction(ForgedFaction.objects.get(pk=self.forged.pk))
+        self.assertFalse(copy.publish_to_tts)
+        self.assertIsNone(copy.tts_json)
+        self.assertEqual((copy.tts_synced_hash, copy.tts_source_fingerprint), ('', ''))
+
+
+@override_settings(MEDIA_ROOT=_TTS_MEDIA, SITE_URL='https://example.test')
+class ForgeTTSConversionEndToEndTests(TestCase):
+    """Real builders, no PDF rendering: a back preview stands in for the renders."""
+
+    def setUp(self):
+        Language.objects.create(code='en', name='English')
+        self.designer = Profile.objects.create(discord='e2edesigner')
+        self.keep = KeepFaction.objects.create(title='E2E Fox', animal='Fox', designer=self.designer,
+                                               component='Faction')
+        self.forged = ForgedFaction.objects.create(
+            designer=self.designer, faction_name='E2E Fox', published_faction=self.keep,
+            vp_marker=_png('vp.png'),
+        )
+        back = FactionBack.objects.create(faction=self.forged)
+        back.image_preview.save('back.png', _png('back.png'))
+        FactionBack.objects.filter(pk=back.pk).update(preview_version=1)
+        piece = Piece.objects.create(faction=self.forged, type='C', quantity=2, name='Ambush',
+                                     small_icon=_png('icon.png'))
+        group = ForgedDeckGroup.objects.create(piece=piece, name='Ambush', back_image=_png('dback.png'))
+        ForgedCard.objects.create(group=group, name='A', front_image=_png('a.png'))
+        ForgedCard.objects.create(group=group, name='B', front_image=_png('b.png'))
+
+    def test_sync_writes_keep_only_json_and_reports_in_sync(self):
+        from .views import _sync_keep_tts_json
+
+        forged = ForgedFaction.objects.get(pk=self.forged.pk)
+        form = ForgedFactionSyncForm({'sync_tts_json': 'on'}, forged=forged)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.assertIsNone(_sync_keep_tts_json(self.forged.pk))
+
+        stored = KeepFaction.objects.get(pk=self.keep.pk).tts_json
+        dumped = json.dumps(stored)
+        self.assertNotIn('/media/forge/', dumped)
+        self.assertIn('https://example.test/media/uploads/', dumped)
+        nicknames = [o.get('Nickname') for o in stored['ObjectStates']]
+        self.assertIn('Ambush', nicknames)
+
+        forged = ForgedFaction.objects.get(pk=self.forged.pk)
+        fresh = ForgedFactionSyncForm(forged=forged)
+        self.assertTrue(fresh.tts_plan['in_sync'], fresh.tts_plan)
+
+        # A removal on the forge side makes the TTS row stale again.
+        ForgedFaction.objects.filter(pk=self.forged.pk).update(vp_marker='')
+        stale = ForgedFactionSyncForm(forged=ForgedFaction.objects.get(pk=self.forged.pk))
+        self.assertFalse(stale.tts_plan['in_sync'])

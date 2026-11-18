@@ -60,6 +60,21 @@
           <li><a class="dropdown-item forge-async-download" href="{% url 'forge-faction-pdf' pk=faction.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> Combined PDF</a></li>
           {% if sheet or back or setup_card %}
             <li><a class="dropdown-item forge-async-download" href="{% url 'forge-faction-tts' pk=faction.pk %}"><i class="bi bi-pc-display"></i> Tabletop Simulator (JSON)</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li>
+              <form method="post" action="{% url 'forge-faction-tts-publish' pk=faction.pk %}">
+                {% csrf_token %}
+                {% if faction.publish_to_tts %}
+                  <button type="submit" class="dropdown-item"><i class="bi bi-x-circle"></i> Remove from TTS Library</button>
+                {% else %}
+                  <input type="hidden" name="publish" value="on">
+                  <button type="submit" class="dropdown-item"><i class="bi bi-broadcast"></i> Publish to TTS Library</button>
+                {% endif %}
+              </form>
+            </li>
+            {% if faction.publish_to_tts and faction.tts_json_generated %}
+              <li><span class="dropdown-item-text small text-muted">Listed version built {{ faction.tts_json_generated|date:"M j, Y" }}.<br>Downloading the TTS JSON refreshes it.</span></li>
+            {% endif %}
           {% endif %}
         </ul>
       </div>

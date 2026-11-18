@@ -4,7 +4,7 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from django.utils import timezone
 
 from the_gatehouse.models import Profile
-from the_keep.utils import validate_hex_color, delete_old_image
+from the_keep.utils import validate_hex_color, delete_old_image, validate_tts_save
 
 from .services.clone_flag import clone_in_progress
 from .services.upload_paths import (
@@ -153,6 +153,17 @@ class ForgedFaction(models.Model):
         on_delete=models.SET_NULL,
         related_name='source_forged_faction',
     )
+
+    # Tabletop Simulator loader. tts_json is a snapshot of the forge TTS export
+    # (refreshed on every export) and is listed in the loader's "The Forge"
+    # section while publish_to_tts is on. It keeps forge URLs on purpose.
+    publish_to_tts = models.BooleanField(default=False)
+    tts_json = models.JSONField(null=True, blank=True, validators=[validate_tts_save])
+    tts_json_generated = models.DateTimeField(null=True, blank=True)
+    # Forge -> keep TTS conversion bookkeeping (see forms_publish TTS sync row):
+    # hash of the keep tts_json last written, and the forge inputs it was built from.
+    tts_synced_hash = models.CharField(max_length=32, blank=True, default='')
+    tts_source_fingerprint = models.CharField(max_length=32, blank=True, default='')
 
     def __str__(self):
         return self.faction_name

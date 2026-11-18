@@ -75,7 +75,7 @@ from .forms import (MapCreateForm,
 from .utils import clean_meta_description, generate_comparison_markdown, get_fresh_image_url, user_can_edit
 from .services.law_update import (compare_structure_strict, update_laws_by_structure, get_translated_title, 
                                           serialize_group, update_laws_from_yaml, NoPrimeLawError, load_uploaded_yaml)
-from .services.tts import TTSSingleCardDeck, TTSBoard, TTSDeckGroup, wrap_tts_save
+from .services.tts import build_tts_objects, wrap_tts_save
 from .services.faq_helpers import faq_queryset2
 from .services.slugify_titles import slugify_deck_group_title
 from .services.upload_paths import deck_back_upload_path
@@ -5454,34 +5454,7 @@ def download_tts_file(request, slug):
         slug=slug,
     )
 
-    all_objects = []
-    next_deck_id = 1
-
-    # Generate faction board object
-    if post.component in ["Faction", "Clockwork"]:
-        board = TTSBoard(post, request=request)
-        all_objects.append(board.to_dict())
-    
-    if post.component == "Faction":
-        adset_card = TTSSingleCardDeck(post.card_image, static("images/ADSET.png"), deck_id=next_deck_id, request=request, card_name=f"Adset Card")
-        all_objects.append(adset_card.to_object())
-        next_deck_id += 1
-
-    if post.component == "Vagabond" and post.card_image:
-        vb_card = TTSSingleCardDeck(post.card_image, static("images/Vagabond Card Back.png"), deck_id=next_deck_id, request=request, card_name=f"VB Card")
-        all_objects.append(vb_card.to_object())
-        next_deck_id += 1
-
-    # Include DeckGroups
-    for deck_group in post.decks.filter(language=post.language):
-        print(deck_group)
-        tts_group = TTSDeckGroup(deck_group, request=request)
-        decks = tts_group.build(starting_deck_id=next_deck_id)
-
-        for deck in decks:
-            all_objects.append(deck.to_object())
-            next_deck_id += 1
-
+    all_objects = build_tts_objects(post, request=request)
 
     # Add a note if there are no objects
     note = ""

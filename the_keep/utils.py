@@ -1,4 +1,6 @@
 import re
+import json
+import hashlib
 import unicodedata
 import logging
 import os
@@ -425,6 +427,25 @@ def validate_hex_color(value):
     # Regular expression to check for valid hex color codes (e.g., #RRGGBB)
     if not re.match(r'^#([0-9A-Fa-f]{6})$', value):
         raise ValidationError(f"{value} is not a valid hex color code.")
+
+def validate_tts_save(value):
+    # The one TTS JSON shape the site stores: a save file (wrap_tts_save output,
+    # or a TTS "Save Object" file) with the objects under ObjectStates.
+    if not isinstance(value, dict):
+        raise ValidationError("TTS JSON must be a JSON object (a TTS save or Save Object file).")
+    states = value.get("ObjectStates")
+    if not isinstance(states, list) or not states:
+        raise ValidationError("TTS JSON needs a non-empty \"ObjectStates\" list. Paste a TTS save or Save Object file.")
+    if not all(isinstance(obj, dict) and "Name" in obj for obj in states):
+        raise ValidationError("Every entry in ObjectStates must be an object with a \"Name\".")
+
+def tts_json_hash(value):
+    """Stable hash of a stored TTS JSON value. Keys are sorted because Postgres
+    jsonb does not preserve key order, so hash a value re-read from the DB."""
+    if value is None:
+        return ''
+    canonical = json.dumps(value, sort_keys=True, separators=(',', ':'))
+    return hashlib.md5(canonical.encode('utf-8')).hexdigest()
 
 def validate_png(image):
     try:

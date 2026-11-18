@@ -41,6 +41,9 @@ EXCLUDE_FIELDS = {
     # Sync/regeneration bookkeeping and generated artifacts.
     'icon_synced_name', 'last_generated',
     'preview_fingerprint', 'preview_version', 'decree_fingerprint', 'sprite_hash',
+    # TTS loader: a duplicate starts unpublished, with no snapshot or sync state.
+    'publish_to_tts', 'tts_json', 'tts_json_generated',
+    'tts_synced_hash', 'tts_source_fingerprint',
     # slug: root gets one from the create signal; ForgedDeckGroup regenerates its
     # own in save(). Never copy the source value (unique on ForgedFaction).
     'slug',

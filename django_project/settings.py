@@ -411,6 +411,9 @@ REST_FRAMEWORK = {
         # for non-user requests, and no `anon` rate is configured). Without an
         # explicit scope a token guesser would get unlimited attempts.
         'boxscore_upload': '60/hour',
+        # Public read-only endpoints for the Tabletop Simulator loader object;
+        # same reason as above -- these requests aren't authenticated users.
+        'tts_loader': '600/hour',
     },
 }
 

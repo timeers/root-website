@@ -12,7 +12,7 @@ from django.http import (
 )
 from django.shortcuts import get_object_or_404, redirect, render
 from django.templatetags.static import static
-from django.views.decorators.http import require_http_methods
+from django.views.decorators.http import require_http_methods, require_POST
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -2841,60 +2841,59 @@ def factionback_webp(request, pk):
     return _attach_preview_versions(response, back=back)
 
 
-@login_required
-def forgedfaction_tts(request, pk):
-    faction = get_object_or_404(ForgedFaction, pk=pk)
-    if (resp := _forbid_if_not_editor(request, faction)):
-        return resp
+def _build_forged_tts_save(request, faction, refresh_previews=True):
+    """Build the forge TTS save for `faction`.
 
+    Returns (save_file, error, (sheet, back, card)). save_file is None when there
+    is nothing to export, with `error` saying why. `request` only needs
+    build_absolute_uri(): pass SiteURLRequest() for JSON that gets stored.
+    refresh_previews=False builds from the previews exactly as saved (the forge
+    sync uses this so nothing re-renders after its keep copies were taken).
+    """
     sheet = getattr(faction, 'faction_sheet', None)
     back = getattr(faction, 'faction_back', None)
     card = getattr(faction, 'setup_card', None)
+    parts = (sheet, back, card)
     if not sheet and not back and not card:
-        return HttpResponse(
-            "No content yet — create a Front, Back, or Setup Card first.",
-            status=404, content_type='text/plain',
-        )
+        return None, "No content yet — create a Front, Back, or Setup Card first.", parts
 
-    # Refresh any stale previews as a side effect of the TTS export. Each render
-    # is gated so it counts against the concurrency cap, but a busy renderer just
-    # skips the refresh (RenderBusy swallowed) — the export still proceeds with the
-    # existing previews rather than failing the whole request.
-    from .render_guard import RenderBusy
-    if sheet:
-        # If snap points were captured before pile_title was added, force a
-        # one-off rebuild so deck-on-pile placement can match snap points.
-        if sheet.snap_points and not any(sp.get('pile_title') for sp in sheet.snap_points):
-            if sheet.card_piles.exists():
-                sheet.preview_fingerprint = ''
-                sheet.save(update_fields=['preview_fingerprint'])
-        try:
-            _ensure_sheet_preview(sheet, gated=True)
-        except RenderBusy:
-            pass
-        _ensure_decree_preview(sheet)
-        sheet.refresh_from_db()
-    if back:
-        try:
-            _ensure_back_preview(back, gated=True)
-        except RenderBusy:
-            pass
-        back.refresh_from_db()
-    if card:
-        try:
-            _ensure_setup_card_preview(card, gated=True)
-        except RenderBusy:
-            pass
-        card.refresh_from_db()
+    if refresh_previews:
+        # Refresh any stale previews as a side effect of the TTS export. Each render
+        # is gated so it counts against the concurrency cap, but a busy renderer just
+        # skips the refresh (RenderBusy swallowed) — the export still proceeds with the
+        # existing previews rather than failing the whole request.
+        from .render_guard import RenderBusy
+        if sheet:
+            # If snap points were captured before pile_title was added, force a
+            # one-off rebuild so deck-on-pile placement can match snap points.
+            if sheet.snap_points and not any(sp.get('pile_title') for sp in sheet.snap_points):
+                if sheet.card_piles.exists():
+                    sheet.preview_fingerprint = ''
+                    sheet.save(update_fields=['preview_fingerprint'])
+            try:
+                _ensure_sheet_preview(sheet, gated=True)
+            except RenderBusy:
+                pass
+            _ensure_decree_preview(sheet)
+            sheet.refresh_from_db()
+        if back:
+            try:
+                _ensure_back_preview(back, gated=True)
+            except RenderBusy:
+                pass
+            back.refresh_from_db()
+        if card:
+            try:
+                _ensure_setup_card_preview(card, gated=True)
+            except RenderBusy:
+                pass
+            card.refresh_from_db()
 
     sheet_ready = bool(sheet and sheet.image_preview)
     back_ready = bool(back and back.image_preview)
     card_ready = bool(card and card.image_preview)
     if not (sheet_ready or back_ready or card_ready):
-        return HttpResponse(
-            "Preview unavailable.",
-            status=404, content_type='text/plain',
-        )
+        return None, "Preview unavailable.", parts
 
     from .services.tts import (
         TTSForgedFactionBoard, TTSForgedFactionDecree, load_tts_object,
@@ -2905,7 +2904,8 @@ def forgedfaction_tts(request, pk):
     boards = []
     if sheet_ready or back_ready:
         boards.append(TTSForgedFactionBoard(faction, request=request).to_dict())
-        if sheet and sheet.decree_preview:
+        # include_decree is checked too: decree_preview can outlive the toggle.
+        if sheet and sheet.include_decree and sheet.decree_preview:
             boards.append(TTSForgedFactionDecree(faction, request=request).to_dict())
         improvements_transform = {
             "posX": -16.0, "posY": -0.113604546, "posZ": 0.0,
@@ -2995,7 +2995,46 @@ def forgedfaction_tts(request, pk):
             deck_id += 1
             pile_sp = None  # only the first sub-deck of a group consumes the snap point
 
-    save_file = wrap_tts_save(boards, save_name=faction.faction_name)
+    return wrap_tts_save(boards, save_name=faction.faction_name), None, parts
+
+
+def _store_forge_tts_snapshot(faction, refresh_previews=False):
+    """Rebuild and store the loader snapshot, with SITE_URL-based image URLs.
+
+    Returns None on success, else the reason nothing was stored. Uses a queryset
+    update so the write skips ForgedFaction.save() and doesn't bump last_updated."""
+    from the_keep.services.tts import SiteURLRequest
+    from the_keep.utils import validate_tts_save
+    from django.core.exceptions import ValidationError
+    from django.utils import timezone
+
+    save_file, error, _parts = _build_forged_tts_save(
+        SiteURLRequest(), faction, refresh_previews=refresh_previews)
+    if save_file is None:
+        return error
+    try:
+        validate_tts_save(save_file)
+    except ValidationError:
+        return "nothing to export yet."
+    ForgedFaction.objects.filter(pk=faction.pk).update(
+        tts_json=save_file, tts_json_generated=timezone.now(),
+    )
+    return None
+
+
+@login_required
+def forgedfaction_tts(request, pk):
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+
+    save_file, error, (sheet, back, card) = _build_forged_tts_save(request, faction)
+    if save_file is None:
+        return HttpResponse(error, status=404, content_type='text/plain')
+
+    # Every export refreshes the snapshot used by the TTS loader. Previews were
+    # just refreshed above, so the snapshot build doesn't re-render.
+    _store_forge_tts_snapshot(faction)
 
     response = HttpResponse(
         json.dumps(save_file, indent=2),
@@ -3005,6 +3044,28 @@ def forgedfaction_tts(request, pk):
     filename = f'{safe_name}.json'
     response['Content-Disposition'] = f'attachment; filename="{filename}"'
     return _attach_preview_versions(response, sheet=sheet, back=back, card=card)
+
+
+@login_required
+@require_POST
+def forgedfaction_tts_publish(request, pk):
+    """Toggle listing this faction in the TTS loader's "The Forge" section."""
+    faction = get_object_or_404(ForgedFaction, pk=pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+
+    publish = request.POST.get('publish') == 'on'
+    if publish:
+        error = _store_forge_tts_snapshot(faction, refresh_previews=True)
+        if error:
+            messages.error(request, f"Couldn't publish to Tabletop Simulator: {error}")
+            return redirect('forge-faction-detail', pk=faction.pk)
+        ForgedFaction.objects.filter(pk=faction.pk).update(publish_to_tts=True)
+        messages.success(request, "Published to the Tabletop Simulator loader.")
+    else:
+        ForgedFaction.objects.filter(pk=faction.pk).update(publish_to_tts=False)
+        messages.success(request, "Removed from the Tabletop Simulator loader.")
+    return redirect('forge-faction-detail', pk=faction.pk)
 
 
 @login_required
@@ -3316,6 +3377,58 @@ def forgedfaction_unlink(request, pk):
     return redirect('forge-faction-detail', pk=forged.pk)
 
 
+def _sync_keep_tts_json(forged_pk):
+    """Rebuild the linked keep Faction's tts_json from keep copies of every forge
+    asset (forge sync, after its assets were applied). Returns None on success,
+    else why nothing was written."""
+    from django.core.exceptions import ValidationError
+    from the_keep.models import Post
+    from the_keep.services.tts import SiteURLRequest
+    from the_keep.utils import tts_json_hash, validate_tts_save
+    from .forms_publish import forge_tts_fingerprint
+    from .services.tts_convert import build_url_map, convert_save, find_forge_urls
+
+    # Fresh instances: the sync form's cached relations predate its own save().
+    forged = ForgedFaction.objects.get(pk=forged_pk)
+    faction = Faction.objects.get(pk=forged.published_faction_id)
+
+    # Re-check after the save: a forge edit or re-render mid-request would leave
+    # a forge asset newer than its keep copy.
+    stale = ForgedFactionSyncForm(forged=forged).tts_forced_field_names
+    if stale:
+        return f"{len(stale)} row(s) are still out of date. Reload the sync page and try again."
+
+    site_request = SiteURLRequest()
+    try:
+        # refresh_previews=False: the keep copies were taken from these exact
+        # previews, so nothing may re-render now.
+        save_file, error, _parts = _build_forged_tts_save(site_request, forged, refresh_previews=False)
+        if save_file is None:
+            return error
+        url_map = build_url_map(forged, faction, site_request)
+    except ValueError as exc:  # sprite sheet over the pixel cap
+        return str(exc)
+
+    converted = convert_save(save_file, url_map)
+    leftovers = find_forge_urls(converted)
+    if leftovers:
+        return "these objects still reference Forge files: " + ", ".join(leftovers)
+    try:
+        validate_tts_save(converted)
+    except ValidationError:
+        return "the export produced no objects."
+
+    # tts_json lives on the Post table; queryset update skips Post.save().
+    Post.objects.filter(pk=faction.pk).update(tts_json=converted)
+    # Hash the value as stored: Postgres jsonb reorders keys.
+    stored = Post.objects.values_list('tts_json', flat=True).get(pk=faction.pk)
+    ForgedFaction.objects.filter(pk=forged.pk).update(
+        tts_synced_hash=tts_json_hash(stored),
+        tts_source_fingerprint=forge_tts_fingerprint(forged),
+    )
+    return None
+
+
 @forge_onboard_required
 def forgedfaction_sync(request, pk):
     forged = get_object_or_404(ForgedFaction, pk=pk)
@@ -3323,6 +3436,10 @@ def forgedfaction_sync(request, pk):
         return resp
 
     _refresh_all_element_previews(forged)
+    # _refresh_all_element_previews skips the decree, which the TTS sync copies.
+    sheet = getattr(forged, 'faction_sheet', None)
+    if sheet:
+        _ensure_decree_preview(sheet)
 
     target, mode, target_label = _resolved_published(forged)
     if target is None:
@@ -3339,6 +3456,13 @@ def forgedfaction_sync(request, pk):
         form = ForgedFactionSyncForm(request.POST, forged=forged)
         if form.is_valid():
             form.save()
+            if mode == 'faction' and form.cleaned_data.get('sync_tts_json'):
+                tts_error = _sync_keep_tts_json(forged.pk)
+                if tts_error:
+                    messages.error(
+                        request,
+                        f"Changes were applied, but Tabletop Simulator wasn't updated: {tts_error}",
+                    )
             if owner and owner.id != profile.id:
                 UserNotification.create_notification(
                     profile=owner,
@@ -3358,7 +3482,10 @@ def forgedfaction_sync(request, pk):
 
     field_changes = any(not row[5] for row in form.diff_rows)
     piece_changes = any(not entry['in_sync'] for entry in form.piece_plan)
-    has_changes = field_changes or piece_changes
+    deck_changes = any(not entry['in_sync'] for entry in form.deck_plan)
+    asset_changes = any(not entry['in_sync'] for entry in form.tts_asset_plan)
+    tts_changes = bool(form.tts_plan and not form.tts_plan['in_sync'])
+    has_changes = field_changes or piece_changes or deck_changes or asset_changes or tts_changes
     return render(request, 'the_forge/forgedfaction_sync.html', {
         'faction': forged,
         'form': form,
@@ -3367,6 +3494,10 @@ def forgedfaction_sync(request, pk):
         'target_label': target_label,
         'diff_rows': form.diff_rows,
         'piece_plan': form.piece_plan,
+        'deck_plan': form.deck_plan,
+        'tts_asset_plan': form.tts_asset_plan,
+        'tts_plan': form.tts_plan,
+        'tts_forced_field_names': form.tts_forced_field_names,
         'has_changes': has_changes,
     })
 

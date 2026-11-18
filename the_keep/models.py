@@ -35,7 +35,7 @@ from django.utils.translation import gettext_lazy as _
 from the_gatehouse.models import Profile, Language
 from the_gatehouse.utils import int_to_alpha, int_to_roman
 
-from .utils import (validate_hex_color, validate_png, 
+from .utils import (validate_hex_color, validate_png, validate_tts_save,
                     delete_old_image, hex_to_rgb, strip_formatting, DEFAULT_TITLES_TRANSLATIONS,
                 )
 
@@ -48,7 +48,7 @@ from .services.upload_paths import (
     translation_board_back_upload_path, translation_board_front_upload_path, 
     translation_card_back_upload_path, translation_card_front_upload_path,
     translation_small_upload_path,
-    piece_upload_path,
+    piece_upload_path, tts_asset_upload_path,
 )
 
 
@@ -375,6 +375,13 @@ class Post(models.Model):
     rootjam_link = models.CharField(max_length=400, null=True, blank=True)
     fr_link = models.CharField(max_length=400, null=True, blank=True)
     based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
+    # Admin-only (kept out of every public form). Served to the in-game TTS loader,
+    # which spawns it as-is -- including any LuaScript inside it.
+    tts_json = models.JSONField(
+        null=True, blank=True,
+        validators=[validate_tts_save],
+        help_text="A TTS save or Save Object file (must contain ObjectStates). Served to the in-game TTS Library.",
+    )
     small_icon = models.ImageField(upload_to=post_icon_upload_path, null=True, blank=True)
 
     picture = models.ImageField(upload_to=post_picture_upload_path, null=True, blank=True)
@@ -2910,6 +2917,29 @@ class FAQ(models.Model):
         return self.post.title
 
 
+class TTSAsset(models.Model):
+    """Keep-owned TTS images that have no other home on a Post (the forge decree
+    tile and markers), so a forge-converted tts_json never points at forge files."""
+    class RoleChoices(models.TextChoices):
+        DECREE = 'decree', 'Decree'
+        VP_MARKER = 'vp_marker', 'VP Marker'
+        RELATIONSHIP_MARKER = 'relationship_marker', 'Relationship Marker'
+
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='tts_assets')
+    role = models.CharField(max_length=30, choices=RoleChoices.choices)
+    image = models.ImageField(upload_to=tts_asset_upload_path)
+    # Forge-side fingerprint at the last sync; compared to detect stale copies.
+    source_fingerprint = models.CharField(max_length=64, blank=True, default='')
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['post', 'role'], name='unique_ttsasset_per_post_role')
+        ]
+
+    def __str__(self):
+        return f"{self.post} - {self.get_role_display()}"
+
+
 class SnapPoint(models.Model):
     post = models.ForeignKey(
         Post,
@@ -2964,6 +2994,8 @@ class DeckGroup(models.Model):
 
     back_image = models.ImageField(upload_to=deck_back_upload_path)
     slug = models.SlugField(null=True, blank=True)
+    # Fingerprint of the forge deck this group was last synced from (forge sync).
+    source_fingerprint = models.CharField(max_length=32, blank=True, default='')
     # stated_card_count = models.PositiveIntegerField(default=0)
 
     class Meta:
