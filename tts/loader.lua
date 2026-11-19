@@ -11,8 +11,9 @@
     GET /api/tts/loader/version/      -> { version }
     GET /api/tts/loader/object.json   -> a ready-made object carrying this script
   and an object built that way updates itself on load when the deployed file
-  changes. A copy pasted straight from the repo keeps LOADER_VERSION = "dev"
-  and never updates itself.
+  changes. BASE_URL is always the production site. A copy pasted straight from
+  the repo, or downloaded from a dev server, keeps LOADER_VERSION = "dev" and
+  never updates itself (re-download it to test another change).
 
   Data endpoints (the_keep/api_views.py):
     GET /api/tts/catalog/           -> { keep = [...], forge = [...] }
@@ -28,7 +29,14 @@ LOADER_VERSION = "dev"
 BASE_URL = "https://www.therootdatabase.com"
 
 MAX_ROWS = 50             -- result rows built once; filtering only toggles them
-SPAWN_OFFSET = {x = 30, y = 2, z = 0}   -- where spawned objects land, relative to this object
+SPAWN_OFFSET = {x = 0, y = 2, z = 0}    -- spawned items replace this object, in its place
+
+-- Root Tabletop Tournament integration. A faction item ("<faction> VP" marker)
+-- also gets RTT's VP Panel, but only when the RTT coordinator is on the table:
+-- every panel button relays to it, so without it the panel would do nothing.
+RTT_COORD_GUID = "bab7e1"
+VP_PANEL_OFFSET = {x = 3, z = -5}       -- panel position relative to its VP marker; tune in game
+vpPanelTemplate = nil                   -- fetched once, from /api/tts/vp-panel/
 
 COMPONENT_TYPES = {"Faction", "Clockwork", "Vagabond", "Map", "Deck", "Hireling", "Landmark", "Tweak"}
 
@@ -54,8 +62,15 @@ local function buildXml()
 
   local rows = {}
   for i = 1, MAX_ROWS do
-    table.insert(rows, buttonXml("row" .. i, "", "onRowClick",
-      'active="false" preferredHeight="34" fontSize="16" textAlignment="MiddleLeft"'))
+    -- TTS ignores UI.setValue on a Button's own label, so each row carries a
+    -- child Text ("rowLabel<i>") that refreshUi writes into; setValue works on
+    -- Text (the status line uses it too). raycastTarget="false" lets clicks
+    -- pass through the label to the button.
+    local label = string.format(
+      '<Text id="rowLabel%d" raycastTarget="false" fontSize="16" color="#2B2118" ' ..
+      'alignment="MiddleLeft" offsetXY="8 0">-</Text>', i)
+    table.insert(rows, buttonXml("row" .. i, label, "onRowClick",
+      'active="false" preferredHeight="34"'))
   end
 
   -- Sized for a Custom_Tile at scale 15.5 (same as the TTS Faction Board): the
@@ -88,6 +103,9 @@ local function buildXml()
     </VerticalScrollView>
   </VerticalLayout>
 </Panel>
+<!-- Close button, as on the TTS Faction Board: top-right corner, outside the panel. -->
+<Button id="closeButton" onClick="deleteThis" position="112 82 -21" width="18" height="18"
+        color="#bd2608" textColor="#FFFFFF" fontSize="12" fontStyle="Bold">X</Button>
 ]]
 end
 
@@ -227,8 +245,10 @@ function refreshUi()
       if who ~= "" then
         label = label .. "  -  " .. who
       end
-      self.UI.setValue("row" .. i, label)
+      -- Show the row first, then set its label: setAttribute can rebuild the
+      -- element and drop a value set before it.
       self.UI.setAttribute("row" .. i, "active", "true")
+      self.UI.setValue("rowLabel" .. i, label)
     else
       self.UI.setAttribute("row" .. i, "active", "false")
     end
@@ -293,13 +313,78 @@ function onRowClick(player, mouseButton, id)
       return
     end
     local data = JSON.decode(request.text)
-    spawnAll(data, player)
+    withVPPanel(data, function(panelTemplate)
+      spawnAll(data, player, panelTemplate)
+    end)
   end)
 end
 
 -- ── Spawning ──────────────────────────────────────────────────────────────
 
-function spawnAll(data, player)
+-- Remove this object the way the TTS Faction Board does: clear the XML UI
+-- first (deleting an object that still has UI attached can leave TTS unable to
+-- hand out player colours until the server restarts), then destruct a frame later.
+function deleteThis()
+  pcall(function() self.UI.setXml("") end)
+  Wait.frames(function() self.destruct() end, 1)
+end
+
+-- ── RTT VP Panel ──────────────────────────────────────────────────────────
+
+-- The same check the VP Panel itself makes before relaying a click.
+local function rttCoordinatorPresent()
+  local coordinator = getObjectFromGUID(RTT_COORD_GUID)
+  if coordinator == nil then
+    return false
+  end
+  local ok = false
+  pcall(function() ok = (coordinator.getVar("RTT_VP_API") == true) end)
+  return ok
+end
+
+-- Calls done(template) with the VP Panel JSON when this item has VP markers and
+-- the coordinator is present, else done(nil). A failed fetch still spawns the
+-- item, just without panels.
+function withVPPanel(data, done)
+  local rows = (data and data.vp_rows) or {}
+  if #rows == 0 or not rttCoordinatorPresent() then
+    done(nil)
+    return
+  end
+  if vpPanelTemplate ~= nil then
+    done(vpPanelTemplate)
+    return
+  end
+  WebRequest.get(BASE_URL .. "/api/tts/vp-panel/", function(request)
+    if not request.is_error and request.response_code == 200 then
+      vpPanelTemplate = request.text
+    end
+    done(vpPanelTemplate)
+  end)
+end
+
+local function replacePlain(text, find, replacement)
+  local i, j = string.find(text, find, 1, true)
+  if not i then
+    return text
+  end
+  return text:sub(1, i - 1) .. replacement .. text:sub(j + 1)
+end
+
+local function jsonString(value)
+  local escaped = value:gsub("\\", "\\\\"):gsub('"', '\\"')
+  return '"' .. escaped .. '"'
+end
+
+-- The selected item replaces the library: spawn it where this object sits,
+-- then delete this object. Nothing is deleted if there was nothing to spawn.
+function spawnAll(data, player, panelTemplate)
+  local objects = (data and data.objects) or {}
+  if #objects == 0 then
+    broadcastToColor("Nothing to spawn for " .. ((data and data.title) or "that item") .. ".",
+      player.color, {1, 0.4, 0.4})
+    return
+  end
   local origin = self.getPosition()
   local base = {
     x = origin.x + SPAWN_OFFSET.x,
@@ -307,7 +392,7 @@ function spawnAll(data, player)
     z = origin.z + SPAWN_OFFSET.z,
   }
   local count = 0
-  for i, obj in ipairs(data.objects or {}) do
+  for i, obj in ipairs(objects) do
     -- Keep each object's layout offset; stagger height so decks settle on boards.
     spawnObjectJSON({
       json = obj.json,
@@ -315,7 +400,22 @@ function spawnAll(data, player)
     })
     count = count + 1
   end
-  broadcastToColor(
-    string.format("Loaded %s (%d object%s).", data.title or "item", count, count == 1 and "" or "s"),
-    player.color, {0.6, 1, 0.6})
+  -- One RTT VP Panel per faction, set to that faction's row (its VP marker's
+  -- name minus " VP"), placed beside its marker.
+  local panels = 0
+  if panelTemplate ~= nil then
+    for _, vp in ipairs(data.vp_rows or {}) do
+      spawnObjectJSON({
+        json = replacePlain(panelTemplate, '"__VP_ROW__"', jsonString(vp.row)),
+        position = {base.x + vp.x + VP_PANEL_OFFSET.x, base.y + 1, base.z + vp.z + VP_PANEL_OFFSET.z},
+      })
+      panels = panels + 1
+    end
+  end
+  local message = string.format("Loaded %s (%d object%s).", data.title or "item", count, count == 1 and "" or "s")
+  if panels > 0 then
+    message = message .. " Added the RTT VP Panel."
+  end
+  broadcastToColor(message, player.color, {0.6, 1, 0.6})
+  deleteThis()
 end
