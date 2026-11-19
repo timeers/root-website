@@ -2,8 +2,8 @@
   Root Database Library for Tabletop Simulator.
 
   Lists everything the site has published for TTS:
-    * The Keep  -- active posts whose Post.tts_json is set
-    * The Forge -- Forged drafts an admin approved for the TTS Library
+    * Archive  -- active posts whose Post.tts_json is set
+    * Workshop -- Forged drafts an admin approved for the TTS Library
   Search, pick one, and its objects spawn beside this object.
 
   This file (tts/loader.lua) is the single source. The site serves it from
@@ -40,6 +40,12 @@ SPAWN_OFFSET = {x = 0, y = 2, z = 0}    -- spawned items replace this object, in
 RTT_COORD_GUID = "bab7e1"
 VP_PANEL_OFFSET = {x = 3, z = -5}       -- panel position relative to its VP marker; tune in game
 vpPanelTemplate = nil                   -- fetched once, from /api/tts/vp-panel/
+
+-- Shown under the tabs; explains where each tab's items come from.
+TAB_DESCRIPTIONS = {
+  keep = "Published components from the Root Database Library.",
+  forge = "Prototype components from the RDB Forge meant for playtesting.",
+}
 
 COMPONENT_TYPES = {"Faction", "Clockwork", "Vagabond", "Map", "Deck", "Hireling", "Landmark", "Tweak"}
 
@@ -105,21 +111,24 @@ local function buildXml()
     <HorizontalLayout preferredHeight="44" spacing="10" childAlignment="MiddleCenter"
                       childForceExpandWidth="false" childForceExpandHeight="false">
       <Image image="rdbLogo" preferredWidth="44" preferredHeight="44" preserveAspect="true"/>
-      <Text fontSize="26" fontStyle="Bold" preferredWidth="320" preferredHeight="44"
-            alignment="MiddleLeft">Root Database Library</Text>
+      <Text fontSize="26" fontStyle="Bold" preferredWidth="300" preferredHeight="44"
+            alignment="MiddleLeft">Root Database Archive</Text>
+      ]] .. buttonXml("refresh", "Refresh", "onRefreshClick",
+        'preferredWidth="76" preferredHeight="28" fontSize="13"') .. [[
     </HorizontalLayout>
     <HorizontalLayout spacing="6" preferredHeight="40">
-      ]] .. buttonXml("tab_keep", "The Keep", "onTabClick", 'color="#C8A86B"') .. [[
-      ]] .. buttonXml("tab_forge", "The Forge", "onTabClick") .. [[
-      ]] .. buttonXml("refresh", "Refresh", "onRefreshClick", 'preferredWidth="110"') .. [[
+      ]] .. buttonXml("tab_keep", "Archive", "onTabClick", 'color="#C8A86B"') .. [[
+      ]] .. buttonXml("tab_forge", "Workshop", "onTabClick") .. [[
     </HorizontalLayout>
+    <Text id="tabDescription" fontSize="14" preferredHeight="36" alignment="MiddleLeft"
+          fontStyle="Italic">]] .. TAB_DESCRIPTIONS.keep .. [[</Text>
     <InputField id="search" onValueChanged="onSearch" placeholder="Search by name or designer"
                 preferredHeight="40" fontSize="18"/>
     <GridLayout id="types" cellSize="128 32" spacing="4 4" preferredHeight="72">
       ]] .. table.concat(typeButtons, "\n      ") .. [[
     </GridLayout>
     <Text id="status" fontSize="15" preferredHeight="24" alignment="MiddleLeft">Loading...</Text>
-    <VerticalScrollView preferredHeight="354" scrollSensitivity="30">
+    <VerticalScrollView preferredHeight="302" scrollSensitivity="30">
       <VerticalLayout id="rows" spacing="4" childForceExpandHeight="false" contentSizeFitter="vertical">
         ]] .. table.concat(rows, "\n        ") .. [[
       </VerticalLayout>
@@ -230,6 +239,7 @@ end
 
 function refreshUi()
   -- Tabs and the type row
+  self.UI.setValue("tabDescription", TAB_DESCRIPTIONS[section])
   self.UI.setAttribute("tab_keep", "color", section == "keep" and "#C8A86B" or "#EFE6D2")
   self.UI.setAttribute("tab_forge", "color", section == "forge" and "#C8A86B" or "#EFE6D2")
   -- Type buttons: only the types this tab actually has
