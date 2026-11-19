@@ -53,7 +53,12 @@ catalog = {keep = {}, forge = {}}
 section = "keep"          -- "keep" or "forge"
 typeFilter = {}           -- per tab: typeFilter[section] = component, or nil for all
 searchText = ""
-rowItems = {}             -- row index -> catalog entry currently shown there
+rowItems = {}             -- row index -> catalog entry currently shown there (nil for headers)
+rowKind = {}              -- row index -> "header" or "entry": the style it currently has
+
+-- Row colours. Status headers on the Keep tab use the darker pair.
+ROW_COLOR, ROW_TEXT_COLOR = "#EFE6D2", "#2B2118"
+HEADER_COLOR, HEADER_TEXT_COLOR = "#6B4F2E", "#EFE6D2"
 busy = false
 
 -- ── UI ────────────────────────────────────────────────────────────────────
@@ -260,41 +265,83 @@ function refreshUi()
     self.UI.setAttribute("type_" .. t, "color", selected == t and "#C8A86B" or "#EFE6D2")
   end
 
-  -- Rows: fill the first N matches, hide the rest
-  rowItems = {}
-  local total = 0
+  -- Matches, in the server's order (the Keep list arrives grouped by status).
+  local matched, perStatus = {}, {}
   for _, entry in ipairs(list) do
     if matches(entry) then
-      total = total + 1
-      if total <= MAX_ROWS then
-        rowItems[total] = entry
+      matched[#matched + 1] = entry
+      if entry.status_label then
+        perStatus[entry.status_label] = (perStatus[entry.status_label] or 0) + 1
       end
     end
   end
+  local total = #matched
+
+  -- Display slots: on the Keep tab a header ("Stable (12)") starts each status
+  -- group; the Forge tab has no statuses, so entries only.
+  local slots, lastStatus = {}, nil
+  for _, entry in ipairs(matched) do
+    if section == "keep" and entry.status_label and entry.status_label ~= lastStatus then
+      slots[#slots + 1] = {header = entry.status_label .. " (" .. perStatus[entry.status_label] .. ")"}
+      lastStatus = entry.status_label
+    end
+    slots[#slots + 1] = {entry = entry}
+  end
+
+  -- Fill the row pool. rowItems is set only for entries, so headers can't be
+  -- clicked (onRowClick ignores rows without an item).
+  rowItems = {}
+  local shown = 0
   for i = 1, MAX_ROWS do
-    local entry = rowItems[i]
-    if entry then
-      local who = entry.designers or entry.designer or ""
-      local label = entry.title
-      if entry.component and entry.component ~= "" then
-        label = label .. "  [" .. entry.component .. "]"
-      end
-      if who ~= "" then
-        label = label .. "  -  " .. who
-      end
-      -- Show the row first, then set its label: setAttribute can rebuild the
-      -- element and drop a value set before it.
-      self.UI.setAttribute("row" .. i, "active", "true")
-      self.UI.setValue("rowLabel" .. i, label)
+    local slot = slots[i]
+    local id, labelId = "row" .. i, "rowLabel" .. i
+    if slot == nil then
+      self.UI.setAttribute(id, "active", "false")
     else
-      self.UI.setAttribute("row" .. i, "active", "false")
+      -- Show first, style, then set the text last: setAttribute can rebuild an
+      -- element and drop a value set before it.
+      self.UI.setAttribute(id, "active", "true")
+      local kind = slot.header and "header" or "entry"
+      if rowKind[i] ~= kind then   -- restyle only on a change, so typing stays fast
+        if kind == "header" then
+          self.UI.setAttribute(id, "color", HEADER_COLOR)
+          self.UI.setAttribute(id, "interactable", "false")
+          self.UI.setAttribute(labelId, "color", HEADER_TEXT_COLOR)
+          self.UI.setAttribute(labelId, "fontStyle", "Bold")
+          self.UI.setAttribute(labelId, "alignment", "MiddleCenter")
+        else
+          self.UI.setAttribute(id, "color", ROW_COLOR)
+          self.UI.setAttribute(id, "interactable", "true")
+          self.UI.setAttribute(labelId, "color", ROW_TEXT_COLOR)
+          self.UI.setAttribute(labelId, "fontStyle", "Normal")
+          self.UI.setAttribute(labelId, "alignment", "MiddleLeft")
+        end
+        rowKind[i] = kind
+      end
+      if slot.header then
+        self.UI.setValue(labelId, slot.header)
+      else
+        local entry = slot.entry
+        rowItems[i] = entry
+        shown = shown + 1
+        local who = entry.designers or entry.designer or ""
+        local label = entry.title
+        if entry.component and entry.component ~= "" then
+          label = label .. "  [" .. entry.component .. "]"
+        end
+        if who ~= "" then
+          label = label .. "  -  " .. who
+        end
+        self.UI.setValue(labelId, label)
+      end
     end
   end
 
+  -- Counts are entries only, never headers.
   if total == 0 then
     setStatus("Nothing matches.")
-  elseif total > MAX_ROWS then
-    setStatus(string.format("Showing %d of %d -- refine your search.", MAX_ROWS, total))
+  elseif shown < total then
+    setStatus(string.format("Showing %d of %d -- refine your search.", shown, total))
   else
     setStatus(string.format("%d result%s", total, total == 1 and "" or "s"))
   end

@@ -322,6 +322,14 @@ class TTSLoaderApiTests(TestCase):
         self.listed = Faction.objects.create(title='Listed Fox', animal='Fox', designer=self.designer,
                                              component='Faction', status=StatusChoices.STABLE,
                                              tts_json=_tts_save())
+        # Titles sort before "Listed Fox", so the catalog order proves it groups
+        # by status (Stable, Testing, ..., Inactive), not alphabetically.
+        self.testing = Faction.objects.create(title='Aardvark Folk', animal='Fox', designer=self.designer,
+                                              component='Faction', status=StatusChoices.TESTING,
+                                              tts_json=_tts_save())
+        self.inactive = Faction.objects.create(title='Ant Folk', animal='Fox', designer=self.designer,
+                                               component='Faction', status=StatusChoices.INACTIVE,
+                                               tts_json=_tts_save())
         # Has JSON but isn't publicly active, so the library must hide it.
         self.rejected = Faction.objects.create(title='Rejected Fox', animal='Fox', designer=self.designer,
                                                component='Faction', status=StatusChoices.REJECTED,
@@ -344,7 +352,10 @@ class TTSLoaderApiTests(TestCase):
         response = self.client.get(reverse('api-tts-catalog'))
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual([p['slug'] for p in data['keep']], [self.listed.slug])
+        self.assertEqual([p['slug'] for p in data['keep']],
+                         [self.listed.slug, self.testing.slug, self.inactive.slug])
+        self.assertEqual([(p['status'], p['status_label']) for p in data['keep']],
+                         [('1', 'Stable'), ('2', 'Testing'), ('4', 'Inactive')])
         self.assertEqual([f['id'] for f in data['forge']], [self.published.pk])
         # The Forge tab's type buttons are built from this field.
         self.assertEqual(data['forge'][0]['component'], 'Faction')

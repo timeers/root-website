@@ -354,8 +354,10 @@ class TTSCatalogView(TTSLoaderView):
         keep_posts = (
             Post.objects.filter(tts_json__isnull=False, status__in=TTS_LISTED_STATUSES)
             .select_related('designer')
-            .only('slug', 'title', 'component', 'designers_list', 'small_icon', 'designer__display_name')
-            .order_by('component', 'title')
+            .only('slug', 'title', 'component', 'status', 'designers_list', 'small_icon', 'designer__display_name')
+            # Status codes are '1'..'4', so this groups Stable, Testing,
+            # Development, Inactive -- the loader adds a header per group.
+            .order_by('status', 'component', 'title')
         )
         forge_factions = (
             ForgedFaction.objects.filter(tts_status=ForgedFaction.TTSStatus.APPROVED, tts_json__isnull=False)
@@ -368,6 +370,8 @@ class TTSCatalogView(TTSLoaderView):
                 'slug': post.slug,
                 'title': post.title,
                 'component': post.component or '',
+                'status': post.status,
+                'status_label': post.get_status_display(),
                 'designers': post.designers_list or (post.designer.display_name if post.designer else ''),
                 'icon': _site_url(post.small_icon),
             } for post in keep_posts],
