@@ -494,7 +494,7 @@ class TTSVPPanelTests(TestCase):
         post = Faction.objects.create(title='Fox Folk', animal='Fox', designer=designer, component='Faction',
                                       status=StatusChoices.STABLE, tts_json=save)
         data = self.client.get(reverse('api-tts-keep-detail', args=[post.slug])).json()
-        self.assertEqual(data['vp_rows'], [{'row': 'Fox Folk', 'x': 13.0, 'y': 1.0, 'z': 12.0}])
+        self.assertEqual(data['vp_rows'], [{'row': 'Fox Folk', 'x': 13.0, 'y': 1.0, 'z': 12.0, 'board': None}])
         self.assertEqual(len(data['objects']), 3)
 
     def test_panel_template_is_rtt_panel_with_placeholder(self):
@@ -511,3 +511,14 @@ class TTSVPPanelTests(TestCase):
         # The panel builds its "vp<row>" asset from its own marker at load time.
         panel = json.loads(self.client.get(reverse('api-tts-vp-panel')).content)
         self.assertEqual([a['Name'] for a in panel['CustomUIAssets']], ['pnlframe'])
+
+    def test_vp_row_points_at_its_faction_board(self):
+        designer = Profile.objects.create(discord='vpboard')
+        save = {'ObjectStates': [
+            {'Name': 'Custom_Token', 'Nickname': 'Fox Folk VP', 'Transform': {'posX': 13, 'posY': 1, 'posZ': 12}},
+            {'Name': 'Custom_Tile', 'Nickname': 'Fox Folk - Faction Board', 'Transform': {'posX': 0, 'posY': 0, 'posZ': 0}},
+        ]}
+        post = Faction.objects.create(title='Fox Folk', animal='Fox', designer=designer, component='Faction',
+                                      status=StatusChoices.STABLE, tts_json=save)
+        data = self.client.get(reverse('api-tts-keep-detail', args=[post.slug])).json()
+        self.assertEqual(data['vp_rows'][0]['board'], 2)  # 1-based, as Lua indexes the spawned objects

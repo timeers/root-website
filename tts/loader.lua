@@ -184,7 +184,6 @@ function checkForUpdate()
       if not string.find(scriptRequest.text, marker, 1, true) then
         return
       end
-      print("Root Database Library updated to " .. version)
       self.setLuaScript(scriptRequest.text)
       self.reload()
     end)
@@ -323,8 +322,7 @@ function onRowClick(player, mouseButton, id)
     return
   end
   if busy then
-    broadcastToColor("Still loading the last selection...", player.color, {1, 0.8, 0.4})
-    return
+    return    -- still loading the last selection; ignore extra clicks
   end
   local url
   if section == "keep" then
@@ -333,7 +331,6 @@ function onRowClick(player, mouseButton, id)
     url = BASE_URL .. "/api/tts/forge/" .. tostring(entry.id) .. "/"
   end
   busy = true
-  broadcastToColor("Loading " .. entry.title .. "...", player.color, {0.8, 0.8, 0.8})
   WebRequest.get(url, function(request)
     busy = false
     if request.is_error or request.response_code ~= 200 then
@@ -375,7 +372,8 @@ end
 -- item, just without panels.
 function withVPPanel(data, done)
   local rows = (data and data.vp_rows) or {}
-  if #rows == 0 or not rttCoordinatorPresent() then
+  -- With the external-faction API the coordinator spawns its own panel.
+  if #rows == 0 or not rttCoordinatorPresent() or externalFactionAPI() ~= nil then
     done(nil)
     return
   end
@@ -389,6 +387,51 @@ function withVPPanel(data, done)
     end
     done(vpPanelTemplate)
   end)
+end
+
+-- The coordinator, when it offers the external-faction API (see
+-- tts/RTT_EXTERNAL_FACTION_API.md): claim before spawning, report after, and
+-- it then handles seat, Box Score record, hands, VP token and VP panel itself.
+function externalFactionAPI()
+  local coordinator = getObjectFromGUID(RTT_COORD_GUID)
+  if coordinator == nil then
+    return nil
+  end
+  local version = nil
+  pcall(function() version = coordinator.getVar("RTT_EXTERNAL_FACTION_API") end)
+  if type(version) == "number" and version >= 1 then
+    return coordinator
+  end
+  return nil
+end
+
+-- Without that API: hand each faction's VP token to the coordinator's own
+-- placement queue (rttPlaceVP puts it on the score track's 0 column, like a
+-- built-in pick). Its retries run on the coordinator's timers, so they finish
+-- after this object has deleted itself. Returns true when queued.
+local function queueVPPlacement(rows)
+  local coordinator = getObjectFromGUID(RTT_COORD_GUID)
+  if coordinator == nil then
+    return false
+  end
+  local ok = pcall(function()
+    local pending = coordinator.getTable("RTT_VP_PENDING") or {}
+    local placed = coordinator.getVar("RTT_VP_PLACED") or 0
+    for _, vp in ipairs(rows) do
+      placed = placed + 1
+      pending[vp.row] = placed          -- slot n: next spot in the 0 column
+    end
+    coordinator.setVar("RTT_VP_PLACED", placed)
+    coordinator.setTable("RTT_VP_PENDING", pending)
+    coordinator.call("rttPlaceUnplacedVPs")
+  end)
+  return ok
+end
+
+local function releaseClaims(coordinator, claimed)
+  for _, faction in ipairs(claimed) do
+    pcall(function() coordinator.call("rttReleaseExternalFaction", { faction = faction }) end)
+  end
 end
 
 local function replacePlain(text, find, replacement)
@@ -419,31 +462,80 @@ function spawnAll(data, player, panelTemplate)
     y = origin.y + SPAWN_OFFSET.y,
     z = origin.z + SPAWN_OFFSET.z,
   }
-  local count = 0
-  for i, obj in ipairs(objects) do
-    -- Keep each object's layout offset; stagger height so decks settle on boards.
-    spawnObjectJSON({
-      json = obj.json,
-      position = {base.x + obj.x, base.y + obj.y + 1 + i * 0.2, base.z + obj.z},
-    })
-    count = count + 1
-  end
-  -- One RTT VP Panel per faction, set to that faction's row (its VP marker's
-  -- name minus " VP"), placed beside its marker.
-  local panels = 0
-  if panelTemplate ~= nil then
-    for _, vp in ipairs(data.vp_rows or {}) do
-      spawnObjectJSON({
-        json = replacePlain(panelTemplate, '"__VP_ROW__"', jsonString(vp.row)),
-        position = {base.x + vp.x + VP_PANEL_OFFSET.x, base.y + 1, base.z + vp.z + VP_PANEL_OFFSET.z},
-      })
-      panels = panels + 1
+  local vpRows = data.vp_rows or {}
+
+  -- With the coordinator's external-faction API, claim each faction first so
+  -- it can refuse spectators, duplicates and taken seats before anything spawns.
+  local api = (#vpRows > 0) and externalFactionAPI() or nil
+  local claimed = {}
+  if api ~= nil then
+    for _, vp in ipairs(vpRows) do
+      local answer = nil
+      pcall(function()
+        answer = api.call("rttClaimExternalFaction",
+          { faction = vp.row, row = vp.row, color = player.color, x = base.x, z = base.z })
+      end)
+      if type(answer) ~= "table" or not answer.ok then
+        releaseClaims(api, claimed)
+        broadcastToColor((type(answer) == "table" and answer.reason) or "The table refused that faction.",
+          player.color, {1, 0.4, 0.4})
+        return
+      end
+      claimed[#claimed + 1] = vp.row
     end
   end
-  local message = string.format("Loaded %s (%d object%s).", data.title or "item", count, count == 1 and "" or "s")
-  if panels > 0 then
-    message = message .. " Added the RTT VP Panel."
+
+  local spawned = {}
+  local spawnedOk = pcall(function()
+    for i, obj in ipairs(objects) do
+      -- Keep each object's layout offset; stagger height so decks settle on boards.
+      spawned[i] = spawnObjectJSON({
+        json = obj.json,
+        position = {base.x + obj.x, base.y + obj.y + 1 + i * 0.2, base.z + obj.z},
+      })
+    end
+  end)
+  if not spawnedOk then
+    if api ~= nil then releaseClaims(api, claimed) end
+    broadcastToColor("Something went wrong spawning " .. (data.title or "that item") .. ".",
+      player.color, {1, 0.4, 0.4})
+    return
   end
-  broadcastToColor(message, player.color, {0.6, 1, 0.6})
+
+  if api ~= nil then
+    -- The coordinator takes it from here: seat, Box Score record, hands, VP
+    -- token on the track and its own VP panel.
+    local ry = self.getRotation().y
+    for _, vp in ipairs(vpRows) do
+      local boardGuid = nil
+      if vp.board ~= nil and spawned[vp.board] ~= nil then
+        pcall(function() boardGuid = spawned[vp.board].getGUID() end)
+      end
+      pcall(function()
+        api.call("rttExternalFactionPlaced", {
+          faction = vp.row, row = vp.row, color = player.color,
+          x = base.x, z = base.z, ry = ry, board = boardGuid,
+          vpPanel = {x = base.x + vp.x + VP_PANEL_OFFSET.x, y = base.y + 1, z = base.z + vp.z + VP_PANEL_OFFSET.z},
+        })
+      end)
+    end
+  else
+    -- One RTT VP Panel per faction, set to that faction's row (its VP marker's
+    -- name minus " VP"), placed beside its marker.
+    if panelTemplate ~= nil then
+      for _, vp in ipairs(vpRows) do
+        spawnObjectJSON({
+          json = replacePlain(panelTemplate, '"__VP_ROW__"', jsonString(vp.row)),
+          position = {base.x + vp.x + VP_PANEL_OFFSET.x, base.y + 1, base.z + vp.z + VP_PANEL_OFFSET.z},
+        })
+      end
+    end
+    if #vpRows > 0 and rttCoordinatorPresent() then
+      queueVPPlacement(vpRows)
+    end
+  end
+
+  -- No chat message on success (only errors are reported); the spawned item is
+  -- the confirmation.
   deleteThis()
 end

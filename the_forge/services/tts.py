@@ -54,6 +54,18 @@ def _hex_to_rgb_floats(hex_color):
     return {"r": r, "g": g, "b": b}
 
 
+def _tts_faction_name(faction):
+    """The name every TTS object of a forge faction is labelled with.
+
+    The VP marker is "<name> VP" and the board "<name> - Faction Board". The
+    Root Box Score builds a faction's row from its VP marker and finds the
+    faction's seat through an object named "<name> - ..." (its facAnchor), so
+    both must share exactly this name. Known edge case: the Box Score strips a
+    trailing number ("Fox Folk 2" looks for "Fox Folk - ..."), so such a faction
+    gets its row but no seat."""
+    return faction.faction_name or 'Faction'
+
+
 class TTSForgedFactionBoard(TTSBoardBase):
     DEFAULT_TRANSFORM = FACTION_BOARD_TRANSFORM
     LUA_SCRIPT = LOCK_ON_REST_LUA
@@ -63,7 +75,9 @@ class TTSForgedFactionBoard(TTSBoardBase):
         self.faction = faction
 
     def get_nickname(self):
-        return self.faction.faction_name or self.faction.slug or str(self.faction.pk)
+        # "<name> - ..." is how the Root Box Score finds a faction's seat; see
+        # _tts_faction_name.
+        return f"{_tts_faction_name(self.faction)} - Faction Board"
 
     def get_description(self):
         return f"{self.faction.faction_name} Faction Board"
@@ -481,9 +495,9 @@ def place_markers_for_faction(faction, request):
     """
     candidates = [
         (getattr(faction, 'vp_marker', None),
-         f"{faction.faction_name or 'Faction'} VP"),
+         f"{_tts_faction_name(faction)} VP"),
         (getattr(faction, 'relationship_marker', None),
-         f"{faction.faction_name or 'Faction'} Relationship"),
+         f"{_tts_faction_name(faction)} Relationship"),
     ]
     objects = []
     group_index = 0

@@ -322,6 +322,7 @@ def _tts_objects_payload(title, tts_json):
     position pulled out here so Lua never decodes an object at all."""
     objects = []
     vp_rows = []
+    nicknames = [(o.get('Nickname') or '') for o in tts_json.get('ObjectStates', [])]
     for obj in tts_json.get('ObjectStates', []):
         transform = obj.get('Transform') or {}
         position = {
@@ -335,7 +336,12 @@ def _tts_objects_payload(title, tts_json):
         # (the panel matches its marker by exactly this name).
         nickname = obj.get('Nickname') or ''
         if nickname.endswith(' VP') and len(nickname) > 3:
-            vp_rows.append({'row': nickname[:-3], **position})
+            row = nickname[:-3]
+            # 1-based index of this faction's board ("<row> - Faction Board") in
+            # `objects`, so the loader can hand its GUID to the RTT coordinator.
+            board_name = f'{row} - Faction Board'
+            board = nicknames.index(board_name) + 1 if board_name in nicknames else None
+            vp_rows.append({'row': row, **position, 'board': board})
     return {'title': title, 'objects': objects, 'vp_rows': vp_rows}
 
 
