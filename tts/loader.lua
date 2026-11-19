@@ -28,6 +28,9 @@
 LOADER_VERSION = "dev"
 BASE_URL = "https://www.therootdatabase.com"
 
+PANEL_W, PANEL_H = 880, 640   -- library panel, laid out at 4x (drawn at 0.25 scale)
+CLOSE_SIZE = 11           -- close button size, in UI units (fills the margin around the panel)
+CLOSE_GAP = 3             -- extra space between the panel's top-right corner and the close button
 MAX_ROWS = 50             -- result rows built once; filtering only toggles them
 SPAWN_OFFSET = {x = 0, y = 2, z = 0}    -- spawned items replace this object, in its place
 
@@ -74,15 +77,30 @@ local function buildXml()
   end
 
   -- Sized for a Custom_Tile at scale 15.5 (same as the TTS Faction Board): the
-  -- tile face holds about 240 x 180 UI units, with -20 on z lifting the UI above
-  -- the surface and no rotation needed. The panel is laid out at 4x and scaled
-  -- down by 0.25 (928 x 688 -> 232 x 172) to sit just inside the edges.
+  -- tile face reaches about x 121, y 91 in UI units, with -20 on z lifting the
+  -- UI above the surface and no rotation needed. The panel is laid out at 4x and
+  -- scaled down by 0.25 (880 x 640 -> 220 x 160, edges at x 110, y 80), leaving
+  -- an ~11 unit margin that the close button fills, just outside the panel's
+  -- top-right corner. Shrink the panel if CLOSE_SIZE grows.
+  local panelHalfW, panelHalfH = PANEL_W * 0.25 / 2, PANEL_H * 0.25 / 2
+  local closeX = panelHalfW + CLOSE_SIZE / 2 + CLOSE_GAP
+  local closeY = panelHalfH + CLOSE_SIZE / 2 + CLOSE_GAP
+  -- Built at 4x and drawn at 0.25 scale, like the panel: at its real size
+  -- (~11 units) the button's fixed corner radius turns it into a circle and its
+  -- padding leaves no room for the X. Scaling keeps a rounded square with a
+  -- readable label while it still covers CLOSE_SIZE x CLOSE_SIZE on the tile.
+  local closeBuilt = CLOSE_SIZE * 4
+  local closeButton = string.format(
+    '<Button id="closeButton" onClick="deleteThis" position="%.1f %.1f -21" ' ..
+    'width="%d" height="%d" scale="0.25 0.25 1" padding="0 0 0 0" ' ..
+    'color="#bd2608" textColor="#FFFFFF" fontSize="%d" fontStyle="Bold">X</Button>',
+    closeX, closeY, closeBuilt, closeBuilt, math.floor(closeBuilt * 0.7))
   return [[
 <Defaults>
   <Button fontSize="16" color="#EFE6D2" textColor="#2B2118"/>
   <Text color="#EFE6D2"/>
 </Defaults>
-<Panel position="0 0 -20" width="928" height="688" scale="0.25 0.25 1" color="#2B2118EE">
+<Panel position="0 0 -20" width="]] .. PANEL_W .. [[" height="]] .. PANEL_H .. [[" scale="0.25 0.25 1" color="#2B2118EE">
   <VerticalLayout padding="12" spacing="8" childForceExpandHeight="false">
     <Text fontSize="26" fontStyle="Bold" preferredHeight="36">Root Database Library</Text>
     <HorizontalLayout spacing="6" preferredHeight="40">
@@ -96,16 +114,15 @@ local function buildXml()
       ]] .. table.concat(typeButtons, "\n      ") .. [[
     </GridLayout>
     <Text id="status" fontSize="15" preferredHeight="24" alignment="MiddleLeft">Loading...</Text>
-    <VerticalScrollView preferredHeight="410" scrollSensitivity="30">
+    <VerticalScrollView preferredHeight="362" scrollSensitivity="30">
       <VerticalLayout id="rows" spacing="4" childForceExpandHeight="false" contentSizeFitter="vertical">
         ]] .. table.concat(rows, "\n        ") .. [[
       </VerticalLayout>
     </VerticalScrollView>
   </VerticalLayout>
 </Panel>
-<!-- Close button, as on the TTS Faction Board: top-right corner, outside the panel. -->
-<Button id="closeButton" onClick="deleteThis" position="112 82 -21" width="18" height="18"
-        color="#bd2608" textColor="#FFFFFF" fontSize="12" fontStyle="Bold">X</Button>
+<!-- Close button, as on the TTS Faction Board, in the margin at the top right. -->
+]] .. closeButton .. [[
 ]]
 end
 
