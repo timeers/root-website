@@ -102,7 +102,12 @@ local function buildXml()
 </Defaults>
 <Panel position="0 0 -20" width="]] .. PANEL_W .. [[" height="]] .. PANEL_H .. [[" scale="0.25 0.25 1" color="#2B2118EE">
   <VerticalLayout padding="12" spacing="8" childForceExpandHeight="false">
-    <Text fontSize="26" fontStyle="Bold" preferredHeight="36">Root Database Library</Text>
+    <HorizontalLayout preferredHeight="44" spacing="10" childAlignment="MiddleCenter"
+                      childForceExpandWidth="false" childForceExpandHeight="false">
+      <Image image="rdbLogo" preferredWidth="44" preferredHeight="44" preserveAspect="true"/>
+      <Text fontSize="26" fontStyle="Bold" preferredWidth="320" preferredHeight="44"
+            alignment="MiddleLeft">Root Database Library</Text>
+    </HorizontalLayout>
     <HorizontalLayout spacing="6" preferredHeight="40">
       ]] .. buttonXml("tab_keep", "The Keep", "onTabClick", 'color="#C8A86B"') .. [[
       ]] .. buttonXml("tab_forge", "The Forge", "onTabClick") .. [[
@@ -114,7 +119,7 @@ local function buildXml()
       ]] .. table.concat(typeButtons, "\n      ") .. [[
     </GridLayout>
     <Text id="status" fontSize="15" preferredHeight="24" alignment="MiddleLeft">Loading...</Text>
-    <VerticalScrollView preferredHeight="362" scrollSensitivity="30">
+    <VerticalScrollView preferredHeight="354" scrollSensitivity="30">
       <VerticalLayout id="rows" spacing="4" childForceExpandHeight="false" contentSizeFitter="vertical">
         ]] .. table.concat(rows, "\n        ") .. [[
       </VerticalLayout>
@@ -141,6 +146,12 @@ local function setStatus(text)
 end
 
 function onLoad()
+  -- The logo beside the title: icon-512 pre-rounded like the home page hero
+  -- (XML UI can't round image corners). The plain static path keeps working
+  -- in production, where collectstatic keeps an unhashed copy.
+  self.UI.setCustomAssets({
+    {name = "rdbLogo", url = BASE_URL .. "/static/images/tts/library_logo.png"},
+  })
   self.UI.setXml(buildXml())
   fetchCatalog()
   checkForUpdate()
