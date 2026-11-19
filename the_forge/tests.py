@@ -872,3 +872,14 @@ class ForgeTTSNamingTests(TestCase):
         forged.vp_marker = 'forge/factions/fox-folk/board/vp_marker.webp'
         markers = place_markers_for_faction(forged, request=SiteURLRequest())
         self.assertEqual([m['Nickname'] for m in markers], ['Fox Folk VP'])
+
+    def test_faction_boards_have_no_tooltip(self):
+        from .services.tts import TTSForgedFactionBoard, TTSForgedFactionDecree
+        from the_keep.models import Faction as KeepFaction
+        from the_keep.services.tts import SiteURLRequest, TTSBoard
+        designer = Profile.objects.create(discord='tooltipdesigner')
+        forged = ForgedFaction.objects.create(designer=designer, faction_name='Fox Folk')
+        self.assertFalse(TTSForgedFactionBoard(forged, request=SiteURLRequest()).to_dict()['Tooltip'])
+        self.assertFalse(TTSForgedFactionDecree(forged, request=SiteURLRequest()).to_dict()['Tooltip'])
+        keep = KeepFaction.objects.create(title='Fox Folk', animal='Fox', designer=designer, component='Faction')
+        self.assertFalse(TTSBoard(keep, request=SiteURLRequest()).to_dict()['Tooltip'])

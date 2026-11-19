@@ -69,6 +69,7 @@ def _tts_faction_name(faction):
 class TTSForgedFactionBoard(TTSBoardBase):
     DEFAULT_TRANSFORM = FACTION_BOARD_TRANSFORM
     LUA_SCRIPT = LOCK_ON_REST_LUA
+    TOOLTIP = False   # no hover pop-up on the faction board
 
     def __init__(self, faction, request=None):
         super().__init__(post=faction, request=request)
@@ -131,6 +132,7 @@ class TTSForgedFactionBoard(TTSBoardBase):
 
 class TTSForgedFactionDecree(TTSBoardBase):
     LUA_SCRIPT = LOCK_ON_REST_LUA
+    TOOLTIP = False   # no hover pop-up on the decree tile
     DECREE_TRANSFORM = {
         "posX": 0.0,
         "posY": -0.113604546,

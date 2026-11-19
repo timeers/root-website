@@ -124,7 +124,7 @@ class TTSBoard:
             "DragSelectable": True,
             "Autoraise": True,
             "Sticky": True,
-            "Tooltip": True,
+            "Tooltip": False,  # no hover pop-up on faction boards
             "GridProjection": False,
             "HideWhenFaceDown": False,
             "Hands": False,
@@ -157,6 +157,8 @@ class TTSBoardBase:
     NAME = "Custom_Tile"
     DEFAULT_TRANSFORM = FACTION_BOARD_TRANSFORM
     LUA_SCRIPT = ""
+    # Hover pop-up in TTS. Faction boards turn it off (see subclasses).
+    TOOLTIP = True
 
     def __init__(self, post, request=None):
         self.post = post
@@ -221,7 +223,7 @@ class TTSBoardBase:
             "DragSelectable": True,
             "Autoraise": True,
             "Sticky": True,
-            "Tooltip": True,
+            "Tooltip": self.TOOLTIP,
             "GridProjection": False,
             "HideWhenFaceDown": False,
             "Hands": False,
@@ -244,6 +246,7 @@ class TTSBoardBase:
         }
 
 class TTSFactionBoard(TTSBoardBase):
+    TOOLTIP = False
     DEFAULT_TRANSFORM = FACTION_BOARD_TRANSFORM
 
     def get_default_snap_points(self):
