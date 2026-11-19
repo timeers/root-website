@@ -321,15 +321,22 @@ def _tts_objects_payload(title, tts_json):
     spawnObjectJSON (MoonSharp's JSON is very slow on big deck blobs), with its
     position pulled out here so Lua never decodes an object at all."""
     objects = []
+    vp_rows = []
     for obj in tts_json.get('ObjectStates', []):
         transform = obj.get('Transform') or {}
-        objects.append({
+        position = {
             'x': _number(transform.get('posX')),
             'y': _number(transform.get('posY')),
             'z': _number(transform.get('posZ')),
-            'json': json.dumps(obj),
-        })
-    return {'title': title, 'objects': objects}
+        }
+        objects.append({**position, 'json': json.dumps(obj)})
+        # A "<faction> VP" marker means this item is a playable faction; the
+        # loader adds an RTT VP Panel for it when the RTT coordinator is present
+        # (the panel matches its marker by exactly this name).
+        nickname = obj.get('Nickname') or ''
+        if nickname.endswith(' VP') and len(nickname) > 3:
+            vp_rows.append({'row': nickname[:-3], **position})
+    return {'title': title, 'objects': objects, 'vp_rows': vp_rows}
 
 
 class TTSCatalogView(TTSLoaderView):
@@ -423,13 +430,15 @@ def _loader_source():
 def _loader_script(request):
     """(version, script) with LOADER_VERSION and BASE_URL filled in.
 
-    BASE_URL is the host that served this request, NOT settings.SITE_URL:
-    locally SITE_URL is production, so a dev-downloaded object would otherwise
-    read from and self-update against production. Every object stays tied to
-    the server it came from."""
+    BASE_URL is always settings.SITE_URL (production): TTS can't reliably load
+    the script, data or images from a local dev server. So in DEBUG the served
+    script keeps LOADER_VERSION = "dev" -- a dev-downloaded object runs your
+    local script against production data and never self-updates (which would
+    swap in production's script). Re-download it to test another change."""
     version, raw = _loader_source()
-    base_url = request.build_absolute_uri('/').rstrip('/')
-    script = _LOADER_VERSION_LINE.sub(f'LOADER_VERSION = "{version}"', raw, count=1)
+    base_url = settings.SITE_URL.rstrip('/')
+    served_version = 'dev' if settings.DEBUG else version
+    script = _LOADER_VERSION_LINE.sub(f'LOADER_VERSION = "{served_version}"', raw, count=1)
     script = _LOADER_BASE_URL_LINE.sub(f'BASE_URL = "{base_url}"', script, count=1)
     return version, script
 
@@ -451,14 +460,14 @@ class TTSLoaderObjectView(TTSLoaderView):
     Drop it in Tabletop Simulator's Saved Objects folder."""
 
     def get(self, request):
-        from .services.tts import generate_tts_guid, wrap_tts_save
+        from .services.tts import SiteURLRequest, generate_tts_guid, wrap_tts_save
 
         _version, script = _loader_script(request)
         tile = {
             "GUID": generate_tts_guid(),
             "Name": "Custom_Tile",
             "Nickname": "Root Database Library",
-            "Description": "Search and spawn factions, maps and more from therootdatabase.com.",
+            "Description": "Search json objects from therootdatabase.com.",
             # Same footprint as the TTS Faction Board (scale 15.5, 0.1 thick):
             # the background has the board's ~1.31 aspect, and the panel in
             # tts/loader.lua is sized to this tile's ~240 x 180 UI area.
@@ -469,8 +478,9 @@ class TTSLoaderObjectView(TTSLoaderView):
             },
             "Locked": True,
             "CustomImage": {
-                # Self-hosted (fingerprinted static URL), so TTS refetches it if replaced.
-                "ImageURL": request.build_absolute_uri(static('images/tts/library_background.jpg')),
+                # Self-hosted on SITE_URL (fingerprinted in production), so TTS
+                # refetches it if replaced. Dev downloads point at production too.
+                "ImageURL": SiteURLRequest().build_absolute_uri(static('images/tts/library_background.jpg')),
                 "ImageSecondaryURL": request.build_absolute_uri(static('images/tts/library_background.jpg')),
                 "ImageScalar": 1.0,
                 "WidthScale": 0.0,
@@ -486,3 +496,16 @@ class TTSLoaderObjectView(TTSLoaderView):
         )
         response['Content-Disposition'] = 'attachment; filename="Root Database Library.json"'
         return response
+
+
+class TTSVPPanelView(TTSLoaderView):
+    """The Root Tabletop Tournament "VP Panel" object, unchanged except that its
+    saved state is the placeholder "__VP_ROW__" (the loader swaps in the
+    faction) and its GUID is dropped. It only works with the RTT coordinator,
+    so the loader only spawns it when that coordinator is on the table."""
+
+    def get(self, request):
+        path = os.path.join(settings.BASE_DIR, 'tts', 'vp_panel.json')
+        with open(path, encoding='utf-8') as fh:
+            panel = json.load(fh)
+        return HttpResponse(json.dumps(panel), content_type='text/plain; charset=utf-8')

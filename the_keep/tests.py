@@ -411,7 +411,7 @@ function onLoad() end
 '''
 
 
-@override_settings(CACHES=_LOCMEM)
+@override_settings(CACHES=_LOCMEM, SITE_URL='https://example.test', DEBUG=False)
 class TTSLoaderObjectTests(TestCase):
     def setUp(self):
         cache.clear()
@@ -435,15 +435,23 @@ class TTSLoaderObjectTests(TestCase):
         os.utime(self.script_path, (1, 1))  # force a new mtime even within the same second
         self.assertNotEqual(self._version(), first)
 
-    def test_script_has_version_and_request_host_filled_in(self):
+    def test_script_has_version_and_site_url_filled_in(self):
         version = self._version()
         response = self.client.get(reverse('api-tts-loader-script'))
         self.assertTrue(response['Content-Type'].startswith('text/plain'))
         body = response.content.decode()
         self.assertIn(f'LOADER_VERSION = "{version}"', body)
-        # The request host, not settings.SITE_URL (which is production locally).
-        self.assertIn('BASE_URL = "http://testserver"', body)
+        # Always SITE_URL, never the request host (TTS can't use a dev server).
+        self.assertIn('BASE_URL = "https://example.test"', body)
         self.assertNotIn('"dev"', body)
+
+    def test_dev_download_points_at_site_url_and_never_self_updates(self):
+        with override_settings(DEBUG=True):
+            save = json.loads(self.client.get(reverse('api-tts-loader-object')).content)
+        tile = save['ObjectStates'][0]
+        self.assertIn('LOADER_VERSION = "dev"', tile['LuaScript'])
+        self.assertIn('BASE_URL = "https://example.test"', tile['LuaScript'])
+        self.assertTrue(tile['CustomImage']['ImageURL'].startswith('https://example.test/static/'))
 
     def test_object_carries_the_served_script(self):
         script = self.client.get(reverse('api-tts-loader-script')).content.decode()
@@ -469,3 +477,37 @@ class RealLoaderScriptTests(TestCase):
         version, raw = api_views._loader_source()
         self.assertIn('LOADER_VERSION = "dev"', raw)
         self.assertRegex(version, r'^[0-9a-f]{12}$')
+
+
+@override_settings(CACHES=_LOCMEM)
+class TTSVPPanelTests(TestCase):
+    def setUp(self):
+        cache.clear()
+
+    def test_detail_lists_vp_rows_for_faction_markers(self):
+        designer = Profile.objects.create(discord='vprows')
+        save = {'ObjectStates': [
+            {'Name': 'Custom_Tile', 'Nickname': 'Fox Folk', 'Transform': {'posX': 0, 'posY': 0, 'posZ': 0}},
+            {'Name': 'Custom_Token', 'Nickname': 'Fox Folk VP', 'Transform': {'posX': 13, 'posY': 1, 'posZ': 12}},
+            {'Name': 'Custom_Token', 'Nickname': 'Fox Folk Relationship', 'Transform': {'posX': 14.5, 'posY': 1, 'posZ': 12}},
+        ]}
+        post = Faction.objects.create(title='Fox Folk', animal='Fox', designer=designer, component='Faction',
+                                      status=StatusChoices.STABLE, tts_json=save)
+        data = self.client.get(reverse('api-tts-keep-detail', args=[post.slug])).json()
+        self.assertEqual(data['vp_rows'], [{'row': 'Fox Folk', 'x': 13.0, 'y': 1.0, 'z': 12.0}])
+        self.assertEqual(len(data['objects']), 3)
+
+    def test_panel_template_is_rtt_panel_with_placeholder(self):
+        response = self.client.get(reverse('api-tts-vp-panel'))
+        self.assertTrue(response['Content-Type'].startswith('text/plain'))
+        panel = json.loads(response.content)
+        self.assertEqual(panel['LuaScriptState'], '__VP_ROW__')
+        self.assertNotIn('GUID', panel)
+        self.assertIn('RTT VP Panel', panel['Tags'])
+        # Unchanged RTT script: relays to the coordinator the loader checks for.
+        self.assertIn('RTT_COORD_GUID = "bab7e1"', panel['LuaScript'])
+
+    def test_panel_template_has_no_faction_specific_assets(self):
+        # The panel builds its "vp<row>" asset from its own marker at load time.
+        panel = json.loads(self.client.get(reverse('api-tts-vp-panel')).content)
+        self.assertEqual([a['Name'] for a in panel['CustomUIAssets']], ['pnlframe'])

@@ -1,6 +1,7 @@
 from django.urls import path
 from .api_views import (search_posts, TTSCatalogView, TTSKeepDetailView, TTSForgeDetailView,
-                        TTSLoaderVersionView, TTSLoaderScriptView, TTSLoaderObjectView)
+                        TTSLoaderVersionView, TTSLoaderScriptView, TTSLoaderObjectView,
+                        TTSVPPanelView)
 from . import views
 
 urlpatterns = [
@@ -66,6 +67,7 @@ urlpatterns = [
     path('api/tts/loader/version/', TTSLoaderVersionView.as_view(), name='api-tts-loader-version'),
     path('api/tts/loader.lua', TTSLoaderScriptView.as_view(), name='api-tts-loader-script'),
     path('api/tts/loader/object.json', TTSLoaderObjectView.as_view(), name='api-tts-loader-object'),
+    path('api/tts/vp-panel/', TTSVPPanelView.as_view(), name='api-tts-vp-panel'),
 
     path('new/', views.new_components, name='new-components'),
     path('new/faction/', views.FactionCreateView.as_view(), name='faction-create'),

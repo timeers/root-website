@@ -1,0 +1,55 @@
+{
+  "Name": "BlockSquare",
+  "Transform": {
+    "posX": -39.44533,
+    "posY": 11.6115437,
+    "posZ": -38.19775,
+    "rotX": -5.25965334e-07,
+    "rotY": 180.0,
+    "rotZ": -8.03608344e-08,
+    "scaleX": 7.204507,
+    "scaleY": 0.1,
+    "scaleZ": 3.372897
+  },
+  "Nickname": "VP Panel",
+  "Description": "Victory points, a card, and the pond.",
+  "GMNotes": "",
+  "AltLookAngle": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "ColorDiffuse": {
+    "r": 0.0,
+    "g": 0.0,
+    "b": 0.0
+  },
+  "Tags": [
+    "RTT Faction",
+    "RTT VP Panel"
+  ],
+  "LayoutGroupSortIndex": 0,
+  "Value": 0,
+  "Locked": false,
+  "Grid": true,
+  "Snap": true,
+  "IgnoreFoW": false,
+  "MeasureMovement": false,
+  "DragSelectable": true,
+  "Autoraise": true,
+  "Sticky": true,
+  "Tooltip": false,
+  "GridProjection": false,
+  "HideWhenFaceDown": false,
+  "Hands": false,
+  "LuaScript": "RTT_COORD_GUID = \"bab7e1\"\n\nlocal SLAB_Y      = 0.10\nlocal PX_PER_UNIT = 100\nlocal BASE        = 3.85 * 0.7\nlocal FRAME       = 5\n\nPANEL_FRAME_URL = \"https://cdn.jsdelivr.net/gh/mrdrouf/root-tabletop-tournament@main/assets/labels/turn_panel_frame_015b64ac.png\"\nlocal PARCH2 = \"#F9E6BB\"\nlocal GOLD, GOLDHI = \"#C9A05C\", \"#E4C88E\"\nlocal PLUSC, PLUSHI   = \"#4E7A3A\", \"#6B9B54\"\nlocal MINUSC, MINUSHI = \"#A83226\", \"#C4503F\"\nlocal INKTXT, RUST = \"#26170B\", \"#7E4A1E\"\nlocal NOClick = ' raycastTarget=\"false\"'\n\nlocal VP_WORLD_W = 7.204507\nlocal W    = 257\nlocal PAD  = 6\nlocal GAP  = 5\nlocal RAIL = 93\nlocal TOKEN = 49\nlocal BTN  = 49\n\nVP_ROW  = VP_ROW or \"\"\nVP_POND = false\n\nlocal function contentH()\n  return PAD + TOKEN + GAP + BTN + PAD\nend\n\nfunction vpMarker()\n  local want = (VP_ROW or \"\") .. \" VP\"\n  if want == \" VP\" then return nil end\n  local c = getObjectFromGUID(RTT_COORD_GUID)\n  if c ~= nil then\n    local has, g = false, nil\n    pcall(function() has = (c.getVar(\"RTT_VP_MARKER_API\") == true) end)\n    if has then pcall(function() g = c.call(\"rttVPMarkerGuid\", { row = VP_ROW }) end) end\n    if type(g) == \"string\" and g ~= \"\" then\n      local m = getObjectFromGUID(g)\n      if m ~= nil then return m end\n    end\n  end\n  for _, o in ipairs(getAllObjects()) do\n    local n = \"\"\n    pcall(function() n = o.getName() or \"\" end)\n    if n == want then return o end\n  end\n  return nil\nend\n\nlocal function assetName()\n  return \"vp\" .. ((VP_ROW or \"\"):gsub(\"%W\", \"\"))\nend\n\nlocal function tokenURL()\n  local m = vpMarker()\n  if m == nil then return nil end\n  local url = nil\n  pcall(function()\n    local co = m.getCustomObject()\n    url = co and (co.image or co.face or co.diffuse) or nil\n  end)\n  if url == \"\" then return nil end\n  return url\nend\n\nlocal function button(id, label, fill, hi, press, textColor, fs)\n  return '<Button id=\"' .. id .. '\" colors=\"' .. fill .. '|' .. hi .. '|' .. press\n      .. '|#00000000\" onClick=\"vpRelay\">'\n      .. '<Text fontSize=\"' .. fs .. '\" fontStyle=\"Bold\" color=\"' .. textColor\n      .. '\" resizeTextForBestFit=\"true\" resizeTextMinSize=\"9\" resizeTextMaxSize=\"' .. fs .. '\"'\n      .. NOClick .. '>' .. label .. '</Text></Button>'\nend\n\nfunction buildUI()\n  local H = contentH()\n  local k = VP_WORLD_W / (W + 2 * FRAME)\n  pcall(function() self.setScale({ (W + 2 * FRAME) * k, SLAB_Y, (H + 2 * FRAME) * k }) end)\n  local sx = PX_PER_UNIT / (W + 2 * FRAME)\n  local sy = PX_PER_UNIT / (H + 2 * FRAME)\n\n  local x = {}\n  local function add(s) x[#x + 1] = s end\n  add(string.format('<Panel position=\"0 0 -60\" rotation=\"0 0 180\" scale=\"%.4f %.4f 1\"'\n      .. ' width=\"%d\" height=\"%d\" color=\"#00000000\"%s>', sx, sy, W, H, NOClick))\n  add('<Image id=\"vpbg\" image=\"pnlframe\" width=\"' .. W .. '\" height=\"' .. H .. '\"' .. NOClick .. '/>')\n  add('<VerticalLayout padding=\"' .. PAD .. ' ' .. PAD .. ' ' .. PAD .. ' ' .. PAD\n      .. '\" spacing=\"' .. GAP .. '\" childForceExpandHeight=\"false\">')\n\n  add('<HorizontalLayout preferredHeight=\"' .. TOKEN .. '\" spacing=\"' .. GAP\n      .. '\" childForceExpandWidth=\"false\" childForceExpandHeight=\"true\">')\n  add(button(\"vpMinus\", \"&#8211;\", MINUSC, MINUSHI, MINUSC, PARCH2, 30):gsub('<Button ',\n      '<Button preferredWidth=\"' .. RAIL .. '\" ', 1))\n  if VP_ART then\n    add('<Image id=\"vpToken\" image=\"' .. assetName() .. '\" preferredWidth=\"' .. TOKEN\n        .. '\" preferredHeight=\"' .. TOKEN .. '\"' .. NOClick .. '/>')\n  else\n    add('<Panel color=\"#E7D8B4\" preferredWidth=\"' .. TOKEN .. '\" preferredHeight=\"' .. TOKEN .. '\"'\n        .. NOClick .. '/>')\n  end\n  add(button(\"vpPlus\", \"+\", PLUSC, PLUSHI, PLUSC, PARCH2, 30):gsub('<Button ',\n      '<Button preferredWidth=\"' .. RAIL .. '\" ', 1))\n  add('</HorizontalLayout>')\n\n  add('<HorizontalLayout preferredHeight=\"' .. BTN .. '\" spacing=\"' .. GAP .. '\">')\n  add(button(\"vpDraw\", VP_POND and \"DRAW CARD\" or \"DRAW 1 CARD\", PARCH2, GOLDHI, GOLD, RUST, 14))\n  if VP_POND then\n    add(button(\"vpPond\", \"DRAW POND\", PARCH2, GOLDHI, GOLD, RUST, 14))\n  end\n  add('</HorizontalLayout>')\n  add('</VerticalLayout></Panel>')\n  pcall(function() self.UI.setXml(table.concat(x)) end)\nend\n\nfunction vpRefresh()\n  local url = tokenURL()\n  VP_ART = (url ~= nil)\n  local assets = { { name = \"pnlframe\", url = PANEL_FRAME_URL } }\n  if url ~= nil then assets[#assets + 1] = { name = assetName(), url = url } end\n  pcall(function() self.UI.setCustomAssets(assets) end)\n  local pond = false\n  pcall(function() pond = (#getObjectsWithTag(\"RTT Pond\") > 0) end)\n  VP_POND = pond\n  buildUI()\nend\n\nfunction vpRelay(player, value, id)\n  local c = getObjectFromGUID(RTT_COORD_GUID)\n  if c == nil then return end\n  local ok = false\n  pcall(function() ok = (c.getVar(\"RTT_VP_API\") == true) end)\n  if not ok then\n    pcall(function() player.print(\"This board is from an older build and has no VP panel support.\") end)\n    return\n  end\n  c.call(\"rttVPClick\", { color = player.color, id = id, row = VP_ROW, panel = self.getGUID() })\nend\n\nfunction onSave() return VP_ROW or \"\" end\n\nfunction onLoad(state)\n  if type(state) == \"string\" and state ~= \"\" then VP_ROW = state end\n  vpRefresh()\n  for _, f in ipairs({ 10, 40, 120 }) do\n    Wait.frames(function() pcall(vpRefresh) end, f)\n  end\nend\n",
+  "LuaScriptState": "__VP_ROW__",
+  "XmlUI": "",
+  "CustomUIAssets": [
+    {
+      "Type": 0,
+      "Name": "pnlframe",
+      "URL": "https://cdn.jsdelivr.net/gh/mrdrouf/root-tabletop-tournament@main/assets/labels/turn_panel_frame_015b64ac.png"
+    }
+  ]
+}
