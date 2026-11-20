@@ -2,8 +2,8 @@
   Root Database Library for Tabletop Simulator.
 
   Lists everything the site has published for TTS:
-    * The Keep  -- active posts whose Post.tts_json is set
-    * The Forge -- Forged drafts an admin approved for the TTS Library
+    * Archive  -- active posts whose Post.tts_json is set
+    * Workshop -- Forged drafts an admin approved for the TTS Library
   Search, pick one, and its objects spawn beside this object.
 
   This file (tts/loader.lua) is the single source. The site serves it from
@@ -39,7 +39,20 @@ SPAWN_OFFSET = {x = 0, y = 2, z = 0}    -- spawned items replace this object, in
 -- every panel button relays to it, so without it the panel would do nothing.
 RTT_COORD_GUID = "bab7e1"
 VP_PANEL_OFFSET = {x = 3, z = -5}       -- panel position relative to its VP marker; tune in game
+
+-- Maps and decks on the RTT table go where the coordinator puts its own.
+MAP_CENTER = {x = 0, y = 11.46, z = 0}   -- table centre at makeMap's board height (move_to.y + 11.46)
+MAP_SETTLE_SECONDS = 2.5                -- let a map spawn before shuffling / placing VP tokens
+DECK_HOLDER_GUID = "aa1464"             -- the RTT deck holder
+DECK_DRAW_SLOT = {0.957, 0.178, 0.222}  -- its draw slot, in holder-local coordinates
+DECK_ROT_Y = 0                          -- extra y rotation for spawned decks; tune in game
 vpPanelTemplate = nil                   -- fetched once, from /api/tts/vp-panel/
+
+-- Shown under the tabs; explains where each tab's items come from.
+TAB_DESCRIPTIONS = {
+  keep = "Published components from the Root Database Library.",
+  forge = "Prototype components from the RDB Forge meant for playtesting.",
+}
 
 COMPONENT_TYPES = {"Faction", "Clockwork", "Vagabond", "Map", "Deck", "Hireling", "Landmark", "Tweak"}
 
@@ -47,7 +60,12 @@ catalog = {keep = {}, forge = {}}
 section = "keep"          -- "keep" or "forge"
 typeFilter = {}           -- per tab: typeFilter[section] = component, or nil for all
 searchText = ""
-rowItems = {}             -- row index -> catalog entry currently shown there
+rowItems = {}             -- row index -> catalog entry currently shown there (nil for headers)
+rowKind = {}              -- row index -> "header" or "entry": the style it currently has
+
+-- Row colours. Status headers on the Keep tab use the darker pair.
+ROW_COLOR, ROW_TEXT_COLOR = "#EFE6D2", "#2B2118"
+HEADER_COLOR, HEADER_TEXT_COLOR = "#6B4F2E", "#EFE6D2"
 busy = false
 
 -- ── UI ────────────────────────────────────────────────────────────────────
@@ -105,21 +123,24 @@ local function buildXml()
     <HorizontalLayout preferredHeight="44" spacing="10" childAlignment="MiddleCenter"
                       childForceExpandWidth="false" childForceExpandHeight="false">
       <Image image="rdbLogo" preferredWidth="44" preferredHeight="44" preserveAspect="true"/>
-      <Text fontSize="26" fontStyle="Bold" preferredWidth="320" preferredHeight="44"
-            alignment="MiddleLeft">Root Database Library</Text>
+      <Text fontSize="26" fontStyle="Bold" preferredWidth="300" preferredHeight="44"
+            alignment="MiddleLeft">Root Database Archive</Text>
+      ]] .. buttonXml("refresh", "Refresh", "onRefreshClick",
+        'preferredWidth="76" preferredHeight="28" fontSize="13"') .. [[
     </HorizontalLayout>
     <HorizontalLayout spacing="6" preferredHeight="40">
-      ]] .. buttonXml("tab_keep", "The Keep", "onTabClick", 'color="#C8A86B"') .. [[
-      ]] .. buttonXml("tab_forge", "The Forge", "onTabClick") .. [[
-      ]] .. buttonXml("refresh", "Refresh", "onRefreshClick", 'preferredWidth="110"') .. [[
+      ]] .. buttonXml("tab_keep", "Archive", "onTabClick", 'color="#C8A86B"') .. [[
+      ]] .. buttonXml("tab_forge", "Workshop", "onTabClick") .. [[
     </HorizontalLayout>
+    <Text id="tabDescription" fontSize="14" preferredHeight="36" alignment="MiddleLeft"
+          fontStyle="Italic">]] .. TAB_DESCRIPTIONS.keep .. [[</Text>
     <InputField id="search" onValueChanged="onSearch" placeholder="Search by name or designer"
                 preferredHeight="40" fontSize="18"/>
     <GridLayout id="types" cellSize="128 32" spacing="4 4" preferredHeight="72">
       ]] .. table.concat(typeButtons, "\n      ") .. [[
     </GridLayout>
     <Text id="status" fontSize="15" preferredHeight="24" alignment="MiddleLeft">Loading...</Text>
-    <VerticalScrollView preferredHeight="354" scrollSensitivity="30">
+    <VerticalScrollView preferredHeight="302" scrollSensitivity="30">
       <VerticalLayout id="rows" spacing="4" childForceExpandHeight="false" contentSizeFitter="vertical">
         ]] .. table.concat(rows, "\n        ") .. [[
       </VerticalLayout>
@@ -184,7 +205,6 @@ function checkForUpdate()
       if not string.find(scriptRequest.text, marker, 1, true) then
         return
       end
-      print("Root Database Library updated to " .. version)
       self.setLuaScript(scriptRequest.text)
       self.reload()
     end)
@@ -231,6 +251,7 @@ end
 
 function refreshUi()
   -- Tabs and the type row
+  self.UI.setValue("tabDescription", TAB_DESCRIPTIONS[section])
   self.UI.setAttribute("tab_keep", "color", section == "keep" and "#C8A86B" or "#EFE6D2")
   self.UI.setAttribute("tab_forge", "color", section == "forge" and "#C8A86B" or "#EFE6D2")
   -- Type buttons: only the types this tab actually has
@@ -251,41 +272,83 @@ function refreshUi()
     self.UI.setAttribute("type_" .. t, "color", selected == t and "#C8A86B" or "#EFE6D2")
   end
 
-  -- Rows: fill the first N matches, hide the rest
-  rowItems = {}
-  local total = 0
+  -- Matches, in the server's order (the Keep list arrives grouped by status).
+  local matched, perStatus = {}, {}
   for _, entry in ipairs(list) do
     if matches(entry) then
-      total = total + 1
-      if total <= MAX_ROWS then
-        rowItems[total] = entry
+      matched[#matched + 1] = entry
+      if entry.status_label then
+        perStatus[entry.status_label] = (perStatus[entry.status_label] or 0) + 1
       end
     end
   end
+  local total = #matched
+
+  -- Display slots: on the Keep tab a header ("Stable (12)") starts each status
+  -- group; the Forge tab has no statuses, so entries only.
+  local slots, lastStatus = {}, nil
+  for _, entry in ipairs(matched) do
+    if section == "keep" and entry.status_label and entry.status_label ~= lastStatus then
+      slots[#slots + 1] = {header = entry.status_label .. " (" .. perStatus[entry.status_label] .. ")"}
+      lastStatus = entry.status_label
+    end
+    slots[#slots + 1] = {entry = entry}
+  end
+
+  -- Fill the row pool. rowItems is set only for entries, so headers can't be
+  -- clicked (onRowClick ignores rows without an item).
+  rowItems = {}
+  local shown = 0
   for i = 1, MAX_ROWS do
-    local entry = rowItems[i]
-    if entry then
-      local who = entry.designers or entry.designer or ""
-      local label = entry.title
-      if entry.component and entry.component ~= "" then
-        label = label .. "  [" .. entry.component .. "]"
-      end
-      if who ~= "" then
-        label = label .. "  -  " .. who
-      end
-      -- Show the row first, then set its label: setAttribute can rebuild the
-      -- element and drop a value set before it.
-      self.UI.setAttribute("row" .. i, "active", "true")
-      self.UI.setValue("rowLabel" .. i, label)
+    local slot = slots[i]
+    local id, labelId = "row" .. i, "rowLabel" .. i
+    if slot == nil then
+      self.UI.setAttribute(id, "active", "false")
     else
-      self.UI.setAttribute("row" .. i, "active", "false")
+      -- Show first, style, then set the text last: setAttribute can rebuild an
+      -- element and drop a value set before it.
+      self.UI.setAttribute(id, "active", "true")
+      local kind = slot.header and "header" or "entry"
+      if rowKind[i] ~= kind then   -- restyle only on a change, so typing stays fast
+        if kind == "header" then
+          self.UI.setAttribute(id, "color", HEADER_COLOR)
+          self.UI.setAttribute(id, "interactable", "false")
+          self.UI.setAttribute(labelId, "color", HEADER_TEXT_COLOR)
+          self.UI.setAttribute(labelId, "fontStyle", "Bold")
+          self.UI.setAttribute(labelId, "alignment", "MiddleCenter")
+        else
+          self.UI.setAttribute(id, "color", ROW_COLOR)
+          self.UI.setAttribute(id, "interactable", "true")
+          self.UI.setAttribute(labelId, "color", ROW_TEXT_COLOR)
+          self.UI.setAttribute(labelId, "fontStyle", "Normal")
+          self.UI.setAttribute(labelId, "alignment", "MiddleLeft")
+        end
+        rowKind[i] = kind
+      end
+      if slot.header then
+        self.UI.setValue(labelId, slot.header)
+      else
+        local entry = slot.entry
+        rowItems[i] = entry
+        shown = shown + 1
+        local who = entry.designers or entry.designer or ""
+        local label = entry.title
+        if entry.component and entry.component ~= "" then
+          label = label .. "  [" .. entry.component .. "]"
+        end
+        if who ~= "" then
+          label = label .. "  -  " .. who
+        end
+        self.UI.setValue(labelId, label)
+      end
     end
   end
 
+  -- Counts are entries only, never headers.
   if total == 0 then
     setStatus("Nothing matches.")
-  elseif total > MAX_ROWS then
-    setStatus(string.format("Showing %d of %d -- refine your search.", MAX_ROWS, total))
+  elseif shown < total then
+    setStatus(string.format("Showing %d of %d -- refine your search.", shown, total))
   else
     setStatus(string.format("%d result%s", total, total == 1 and "" or "s"))
   end
@@ -323,8 +386,7 @@ function onRowClick(player, mouseButton, id)
     return
   end
   if busy then
-    broadcastToColor("Still loading the last selection...", player.color, {1, 0.8, 0.4})
-    return
+    return    -- still loading the last selection; ignore extra clicks
   end
   local url
   if section == "keep" then
@@ -333,7 +395,6 @@ function onRowClick(player, mouseButton, id)
     url = BASE_URL .. "/api/tts/forge/" .. tostring(entry.id) .. "/"
   end
   busy = true
-  broadcastToColor("Loading " .. entry.title .. "...", player.color, {0.8, 0.8, 0.8})
   WebRequest.get(url, function(request)
     busy = false
     if request.is_error or request.response_code ~= 200 then
@@ -375,7 +436,8 @@ end
 -- item, just without panels.
 function withVPPanel(data, done)
   local rows = (data and data.vp_rows) or {}
-  if #rows == 0 or not rttCoordinatorPresent() then
+  -- With the external-faction API the coordinator spawns its own panel.
+  if #rows == 0 or not rttCoordinatorPresent() or externalAPI() ~= nil then
     done(nil)
     return
   end
@@ -391,6 +453,51 @@ function withVPPanel(data, done)
   end)
 end
 
+-- The coordinator, when it offers the external-faction API (see
+-- tts/RTT_EXTERNAL_API.md): claim before spawning, report after, and
+-- it then handles seat, Box Score record, hands, VP token and VP panel itself.
+function externalAPI()
+  local coordinator = getObjectFromGUID(RTT_COORD_GUID)
+  if coordinator == nil then
+    return nil
+  end
+  local version = nil
+  pcall(function() version = coordinator.getVar("RTT_EXTERNAL_API") end)
+  if type(version) == "number" and version >= 1 then
+    return coordinator
+  end
+  return nil
+end
+
+-- Without that API: hand each faction's VP token to the coordinator's own
+-- placement queue (rttPlaceVP puts it on the score track's 0 column, like a
+-- built-in pick). Its retries run on the coordinator's timers, so they finish
+-- after this object has deleted itself. Returns true when queued.
+local function queueVPPlacement(rows)
+  local coordinator = getObjectFromGUID(RTT_COORD_GUID)
+  if coordinator == nil then
+    return false
+  end
+  local ok = pcall(function()
+    local pending = coordinator.getTable("RTT_VP_PENDING") or {}
+    local placed = coordinator.getVar("RTT_VP_PLACED") or 0
+    for _, vp in ipairs(rows) do
+      placed = placed + 1
+      pending[vp.row] = placed          -- slot n: next spot in the 0 column
+    end
+    coordinator.setVar("RTT_VP_PLACED", placed)
+    coordinator.setTable("RTT_VP_PENDING", pending)
+    coordinator.call("rttPlaceUnplacedVPs")
+  end)
+  return ok
+end
+
+local function releaseClaims(coordinator, claimed)
+  for _, faction in ipairs(claimed) do
+    pcall(function() coordinator.call("rttReleaseExternalFaction", { faction = faction }) end)
+  end
+end
+
 local function replacePlain(text, find, replacement)
   local i, j = string.find(text, find, 1, true)
   if not i then
@@ -402,6 +509,120 @@ end
 local function jsonString(value)
   local escaped = value:gsub("\\", "\\\\"):gsub('"', '\\"')
   return '"' .. escaped .. '"'
+end
+
+-- ── Maps, decks, house rules (RTT table) ────────────────────────────────────
+
+-- A map replaces the table's map at its centre. With the coordinator's API it
+-- places the map itself (clearing, tags, shuffle, extras, layout); otherwise we
+-- clear and place it the same way. Layout data: tts/BOARD_LAYOUT.md.
+function placeMap(data, player)
+  local coordinator = getObjectFromGUID(RTT_COORD_GUID)
+  local objects = data.objects
+  local boardIndex = data.map_board or 1
+  local board = objects[boardIndex] or objects[1]
+  local api = externalAPI()
+  if api ~= nil then
+    local list = {}
+    for i, o in ipairs(objects) do
+      list[i] = {json = o.json, x = o.x - board.x, y = o.y - board.y, z = o.z - board.z,
+                 board = (i == boardIndex)}
+    end
+    local answer = nil
+    pcall(function()
+      answer = api.call("rttPlaceExternalMap", {name = data.title, slug = data.slug,
+        shuffle = data.shuffle, layout = data.layout, objects = list})
+    end)
+    if type(answer) == "table" and answer.ok then
+      deleteThis()
+    else
+      broadcastToColor((type(answer) == "table" and answer.reason) or "The table couldn't place that map.",
+        player.color, {1, 0.4, 0.4})
+    end
+    return
+  end
+
+  pcall(function() coordinator.call("removeMapItems") end)
+  for _, o in ipairs(objects) do
+    spawnObjectJSON({
+      json = o.json,
+      position = {MAP_CENTER.x + o.x - board.x, MAP_CENTER.y + o.y - board.y, MAP_CENTER.z + o.z - board.z},
+    })
+  end
+  busy = true   -- ignore clicks while the map settles; this object is about to go
+  Wait.time(function()
+    if data.shuffle then pcall(function() coordinator.call("shuffleMaps") end) end
+    pcall(function() coordinator.call("rttPlaceUnplacedVPs") end)
+    pcall(function() coordinator.call("rttTellSheet") end)
+    deleteThis()
+  end, MAP_SETTLE_SECONDS)
+end
+
+-- A deck replaces the table's deck on the deck holder's draw slot. Returns
+-- false when it can't (no holder, or the coordinator refused), so the caller
+-- spawns it where the library sits instead.
+function placeDeck(data)
+  local api = externalAPI()
+  if api ~= nil then
+    local jsons = {}
+    for i, o in ipairs(data.objects) do jsons[i] = o.json end
+    local answer = nil
+    pcall(function()
+      answer = api.call("rttPlaceExternalDeck", {name = data.title, slug = data.slug, objects = jsons})
+    end)
+    if type(answer) == "table" and answer.ok then
+      deleteThis()
+      return true
+    end
+    return false
+  end
+
+  local holder = getObjectFromGUID(DECK_HOLDER_GUID)
+  if holder == nil then
+    return false
+  end
+  local coordinator = getObjectFromGUID(RTT_COORD_GUID)
+  pcall(function() coordinator.call("removeDeckItems") end)
+  local slot = holder.positionToWorld(DECK_DRAW_SLOT)
+  local ry = holder.getRotation().y + DECK_ROT_Y
+  for i, o in ipairs(data.objects) do
+    spawnObjectJSON({
+      json = o.json,
+      position = {slot.x, slot.y + 0.5 + i * 0.3, slot.z},
+      rotation = {0, ry, 180},   -- face down
+    })
+  end
+  deleteThis()
+  return true
+end
+
+-- House rules always reach the Box Score (through the coordinator's house-rule
+-- list); landmarks and hirelings only with the coordinator's API.
+function recordAsset(data)
+  if data.slug == nil or data.slug == "" then
+    return
+  end
+  local api = externalAPI()
+  if data.component == "Tweak" then
+    if api ~= nil then
+      pcall(function() api.call("rttAddHouseRule", {slug = data.slug}) end)
+      return
+    end
+    local coordinator = getObjectFromGUID(RTT_COORD_GUID)
+    pcall(function()
+      local rules = coordinator.getTable("RTT_HOUSERULES") or {}
+      for _, r in ipairs(rules) do
+        if r == data.slug then return end
+      end
+      rules[#rules + 1] = data.slug
+      coordinator.setTable("RTT_HOUSERULES", rules)
+      coordinator.call("rttPublishSeats")
+    end)
+  elseif api ~= nil and (data.component == "Landmark" or data.component == "Hireling") then
+    pcall(function()
+      api.call("rttExternalAssetAdded", {kind = string.lower(data.component), slug = data.slug})
+    end)
+  end
 end
 
 -- The selected item replaces the library: spawn it where this object sits,
@@ -419,31 +640,96 @@ function spawnAll(data, player, panelTemplate)
     y = origin.y + SPAWN_OFFSET.y,
     z = origin.z + SPAWN_OFFSET.z,
   }
-  local count = 0
-  for i, obj in ipairs(objects) do
-    -- Keep each object's layout offset; stagger height so decks settle on boards.
-    spawnObjectJSON({
-      json = obj.json,
-      position = {base.x + obj.x, base.y + obj.y + 1 + i * 0.2, base.z + obj.z},
-    })
-    count = count + 1
-  end
-  -- One RTT VP Panel per faction, set to that faction's row (its VP marker's
-  -- name minus " VP"), placed beside its marker.
-  local panels = 0
-  if panelTemplate ~= nil then
-    for _, vp in ipairs(data.vp_rows or {}) do
-      spawnObjectJSON({
-        json = replacePlain(panelTemplate, '"__VP_ROW__"', jsonString(vp.row)),
-        position = {base.x + vp.x + VP_PANEL_OFFSET.x, base.y + 1, base.z + vp.z + VP_PANEL_OFFSET.z},
-      })
-      panels = panels + 1
+  local vpRows = data.vp_rows or {}
+
+  -- Maps and decks replace the table's current ones, like the coordinator's buttons.
+  if rttCoordinatorPresent() then
+    if data.component == "Map" then
+      placeMap(data, player)
+      return
+    end
+    if data.component == "Deck" and placeDeck(data) then
+      return
     end
   end
-  local message = string.format("Loaded %s (%d object%s).", data.title or "item", count, count == 1 and "" or "s")
-  if panels > 0 then
-    message = message .. " Added the RTT VP Panel."
+
+  -- With the coordinator's external-faction API, claim each faction first so
+  -- it can refuse spectators, duplicates and taken seats before anything spawns.
+  local api = (#vpRows > 0) and externalAPI() or nil
+  local claimed = {}
+  if api ~= nil then
+    for _, vp in ipairs(vpRows) do
+      local answer = nil
+      pcall(function()
+        answer = api.call("rttClaimExternalFaction",
+          { faction = vp.row, row = vp.row, color = player.color, x = base.x, z = base.z })
+      end)
+      if type(answer) ~= "table" or not answer.ok then
+        releaseClaims(api, claimed)
+        broadcastToColor((type(answer) == "table" and answer.reason) or "The table refused that faction.",
+          player.color, {1, 0.4, 0.4})
+        return
+      end
+      claimed[#claimed + 1] = vp.row
+    end
   end
-  broadcastToColor(message, player.color, {0.6, 1, 0.6})
+
+  local spawned = {}
+  local spawnedOk = pcall(function()
+    for i, obj in ipairs(objects) do
+      -- Keep each object's layout offset; stagger height so decks settle on boards.
+      spawned[i] = spawnObjectJSON({
+        json = obj.json,
+        position = {base.x + obj.x, base.y + obj.y + 1 + i * 0.2, base.z + obj.z},
+      })
+    end
+  end)
+  if not spawnedOk then
+    if api ~= nil then releaseClaims(api, claimed) end
+    broadcastToColor("Something went wrong spawning " .. (data.title or "that item") .. ".",
+      player.color, {1, 0.4, 0.4})
+    return
+  end
+
+  if api ~= nil then
+    -- The coordinator takes it from here: seat, Box Score record, hands, VP
+    -- token on the track and its own VP panel.
+    local ry = self.getRotation().y
+    for _, vp in ipairs(vpRows) do
+      local boardGuid = nil
+      if vp.board ~= nil and spawned[vp.board] ~= nil then
+        pcall(function() boardGuid = spawned[vp.board].getGUID() end)
+      end
+      pcall(function()
+        api.call("rttExternalFactionPlaced", {
+          faction = vp.row, row = vp.row, color = player.color,
+          x = base.x, z = base.z, ry = ry, board = boardGuid,
+          vpPanel = {x = base.x + vp.x + VP_PANEL_OFFSET.x, y = base.y + 1, z = base.z + vp.z + VP_PANEL_OFFSET.z},
+        })
+      end)
+    end
+  else
+    -- One RTT VP Panel per faction, set to that faction's row (its VP marker's
+    -- name minus " VP"), placed beside its marker.
+    if panelTemplate ~= nil then
+      for _, vp in ipairs(vpRows) do
+        spawnObjectJSON({
+          json = replacePlain(panelTemplate, '"__VP_ROW__"', jsonString(vp.row)),
+          position = {base.x + vp.x + VP_PANEL_OFFSET.x, base.y + 1, base.z + vp.z + VP_PANEL_OFFSET.z},
+        })
+      end
+    end
+    if #vpRows > 0 and rttCoordinatorPresent() then
+      queueVPPlacement(vpRows)
+    end
+  end
+
+  -- House rules, landmarks and hirelings: record them for the Box Score.
+  if rttCoordinatorPresent() then
+    recordAsset(data)
+  end
+
+  -- No chat message on success (only errors are reported); the spawned item is
+  -- the confirmation.
   deleteThis()
 end

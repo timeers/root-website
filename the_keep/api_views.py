@@ -316,13 +316,62 @@ def _number(value):
         return 0.0
 
 
-def _tts_objects_payload(title, tts_json):
+# Tags the RTT coordinator's shuffleMaps acts on; a map carrying any of them
+# gets random set-up (ruins, suits, ...) when the loader asks for a shuffle.
+MAP_SHUFFLE_TAGS = {'Ruin', 'Dummy', 'Clearing Marker', 'Shuffleable', 'City Marker', 'Tool',
+                    'Clearing 1', 'Clearing 2', 'Clearing 3', 'Clearing 4', 'Clearing 5'}
+DECK_OBJECT_NAMES = {'Deck', 'DeckCustom', 'Card', 'CardCustom'}
+
+
+def _add_tags(obj, *tags):
+    """A copy of `obj` with `tags` merged into its Tags (no duplicates)."""
+    obj = dict(obj)
+    current = list(obj.get('Tags') or [])
+    for tag in tags:
+        if tag not in current:
+            current.append(tag)
+    obj['Tags'] = current
+    return obj
+
+
+def _without_tag(obj, tag):
+    obj = dict(obj)
+    obj['Tags'] = [t for t in (obj.get('Tags') or []) if t != tag]
+    return obj
+
+
+def _rtt_ready_objects(title, states, component, fixed_clearings=False):
+    """The objects as served, tagged so the RTT coordinator handles them like its
+    own map or deck. Returns (objects, map_board index or None). Only the served
+    copy is changed; the library deletes itself before spawn callbacks run, so
+    tags have to travel in the JSON."""
+    if component == 'Map' and states:
+        board = max(range(len(states)), key=lambda i: (len(states[i].get('AttachedSnapPoints') or []), -i))
+        out = []
+        for i, obj in enumerate(states):
+            if fixed_clearings:
+                obj = _without_tag(obj, 'Clearing Marker')   # fixed suits: never shuffled
+            obj = _add_tags(obj, 'Map Object')
+            if i == board:
+                obj = _add_tags(obj, 'RTT Map', f'RTT Map: {title}')
+            out.append(obj)
+        return out, board + 1
+    if component == 'Deck':
+        return [_add_tags(o, 'Deck Object') if o.get('Name') in DECK_OBJECT_NAMES else o
+                for o in states], None
+    return list(states), None
+
+
+def _tts_objects_payload(title, tts_json, component='', slug='', fixed_clearings=False):
     """Each object pre-encoded as a string so the Lua side hands it straight to
     spawnObjectJSON (MoonSharp's JSON is very slow on big deck blobs), with its
     position pulled out here so Lua never decodes an object at all."""
+    states, map_board = _rtt_ready_objects(title, tts_json.get('ObjectStates', []), component,
+                                           fixed_clearings=fixed_clearings)
     objects = []
     vp_rows = []
-    for obj in tts_json.get('ObjectStates', []):
+    nicknames = [(o.get('Nickname') or '') for o in states]
+    for obj in states:
         transform = obj.get('Transform') or {}
         position = {
             'x': _number(transform.get('posX')),
@@ -335,8 +384,22 @@ def _tts_objects_payload(title, tts_json):
         # (the panel matches its marker by exactly this name).
         nickname = obj.get('Nickname') or ''
         if nickname.endswith(' VP') and len(nickname) > 3:
-            vp_rows.append({'row': nickname[:-3], **position})
-    return {'title': title, 'objects': objects, 'vp_rows': vp_rows}
+            row = nickname[:-3]
+            # 1-based index of this faction's board ("<row> - Faction Board") in
+            # `objects`, so the loader can hand its GUID to the RTT coordinator.
+            board_name = f'{row} - Faction Board'
+            board = nicknames.index(board_name) + 1 if board_name in nicknames else None
+            vp_rows.append({'row': row, **position, 'board': board})
+    payload = {'title': title, 'component': component or '', 'slug': slug or '',
+               'objects': objects, 'vp_rows': vp_rows}
+    if component == 'Map':
+        payload['map_board'] = map_board
+        payload['shuffle'] = any(MAP_SHUFFLE_TAGS & set(o.get('Tags') or []) for o in states)
+        # Clearings / forests / relics as data, like the RTT coordinator's own
+        # tables -- see tts/BOARD_LAYOUT.md.
+        if isinstance(tts_json.get('BoardLayout'), dict):
+            payload['layout'] = tts_json['BoardLayout']
+    return payload
 
 
 class TTSCatalogView(TTSLoaderView):
@@ -348,8 +411,10 @@ class TTSCatalogView(TTSLoaderView):
         keep_posts = (
             Post.objects.filter(tts_json__isnull=False, status__in=TTS_LISTED_STATUSES)
             .select_related('designer')
-            .only('slug', 'title', 'component', 'designers_list', 'small_icon', 'designer__display_name')
-            .order_by('component', 'title')
+            .only('slug', 'title', 'component', 'status', 'designers_list', 'small_icon', 'designer__display_name')
+            # Status codes are '1'..'4', so this groups Stable, Testing,
+            # Development, Inactive -- the loader adds a header per group.
+            .order_by('status', 'component', 'title')
         )
         forge_factions = (
             ForgedFaction.objects.filter(tts_status=ForgedFaction.TTSStatus.APPROVED, tts_json__isnull=False)
@@ -362,6 +427,8 @@ class TTSCatalogView(TTSLoaderView):
                 'slug': post.slug,
                 'title': post.title,
                 'component': post.component or '',
+                'status': post.status,
+                'status_label': post.get_status_display(),
                 'designers': post.designers_list or (post.designer.display_name if post.designer else ''),
                 'icon': _site_url(post.small_icon),
             } for post in keep_posts],
@@ -379,10 +446,14 @@ class TTSKeepDetailView(TTSLoaderView):
     def get(self, request, slug):
         post = get_object_or_404(
             Post.objects.filter(tts_json__isnull=False, status__in=TTS_LISTED_STATUSES)
-            .only('title', 'tts_json'),
+            .only('title', 'slug', 'component', 'tts_json'),
             slug=slug,
         )
-        return Response(_tts_objects_payload(post.title, post.tts_json))
+        fixed_clearings = False
+        if post.component == Post.ComponentChoices.MAP:
+            fixed_clearings = Map.objects.filter(pk=post.pk).values_list('fixed_clearings', flat=True).first() or False
+        return Response(_tts_objects_payload(post.title, post.tts_json, component=post.component,
+                                             slug=post.slug, fixed_clearings=fixed_clearings))
 
 
 class TTSForgeDetailView(TTSLoaderView):
@@ -391,10 +462,11 @@ class TTSForgeDetailView(TTSLoaderView):
 
         forged = get_object_or_404(
             ForgedFaction.objects.filter(tts_status=ForgedFaction.TTSStatus.APPROVED, tts_json__isnull=False)
-            .only('faction_name', 'tts_json'),
+            .only('faction_name', 'component', 'tts_json'),
             pk=pk,
         )
-        return Response(_tts_objects_payload(forged.faction_name, forged.tts_json))
+        return Response(_tts_objects_payload(forged.faction_name, forged.tts_json,
+                                             component=forged.component))
 
 
 # ── TTS Library object: served straight from tts/loader.lua ─────────────────

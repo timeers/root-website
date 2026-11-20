@@ -322,6 +322,14 @@ class TTSLoaderApiTests(TestCase):
         self.listed = Faction.objects.create(title='Listed Fox', animal='Fox', designer=self.designer,
                                              component='Faction', status=StatusChoices.STABLE,
                                              tts_json=_tts_save())
+        # Titles sort before "Listed Fox", so the catalog order proves it groups
+        # by status (Stable, Testing, ..., Inactive), not alphabetically.
+        self.testing = Faction.objects.create(title='Aardvark Folk', animal='Fox', designer=self.designer,
+                                              component='Faction', status=StatusChoices.TESTING,
+                                              tts_json=_tts_save())
+        self.inactive = Faction.objects.create(title='Ant Folk', animal='Fox', designer=self.designer,
+                                               component='Faction', status=StatusChoices.INACTIVE,
+                                               tts_json=_tts_save())
         # Has JSON but isn't publicly active, so the library must hide it.
         self.rejected = Faction.objects.create(title='Rejected Fox', animal='Fox', designer=self.designer,
                                                component='Faction', status=StatusChoices.REJECTED,
@@ -344,7 +352,10 @@ class TTSLoaderApiTests(TestCase):
         response = self.client.get(reverse('api-tts-catalog'))
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertEqual([p['slug'] for p in data['keep']], [self.listed.slug])
+        self.assertEqual([p['slug'] for p in data['keep']],
+                         [self.listed.slug, self.testing.slug, self.inactive.slug])
+        self.assertEqual([(p['status'], p['status_label']) for p in data['keep']],
+                         [('1', 'Stable'), ('2', 'Testing'), ('4', 'Inactive')])
         self.assertEqual([f['id'] for f in data['forge']], [self.published.pk])
         # The Forge tab's type buttons are built from this field.
         self.assertEqual(data['forge'][0]['component'], 'Faction')
@@ -494,7 +505,7 @@ class TTSVPPanelTests(TestCase):
         post = Faction.objects.create(title='Fox Folk', animal='Fox', designer=designer, component='Faction',
                                       status=StatusChoices.STABLE, tts_json=save)
         data = self.client.get(reverse('api-tts-keep-detail', args=[post.slug])).json()
-        self.assertEqual(data['vp_rows'], [{'row': 'Fox Folk', 'x': 13.0, 'y': 1.0, 'z': 12.0}])
+        self.assertEqual(data['vp_rows'], [{'row': 'Fox Folk', 'x': 13.0, 'y': 1.0, 'z': 12.0, 'board': None}])
         self.assertEqual(len(data['objects']), 3)
 
     def test_panel_template_is_rtt_panel_with_placeholder(self):
@@ -511,3 +522,95 @@ class TTSVPPanelTests(TestCase):
         # The panel builds its "vp<row>" asset from its own marker at load time.
         panel = json.loads(self.client.get(reverse('api-tts-vp-panel')).content)
         self.assertEqual([a['Name'] for a in panel['CustomUIAssets']], ['pnlframe'])
+
+    def test_vp_row_points_at_its_faction_board(self):
+        designer = Profile.objects.create(discord='vpboard')
+        save = {'ObjectStates': [
+            {'Name': 'Custom_Token', 'Nickname': 'Fox Folk VP', 'Transform': {'posX': 13, 'posY': 1, 'posZ': 12}},
+            {'Name': 'Custom_Tile', 'Nickname': 'Fox Folk - Faction Board', 'Transform': {'posX': 0, 'posY': 0, 'posZ': 0}},
+        ]}
+        post = Faction.objects.create(title='Fox Folk', animal='Fox', designer=designer, component='Faction',
+                                      status=StatusChoices.STABLE, tts_json=save)
+        data = self.client.get(reverse('api-tts-keep-detail', args=[post.slug])).json()
+        self.assertEqual(data['vp_rows'][0]['board'], 2)  # 1-based, as Lua indexes the spawned objects
+
+
+@override_settings(CACHES=_LOCMEM)
+class TTSRTTPayloadTests(TestCase):
+    """Detail payloads tagged so the RTT coordinator treats maps/decks as its own."""
+
+    def setUp(self):
+        cache.clear()
+        self.designer = Profile.objects.create(discord='rttpayload')
+
+    def _detail(self, post):
+        return self.client.get(reverse('api-tts-keep-detail', args=[post.slug])).json()
+
+    @staticmethod
+    def _tags(payload, i):
+        return json.loads(payload['objects'][i]['json']).get('Tags', [])
+
+    def _map(self, states, **kwargs):
+        from the_keep.models import Map
+        return Map.objects.create(title='Fall Map', designer=self.designer, status=StatusChoices.STABLE,
+                                  tts_json={'ObjectStates': states, **kwargs.pop('extra', {})}, **kwargs)
+
+    def test_map_objects_and_board_are_tagged(self):
+        snaps = [{'Position': {'x': 0, 'y': 0, 'z': 0}}] * 3
+        post = self._map([
+            {'Name': 'Custom_Token', 'Nickname': 'Ruin', 'Tags': ['Ruin'], 'Transform': {'posX': 5}},
+            {'Name': 'Custom_Tile', 'Nickname': 'Board', 'AttachedSnapPoints': snaps, 'Transform': {'posX': 0}},
+        ])
+        data = self._detail(post)
+        self.assertEqual((data['component'], data['slug'], data['map_board']), ('Map', post.slug, 2))
+        self.assertEqual(self._tags(data, 0), ['Ruin', 'Map Object'])
+        self.assertEqual(self._tags(data, 1), ['Map Object', 'RTT Map', 'RTT Map: Fall Map'])
+        self.assertTrue(data['shuffle'])
+        self.assertNotIn('layout', data)
+        # Only the served copy is tagged.
+        from the_keep.models import Map
+        stored = Map.objects.get(pk=post.pk).tts_json['ObjectStates']
+        self.assertEqual(stored[1].get('Tags'), None)
+
+    def test_fixed_clearings_keep_suits_in_place(self):
+        post = self._map([
+            {'Name': 'Custom_Token', 'Tags': ['Clearing Marker', 'Suit: fox']},
+            {'Name': 'Custom_Tile', 'Nickname': 'Board', 'AttachedSnapPoints': [{'Position': {}}]},
+        ], fixed_clearings=True)
+        data = self._detail(post)
+        self.assertEqual(self._tags(data, 0), ['Suit: fox', 'Map Object'])
+        self.assertFalse(data['shuffle'])
+
+    def test_board_layout_is_passed_through(self):
+        layout = {'clearings': [[1.5, -2.0], [3, 4]], 'relics': [[0, 0]]}
+        post = self._map([{'Name': 'Custom_Tile'}], extra={'BoardLayout': layout})
+        self.assertEqual(self._detail(post)['layout'], layout)
+
+    def test_deck_objects_are_tagged(self):
+        from the_keep.models import Deck
+        post = Deck.objects.create(title='Big Deck', designer=self.designer, status=StatusChoices.STABLE,
+                                   card_total=54, tts_json={'ObjectStates': [
+                                       {'Name': 'DeckCustom'}, {'Name': 'Card'}, {'Name': 'Custom_Tile'}]})
+        data = self._detail(post)
+        self.assertEqual(data['component'], 'Deck')
+        self.assertEqual([self._tags(data, i) for i in range(3)], [['Deck Object'], ['Deck Object'], []])
+        self.assertNotIn('map_board', data)
+
+    def test_factions_are_not_tagged(self):
+        post = Faction.objects.create(title='Fox Folk', animal='Fox', designer=self.designer, component='Faction',
+                                      status=StatusChoices.STABLE, tts_json=_tts_save())
+        data = self._detail(post)
+        self.assertEqual(data['component'], 'Faction')
+        self.assertNotIn('Tags', json.loads(data['objects'][0]['json']))
+
+
+class BoardLayoutValidationTests(TestCase):
+    def test_accepts_well_formed_layout(self):
+        validate_tts_save({'ObjectStates': [{'Name': 'x'}],
+                           'BoardLayout': {'clearings': [[1, 2.5]], 'forests': [], 'relics': [[-3, 0]]}})
+
+    def test_rejects_malformed_layout(self):
+        for bad in ([], {'clearings': [[1]]}, {'clearings': [[1, 'a']]}, {'clearings': 'x'},
+                    {'rivers': [[0, 0]]}, {'clearings': [[True, 1]]}):
+            with self.subTest(bad=bad), self.assertRaises(ValidationError):
+                validate_tts_save({'ObjectStates': [{'Name': 'x'}], 'BoardLayout': bad})

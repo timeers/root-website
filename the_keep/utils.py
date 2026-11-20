@@ -438,6 +438,31 @@ def validate_tts_save(value):
         raise ValidationError("TTS JSON needs a non-empty \"ObjectStates\" list. Paste a TTS save or Save Object file.")
     if not all(isinstance(obj, dict) and "Name" in obj for obj in states):
         raise ValidationError("Every entry in ObjectStates must be an object with a \"Name\".")
+    if "BoardLayout" in value:
+        validate_board_layout(value["BoardLayout"])
+
+BOARD_LAYOUT_KEYS = ("clearings", "forests", "relics")
+
+def validate_board_layout(layout):
+    """Optional map layout stored next to ObjectStates. Format, coordinate
+    convention and how the RTT coordinator uses it: tts/BOARD_LAYOUT.md."""
+    if not isinstance(layout, dict):
+        raise ValidationError("\"BoardLayout\" must be an object of point lists (see tts/BOARD_LAYOUT.md).")
+    unknown = set(layout) - set(BOARD_LAYOUT_KEYS)
+    if unknown:
+        raise ValidationError(f"\"BoardLayout\" has unknown keys: {', '.join(sorted(unknown))}. "
+                              f"Allowed: {', '.join(BOARD_LAYOUT_KEYS)}.")
+    for key in BOARD_LAYOUT_KEYS:
+        points = layout.get(key)
+        if points is None:
+            continue
+        ok = isinstance(points, list) and all(
+            isinstance(p, list) and len(p) == 2
+            and all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in p)
+            for p in points
+        )
+        if not ok:
+            raise ValidationError(f"\"BoardLayout\".{key} must be a list of [x, z] number pairs.")
 
 def tts_json_hash(value):
     """Stable hash of a stored TTS JSON value. Keys are sorted because Postgres

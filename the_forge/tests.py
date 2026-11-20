@@ -490,6 +490,10 @@ class ForgeTTSConversionEndToEndTests(TestCase):
         self.assertIn('https://example.test/media/uploads/', dumped)
         nicknames = [o.get('Nickname') for o in stored['ObjectStates']]
         self.assertIn('Ambush', nicknames)
+        # The Root Box Score seats a faction through "<name> - ..." and builds its
+        # row from "<name> VP"; both must share the faction's name.
+        self.assertIn('E2E Fox - Faction Board', nicknames)
+        self.assertIn('E2E Fox VP', nicknames)
 
         forged = ForgedFaction.objects.get(pk=self.forged.pk)
         fresh = ForgedFactionSyncForm(forged=forged)
@@ -855,3 +859,27 @@ class ForgedFactionAdminTests(TestCase):
         self.assertIn('component', model_admin.readonly_fields)
         self.assertIn('published_faction', model_admin.readonly_fields)
         self.assertIn('published_post', model_admin.raw_id_fields)
+
+
+class ForgeTTSNamingTests(TestCase):
+    def test_board_and_vp_marker_share_the_faction_name(self):
+        from .services.tts import TTSForgedFactionBoard, place_markers_for_faction
+        from the_keep.services.tts import SiteURLRequest
+        designer = Profile.objects.create(discord='namingdesigner')
+        forged = ForgedFaction.objects.create(designer=designer, faction_name='Fox Folk')
+        board = TTSForgedFactionBoard(forged, request=SiteURLRequest()).to_dict()
+        self.assertEqual(board['Nickname'], 'Fox Folk - Faction Board')
+        forged.vp_marker = 'forge/factions/fox-folk/board/vp_marker.webp'
+        markers = place_markers_for_faction(forged, request=SiteURLRequest())
+        self.assertEqual([m['Nickname'] for m in markers], ['Fox Folk VP'])
+
+    def test_faction_boards_have_no_tooltip(self):
+        from .services.tts import TTSForgedFactionBoard, TTSForgedFactionDecree
+        from the_keep.models import Faction as KeepFaction
+        from the_keep.services.tts import SiteURLRequest, TTSBoard
+        designer = Profile.objects.create(discord='tooltipdesigner')
+        forged = ForgedFaction.objects.create(designer=designer, faction_name='Fox Folk')
+        self.assertFalse(TTSForgedFactionBoard(forged, request=SiteURLRequest()).to_dict()['Tooltip'])
+        self.assertFalse(TTSForgedFactionDecree(forged, request=SiteURLRequest()).to_dict()['Tooltip'])
+        keep = KeepFaction.objects.create(title='Fox Folk', animal='Fox', designer=designer, component='Faction')
+        self.assertFalse(TTSBoard(keep, request=SiteURLRequest()).to_dict()['Tooltip'])

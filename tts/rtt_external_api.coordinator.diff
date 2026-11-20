@@ -1,0 +1,595 @@
+--- coordinator.lua
++++ coordinator.lua
+@@ -867,6 +867,7 @@
+                          dn = RTT_DN, spawned = RTT_SPAWNED or {}, started = (RTT_STARTED == true),
+                          draft = { factions = RTT_DRAFT_FACTIONS or {}, taken = RTT_FAC_TAKEN or {} },
+                          houserules = RTT_HOUSERULES or {},
++                         external = RTT_EXTERNAL,
+                          captains = { board = RTT_CAP_BOARD_GUID, knave = RTT_CAP_KNAVE_GUID,
+                            slots = RTT_CAP_SLOT or {}, spawned = RTT_CAP_SPAWNED or {},
+                            spawnN = RTT_CAP_SPAWN_N or 0, warriorN = RTT_CAP_WARRIOR_N or 0,
+@@ -920,6 +921,10 @@
+         if type(r) == "string" and r ~= "" then RTT_HOUSERULES[#RTT_HOUSERULES + 1] = r end
+       end
+     end
++    RTT_EXTERNAL = (type(d.external) == "table") and d.external or {}
++    RTT_EXTERNAL.landmarks = RTT_EXTERNAL.landmarks or {}
++    RTT_EXTERNAL.hirelings = RTT_EXTERNAL.hirelings or {}
++    RTT_EXTERNAL.layouts = RTT_EXTERNAL.layouts or {}
+     for _, seat in ipairs(RTT_SEATS) do
+       if seat.faction ~= nil then RTT_FAC_TAKEN[seat.faction] = true end
+     end
+@@ -2637,6 +2642,8 @@
+       if string.find(j, h, 1, true) then return suit end
+     end
+   end
++  local tagged = string.match(j, '"Suit: (%a+)"')
++  if tagged ~= nil then return string.lower(tagged) end
+   return nil
+ end
+ function rttPublishSuits()
+@@ -3137,6 +3144,7 @@
+   RTT_SEATS      = {}
+   RTT_PICK_N     = 0
+   RTT_HOUSERULES = {}
++  RTT_EXTERNAL   = { landmarks = {}, hirelings = {}, layouts = {} }
+   RTT_ORDER      = {}
+   RTT_TURN_SEATS = nil
+   for _, k in ipairs({ "RTT_SEAT_POS", "RTT_SEAT_COLOR", "RTT_SEAT_PLAYER", "RTT_SEAT_STEAM",
+@@ -3977,10 +3985,10 @@
+ end
+ 
+ function makeDeck(player,value,id)
+-  if rttBusyByHuman(player, "The deck is being placed.") then return end
+-  clearInfo()
+-  local frogs = rttFrogCardsInDecks()
+-  removeDeckItems()
++  local frogs = rttBeginDeck(player)
++  if frogs == nil then return end
++  -- A built-in deck replaces any outside one in the seat record.
++  if RTT_EXTERNAL ~= nil then RTT_EXTERNAL.deck, RTT_EXTERNAL.deck_name = nil, nil end
+   local my_rot = self.getRotation()
+   local objects = {}
+   local scale = rttPlaceScale()
+@@ -4009,27 +4017,11 @@
+       spawnObjectJSON({
+           json              = v.json,
+           position          = new_pos,
+-          callback_function = function(o)
+-            o.setRotation({o.getRotation().x, o.getRotation().y-90, o.getRotation().z})
+-            local _tg=o.getTags(); table.insert(_tg,"Deck Object"); o.setTags(_tg)
+-            if o.name == "Deck" then
+-              o.shuffle()
+-            end
+-
+-            for _,i in ipairs(getObjects()) do
+-              if i.name == "Deck" and i.hasTag("Deck Object") then
+-                for _,m in ipairs(i.getObjects()) do
+-                end
+-              end
+-            end
+-          end
++          callback_function = rttDeckPieceCallback
+       })
+     end
+   end
+-  if find_object_by_gm_note("Dragon God") ~= nil then
+-    Wait.frames(function() pcall(function() rttPlaceDragonGod() end) end, 2)
+-  end
+-  if #frogs > 0 then Wait.time(function() rttRestoreFrogs(frogs, 0) end, RTT_FROG_WAIT) end
++  rttFinishDeck(frogs)
+ end
+ 
+ function makeTool(player,value,id)
+@@ -4768,6 +4760,12 @@
+     out.houserules = {}
+     for i, r in ipairs(RTT_HOUSERULES) do out.houserules[i] = r end
+   end
++  if RTT_EXTERNAL ~= nil then
++    out.map, out.map_name = RTT_EXTERNAL.map, RTT_EXTERNAL.map_name
++    out.deck, out.deck_name = RTT_EXTERNAL.deck, RTT_EXTERNAL.deck_name
++    if #(RTT_EXTERNAL.landmarks or {}) > 0 then out.landmarks = RTT_EXTERNAL.landmarks end
++    if #(RTT_EXTERNAL.hirelings or {}) > 0 then out.hirelings = RTT_EXTERNAL.hirelings end
++  end
+   return out
+ end
+ 
+@@ -6608,7 +6606,7 @@
+     end
+   end
+   local board, mapId, fivep = rttMap()
+-  local centres = (mapId ~= nil) and RTT_CLEARING_CENTRES[mapId] or nil
++  local centres = (mapId ~= nil) and (RTT_CLEARING_CENTRES[mapId] or rttExternalLayoutWorld(mapId, "clearings")) or nil
+   if board == nil or centres == nil then
+     if tries > 0 then later() return end
+     rttReply(who, "Place a map before deploying the Marquise warriors.")
+@@ -7033,7 +7031,7 @@
+ 
+ function rttForestWorldCenters(mapId)
+   local cents = RTT_FOREST_UV[mapId]
+-  if cents == nil then return {} end
++  if cents == nil then return rttExternalLayoutWorld(mapId, "forests") or {} end
+   local m = rttFindMapObject()
+   if m == nil then return {} end
+   local b = m.getBounds()
+@@ -7070,7 +7068,7 @@
+       targets[#targets + 1] = { w.x, w.z }
+     end
+   else
+-    targets = rttForestWorldCenters(mapId)
++    targets = rttExternalLayoutWorld(mapId, "relics") or rttForestWorldCenters(mapId)
+   end
+   if #targets == 0 then return end
+ 
+@@ -7580,63 +7578,22 @@
+ end
+ 
+ function makeMap(player,value,id,keepBoard)
+-  RTT_MAP_AFTER_Q = {}
+-  if rttBusyByHuman(player, "Map is currently spawning.") then return end
+-  local byHuman = false
+-  pcall(function() byHuman = (player ~= nil and player ~= "" and player.color ~= nil) end)
+-  if byHuman then RTT_5P_MARSH = false end
+-  RTT_MAP_GEN = (RTT_MAP_GEN or 0) + 1
+-  local gen = RTT_MAP_GEN
+-  if id == "Marsh Map" and RTT_5P_MARSH then
+-    rttWhenMapReady(function() if RTT_MAP_GEN == gen then rttMarshLandmarks() end end)
+-  end
+-  RTT_CURRENT_MAP = id
+-  if id == "Marsh Map" then RTT_MARSH_5P_BUILT = (RTT_5P_MARSH == true) end
+-  local fivep = (id == "Marsh Map" and RTT_5P_MARSH == true)
+-  if id == "Mountain Map" then rttMapAfter(function() rttMountainLandmark() end) end
+-  if id == "Summer Map" then rttMapAfter(function() rttSpawnPriority("Summer Map", RTT_PRIO_SUMMERMAP) end) end
+-  if id == "Lake Map" then rttMapAfter(function() rttSpawnPriority("Lake Map", RTT_PRIO_LAKEMAP) end) end
+-  if id == "Mountain Map" then rttMapAfter(function() rttSpawnPriority("Mountain Map", RTT_PRIO_MOUNTAINMAP) end) end
+-  if id == "Winter Map" then rttMapAfter(function() rttSpawnPriority("Winter Map", RTT_PRIO_WINTERMAP) end) end
+-  if id == "Gorge Map" then rttMapAfter(function() rttSpawnPriority("Gorge Map", RTT_PRIO_GORGEMAP) end) end
+-  if id == "Marsh Map" then rttMapAfter(function() rttSpawnMarshNumbers() end) end
+-  rttWhenMapReady(function()
+-    pcall(function() rttPlaceFlotillaCard() end)
+-    for _, f in ipairs({ 4, 12, 30, 60 }) do
+-      Wait.frames(function() pcall(function() rttPlaceFlotillaCard() end) end, f)
++  local gen, fivep, RTT_KEEP_BOARD = rttBeginMap(player, id, keepBoard, function(gen, fivep)
++    if id == "Marsh Map" and RTT_5P_MARSH then
++      rttWhenMapReady(function() if RTT_MAP_GEN == gen then rttMarshLandmarks() end end)
+     end
++    if id == "Marsh Map" then RTT_MARSH_5P_BUILT = (RTT_5P_MARSH == true) end
++    if id == "Mountain Map" then rttMapAfter(function() rttMountainLandmark() end) end
++    if id == "Summer Map" then rttMapAfter(function() rttSpawnPriority("Summer Map", RTT_PRIO_SUMMERMAP) end) end
++    if id == "Lake Map" then rttMapAfter(function() rttSpawnPriority("Lake Map", RTT_PRIO_LAKEMAP) end) end
++    if id == "Mountain Map" then rttMapAfter(function() rttSpawnPriority("Mountain Map", RTT_PRIO_MOUNTAINMAP) end) end
++    if id == "Winter Map" then rttMapAfter(function() rttSpawnPriority("Winter Map", RTT_PRIO_WINTERMAP) end) end
++    if id == "Gorge Map" then rttMapAfter(function() rttSpawnPriority("Gorge Map", RTT_PRIO_GORGEMAP) end) end
++    if id == "Marsh Map" then rttMapAfter(function() rttSpawnMarshNumbers() end) end
+   end)
+-  local RTT_KEEP_BOARD = nil
+-  if keepBoard then pcall(function() RTT_KEEP_BOARD = rttFindMapObject() end) end
+-  removeMapItems(RTT_KEEP_BOARD)
+-  rttTagMap(RTT_KEEP_BOARD, id, fivep)
+-  Wait.time(function() pcall(function() rttPlaceUnplacedVPs() end) end, 2.0)
+-  RTT_MAP_AFTER = function()
+-    local jobs = {}
+-    jobs[#jobs + 1] = function()
+-      if rttFixture(RTT_TAG_MAT) == nil then
+-        makeSpecialWithTag("Tools", "Battle Mat", 33.17, 1.55, 9.21, "Map Object")
+-        Wait.frames(function()
+-          for _, o in ipairs(getObjectsWithTag("Map Object")) do
+-            pcall(function()
+-              if rttNameOf(o) == "Battle Mat" then o.addTag(RTT_FIXTURE_TAG) o.addTag(RTT_TAG_MAT) end
+-            end)
+-          end
+-        end, 2)
+-      end
+-    end
+-    jobs[#jobs + 1] = function() pcall(function() rttSpawnMapExtras() end) end
+-    for _, fn in ipairs(RTT_MAP_AFTER_Q or {}) do jobs[#jobs + 1] = fn end
+-    RTT_MAP_AFTER_Q = {}
+-    local i = 0
+-    local function step()
+-      i = i + 1
+-      if jobs[i] == nil then return end
+-      pcall(jobs[i])
+-      Wait.frames(step, 1)
+-    end
+-    step()
+-  end
++  if gen == nil then return end
++  -- A built-in map replaces any outside one in the seat record.
++  if RTT_EXTERNAL ~= nil then RTT_EXTERNAL.map, RTT_EXTERNAL.map_name = nil, nil end
+ 
+   local objects = {}
+   objects = EVERYTHING["Maps"][id]['data']
+@@ -7685,16 +7642,7 @@
+         callback_function = function(spawned_object)
+ 
+         if rtt_ov then spawned_object.setLock(true) end
+-        if spawned_object.name == "Bag" then spawned_object.shuffle() end
+-        if spawned_object.getName() == "Treasure" then
+-          spawned_object.shuffle()
+-          spawned_object.addTag("Map Object")
+-          end
+-        spawned_object.addTag("Map Object")
+-        if idx == boardIdx then rttTagMap(spawned_object, id, fivep) end
+-        if spawned_object.name == "CardCustom" or spawned_object.name == "Card" then
+-          spawned_object.addTag(RTT_HELPER_TAG)
+-        end
++        rttMapPieceCallback(spawned_object, idx == boardIdx, id, fivep)
+         if rtt_ov and RTT_MARSH_PIECES ~= nil then
+           pcall(function() RTT_MARSH_PIECES[#RTT_MARSH_PIECES + 1] = spawned_object.getGUID() end)
+         end
+@@ -7710,22 +7658,7 @@
+     }
+     end
+   end
+-  rttSpawnStaggered(mapSpecs, function()
+-    if id ~= "Marsh Map" then shuffleMaps(id) end
+-    rttLockRuins()
+-    rttPublishSuits()
+-    rttHoldMapLocked()
+-    if RTT_MAP_AFTER ~= nil then
+-      local after = RTT_MAP_AFTER
+-      RTT_MAP_AFTER = nil
+-      local function whenIdle()
+-        if RTT_SPAWN_PUMPING then Wait.frames(whenIdle, 1) return end
+-        if RTT_MAP_GEN ~= gen then return end
+-        pcall(after)
+-      end
+-      Wait.frames(whenIdle, 1)
+-    end
+-  end, function() return RTT_MAP_GEN == gen end)
++  rttFinishMap(id, mapSpecs, gen, true, nil)
+ end
+ 
+ function rttLockRuins()
+@@ -9132,4 +9065,351 @@
+ function onScriptingButtonUp(idx, color)
+   if idx == 2 then pcall(function() rttKey2Up(color) end) end
+   if idx == 4 then pcall(function() rttKey4Up(color) end) end
++end
++
++-- ── External factions ──────────────────────────────────────────────────────
++-- Lets a faction spawned by another object get the same seat, Box Score,
++-- VP token, VP panel and hand handling as a built-in pick.
++
++-- Before spawning. params = { faction, row, color, x, z }
++-- Returns { ok = true, color = seatColor } or { ok = false, reason = "..." }.
++function rttClaimExternalFaction(params)
++  if type(params) ~= "table" or params.faction == nil or params.faction == "" then
++    return { ok = false, reason = "No faction given." }
++  end
++  local faction, color = params.faction, params.color
++  if not rttHasHand(color) then
++    return { ok = false, reason = "Spectators and the Game Master have no hand, so they cannot pick a faction." }
++  end
++  RTT_FAC_TAKEN = RTT_FAC_TAKEN or {}
++  if RTT_FAC_TAKEN[faction] then
++    return { ok = false, reason = faction .. " is already in play." }
++  end
++  local si = rttSeatAt(params.x or 0, params.z or 0, false)
++  local seat = si and RTT_SEATS[si] or nil
++  if seat ~= nil and seat.faction ~= nil and seat.faction ~= "" then
++    return { ok = false, reason = "That seat already has " .. seat.faction .. "." }
++  end
++  RTT_FAC_TAKEN[faction] = true
++  return { ok = true, color = (seat and seat.color) or color }
++end
++
++-- After spawning. params = { faction, row, color, x, z, ry, board, vpPanel }
++--   row     = VP row: the VP token's name without " VP" (token is "<row> VP")
++--   board   = GUID of the spawned faction board (optional)
++--   vpPanel = { x, y, z } for the VP panel (optional; no panel when omitted)
++-- Returns { ok = true } or { ok = false, reason = "..." }.
++function rttExternalFactionPlaced(params)
++  if type(params) ~= "table" or params.faction == nil or params.faction == "" then
++    return { ok = false, reason = "No faction given." }
++  end
++  local faction, row, color = params.faction, params.row or params.faction, params.color
++  local cx, cz, ry = params.x or 0, params.z or 0, params.ry or 0
++
++  -- Seat: same fields rttPlaceFaction sets for a built-in pick.
++  local si = rttSeatAt(cx, cz, true, faction)
++  local seat = RTT_SEATS[si]
++  seat.faction = faction
++  seat.vagN = nil
++  seat.key = row
++  rttSetSeatColor(seat, color)
++  if seat.color == nil then rttSetSeatColor(seat, rttFreeSeatColor()) end
++  if color ~= nil and color ~= "" then
++    RTT_PICK_N = (RTT_PICK_N or 0) + 1
++    seat.picker, seat.pickedAt = color, RTT_PICK_N
++    rttSetSeatOwner(seat, rttPersonIn(color))
++    rttSetSeatSteam(seat, rttSteamIn(color))
++  end
++  if params.board ~= nil and params.board ~= "" then
++    local b = getObjectFromGUID(params.board)
++    if b ~= nil then rttAttachBoard(seat, b) end
++  end
++  RTT_FAC_TAKEN = RTT_FAC_TAKEN or {}
++  RTT_FAC_TAKEN[faction] = true
++
++  -- Hands: same placement makeFaction uses, relative to the seat.
++  local direction = Vector(0, 4, -18)
++  direction:rotateOver("y", ry)
++  local seatHand = { position = Vector(cx, 10.62, cz) + direction, rotation = { 0, ry, 0 },
++                     scale = RTT_HAND_SCALE }
++  local seatColor = seat.color or color
++  pcall(function() rttEvictStrayHands(seatHand.position, seatColor) end)
++  pcall(function() rttPlaceHandsAround(seatColor, { pos = seatHand.position, rot = seatHand.rotation }) end)
++
++  -- Seat record to the Box Score, and turn order.
++  rttPublishSeats()
++  pcall(function()
++    local keep = nil
++    pcall(function() keep = Turns.turn_color end)
++    rttEnableTurns(RTT_TURN_SEATS or #RTT_SEATS, keep or "")
++  end)
++
++  -- VP token onto the score track's 0 column (finds "<row> VP" by name).
++  RTT_VP_PLACED = (RTT_VP_PLACED or 0) + 1
++  local vpN = RTT_VP_PLACED
++  rttAfterTime(function() rttPlaceVPRetry(row, vpN, 6) end, 1.2)
++
++  -- The coordinator's own VP panel.
++  if type(params.vpPanel) == "table" then
++    local p = params.vpPanel
++    pcall(function() rttSpawnVPPanel({ p.x or p[1], p.y or p[2] or 11.56, p.z or p[3] }, row, ry) end)
++  end
++  return { ok = true }
++end
++
++-- If the caller's spawn fails after a claim. params = { faction }
++function rttReleaseExternalFaction(params)
++  if type(params) ~= "table" or params.faction == nil then return { ok = false } end
++  if RTT_FAC_TAKEN ~= nil then RTT_FAC_TAKEN[params.faction] = nil end
++  return { ok = true }
++end
++
++-- ── Outside maps, decks and records ───────────────────────────────────────
++RTT_EXTERNAL_API = 1
++
++-- What outside sources placed, for the seat record (and so the Box Score).
++-- Saved and restored with the rest of the coordinator's state.
++RTT_EXTERNAL = RTT_EXTERNAL or { landmarks = {}, hirelings = {}, layouts = {} }
++
++-- Place an outside map exactly like a built-in one: clear the old map, spawn at
++-- the table centre, tag, shuffle, publish suits, run the post-map steps.
++-- params = {
++--   name    = "Fall Map",          -- shown in tags and the Box Score
++--   slug    = "fall-map",          -- Root Database slug, sent by the Box Score
++--   shuffle = true,                -- run shuffleMaps (ruins/suits by tag)
++--   layout  = { clearings = {{x, z}, ...}, forests = {...}, relics = {...} },
++--   objects = { { json = "<object JSON>", x =, y =, z =, board = true|nil }, ... },
++-- }
++-- Each object's x/y/z is its offset from the board; the board sits at the
++-- table centre at the same height built-in boards use (move_to.y + 11.46).
++function rttPlaceExternalMap(params)
++  if type(params) ~= "table" or type(params.objects) ~= "table" or #params.objects == 0 then
++    return { ok = false, reason = "No map objects given." }
++  end
++  local name = params.name or "Custom Map"
++  local gen, fivep = rttBeginMap(nil, name, false, nil)
++  if gen == nil then return { ok = false, reason = "Map is currently spawning." } end
++  RTT_SUIT_MAP = {}
++  local specs = {}
++  for _, o in ipairs(params.objects) do
++    local isBoard = (o.board == true)
++    local json = o.json
++    specs[#specs + 1] = {
++      json = json,
++      position = { o.x or 0, (o.y or 0) + 11.46, o.z or 0 },
++      callback_function = function(spawned_object)
++        rttMapPieceCallback(spawned_object, isBoard, name, fivep)
++        if type(json) == "string" and string.find(json, "Clearing Marker", 1, true) then
++          local suit = rttSuitOfJson(json)
++          if suit ~= nil then
++            pcall(function() RTT_SUIT_MAP[spawned_object.getGUID()] = suit end)
++            rttPublishSuits()
++          end
++        end
++      end,
++    }
++  end
++  rttFinishMap(name, specs, gen, false, params.shuffle)
++  RTT_EXTERNAL.map, RTT_EXTERNAL.map_name = params.slug, name
++  RTT_EXTERNAL.layouts = RTT_EXTERNAL.layouts or {}
++  RTT_EXTERNAL.layouts[name] = (type(params.layout) == "table") and params.layout or nil
++  rttPublishSeats()
++  return { ok = true }
+ end
++
++-- Place an outside deck exactly like a built-in one: clear the old deck, put the
++-- new one face down on the deck holder's draw slot, tag and shuffle it.
++-- params = { name = "Deck name", slug = "deck-slug", objects = { "<object JSON>", ... } }
++function rttPlaceExternalDeck(params)
++  if type(params) ~= "table" or type(params.objects) ~= "table" or #params.objects == 0 then
++    return { ok = false, reason = "No deck objects given." }
++  end
++  local holder = getObjectFromGUID(RTT_HOLDER_GUID)
++  if holder == nil then return { ok = false, reason = "No deck holder on this table." } end
++  local frogs = rttBeginDeck(nil)
++  if frogs == nil then return { ok = false, reason = "The deck is being placed." } end
++  local slot = holder.positionToWorld(RTT_HOLDER_DRAW)
++  local ry = holder.getRotation().y
++  for i, json in ipairs(params.objects) do
++    spawnObjectJSON({
++      json = json,
++      position = { slot.x, slot.y + 0.5 + i * 0.3, slot.z },
++      -- +90 because rttDeckPieceCallback turns every deck piece -90 on y.
++      rotation = { 0, ry + 90, 180 },
++      callback_function = function(o)
++        rttDeckPieceCallback(o)
++        if o.name == "DeckCustom" then o.shuffle() end
++      end,
++    })
++  end
++  rttFinishDeck(frogs)
++  RTT_EXTERNAL.deck, RTT_EXTERNAL.deck_name = params.slug, params.name
++  rttPublishSeats()
++  return { ok = true }
++end
++
++-- House rule by Root Database slug (sent by the Box Score as "houserules").
++function rttAddHouseRule(params)
++  if type(params) ~= "table" or params.slug == nil or params.slug == "" then return { ok = false } end
++  RTT_HOUSERULES = RTT_HOUSERULES or {}
++  for _, r in ipairs(RTT_HOUSERULES) do
++    if r == params.slug then return { ok = true } end
++  end
++  RTT_HOUSERULES[#RTT_HOUSERULES + 1] = params.slug
++  rttPublishSeats()
++  return { ok = true }
++end
++
++-- Landmark or hireling by Root Database slug. params = { kind = "landmark"|"hireling", slug }
++function rttExternalAssetAdded(params)
++  if type(params) ~= "table" or params.slug == nil or params.slug == "" then return { ok = false } end
++  local key = (params.kind == "hireling") and "hirelings" or "landmarks"
++  RTT_EXTERNAL[key] = RTT_EXTERNAL[key] or {}
++  for _, s in ipairs(RTT_EXTERNAL[key]) do
++    if s == params.slug then return { ok = true } end
++  end
++  RTT_EXTERNAL[key][#RTT_EXTERNAL[key] + 1] = params.slug
++  rttPublishSeats()
++  return { ok = true }
++end
++
++-- An outside map's layout list ("clearings", "forests" or "relics") as world
++-- {x, z} points, or nil. Offsets are from the board's centre in table axes --
++-- the same convention as RTT_CLEARING_CENTRES (no rotation applied).
++function rttExternalLayoutWorld(mapId, key)
++  local layouts = RTT_EXTERNAL and RTT_EXTERNAL.layouts or nil
++  local layout = (layouts ~= nil and mapId ~= nil) and layouts[mapId] or nil
++  local points = layout and layout[key] or nil
++  if type(points) ~= "table" or #points == 0 then return nil end
++  local m = rttFindMapObject()
++  if m == nil then return nil end
++  local p = m.getPosition()
++  local out = {}
++  for _, pt in ipairs(points) do
++    out[#out + 1] = { p.x + (pt[1] or 0), p.z + (pt[2] or 0) }
++  end
++  return out
++end
++
++-- Generic per-piece callback, moved unchanged from makeMap's spec callback.
++function rttMapPieceCallback(spawned_object, isBoard, id, fivep)
++  if spawned_object.name == "Bag" then spawned_object.shuffle() end
++  if spawned_object.getName() == "Treasure" then
++    spawned_object.shuffle()
++    spawned_object.addTag("Map Object")
++    end
++  spawned_object.addTag("Map Object")
++  if isBoard then rttTagMap(spawned_object, id, fivep) end
++  if spawned_object.name == "CardCustom" or spawned_object.name == "Card" then
++    spawned_object.addTag(RTT_HELPER_TAG)
++  end
++end
++
++-- Generic opening of a map spawn, moved unchanged from makeMap. `hooks(gen,
++-- fivep)` runs the map-specific queueing (rttMapAfter / rttWhenMapReady) at the
++-- same point makeMap ran it. Returns gen, fivep, keep-board object -- or nil
++-- when the table is busy.
++function rttBeginMap(player, id, keepBoard, hooks)
++  RTT_MAP_AFTER_Q = {}
++  if rttBusyByHuman(player, "Map is currently spawning.") then return nil end
++  local byHuman = false
++  pcall(function() byHuman = (player ~= nil and player ~= "" and player.color ~= nil) end)
++  if byHuman then RTT_5P_MARSH = false end
++  RTT_MAP_GEN = (RTT_MAP_GEN or 0) + 1
++  local gen = RTT_MAP_GEN
++  RTT_CURRENT_MAP = id
++  local fivep = (id == "Marsh Map" and RTT_5P_MARSH == true)
++  if hooks ~= nil then hooks(gen, fivep) end
++  rttWhenMapReady(function()
++    pcall(function() rttPlaceFlotillaCard() end)
++    for _, f in ipairs({ 4, 12, 30, 60 }) do
++      Wait.frames(function() pcall(function() rttPlaceFlotillaCard() end) end, f)
++    end
++  end)
++  local RTT_KEEP_BOARD = nil
++  if keepBoard then pcall(function() RTT_KEEP_BOARD = rttFindMapObject() end) end
++  removeMapItems(RTT_KEEP_BOARD)
++  rttTagMap(RTT_KEEP_BOARD, id, fivep)
++  Wait.time(function() pcall(function() rttPlaceUnplacedVPs() end) end, 2.0)
++  RTT_MAP_AFTER = function()
++    local jobs = {}
++    jobs[#jobs + 1] = function()
++      if rttFixture(RTT_TAG_MAT) == nil then
++        makeSpecialWithTag("Tools", "Battle Mat", 33.17, 1.55, 9.21, "Map Object")
++        Wait.frames(function()
++          for _, o in ipairs(getObjectsWithTag("Map Object")) do
++            pcall(function()
++              if rttNameOf(o) == "Battle Mat" then o.addTag(RTT_FIXTURE_TAG) o.addTag(RTT_TAG_MAT) end
++            end)
++          end
++        end, 2)
++      end
++    end
++    jobs[#jobs + 1] = function() pcall(function() rttSpawnMapExtras() end) end
++    for _, fn in ipairs(RTT_MAP_AFTER_Q or {}) do jobs[#jobs + 1] = fn end
++    RTT_MAP_AFTER_Q = {}
++    local i = 0
++    local function step()
++      i = i + 1
++      if jobs[i] == nil then return end
++      pcall(jobs[i])
++      Wait.frames(step, 1)
++    end
++    step()
++  end
++
++  return gen, fivep, RTT_KEEP_BOARD
++end
++
++-- Generic close of a map spawn, moved unchanged from makeMap. Built-in maps
++-- shuffle exactly as before (all but Marsh); outside maps when shuffle == true.
++function rttFinishMap(id, mapSpecs, gen, builtIn, shuffle)
++  rttSpawnStaggered(mapSpecs, function()
++    if builtIn then
++      if id ~= "Marsh Map" then shuffleMaps(id) end
++    elseif shuffle == true then
++      shuffleMaps(id)
++    end
++    rttLockRuins()
++    rttPublishSuits()
++    rttHoldMapLocked()
++    if RTT_MAP_AFTER ~= nil then
++      local after = RTT_MAP_AFTER
++      RTT_MAP_AFTER = nil
++      local function whenIdle()
++        if RTT_SPAWN_PUMPING then Wait.frames(whenIdle, 1) return end
++        if RTT_MAP_GEN ~= gen then return end
++        pcall(after)
++      end
++      Wait.frames(whenIdle, 1)
++    end
++  end, function() return RTT_MAP_GEN == gen end)
++end
++
++-- Generic opening of a deck spawn, moved unchanged from makeDeck. Returns the
++-- frog cards to restore afterwards -- or nil when the table is busy.
++function rttBeginDeck(player)
++  if rttBusyByHuman(player, "The deck is being placed.") then return nil end
++  clearInfo()
++  local frogs = rttFrogCardsInDecks()
++  removeDeckItems()
++  return frogs
++end
++
++-- Per-piece callback, moved unchanged from makeDeck (minus an empty loop that
++-- iterated every object and did nothing).
++function rttDeckPieceCallback(o)
++  o.setRotation({o.getRotation().x, o.getRotation().y-90, o.getRotation().z})
++  local _tg=o.getTags(); table.insert(_tg,"Deck Object"); o.setTags(_tg)
++  if o.name == "Deck" then
++    o.shuffle()
++  end
++end
++
++-- Generic close of a deck spawn, moved unchanged from makeDeck.
++function rttFinishDeck(frogs)
++  if find_object_by_gm_note("Dragon God") ~= nil then
++    Wait.frames(function() pcall(function() rttPlaceDragonGod() end) end, 2)
++  end
++  if #frogs > 0 then Wait.time(function() rttRestoreFrogs(frogs, 0) end, RTT_FROG_WAIT) end
++end
