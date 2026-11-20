@@ -1,0 +1,1944 @@
+{
+ "item_grid": {
+  "cols": 6,
+  "rows": 2,
+  "step_x": 0.1421,
+  "step_z": 0.1372
+ },
+ "items": [
+  {
+   "slot": [
+    0,
+    0
+   ],
+   "object": {
+    "Name": "Custom_Tile",
+    "Transform": {
+     "rotX": 0.0169546716,
+     "rotY": 179.994919,
+     "rotZ": 0.079606235,
+     "scaleX": 0.6283841,
+     "scaleY": 1.0,
+     "scaleZ": 0.6283841
+    },
+    "Nickname": "",
+    "Description": "",
+    "GMNotes": "",
+    "ColorDiffuse": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0
+    },
+    "LayoutGroupSortIndex": 0,
+    "Value": 0,
+    "Locked": false,
+    "Grid": true,
+    "Snap": true,
+    "IgnoreFoW": false,
+    "MeasureMovement": false,
+    "DragSelectable": true,
+    "Autoraise": true,
+    "Sticky": true,
+    "Tooltip": true,
+    "GridProjection": false,
+    "HideWhenFaceDown": false,
+    "Hands": false,
+    "CustomImage": {
+     "ImageURL": "static:images/tts/assets/bag_item.jpg",
+     "ImageSecondaryURL": "static:images/tts/assets/bag_item_back.jpg",
+     "ImageScalar": 1.0,
+     "WidthScale": 0.0,
+     "CustomTile": {
+      "Type": 3,
+      "Thickness": 0.1,
+      "Stackable": false,
+      "Stretch": true
+     }
+    },
+    "LuaScript": "",
+    "LuaScriptState": "",
+    "XmlUI": ""
+   }
+  },
+  {
+   "slot": [
+    1,
+    0
+   ],
+   "object": {
+    "Name": "Custom_Tile",
+    "Transform": {
+     "rotX": 0.0169385914,
+     "rotY": 180.00769,
+     "rotZ": 0.07961062,
+     "scaleX": 0.6283841,
+     "scaleY": 1.0,
+     "scaleZ": 0.6283841
+    },
+    "Nickname": "",
+    "Description": "",
+    "GMNotes": "",
+    "ColorDiffuse": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0
+    },
+    "LayoutGroupSortIndex": 0,
+    "Value": 0,
+    "Locked": false,
+    "Grid": true,
+    "Snap": true,
+    "IgnoreFoW": false,
+    "MeasureMovement": false,
+    "DragSelectable": true,
+    "Autoraise": true,
+    "Sticky": true,
+    "Tooltip": true,
+    "GridProjection": false,
+    "HideWhenFaceDown": false,
+    "Hands": false,
+    "CustomImage": {
+     "ImageURL": "static:images/tts/assets/boots_item.jpg",
+     "ImageSecondaryURL": "static:images/tts/assets/boots_item_back.jpg",
+     "ImageScalar": 1.0,
+     "WidthScale": 0.0,
+     "CustomTile": {
+      "Type": 3,
+      "Thickness": 0.1,
+      "Stackable": false,
+      "Stretch": true
+     }
+    },
+    "LuaScript": "",
+    "LuaScriptState": "",
+    "XmlUI": ""
+   }
+  },
+  {
+   "slot": [
+    2,
+    0
+   ],
+   "object": {
+    "Name": "Custom_Tile",
+    "Transform": {
+     "rotX": 0.0169252176,
+     "rotY": 180.015274,
+     "rotZ": 0.07961257,
+     "scaleX": 0.6283841,
+     "scaleY": 1.0,
+     "scaleZ": 0.6283841
+    },
+    "Nickname": "",
+    "Description": "",
+    "GMNotes": "",
+    "ColorDiffuse": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0
+    },
+    "LayoutGroupSortIndex": 0,
+    "Value": 0,
+    "Locked": false,
+    "Grid": true,
+    "Snap": true,
+    "IgnoreFoW": false,
+    "MeasureMovement": false,
+    "DragSelectable": true,
+    "Autoraise": true,
+    "Sticky": true,
+    "Tooltip": true,
+    "GridProjection": false,
+    "HideWhenFaceDown": false,
+    "Hands": false,
+    "CustomImage": {
+     "ImageURL": "static:images/tts/assets/crossbow_item.jpg",
+     "ImageSecondaryURL": "static:images/tts/assets/crossbow_item_back.jpg",
+     "ImageScalar": 1.0,
+     "WidthScale": 0.0,
+     "CustomTile": {
+      "Type": 3,
+      "Thickness": 0.1,
+      "Stackable": false,
+      "Stretch": true
+     }
+    },
+    "LuaScript": "",
+    "LuaScriptState": "",
+    "XmlUI": ""
+   }
+  },
+  {
+   "slot": [
+    3,
+    0
+   ],
+   "object": {
+    "Name": "Custom_Tile",
+    "Transform": {
+     "rotX": 0.0169911385,
+     "rotY": 179.96785,
+     "rotZ": 0.07959889,
+     "scaleX": 0.6283841,
+     "scaleY": 1.0,
+     "scaleZ": 0.6283841
+    },
+    "Nickname": "",
+    "Description": "",
+    "GMNotes": "",
+    "ColorDiffuse": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0
+    },
+    "LayoutGroupSortIndex": 0,
+    "Value": 0,
+    "Locked": false,
+    "Grid": true,
+    "Snap": true,
+    "IgnoreFoW": false,
+    "MeasureMovement": false,
+    "DragSelectable": true,
+    "Autoraise": true,
+    "Sticky": true,
+    "Tooltip": true,
+    "GridProjection": false,
+    "HideWhenFaceDown": false,
+    "Hands": false,
+    "CustomImage": {
+     "ImageURL": "static:images/tts/assets/sword_item.jpg",
+     "ImageSecondaryURL": "static:images/tts/assets/sword_item_back.jpg",
+     "ImageScalar": 1.0,
+     "WidthScale": 0.0,
+     "CustomTile": {
+      "Type": 3,
+      "Thickness": 0.1,
+      "Stackable": false,
+      "Stretch": true
+     }
+    },
+    "LuaScript": "",
+    "LuaScriptState": "",
+    "XmlUI": ""
+   }
+  },
+  {
+   "slot": [
+    4,
+    0
+   ],
+   "object": {
+    "Name": "Custom_Tile",
+    "Transform": {
+     "rotX": 0.0169175714,
+     "rotY": 180.02179,
+     "rotZ": 0.07961462,
+     "scaleX": 0.6283841,
+     "scaleY": 1.0,
+     "scaleZ": 0.6283841
+    },
+    "Nickname": "",
+    "Description": "",
+    "GMNotes": "",
+    "ColorDiffuse": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0
+    },
+    "LayoutGroupSortIndex": 0,
+    "Value": 0,
+    "Locked": false,
+    "Grid": true,
+    "Snap": true,
+    "IgnoreFoW": false,
+    "MeasureMovement": false,
+    "DragSelectable": true,
+    "Autoraise": true,
+    "Sticky": true,
+    "Tooltip": true,
+    "GridProjection": false,
+    "HideWhenFaceDown": false,
+    "Hands": false,
+    "CustomImage": {
+     "ImageURL": "static:images/tts/assets/tea_item.jpg",
+     "ImageSecondaryURL": "static:images/tts/assets/tea_item_back.jpg",
+     "ImageScalar": 1.0,
+     "WidthScale": 0.0,
+     "CustomTile": {
+      "Type": 3,
+      "Thickness": 0.1,
+      "Stackable": false,
+      "Stretch": true
+     }
+    },
+    "LuaScript": "",
+    "LuaScriptState": "",
+    "XmlUI": ""
+   }
+  },
+  {
+   "slot": [
+    5,
+    0
+   ],
+   "object": {
+    "Name": "Custom_Tile",
+    "Transform": {
+     "rotX": 0.0169763584,
+     "rotY": 179.979538,
+     "rotZ": 0.07960246,
+     "scaleX": 0.6283841,
+     "scaleY": 1.0,
+     "scaleZ": 0.6283841
+    },
+    "Nickname": "",
+    "Description": "",
+    "GMNotes": "",
+    "ColorDiffuse": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0
+    },
+    "LayoutGroupSortIndex": 0,
+    "Value": 0,
+    "Locked": false,
+    "Grid": true,
+    "Snap": true,
+    "IgnoreFoW": false,
+    "MeasureMovement": false,
+    "DragSelectable": true,
+    "Autoraise": true,
+    "Sticky": true,
+    "Tooltip": true,
+    "GridProjection": false,
+    "HideWhenFaceDown": false,
+    "Hands": false,
+    "CustomImage": {
+     "ImageURL": "static:images/tts/assets/coins_item.jpg",
+     "ImageSecondaryURL": "static:images/tts/assets/coins_item_back.jpg",
+     "ImageScalar": 1.0,
+     "WidthScale": 0.0,
+     "CustomTile": {
+      "Type": 3,
+      "Thickness": 0.1,
+      "Stackable": false,
+      "Stretch": true
+     }
+    },
+    "LuaScript": "",
+    "LuaScriptState": "",
+    "XmlUI": ""
+   }
+  },
+  {
+   "slot": [
+    0,
+    1
+   ],
+   "object": {
+    "Name": "Custom_Tile",
+    "Transform": {
+     "rotX": 0.0169345047,
+     "rotY": 180.009064,
+     "rotZ": 0.07961099,
+     "scaleX": 0.6283841,
+     "scaleY": 1.0,
+     "scaleZ": 0.6283841
+    },
+    "Nickname": "",
+    "Description": "",
+    "GMNotes": "",
+    "ColorDiffuse": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0
+    },
+    "LayoutGroupSortIndex": 0,
+    "Value": 0,
+    "Locked": false,
+    "Grid": true,
+    "Snap": true,
+    "IgnoreFoW": false,
+    "MeasureMovement": false,
+    "DragSelectable": true,
+    "Autoraise": true,
+    "Sticky": true,
+    "Tooltip": true,
+    "GridProjection": false,
+    "HideWhenFaceDown": false,
+    "Hands": false,
+    "CustomImage": {
+     "ImageURL": "static:images/tts/assets/bag_item.jpg",
+     "ImageSecondaryURL": "static:images/tts/assets/bag_item_back.jpg",
+     "ImageScalar": 1.0,
+     "WidthScale": 0.0,
+     "CustomTile": {
+      "Type": 3,
+      "Thickness": 0.1,
+      "Stackable": false,
+      "Stretch": true
+     }
+    },
+    "LuaScript": "",
+    "LuaScriptState": "",
+    "XmlUI": ""
+   }
+  },
+  {
+   "slot": [
+    1,
+    1
+   ],
+   "object": {
+    "Name": "Custom_Tile",
+    "Transform": {
+     "rotX": 0.016959168,
+     "rotY": 179.991333,
+     "rotZ": 0.07960548,
+     "scaleX": 0.6283841,
+     "scaleY": 1.0,
+     "scaleZ": 0.6283841
+    },
+    "Nickname": "",
+    "Description": "",
+    "GMNotes": "",
+    "ColorDiffuse": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0
+    },
+    "LayoutGroupSortIndex": 0,
+    "Value": 0,
+    "Locked": false,
+    "Grid": true,
+    "Snap": true,
+    "IgnoreFoW": false,
+    "MeasureMovement": false,
+    "DragSelectable": true,
+    "Autoraise": true,
+    "Sticky": true,
+    "Tooltip": true,
+    "GridProjection": false,
+    "HideWhenFaceDown": false,
+    "Hands": false,
+    "CustomImage": {
+     "ImageURL": "static:images/tts/assets/boots_item.jpg",
+     "ImageSecondaryURL": "static:images/tts/assets/boots_item_back.jpg",
+     "ImageScalar": 1.0,
+     "WidthScale": 0.0,
+     "CustomTile": {
+      "Type": 3,
+      "Thickness": 0.1,
+      "Stackable": false,
+      "Stretch": true
+     }
+    },
+    "LuaScript": "",
+    "LuaScriptState": "",
+    "XmlUI": ""
+   }
+  },
+  {
+   "slot": [
+    2,
+    1
+   ],
+   "object": {
+    "Name": "Custom_Tile",
+    "Transform": {
+     "rotX": 0.01698972,
+     "rotY": 179.968628,
+     "rotZ": 0.07959866,
+     "scaleX": 0.6283841,
+     "scaleY": 1.0,
+     "scaleZ": 0.6283841
+    },
+    "Nickname": "",
+    "Description": "",
+    "GMNotes": "",
+    "ColorDiffuse": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0
+    },
+    "LayoutGroupSortIndex": 0,
+    "Value": 0,
+    "Locked": false,
+    "Grid": true,
+    "Snap": true,
+    "IgnoreFoW": false,
+    "MeasureMovement": false,
+    "DragSelectable": true,
+    "Autoraise": true,
+    "Sticky": true,
+    "Tooltip": true,
+    "GridProjection": false,
+    "HideWhenFaceDown": false,
+    "Hands": false,
+    "CustomImage": {
+     "ImageURL": "static:images/tts/assets/hammer_item.jpg",
+     "ImageSecondaryURL": "static:images/tts/assets/hammer_item_back.jpg",
+     "ImageScalar": 1.0,
+     "WidthScale": 0.0,
+     "CustomTile": {
+      "Type": 3,
+      "Thickness": 0.1,
+      "Stackable": false,
+      "Stretch": true
+     }
+    },
+    "LuaScript": "",
+    "LuaScriptState": "",
+    "XmlUI": ""
+   }
+  },
+  {
+   "slot": [
+    3,
+    1
+   ],
+   "object": {
+    "Name": "Custom_Tile",
+    "Transform": {
+     "rotX": 0.01700534,
+     "rotY": 179.958008,
+     "rotZ": 0.07959628,
+     "scaleX": 0.6283841,
+     "scaleY": 1.0,
+     "scaleZ": 0.6283841
+    },
+    "Nickname": "",
+    "Description": "",
+    "GMNotes": "",
+    "ColorDiffuse": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0
+    },
+    "LayoutGroupSortIndex": 0,
+    "Value": 0,
+    "Locked": false,
+    "Grid": true,
+    "Snap": true,
+    "IgnoreFoW": false,
+    "MeasureMovement": false,
+    "DragSelectable": true,
+    "Autoraise": true,
+    "Sticky": true,
+    "Tooltip": true,
+    "GridProjection": false,
+    "HideWhenFaceDown": false,
+    "Hands": false,
+    "CustomImage": {
+     "ImageURL": "static:images/tts/assets/sword_item.jpg",
+     "ImageSecondaryURL": "static:images/tts/assets/sword_item_back.jpg",
+     "ImageScalar": 1.0,
+     "WidthScale": 0.0,
+     "CustomTile": {
+      "Type": 3,
+      "Thickness": 0.1,
+      "Stackable": false,
+      "Stretch": true
+     }
+    },
+    "LuaScript": "",
+    "LuaScriptState": "",
+    "XmlUI": ""
+   }
+  },
+  {
+   "slot": [
+    4,
+    1
+   ],
+   "object": {
+    "Name": "Custom_Tile",
+    "Transform": {
+     "rotX": 0.0169890616,
+     "rotY": 179.969681,
+     "rotZ": 0.07959925,
+     "scaleX": 0.6283841,
+     "scaleY": 1.0,
+     "scaleZ": 0.6283841
+    },
+    "Nickname": "",
+    "Description": "",
+    "GMNotes": "",
+    "ColorDiffuse": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0
+    },
+    "LayoutGroupSortIndex": 0,
+    "Value": 0,
+    "Locked": false,
+    "Grid": true,
+    "Snap": true,
+    "IgnoreFoW": false,
+    "MeasureMovement": false,
+    "DragSelectable": true,
+    "Autoraise": true,
+    "Sticky": true,
+    "Tooltip": true,
+    "GridProjection": false,
+    "HideWhenFaceDown": false,
+    "Hands": false,
+    "CustomImage": {
+     "ImageURL": "static:images/tts/assets/tea_item.jpg",
+     "ImageSecondaryURL": "static:images/tts/assets/tea_item_back.jpg",
+     "ImageScalar": 1.0,
+     "WidthScale": 0.0,
+     "CustomTile": {
+      "Type": 3,
+      "Thickness": 0.1,
+      "Stackable": false,
+      "Stretch": true
+     }
+    },
+    "LuaScript": "",
+    "LuaScriptState": "",
+    "XmlUI": ""
+   }
+  },
+  {
+   "slot": [
+    5,
+    1
+   ],
+   "object": {
+    "Name": "Custom_Tile",
+    "Transform": {
+     "rotX": 0.0169788916,
+     "rotY": 179.977051,
+     "rotZ": 0.0796012357,
+     "scaleX": 0.6283841,
+     "scaleY": 1.0,
+     "scaleZ": 0.6283841
+    },
+    "Nickname": "",
+    "Description": "",
+    "GMNotes": "",
+    "ColorDiffuse": {
+     "r": 1.0,
+     "g": 1.0,
+     "b": 1.0
+    },
+    "LayoutGroupSortIndex": 0,
+    "Value": 0,
+    "Locked": false,
+    "Grid": true,
+    "Snap": true,
+    "IgnoreFoW": false,
+    "MeasureMovement": false,
+    "DragSelectable": true,
+    "Autoraise": true,
+    "Sticky": true,
+    "Tooltip": true,
+    "GridProjection": false,
+    "HideWhenFaceDown": false,
+    "Hands": false,
+    "CustomImage": {
+     "ImageURL": "static:images/tts/assets/coins_item.jpg",
+     "ImageSecondaryURL": "static:images/tts/assets/coins_item_back.jpg",
+     "ImageScalar": 1.0,
+     "WidthScale": 0.0,
+     "CustomTile": {
+      "Type": 3,
+      "Thickness": 0.1,
+      "Stackable": false,
+      "Stretch": true
+     }
+    },
+    "LuaScript": "",
+    "LuaScriptState": "",
+    "XmlUI": ""
+   }
+  }
+ ],
+ "ruins": [
+  {
+   "Name": "Custom_Tile",
+   "Transform": {
+    "rotX": 0.0169188026,
+    "rotY": 180.021942,
+    "rotZ": 0.07961351,
+    "scaleX": 0.6283841,
+    "scaleY": 1.0,
+    "scaleZ": 0.6283841
+   },
+   "Nickname": "RUIN",
+   "Description": "Press \"2\" for ITEM, \"1\" for RUIN",
+   "GMNotes": "",
+   "ColorDiffuse": {
+    "r": 0.716028,
+    "g": 0.6961257,
+    "b": 0.570078
+   },
+   "Tags": [
+    "Ruin"
+   ],
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": false,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomImage": {
+    "ImageURL": "static:images/tts/assets/ruin.png",
+    "ImageSecondaryURL": "",
+    "ImageScalar": 1.0,
+    "WidthScale": 0.0,
+    "CustomTile": {
+     "Type": 3,
+     "Thickness": 0.1,
+     "Stackable": false,
+     "Stretch": true
+    }
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": "",
+   "States": {
+    "2": {
+     "Name": "Custom_Tile",
+     "Transform": {
+      "rotX": 0.0169700272,
+      "rotY": 180.000061,
+      "rotZ": 0.07951955,
+      "scaleX": 0.6283841,
+      "scaleY": 1.0,
+      "scaleZ": 0.6283841
+     },
+     "Nickname": "",
+     "Description": "",
+     "GMNotes": "",
+     "ColorDiffuse": {
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0
+     },
+     "LayoutGroupSortIndex": 0,
+     "Value": 0,
+     "Locked": false,
+     "Grid": true,
+     "Snap": true,
+     "IgnoreFoW": false,
+     "MeasureMovement": false,
+     "DragSelectable": true,
+     "Autoraise": true,
+     "Sticky": true,
+     "Tooltip": true,
+     "GridProjection": false,
+     "HideWhenFaceDown": false,
+     "Hands": false,
+     "CustomImage": {
+      "ImageURL": "static:images/tts/assets/boots_ruin_item.jpg",
+      "ImageSecondaryURL": "static:images/tts/assets/boots_ruin_item_back.jpg",
+      "ImageScalar": 1.0,
+      "WidthScale": 0.0,
+      "CustomTile": {
+       "Type": 3,
+       "Thickness": 0.1,
+       "Stackable": false,
+       "Stretch": true
+      }
+     },
+     "LuaScript": "",
+     "LuaScriptState": "",
+     "XmlUI": ""
+    }
+   }
+  },
+  {
+   "Name": "Custom_Tile",
+   "Transform": {
+    "rotX": 0.0169663578,
+    "rotY": 179.987671,
+    "rotZ": 0.0796040446,
+    "scaleX": 0.6283841,
+    "scaleY": 1.0,
+    "scaleZ": 0.6283841
+   },
+   "Nickname": "RUIN",
+   "Description": "Press \"2\" for ITEM, \"1\" for RUIN",
+   "GMNotes": "",
+   "ColorDiffuse": {
+    "r": 0.716028,
+    "g": 0.6961257,
+    "b": 0.570078
+   },
+   "Tags": [
+    "Ruin"
+   ],
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": false,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomImage": {
+    "ImageURL": "static:images/tts/assets/ruin.png",
+    "ImageSecondaryURL": "",
+    "ImageScalar": 1.0,
+    "WidthScale": 0.0,
+    "CustomTile": {
+     "Type": 3,
+     "Thickness": 0.1,
+     "Stackable": false,
+     "Stretch": true
+    }
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": "",
+   "States": {
+    "2": {
+     "Name": "Custom_Tile",
+     "Transform": {
+      "rotX": 0.0169720668,
+      "rotY": 179.999969,
+      "rotZ": 0.07951961,
+      "scaleX": 0.6283841,
+      "scaleY": 1.0,
+      "scaleZ": 0.6283841
+     },
+     "Nickname": "",
+     "Description": "",
+     "GMNotes": "",
+     "ColorDiffuse": {
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0
+     },
+     "LayoutGroupSortIndex": 0,
+     "Value": 0,
+     "Locked": false,
+     "Grid": true,
+     "Snap": true,
+     "IgnoreFoW": false,
+     "MeasureMovement": false,
+     "DragSelectable": true,
+     "Autoraise": true,
+     "Sticky": true,
+     "Tooltip": true,
+     "GridProjection": false,
+     "HideWhenFaceDown": false,
+     "Hands": false,
+     "CustomImage": {
+      "ImageURL": "static:images/tts/assets/hammer_ruin_item.jpg",
+      "ImageSecondaryURL": "static:images/tts/assets/hammer_ruin_item_back.jpg",
+      "ImageScalar": 1.0,
+      "WidthScale": 0.0,
+      "CustomTile": {
+       "Type": 3,
+       "Thickness": 0.1,
+       "Stackable": false,
+       "Stretch": true
+      }
+     },
+     "LuaScript": "",
+     "LuaScriptState": "",
+     "XmlUI": ""
+    }
+   }
+  },
+  {
+   "Name": "Custom_Tile",
+   "Transform": {
+    "rotX": 0.0169178,
+    "rotY": 180.021255,
+    "rotZ": 0.07961444,
+    "scaleX": 0.6283841,
+    "scaleY": 1.0,
+    "scaleZ": 0.6283841
+   },
+   "Nickname": "RUIN",
+   "Description": "Press \"2\" for ITEM, \"1\" for RUIN",
+   "GMNotes": "",
+   "ColorDiffuse": {
+    "r": 0.716028,
+    "g": 0.6961257,
+    "b": 0.570078
+   },
+   "Tags": [
+    "Ruin"
+   ],
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": false,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomImage": {
+    "ImageURL": "static:images/tts/assets/ruin.png",
+    "ImageSecondaryURL": "",
+    "ImageScalar": 1.0,
+    "WidthScale": 0.0,
+    "CustomTile": {
+     "Type": 3,
+     "Thickness": 0.1,
+     "Stackable": false,
+     "Stretch": true
+    }
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": "",
+   "States": {
+    "2": {
+     "Name": "Custom_Tile",
+     "Transform": {
+      "rotX": 0.016971739,
+      "rotY": 180.0,
+      "rotZ": 0.07951968,
+      "scaleX": 0.6283841,
+      "scaleY": 1.0,
+      "scaleZ": 0.6283841
+     },
+     "Nickname": "",
+     "Description": "",
+     "GMNotes": "",
+     "ColorDiffuse": {
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0
+     },
+     "LayoutGroupSortIndex": 0,
+     "Value": 0,
+     "Locked": false,
+     "Grid": true,
+     "Snap": true,
+     "IgnoreFoW": false,
+     "MeasureMovement": false,
+     "DragSelectable": true,
+     "Autoraise": true,
+     "Sticky": true,
+     "Tooltip": true,
+     "GridProjection": false,
+     "HideWhenFaceDown": false,
+     "Hands": false,
+     "CustomImage": {
+      "ImageURL": "static:images/tts/assets/sword_ruin_item.jpg",
+      "ImageSecondaryURL": "static:images/tts/assets/sword_ruin_item_back.jpg",
+      "ImageScalar": 1.0,
+      "WidthScale": 0.0,
+      "CustomTile": {
+       "Type": 3,
+       "Thickness": 0.1,
+       "Stackable": false,
+       "Stretch": true
+      }
+     },
+     "LuaScript": "",
+     "LuaScriptState": "",
+     "XmlUI": ""
+    }
+   }
+  },
+  {
+   "Name": "Custom_Tile",
+   "Transform": {
+    "rotX": 0.0169157889,
+    "rotY": 180.022842,
+    "rotZ": 0.0796145,
+    "scaleX": 0.6283841,
+    "scaleY": 1.0,
+    "scaleZ": 0.6283841
+   },
+   "Nickname": "RUIN",
+   "Description": "Press \"2\" for ITEM, \"1\" for RUIN",
+   "GMNotes": "",
+   "ColorDiffuse": {
+    "r": 0.716028,
+    "g": 0.6961257,
+    "b": 0.570078
+   },
+   "Tags": [
+    "Ruin"
+   ],
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": false,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomImage": {
+    "ImageURL": "static:images/tts/assets/ruin.png",
+    "ImageSecondaryURL": "",
+    "ImageScalar": 1.0,
+    "WidthScale": 0.0,
+    "CustomTile": {
+     "Type": 3,
+     "Thickness": 0.1,
+     "Stackable": false,
+     "Stretch": true
+    }
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": "",
+   "States": {
+    "2": {
+     "Name": "Custom_Tile",
+     "Transform": {
+      "rotX": 0.0169707332,
+      "rotY": 179.999969,
+      "rotZ": 0.07952006,
+      "scaleX": 0.6283841,
+      "scaleY": 1.0,
+      "scaleZ": 0.6283841
+     },
+     "Nickname": "",
+     "Description": "",
+     "GMNotes": "",
+     "ColorDiffuse": {
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0
+     },
+     "LayoutGroupSortIndex": 0,
+     "Value": 0,
+     "Locked": false,
+     "Grid": true,
+     "Snap": true,
+     "IgnoreFoW": false,
+     "MeasureMovement": false,
+     "DragSelectable": true,
+     "Autoraise": true,
+     "Sticky": true,
+     "Tooltip": true,
+     "GridProjection": false,
+     "HideWhenFaceDown": false,
+     "Hands": false,
+     "CustomImage": {
+      "ImageURL": "static:images/tts/assets/bag_ruin_item.jpg",
+      "ImageSecondaryURL": "static:images/tts/assets/bag_ruin_item_back.jpg",
+      "ImageScalar": 1.0,
+      "WidthScale": 0.0,
+      "CustomTile": {
+       "Type": 3,
+       "Thickness": 0.1,
+       "Stackable": false,
+       "Stretch": true
+      }
+     },
+     "LuaScript": "",
+     "LuaScriptState": "",
+     "XmlUI": ""
+    }
+   }
+  }
+ ],
+ "markers": {
+  "fox": {
+   "Name": "Custom_Model",
+   "Transform": {
+    "rotX": 0.06826585,
+    "rotY": 135.012268,
+    "rotZ": 0.04431759,
+    "scaleX": 1.29999983,
+    "scaleY": 1.29999983,
+    "scaleZ": 1.29999983
+   },
+   "Nickname": "",
+   "Description": "",
+   "GMNotes": "",
+   "ColorDiffuse": {
+    "r": 1.0,
+    "g": 1.0,
+    "b": 1.0
+   },
+   "Tags": [
+    "Clearing Marker",
+    "Map Object"
+   ],
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": true,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomMesh": {
+    "MeshURL": "static:images/tts/assets/marker.obj",
+    "DiffuseURL": "static:images/tts/assets/fox_marker.png",
+    "NormalURL": "",
+    "ColliderURL": "static:images/tts/assets/marker.obj",
+    "Convex": true,
+    "MaterialIndex": 3,
+    "TypeIndex": 0,
+    "CustomShader": {
+     "SpecularColor": {
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0
+     },
+     "SpecularIntensity": 0.0,
+     "SpecularSharpness": 2.0,
+     "FresnelStrength": 0.0
+    },
+    "CastShadows": true
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": ""
+  },
+  "rabbit": {
+   "Name": "Custom_Model",
+   "Transform": {
+    "rotX": 0.0604499839,
+    "rotY": 59.9855652,
+    "rotZ": 359.9455,
+    "scaleX": 1.3,
+    "scaleY": 1.3,
+    "scaleZ": 1.3
+   },
+   "Nickname": "",
+   "Description": "",
+   "GMNotes": "",
+   "ColorDiffuse": {
+    "r": 1.0,
+    "g": 1.0,
+    "b": 1.0
+   },
+   "Tags": [
+    "Clearing Marker",
+    "Map Object"
+   ],
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": true,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomMesh": {
+    "MeshURL": "static:images/tts/assets/marker.obj",
+    "DiffuseURL": "static:images/tts/assets/rabbit_marker.png",
+    "NormalURL": "",
+    "ColliderURL": "static:images/tts/assets/marker.obj",
+    "Convex": true,
+    "MaterialIndex": 3,
+    "TypeIndex": 0,
+    "CustomShader": {
+     "SpecularColor": {
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0
+     },
+     "SpecularIntensity": 0.0,
+     "SpecularSharpness": 2.0,
+     "FresnelStrength": 0.0
+    },
+    "CastShadows": true
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": ""
+  },
+  "mouse": {
+   "Name": "Custom_Model",
+   "Transform": {
+    "rotX": 359.9557,
+    "rotY": 225.0054,
+    "rotZ": 0.06827199,
+    "scaleX": 1.3,
+    "scaleY": 1.3,
+    "scaleZ": 1.3
+   },
+   "Nickname": "",
+   "Description": "",
+   "GMNotes": "",
+   "ColorDiffuse": {
+    "r": 1.0,
+    "g": 1.0,
+    "b": 1.0
+   },
+   "Tags": [
+    "Clearing Marker",
+    "Map Object"
+   ],
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": true,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomMesh": {
+    "MeshURL": "static:images/tts/assets/marker.obj",
+    "DiffuseURL": "static:images/tts/assets/mouse_marker.png",
+    "NormalURL": "",
+    "ColliderURL": "static:images/tts/assets/marker.obj",
+    "Convex": true,
+    "MaterialIndex": 3,
+    "TypeIndex": 0,
+    "CustomShader": {
+     "SpecularColor": {
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0
+     },
+     "SpecularIntensity": 0.0,
+     "SpecularSharpness": 2.0,
+     "FresnelStrength": 0.0
+    },
+    "CastShadows": true
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": ""
+  },
+  "bird": {
+   "Name": "Custom_Model",
+   "Transform": {
+    "rotX": 0.06826585,
+    "rotY": 135.012268,
+    "rotZ": 0.04431759,
+    "scaleX": 1.29999983,
+    "scaleY": 1.29999983,
+    "scaleZ": 1.29999983
+   },
+   "Nickname": "",
+   "Description": "",
+   "GMNotes": "",
+   "ColorDiffuse": {
+    "r": 1.0,
+    "g": 1.0,
+    "b": 1.0
+   },
+   "Tags": [
+    "Clearing Marker",
+    "Map Object"
+   ],
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": true,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomMesh": {
+    "MeshURL": "static:images/tts/assets/marker.obj",
+    "DiffuseURL": "static:images/tts/assets/bird_marker.png",
+    "NormalURL": "",
+    "ColliderURL": "static:images/tts/assets/marker.obj",
+    "Convex": true,
+    "MaterialIndex": 3,
+    "TypeIndex": 0,
+    "CustomShader": {
+     "SpecularColor": {
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0
+     },
+     "SpecularIntensity": 0.0,
+     "SpecularSharpness": 2.0,
+     "FresnelStrength": 0.0
+    },
+    "CastShadows": true
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": ""
+  }
+ },
+ "numbers": {
+  "1": {
+   "Name": "Custom_Tile",
+   "Transform": {
+    "rotX": 0.0169261,
+    "rotY": 180.0,
+    "rotZ": 0.0796212,
+    "scaleX": 1.0,
+    "scaleY": 1.0,
+    "scaleZ": 1.0
+   },
+   "Nickname": "",
+   "Description": "",
+   "GMNotes": "",
+   "AltLookAngle": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   "ColorDiffuse": {
+    "r": 0.12941125,
+    "g": 0.12941125,
+    "b": 0.12941125
+   },
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": false,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomImage": {
+    "ImageURL": "static:images/tts/assets/1_number.png",
+    "ImageSecondaryURL": "static:images/tts/assets/number_back.png",
+    "ImageScalar": 1.0,
+    "WidthScale": 0.0,
+    "CustomTile": {
+     "Type": 1,
+     "Thickness": 0.1,
+     "Stackable": false,
+     "Stretch": false
+    }
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": ""
+  },
+  "2": {
+   "Name": "Custom_Tile",
+   "Transform": {
+    "rotX": 0.0169644,
+    "rotY": 179.990021,
+    "rotZ": 0.0796192,
+    "scaleX": 1.0,
+    "scaleY": 1.0,
+    "scaleZ": 1.0
+   },
+   "Nickname": "",
+   "Description": "",
+   "GMNotes": "",
+   "AltLookAngle": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   "ColorDiffuse": {
+    "r": 0.129411221,
+    "g": 0.129411221,
+    "b": 0.129411221
+   },
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": false,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomImage": {
+    "ImageURL": "static:images/tts/assets/2_number.png",
+    "ImageSecondaryURL": "static:images/tts/assets/number_back.png",
+    "ImageScalar": 1.0,
+    "WidthScale": 0.0,
+    "CustomTile": {
+     "Type": 1,
+     "Thickness": 0.1,
+     "Stackable": false,
+     "Stretch": false
+    }
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": ""
+  },
+  "3": {
+   "Name": "Custom_Tile",
+   "Transform": {
+    "rotX": 0.0169755,
+    "rotY": 179.9901,
+    "rotZ": 0.0796153,
+    "scaleX": 1.0,
+    "scaleY": 1.0,
+    "scaleZ": 1.0
+   },
+   "Nickname": "",
+   "Description": "",
+   "GMNotes": "",
+   "AltLookAngle": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   "ColorDiffuse": {
+    "r": 0.129411221,
+    "g": 0.129411221,
+    "b": 0.129411221
+   },
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": false,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomImage": {
+    "ImageURL": "static:images/tts/assets/3_number.png",
+    "ImageSecondaryURL": "static:images/tts/assets/number_back.png",
+    "ImageScalar": 1.0,
+    "WidthScale": 0.0,
+    "CustomTile": {
+     "Type": 1,
+     "Thickness": 0.1,
+     "Stackable": false,
+     "Stretch": false
+    }
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": ""
+  },
+  "4": {
+   "Name": "Custom_Tile",
+   "Transform": {
+    "rotX": 0.0169271,
+    "rotY": 180.025162,
+    "rotZ": 0.0796249,
+    "scaleX": 1.0,
+    "scaleY": 1.0,
+    "scaleZ": 1.0
+   },
+   "Nickname": "",
+   "Description": "",
+   "GMNotes": "",
+   "AltLookAngle": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   "ColorDiffuse": {
+    "r": 0.129411221,
+    "g": 0.129411221,
+    "b": 0.129411221
+   },
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": false,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomImage": {
+    "ImageURL": "static:images/tts/assets/4_number.png",
+    "ImageSecondaryURL": "static:images/tts/assets/number_back.png",
+    "ImageScalar": 1.0,
+    "WidthScale": 0.0,
+    "CustomTile": {
+     "Type": 1,
+     "Thickness": 0.1,
+     "Stackable": false,
+     "Stretch": false
+    }
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": ""
+  },
+  "5": {
+   "Name": "Custom_Tile",
+   "Transform": {
+    "rotX": 0.0169552,
+    "rotY": 179.989975,
+    "rotZ": 0.0796202,
+    "scaleX": 1.0,
+    "scaleY": 1.0,
+    "scaleZ": 1.0
+   },
+   "Nickname": "",
+   "Description": "",
+   "GMNotes": "",
+   "AltLookAngle": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   "ColorDiffuse": {
+    "r": 0.129411221,
+    "g": 0.129411221,
+    "b": 0.129411221
+   },
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": false,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomImage": {
+    "ImageURL": "static:images/tts/assets/5_number.png",
+    "ImageSecondaryURL": "static:images/tts/assets/number_back.png",
+    "ImageScalar": 1.0,
+    "WidthScale": 0.0,
+    "CustomTile": {
+     "Type": 1,
+     "Thickness": 0.1,
+     "Stackable": false,
+     "Stretch": false
+    }
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": ""
+  },
+  "6": {
+   "Name": "Custom_Tile",
+   "Transform": {
+    "rotX": 0.0169757,
+    "rotY": 179.989975,
+    "rotZ": 0.0796148,
+    "scaleX": 1.0,
+    "scaleY": 1.0,
+    "scaleZ": 1.0
+   },
+   "Nickname": "",
+   "Description": "",
+   "GMNotes": "",
+   "AltLookAngle": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   "ColorDiffuse": {
+    "r": 0.129411221,
+    "g": 0.129411221,
+    "b": 0.129411221
+   },
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": false,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomImage": {
+    "ImageURL": "static:images/tts/assets/6_number.png",
+    "ImageSecondaryURL": "static:images/tts/assets/number_back.png",
+    "ImageScalar": 1.0,
+    "WidthScale": 0.0,
+    "CustomTile": {
+     "Type": 1,
+     "Thickness": 0.1,
+     "Stackable": false,
+     "Stretch": false
+    }
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": ""
+  },
+  "7": {
+   "Name": "Custom_Tile",
+   "Transform": {
+    "rotX": 0.0169651,
+    "rotY": 179.98996,
+    "rotZ": 0.0796191,
+    "scaleX": 1.0,
+    "scaleY": 1.0,
+    "scaleZ": 1.0
+   },
+   "Nickname": "",
+   "Description": "",
+   "GMNotes": "",
+   "AltLookAngle": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   "ColorDiffuse": {
+    "r": 0.129411221,
+    "g": 0.129411221,
+    "b": 0.129411221
+   },
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": false,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomImage": {
+    "ImageURL": "static:images/tts/assets/7_number.png",
+    "ImageSecondaryURL": "static:images/tts/assets/number_back.png",
+    "ImageScalar": 1.0,
+    "WidthScale": 0.0,
+    "CustomTile": {
+     "Type": 1,
+     "Thickness": 0.1,
+     "Stackable": false,
+     "Stretch": false
+    }
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": ""
+  },
+  "8": {
+   "Name": "Custom_Tile",
+   "Transform": {
+    "rotX": 0.0169771,
+    "rotY": 179.9901,
+    "rotZ": 0.0796151,
+    "scaleX": 1.0,
+    "scaleY": 1.0,
+    "scaleZ": 1.0
+   },
+   "Nickname": "",
+   "Description": "",
+   "GMNotes": "",
+   "AltLookAngle": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   "ColorDiffuse": {
+    "r": 0.129411221,
+    "g": 0.129411221,
+    "b": 0.129411221
+   },
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": false,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomImage": {
+    "ImageURL": "static:images/tts/assets/8_number.png",
+    "ImageSecondaryURL": "static:images/tts/assets/number_back.png",
+    "ImageScalar": 1.0,
+    "WidthScale": 0.0,
+    "CustomTile": {
+     "Type": 1,
+     "Thickness": 0.1,
+     "Stackable": false,
+     "Stretch": false
+    }
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": ""
+  },
+  "9": {
+   "Name": "Custom_Tile",
+   "Transform": {
+    "rotX": 0.0169767,
+    "rotY": 179.990143,
+    "rotZ": 0.0796151,
+    "scaleX": 1.0,
+    "scaleY": 1.0,
+    "scaleZ": 1.0
+   },
+   "Nickname": "",
+   "Description": "",
+   "GMNotes": "",
+   "AltLookAngle": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   "ColorDiffuse": {
+    "r": 0.129411221,
+    "g": 0.129411221,
+    "b": 0.129411221
+   },
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": false,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomImage": {
+    "ImageURL": "static:images/tts/assets/9_number.png",
+    "ImageSecondaryURL": "static:images/tts/assets/number_back.png",
+    "ImageScalar": 1.0,
+    "WidthScale": 0.0,
+    "CustomTile": {
+     "Type": 1,
+     "Thickness": 0.1,
+     "Stackable": false,
+     "Stretch": false
+    }
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": ""
+  },
+  "10": {
+   "Name": "Custom_Tile",
+   "Transform": {
+    "rotX": 0.0169655,
+    "rotY": 179.989868,
+    "rotZ": 0.0796188,
+    "scaleX": 1.0,
+    "scaleY": 1.0,
+    "scaleZ": 1.0
+   },
+   "Nickname": "",
+   "Description": "",
+   "GMNotes": "",
+   "AltLookAngle": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   "ColorDiffuse": {
+    "r": 0.129411221,
+    "g": 0.129411221,
+    "b": 0.129411221
+   },
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": false,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomImage": {
+    "ImageURL": "static:images/tts/assets/10_number.png",
+    "ImageSecondaryURL": "static:images/tts/assets/number_back.png",
+    "ImageScalar": 1.0,
+    "WidthScale": 0.0,
+    "CustomTile": {
+     "Type": 1,
+     "Thickness": 0.1,
+     "Stackable": false,
+     "Stretch": false
+    }
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": ""
+  },
+  "11": {
+   "Name": "Custom_Tile",
+   "Transform": {
+    "rotX": 0.0169768,
+    "rotY": 179.989883,
+    "rotZ": 0.0796156,
+    "scaleX": 1.0,
+    "scaleY": 1.0,
+    "scaleZ": 1.0
+   },
+   "Nickname": "",
+   "Description": "",
+   "GMNotes": "",
+   "AltLookAngle": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   "ColorDiffuse": {
+    "r": 0.129411221,
+    "g": 0.129411221,
+    "b": 0.129411221
+   },
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": false,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomImage": {
+    "ImageURL": "static:images/tts/assets/11_number.png",
+    "ImageSecondaryURL": "static:images/tts/assets/number_back.png",
+    "ImageScalar": 1.0,
+    "WidthScale": 0.0,
+    "CustomTile": {
+     "Type": 1,
+     "Thickness": 0.1,
+     "Stackable": false,
+     "Stretch": false
+    }
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": ""
+  },
+  "12": {
+   "Name": "Custom_Tile",
+   "Transform": {
+    "rotX": 0.0169658,
+    "rotY": 179.989838,
+    "rotZ": 0.0796191,
+    "scaleX": 1.0,
+    "scaleY": 1.0,
+    "scaleZ": 1.0
+   },
+   "Nickname": "",
+   "Description": "",
+   "GMNotes": "",
+   "AltLookAngle": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+   },
+   "ColorDiffuse": {
+    "r": 0.129411221,
+    "g": 0.129411221,
+    "b": 0.129411221
+   },
+   "LayoutGroupSortIndex": 0,
+   "Value": 0,
+   "Locked": false,
+   "Grid": true,
+   "Snap": true,
+   "IgnoreFoW": false,
+   "MeasureMovement": false,
+   "DragSelectable": true,
+   "Autoraise": true,
+   "Sticky": true,
+   "Tooltip": true,
+   "GridProjection": false,
+   "HideWhenFaceDown": false,
+   "Hands": false,
+   "CustomImage": {
+    "ImageURL": "static:images/tts/assets/12_number.png",
+    "ImageSecondaryURL": "static:images/tts/assets/number_back.png",
+    "ImageScalar": 1.0,
+    "WidthScale": 0.0,
+    "CustomTile": {
+     "Type": 1,
+     "Thickness": 0.1,
+     "Stackable": false,
+     "Stretch": false
+    }
+   },
+   "LuaScript": "",
+   "LuaScriptState": "",
+   "XmlUI": ""
+  }
+ }
+}

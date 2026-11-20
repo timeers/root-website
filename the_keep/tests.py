@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 import os
 import shutil
 import tempfile
@@ -949,9 +950,11 @@ class PostTTSJsonPageTests(TestCase):
         self.assertNotIn('value="recheck"', html)
         download = self.client.get(reverse('download-tts-json', kwargs={'slug': self.post.slug}))
         self.assertEqual(download.status_code, 200)
-        # The post page links to it.
-        self.assertIn(reverse('view-tts-json', kwargs={'slug': self.post.slug}),
-                      self.client.get(self.post.get_absolute_url()).content.decode())
+        # The post page links to it, for admins only (for now).
+        link = reverse('view-tts-json', kwargs={'slug': self.post.slug})
+        self.assertNotIn(link, self.client.get(self.post.get_absolute_url()).content.decode())
+        self.client.force_login(self.admin_user)
+        self.assertIn(link, self.client.get(self.post.get_absolute_url()).content.decode())
 
     def test_view_page_for_unlisted_posts_needs_an_editor(self):
         from the_keep.services.tts_store import store_tts_json
@@ -988,3 +991,251 @@ class BoardLayoutValidationTests(TestCase):
                     {'rivers': [[0, 0]]}, {'clearings': [[True, 1]]}):
             with self.subTest(bad=bad), self.assertRaises(ValidationError):
                 validate_tts_save({'ObjectStates': [{'Name': 'x'}], 'BoardLayout': bad})
+
+
+# ── Map builder (services/tts_map.py, tts_views.map_builder) ────────────────
+
+_MAP_MEDIA = tempfile.mkdtemp(prefix='map_builder_media_')
+
+
+def _detect_track(snaps):
+    """A Python port of the RTT Box Score's detectTrackOn (axis x only): the
+    rows of evenly spaced snaps it would read as the VP track."""
+    if len(snaps) < 40:
+        return None
+    pts = sorted(((s['Position']['x'], s['Position']['z']) for s in snaps), key=lambda p: p[1])
+    bands, cur = [], []
+    for p in pts:
+        if cur and p[1] - cur[-1][1] > 0.03:
+            bands.append(cur)
+            cur = []
+        cur.append(p)
+    bands.append(cur)
+    found = []
+    for band in bands:
+        if len(band) < 25:
+            continue
+        xs = sorted(p[0] for p in band)
+        diffs = sorted(xs[i] - xs[i - 1] for i in range(1, len(xs)))
+        s = diffs[(len(diffs) + 1) // 2 - 1]
+        even = s > 0.01 and all(1 <= round(d / s) <= 2 and abs(d - round(d / s) * s) <= 0.25 * s for d in diffs)
+        n = round((xs[-1] - xs[0]) / s) + 1
+        if even and 28 <= n <= 60 and len(xs) >= 0.85 * n:
+            found.append((n, band[0][1]))
+    return found or None
+
+
+@override_settings(MEDIA_ROOT=_MAP_MEDIA, SITE_URL='https://www.example.test', CACHES=_LOCMEM)
+class MapBuilderTests(TestCase):
+    WIDTH, HEIGHT = 1090, 1000
+
+    def setUp(self):
+        cache.clear()
+        from django.contrib.auth.models import User
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        from the_keep.models import Map
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+        self.designer_user = User.objects.create_user('mapdesigner')
+        self.designer_user.profile.group = 'D'   # designers need editor rights (Profile.editor)
+        self.designer_user.profile.save()
+        self.map = Map.objects.create(title='Fall Map', designer=self.designer_user.profile,
+                                      status=StatusChoices.STABLE, clearings=12, forests=None, ruins=4)
+        os.makedirs(os.path.join(_MAP_MEDIA, 'maps'), exist_ok=True)
+        Image.new('RGB', (self.WIDTH, self.HEIGHT), (90, 120, 60)).save(os.path.join(_MAP_MEDIA, 'maps', 'fall.png'))
+        Map.objects.filter(pk=self.map.pk).update(board_image='maps/fall.png')
+        self.map.refresh_from_db()
+
+    def _state(self, clearings=3, fixed_suits=None, buildings=5, ruins=2, forests=2):
+        from the_keep.services.tts_map import MapGeometry
+        state = MapGeometry(self.WIDTH, self.HEIGHT).defaults()
+        state['clearings'] = [{'centre': [0.2 + 0.2 * i, 0.4], 'marker': [0.25 + 0.2 * i, 0.4], 'number': i + 1,
+                               'number_angle': 1.0, **({'suit': fixed_suits[i]} if fixed_suits else {})}
+                              for i in range(clearings)]
+        state['forests'] = [[0.3, 0.6 + 0.05 * i] for i in range(forests)]
+        state['buildings'] = [{'at': [0.1 + 0.1 * i, 0.7], 'ruin': i < ruins} for i in range(buildings)]
+        return state
+
+    # ── Geometry ──
+    def test_geometry_matches_the_official_summer_map(self):
+        from the_keep.services.tts_map import MapGeometry
+        g = MapGeometry(3479, 3189)
+        # A Summer suit-marker snap (local) and its marker's table offset from the board.
+        u, v = g.to_image(-1.798, 0.292)
+        self.assertAlmostEqual(g.to_local(u, v)[0], -1.798, places=6)
+        dx, dz = g.to_table(u, v)
+        self.assertAlmostEqual(dx, 23.31 + 0.029, delta=0.05)
+        self.assertAlmostEqual(dz, -3.84 + 0.041, delta=0.05)
+        # Image left is local +x, image top is local -z.
+        self.assertGreater(g.to_local(0, 0.5)[0], 0)
+        self.assertLess(g.to_local(0.5, 0)[1], 0)
+
+    # ── Build ──
+    def test_built_map_matches_the_official_conventions(self):
+        from the_keep.services.tts_map import build_map_tts_json, MapGeometry, NUMBER_TILE_RADIUS
+        from the_keep.utils import validate_board_layout
+        state = self._state()
+        save = build_map_tts_json(self.map, state)
+        board, *pieces = save['ObjectStates']
+        self.assertEqual((board['Name'], board['Transform']['scaleX'], board['Transform']['rotY']),
+                         ('Custom_Token', 12.9794, 180.0))
+        self.assertEqual(board['Tags'], ['Map Object', 'RTT Map', 'RTT Map: Fall Map'])
+        snaps = board['AttachedSnapPoints']
+        track = [s for s in snaps if s['Position']['z'] > 1.3]
+        self.assertEqual(len(track), 93)
+        detected = _detect_track(snaps)
+        self.assertEqual([n for n, _ in detected], [31, 31, 31])
+        self.assertEqual(sum(1 for s in snaps if s.get('Tags') == ['Enclave']), 3)
+        self.assertEqual(len(snaps), 93 + 12 + 3 + 5)
+
+        by_tag = lambda tag: [p for p in pieces if tag in (p.get('Tags') or [])]
+        markers, ruins, numbers = by_tag('Clearing Marker'), by_tag('Ruin'), by_tag('RTT Priority')
+        self.assertEqual(len(markers), 3)
+        self.assertEqual([m['Tags'][-1] for m in markers], ['Suit: fox', 'Suit: rabbit', 'Suit: mouse'])
+        self.assertEqual(len(ruins), 2)
+        self.assertEqual(len(numbers), 3)
+        self.assertTrue(all(n['Locked'] and 'Map Object' in n['Tags'] for n in numbers))
+        items = [p for p in pieces if p['Tags'] == ['Map Object'] and p['Name'] == 'Custom_Tile']
+        self.assertEqual(len(items), 12)
+
+        # Ruins sit on their buildings; number tiles touch their clearing circle.
+        g = MapGeometry(self.WIDTH, self.HEIGHT)
+        ruin_at = g.to_table(*state['buildings'][0]['at'])
+        self.assertAlmostEqual(ruins[0]['Transform']['posX'], ruin_at[0], places=6)
+        c = state['clearings'][0]
+        cx, cz = g.to_table(*c['centre'])
+        mx, mz = g.to_table(*c['marker'])
+        tile = numbers[0]['Transform']
+        import math
+        self.assertAlmostEqual(math.hypot(tile['posX'] - cx, tile['posZ'] - cz),
+                               math.hypot(mx - cx, mz - cz) + NUMBER_TILE_RADIUS, places=4)
+
+        # Marker faces away from its clearing centre; its snap is that minus the board's 180.
+        self.assertAlmostEqual(markers[0]['Transform']['rotY'] % 360,
+                               math.degrees(math.atan2(mx - cx, mz - cz)) % 360, places=4)
+
+        validate_board_layout(save['BoardLayout'])
+        self.assertEqual(len(save['BoardLayout']['clearings']), 3)
+        self.assertEqual(len(save['BoardLayout']['forests']), 2)
+
+        # Every file comes from our own site.
+        urls = re.findall(r'https?://[^"\']+', json.dumps(save))
+        self.assertTrue(urls)
+        self.assertEqual([u for u in urls if not u.startswith('https://www.example.test/')], [])
+
+    def test_templates_point_at_files_that_exist(self):
+        from django.contrib.staticfiles import finders
+        from the_keep.services.tts_map import pieces
+        paths = set(re.findall(r'static:([^"]+)', json.dumps(pieces())))
+        self.assertGreater(len(paths), 30)
+        missing = [p for p in paths if not finders.find(p)]
+        self.assertEqual(missing, [])
+
+    def test_fixed_maps_use_chosen_suits_and_are_not_shuffled(self):
+        from the_keep.services.tts_map import build_map_tts_json
+        self.map.fixed_clearings = True
+        save = build_map_tts_json(self.map, self._state(fixed_suits=['bird', 'fox', 'fox']))
+        markers = [p for p in save['ObjectStates'] if any(t.startswith('Suit: ') for t in p.get('Tags') or [])]
+        self.assertEqual([m['Tags'] for m in markers][0], ['Map Object', 'Suit: bird'])
+        self.assertTrue(all('Clearing Marker' not in m['Tags'] for m in markers))
+        self.assertIn('bird_marker', markers[0]['CustomMesh']['DiffuseURL'])
+
+    def test_extra_number_images_are_picked_up(self):
+        from the_keep.services.tts_map import build_map_tts_json, highest_number, number_templates
+        self.assertGreaterEqual(highest_number(), 24)
+        self.assertIn('24_number.png', number_templates()[24]['CustomImage']['ImageURL'])
+        save = build_map_tts_json(self.map, self._state(clearings=20))
+        tiles = [p for p in save['ObjectStates'] if 'RTT Priority' in (p.get('Tags') or [])]
+        self.assertEqual(len(tiles), 20)
+        self.assertIn('20_number.png', tiles[-1]['CustomImage']['ImageURL'])
+
+    def test_board_layout_is_in_number_order_and_clearings_past_the_last_number_get_none(self):
+        from the_keep.services import tts_map
+        from the_keep.services.tts_map import build_map_tts_json, check_builder, MapGeometry
+        # Pretend only the mod's 1-12 exist, so clearing 13 has no tile.
+        only_12 = {n: t for n, t in tts_map.number_templates().items() if n <= 12}
+        patch = mock.patch.object(tts_map, 'number_templates', return_value=only_12)
+        patch.start()
+        self.addCleanup(patch.stop)
+        state = self._state(clearings=13)
+        state['clearings'][0]['number'], state['clearings'][1]['number'] = 2, 1
+        save = build_map_tts_json(self.map, state)
+        g = MapGeometry(self.WIDTH, self.HEIGHT)
+        first = [round(v, 3) for v in g.to_table(*state['clearings'][1]['centre'])]
+        self.assertEqual(save['BoardLayout']['clearings'][0], first)
+        self.assertEqual(sum(1 for p in save['ObjectStates'] if 'RTT Priority' in (p.get('Tags') or [])), 12)
+        errors, warnings = check_builder(self.map, state)
+        self.assertEqual(errors, [])
+        self.assertTrue(any('1-12' in w for w in warnings))
+
+    def test_stored_map_info(self):
+        from the_keep.services.tts_map import build_map_tts_json
+        from the_keep.services.tts_store import store_tts_json
+        info = store_tts_json(self.map, build_map_tts_json(self.map, self._state()), source='generated')
+        self.assertEqual((info['map_board'], info['shuffle']), (1, True))
+
+    # ── Checks and counts ──
+    def test_checks(self):
+        from the_keep.services.tts_map import check_builder
+        state = self._state()
+        state['clearings'][0]['marker'] = None
+        state['clearings'][2]['number'] = 2
+        errors, warnings = check_builder(self.map, state)
+        self.assertEqual(len(errors), 2)
+        # Counts that differ from the post are warnings only.
+        self.assertTrue(any('3 clearings' in w and 'says 12' in w for w in warnings))
+        self.map.fixed_clearings = True
+        errors, _ = check_builder(self.map, self._state())
+        self.assertTrue(any('suit' in e for e in errors))
+
+    def test_counts_update_the_post(self):
+        from the_keep.models import Map
+        from the_keep.services.tts_map import apply_builder_counts
+        changes = apply_builder_counts(self.map, self._state(clearings=3, forests=2, buildings=5, ruins=4))
+        stored = Map.objects.get(pk=self.map.pk)
+        self.assertEqual((stored.clearings, stored.forests, stored.building_slots, stored.ruins), (3, 2, 5, 4))
+        self.assertEqual(len(changes), 3)   # ruins was already 4
+        self.assertEqual(apply_builder_counts(stored, self._state(clearings=3, forests=2, buildings=5, ruins=4)), [])
+
+    # ── Views ──
+    def _builder_url(self):
+        return reverse('map-builder', kwargs={'slug': self.map.slug})
+
+    def test_designer_can_save_and_generate(self):
+        from the_keep.models import Map
+        self.client.force_login(self.designer_user)
+        page = self.client.get(self._builder_url())
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, 'map-builder-config')
+        state = self._state()
+        response = self.client.post(self._builder_url(), json.dumps({'state': state, 'generate': True}),
+                                    content_type='application/json')
+        result = response.json()
+        self.assertTrue(result['generated'], result)
+        stored = Map.objects.get(pk=self.map.pk)
+        self.assertEqual(len(stored.tts_builder['clearings']), 3)
+        self.assertEqual(stored.tts_info['source'], 'generated')
+        self.assertEqual(stored.clearings, 3)
+
+    def test_designer_cannot_use_admin_actions(self):
+        self.client.force_login(self.designer_user)
+        manage = reverse('manage-tts-json', kwargs={'slug': self.map.slug})
+        page = self.client.get(manage).content.decode()
+        self.assertIn('Open map builder', page)
+        self.assertNotIn('name="tts_file"', page)
+        for action in ('upload', 'remove', 'recheck'):
+            self.assertEqual(self.client.post(manage, {'action': action}).status_code, 403)
+
+    def test_non_editor_gets_403(self):
+        from django.contrib.auth.models import User
+        self.client.force_login(User.objects.create_user('stranger'))
+        self.assertEqual(self.client.get(self._builder_url()).status_code, 403)
+        manage = reverse('manage-tts-json', kwargs={'slug': self.map.slug})
+        self.assertEqual(self.client.get(manage).status_code, 403)
+
+    def test_map_without_image(self):
+        from the_keep.models import Map
+        Map.objects.filter(pk=self.map.pk).update(board_image='')
+        self.client.force_login(self.designer_user)
+        self.assertContains(self.client.get(self._builder_url()), 'no board image')

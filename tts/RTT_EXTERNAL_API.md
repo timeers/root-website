@@ -645,6 +645,7 @@ In `rttBadgerRelics`, in the `else` branch:
   local tagged = string.match(j, '"Suit: (%a+)"')
   if tagged ~= nil then return string.lower(tagged) end
 ```
+This also covers **bird clearings**, which the official markers can't express: `RTT_SUIT_TEX` has no bird texture. Maps built by the Root Database's map builder tag every marker `Suit: fox|rabbit|mouse|bird`. Until this fallback is in place, a bird marker spawns and works as a piece, but its suit isn't published.
 
 **Frog cards in accessory decks.** In `rttFrogCardsInDecks`, after the `dk.name` check, so frog cards in an outside deck's accessory decks aren't moved into the next deck:
 ```lua

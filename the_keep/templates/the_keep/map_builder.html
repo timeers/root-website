@@ -1,0 +1,109 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n static %}
+
+{% block title %}{% trans 'Map builder' %} - {{ object.title }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0 root-title"><i class="bi bi-map me-2"></i>{{ object.title }} {% trans 'Map builder' %}</h2>
+        <a href="{% url 'manage-tts-json' object.slug %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>{% trans 'Back to TTS JSON' %}
+        </a>
+    </div>
+
+    {% if not has_image %}
+    <div class="alert alert-warning">
+        {% trans 'This map has no board image yet. Add one to the map, then come back to lay it out.' %}
+    </div>
+    {% else %}
+
+    {% if ratio_warning %}
+    <div class="alert alert-warning small">
+        <i class="bi bi-exclamation-triangle me-1"></i>
+        {% trans "This board image is a different shape from the official maps (about 1.09 wide to 1 tall). Pieces may land slightly off their printed spots in TTS; check the map in game." %}
+    </div>
+    {% endif %}
+
+    <!-- Steps -->
+    <ol class="nav nav-pills small mb-3 flex-wrap gap-1" id="mb-steps">
+        <li class="nav-item"><button type="button" class="nav-link" data-step="0">1. {% trans 'VP track and items' %}</button></li>
+        <li class="nav-item"><button type="button" class="nav-link" data-step="1">2. {% trans 'Clearings' %}</button></li>
+        <li class="nav-item"><button type="button" class="nav-link" data-step="2">3. {% trans 'Forests' %}</button></li>
+        <li class="nav-item"><button type="button" class="nav-link" data-step="3">4. {% trans 'Buildings' %}</button></li>
+        <li class="nav-item"><button type="button" class="nav-link" data-step="4">5. {% trans 'Ruins' %}</button></li>
+        <li class="nav-item"><button type="button" class="nav-link" data-step="5">6. {% trans 'Review' %}</button></li>
+    </ol>
+
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+        <div>
+            <h4 class="mb-0" id="mb-heading"></h4>
+            <div class="text-muted small" id="mb-hint"></div>
+        </div>
+        <span class="badge fs-6" id="mb-counter"></span>
+    </div>
+
+    <!-- Selected clearing tools -->
+    <div class="d-flex flex-wrap align-items-center gap-2 mb-2 d-none" id="mb-tools">
+        <label class="small mb-0" for="mb-number">{% trans 'Number' %}</label>
+        <input type="number" min="1" class="form-control form-control-sm" style="width: 5rem;" id="mb-number">
+        <div class="btn-group btn-group-sm d-none" role="group" id="mb-suits">
+            <button type="button" class="btn btn-outline-secondary" data-suit="fox">{% trans 'Fox' %}</button>
+            <button type="button" class="btn btn-outline-secondary" data-suit="rabbit">{% trans 'Rabbit' %}</button>
+            <button type="button" class="btn btn-outline-secondary" data-suit="mouse">{% trans 'Mouse' %}</button>
+            <button type="button" class="btn btn-outline-secondary" data-suit="bird">{% trans 'Bird' %}</button>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-danger" id="mb-delete">
+            <i class="bi bi-x-lg me-1"></i>{% trans 'Delete' %}
+        </button>
+    </div>
+    <div class="d-flex gap-2 mb-2 d-none" id="mb-delete-only">
+        <button type="button" class="btn btn-sm btn-outline-danger" id="mb-delete-2">
+            <i class="bi bi-x-lg me-1"></i>{% trans 'Delete selected' %}
+        </button>
+    </div>
+
+    <!-- Board -->
+    <div class="position-relative border rounded mb-3" id="mb-board" style="touch-action: none; user-select: none;">
+        <img src="{{ config.image }}" alt="{{ object.title }}" class="w-100 d-block" id="mb-image" draggable="false">
+        <svg id="mb-svg" class="position-absolute top-0 start-0 w-100 h-100"
+             viewBox="0 0 {{ config.width }} {{ config.height }}" preserveAspectRatio="none"></svg>
+    </div>
+
+    <!-- Review -->
+    <div class="card mb-3 d-none" id="mb-review">
+        <div class="card-body">
+            <ul class="mb-2" id="mb-review-counts"></ul>
+            <div id="mb-review-problems"></div>
+        </div>
+    </div>
+
+    <div id="mb-messages"></div>
+
+    <div class="d-flex flex-wrap justify-content-between gap-2">
+        <button type="button" class="btn btn-outline-secondary" id="mb-back">
+            <i class="bi bi-arrow-left me-1"></i>{% trans 'Back' %}
+        </button>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-primary" id="mb-save">
+                <i class="bi bi-save me-1"></i>{% trans 'Save' %}
+            </button>
+            <button type="button" class="btn btn-primary" id="mb-next">
+                {% trans 'Next' %}<i class="bi bi-arrow-right ms-1"></i>
+            </button>
+            <button type="button" class="btn btn-success d-none" id="mb-generate">
+                <i class="bi bi-magic me-1"></i>{% trans 'Save and generate' %}
+            </button>
+        </div>
+    </div>
+    {{ config|json_script:"map-builder-config" }}
+    {% csrf_token %}
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if has_image %}
+<script src="{% static 'the_keep/map_builder.js' %}"></script>
+{% endif %}
+{% endblock %}

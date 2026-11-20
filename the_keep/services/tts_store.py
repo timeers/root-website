@@ -41,7 +41,14 @@ def forge_linked(post):
 def generate_unavailable_reason(post):
     """Why the builder can't (re)generate this post's JSON, or None."""
     if post.component == Post.ComponentChoices.MAP:
-        return "There's no map builder yet. Upload the map's JSON instead."
+        from .tts_map import check_builder
+        if not post.board_image:
+            return "Add a board image to this map first."
+        if not getattr(post, 'tts_builder', None):
+            return "Lay out the map in the map builder first."
+        errors, _warnings = check_builder(post, post.tts_builder)
+        if errors:
+            return "Finish the map builder first: " + " ".join(errors)
     if forge_linked(post):
         return "This faction's JSON comes from its Forge draft. Update it from the Forge sync page."
     return None
@@ -53,7 +60,11 @@ def generate_tts_json(post, profile=None):
     reason = generate_unavailable_reason(post)
     if reason:
         return False, reason
-    save_file = wrap_tts_save(build_tts_objects(post, request=SiteURLRequest()), save_name=post.title)
+    if post.component == Post.ComponentChoices.MAP:
+        from .tts_map import build_map_tts_json
+        save_file = build_map_tts_json(post, post.tts_builder)
+    else:
+        save_file = wrap_tts_save(build_tts_objects(post, request=SiteURLRequest()), save_name=post.title)
     try:
         validate_tts_save(save_file)
     except ValidationError:

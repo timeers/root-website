@@ -1,11 +1,14 @@
-"""The post's TTS JSON page (admin only): generate the JSON from the post's
-data, or upload a file, review its warnings and confirm it. Either way the JSON
-is stored exactly as given and served as is (see services/tts_store.py)."""
+"""The post's TTS JSON page: anyone who can edit the post can generate the JSON
+from the post's data (maps through the map builder); admins can also upload a
+file, review its warnings and confirm it. Either way the JSON is stored exactly
+as given and served as is (see services/tts_store.py)."""
 import json
 from datetime import timedelta
 
 from django.contrib import messages
-from django.http import Http404, HttpResponse
+from django.contrib.auth.decorators import login_required
+from django.core.exceptions import PermissionDenied
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.core.exceptions import ValidationError
@@ -14,6 +17,9 @@ from the_gatehouse.views import admin_required
 
 from .models import Post, TTSJsonUpload, post_model_for_component
 from .services.tts_inspect import inspect_tts_json
+from .services.tts_map import (MapGeometry, apply_builder_counts, check_builder, highest_number,
+                               number_tile_radius_px,
+                               pieces, TRACK_CELLS, TRACK_ROW_GAP, TRACK_STEP, TRACK_X0)
 from .services.tts_store import (clear_tts_json, forge_linked, generate_tts_json,
                                  generate_unavailable_reason, recheck_tts_info, store_tts_json)
 from .utils import user_can_edit, validate_tts_save
@@ -111,15 +117,28 @@ def _read_upload(upload):
     return data, None
 
 
-@admin_required
+# Actions on the manage page only admins may take.
+ADMIN_ACTIONS = {'upload', 'remove', 'recheck'}
+
+
+def _require_editor(request, post):
+    if not user_can_edit(request, post):
+        raise PermissionDenied
+
+
+@login_required
 def post_tts_json(request, slug):
     post = _post_for(slug)
+    _require_editor(request, post)
     profile = request.user.profile
+    is_admin = profile.admin
     TTSJsonUpload.objects.filter(confirmed_at__isnull=True,
                                  created_at__lt=timezone.now() - PENDING_UPLOAD_LIFETIME).delete()
 
     if request.method == 'POST':
         action = request.POST.get('action')
+        if action in ADMIN_ACTIONS and not is_admin:
+            raise PermissionDenied
         if action == 'generate':
             ok, message = generate_tts_json(post, profile=profile)
             (messages.success if ok else messages.error)(request, message)
@@ -156,6 +175,8 @@ def post_tts_json(request, slug):
         'generate_reason': generate_unavailable_reason(post),
         'forged_faction': forged,
         'max_upload_mb': MAX_UPLOAD_BYTES // (1024 * 1024),
+        'is_admin': is_admin,
+        'is_map': post.component == Post.ComponentChoices.MAP,
     })
 
 
@@ -221,3 +242,125 @@ def post_tts_json_download(request, slug):
                             content_type='application/json')
     response['Content-Disposition'] = f'attachment; filename="{post.slug}.json"'
     return response
+
+
+@login_required
+def map_builder(request, slug):
+    """The visual map builder: lay out a Map post's VP track, items, clearings,
+    forests and buildings on its board image, then generate its TTS JSON."""
+    post = _post_for(slug)
+    _require_editor(request, post)
+    if post.component != Post.ComponentChoices.MAP:
+        raise Http404("The map builder is for maps.")
+
+    if request.method == 'POST':
+        if not post.board_image:
+            return JsonResponse({'ok': False, 'errors': ["Add a board image to this map first."]}, status=400)
+        try:
+            payload = json.loads(request.body)
+            state = payload['state']
+        except (ValueError, KeyError, TypeError):
+            return JsonResponse({'ok': False, 'errors': ["Couldn't read the layout."]}, status=400)
+        state = _clean_state(state)
+        post.tts_builder = state
+        type(post).objects.filter(pk=post.pk).update(tts_builder=state)
+        changes = apply_builder_counts(post, state)
+        errors, warnings = check_builder(post, state)
+        result = {'ok': True, 'saved': True, 'changes': changes, 'errors': errors, 'warnings': warnings}
+        if payload.get('generate'):
+            if errors:
+                result['ok'] = False
+            else:
+                ok, message = generate_tts_json(post, profile=request.user.profile)
+                result.update(ok=ok, generated=ok, message=message)
+                if ok:
+                    messages.success(request, "Generated the map's TTS JSON.")
+                    result['redirect'] = reverse_manage(post)
+        return JsonResponse(result)
+
+    context = {'object': post, 'has_image': bool(post.board_image)}
+    if post.board_image:
+        width, height = post.board_image.width, post.board_image.height
+        geometry = MapGeometry(width, height)
+        state = post.tts_builder or geometry.defaults()
+        errors, warnings = check_builder(post, state)
+        grid = pieces()['item_grid']
+        ratio = width / height
+        context.update({
+            'config': {
+                'image': post.board_image.url,
+                'width': width,
+                'height': height,
+                'state': state,
+                'fixed': bool(post.fixed_clearings),
+                'expected': {'clearings': post.clearings, 'forests': post.forests,
+                             'buildings': post.building_slots, 'ruins': post.ruins},
+                'numbers': highest_number(),
+                # Geometry in pixels, so the editor draws pieces where TTS will put them.
+                'px_per_local': geometry.px_per_local,
+                'track': {'cells': TRACK_CELLS, 'x0': TRACK_X0, 'step': TRACK_STEP, 'row_gap': TRACK_ROW_GAP,
+                          'half_width': geometry.hx, 'half_height': geometry.hz},
+                'item_grid': grid,
+                'number_radius_px': number_tile_radius_px(geometry),
+                'save_url': request.path,
+                'manage_url': reverse_manage(post),
+            },
+            'ratio_warning': not (1.0 <= ratio <= 1.2),
+            'errors': errors,
+            'warnings': warnings,
+        })
+    return render(request, 'the_keep/map_builder.html', context)
+
+
+def reverse_manage(post):
+    from django.urls import reverse
+    return reverse('manage-tts-json', kwargs={'slug': post.slug})
+
+
+def _point(value):
+    """A [u, v] pair clamped to the image, or None."""
+    try:
+        u, v = float(value[0]), float(value[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    if u != u or v != v:   # NaN
+        return None
+    return [min(max(u, 0.0), 1.0), min(max(v, 0.0), 1.0)]
+
+
+def _clean_state(state):
+    """Keep only the builder's own keys, with numbers where numbers belong."""
+    state = state if isinstance(state, dict) else {}
+    clean = {'version': 1}
+    try:
+        clean['track_y'] = min(max(float(state.get('track_y')), 0.0), 1.0)
+    except (TypeError, ValueError):
+        pass
+    items = _point(state.get('items'))
+    if items:
+        clean['items'] = items
+    clearings = []
+    for c in state.get('clearings') or []:
+        if not isinstance(c, dict):
+            continue
+        centre = _point(c.get('centre'))
+        if centre is None:
+            continue
+        entry = {'centre': centre, 'marker': _point(c.get('marker'))}
+        try:
+            entry['number'] = int(c.get('number'))
+        except (TypeError, ValueError):
+            entry['number'] = None
+        try:
+            entry['number_angle'] = float(c.get('number_angle'))
+        except (TypeError, ValueError):
+            pass
+        if c.get('suit') in ('fox', 'rabbit', 'mouse', 'bird'):
+            entry['suit'] = c['suit']
+        clearings.append(entry)
+    clean['clearings'] = clearings
+    clean['forests'] = [p for p in (_point(f) for f in state.get('forests') or []) if p]
+    clean['buildings'] = [{'at': p, 'ruin': bool(b.get('ruin'))}
+                          for b in state.get('buildings') or [] if isinstance(b, dict)
+                          for p in [_point(b.get('at'))] if p]
+    return clean

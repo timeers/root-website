@@ -1278,6 +1278,10 @@ class Map(Post):
     ruins = models.PositiveIntegerField(blank=True, null=True, default=4)
     fixed_clearings = models.BooleanField(default=False)
     default_landmark = models.ForeignKey(Landmark, on_delete=models.PROTECT, null=True, blank=True)
+    # The map builder's layout (VP track, items, clearings, forests, buildings),
+    # in 0-1 image coordinates; the site generates the TTS JSON from it. See
+    # the_keep/services/tts_map.py.
+    tts_builder = models.JSONField(null=True, blank=True)
     def save(self, *args, **kwargs):
         self.component = 'Map'  # Set the component type
         self.sorting = 2

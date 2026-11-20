@@ -94,6 +94,7 @@ urlpatterns = [
     path('post/<slug:slug>/pieces/', views.post_pieces_view, name='post-pieces'),
     path('post/<slug:slug>/tts-json/', tts_views.post_tts_json_view, name='view-tts-json'),
     path('post/<slug:slug>/tts-json/manage/', tts_views.post_tts_json, name='manage-tts-json'),
+    path('post/<slug:slug>/tts-json/map-builder/', tts_views.map_builder, name='map-builder'),
     path('post/<slug:slug>/tts-json/download/', tts_views.post_tts_json_download, name='download-tts-json'),
     path('post/<slug:slug>/tts-json/review/<int:upload_id>/', tts_views.post_tts_json_review, name='post-tts-json-review'),
 

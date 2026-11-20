@@ -69,19 +69,25 @@ Randomised set-up comes from tags on the map's pieces, which the coordinator's `
 
 **Fixed suits:** leave `Clearing Marker` off the suit markers. The site no longer changes the JSON for a Map post's `fixed_clearings` setting; the review warns when the setting is on but the JSON still has the tag.
 
-## Measuring a layout today (until an editor exists)
+## The map builder
 
-1. Spawn the map from the Library tab on a table, so the board lands at the table centre at its saved rotation.
-2. Note the board's position (right-click the board → Scripting, or the Gizmo tool).
-3. Drop a small object on each clearing, then read its position.
-4. Store `[object.x - board.x, object.z - board.z]`.
-5. Repeat for forests and relic spots.
+Map posts get their layout from the **map builder** (post → TTS JSON → Open map builder; `the_keep/tts_views.py` `map_builder`, `the_keep/static/the_keep/map_builder.js`). Admins and the map's designer mark the VP track, item grid, clearings (centre, suit-marker spot, number tile), forests, building spaces and ruins on the board image. The layout is saved in `Map.tts_builder` (0–1 image coordinates), and `the_keep/services/tts_map.py` builds the TTS JSON from it, including `BoardLayout` (`clearings` in clearing-number order, and `forests`).
+
+**Measured from the RTT mod's six official maps** (constants in `MapGeometry` and `tts_map.py`):
+- **The board:** a `Custom_Token` at scale `12.9794`, rotated 180°. Its image spans **2.0 local units either side of centre across its width**, and `2.0·H/W` down its height.
+  - **Unverified:** every official image is about 1.09 : 1, so this rule is unconfirmed for other image shapes.
+  - **Axes:** image left is local +x and image top is local −z.
+  - **Table offsets:** `dx = −x·12.9794`, `dz = −z·12.9794`.
+- **The VP track:** 3 rows × 31 snaps, x from −1.803 in steps of 0.12017, rows 0.112 apart. The RTT Box Score finds the track by looking for evenly spaced rows of 28–60 snaps.
+- **Items:** a 2 × 6 grid of snaps, 0.1421 × 0.1372 local units apart.
+- **Suit markers:**
+  - **Snaps:** each marker spot is a snap tagged `Enclave`, whose local rotY is the marker's rotY − 180.
+  - **Rotation:** a marker's world rotY is the direction from its clearing centre to the marker (`atan2(dx, dz)`).
+- **Clearing number tiles:** round tiles at scale 1.0 (about 1.0 table unit in radius), sitting just outside the clearing circle.
+
+The pieces (item tiles, ruin tiles, suit markers, number tiles) come from `tts/rtt_map_pieces.json`, with art in `the_keep/static/images/tts/assets/`. Refresh them with `tts/extract_rtt_map_pieces.py`.
 
 ## Notes for a future editor or Forge builder
-
 - **Keep the key name and convention**, so existing maps keep working, and validate with `validate_board_layout`.
-- **A visual editor** can show the board image and let you click to place points.
-  - To convert a click into an offset, use the board's TTS size: the board's world width and depth follow from its scale and the image's aspect ratio.
-  - Measure from the image centre.
-  - Flip the image's y axis to the table's z axis, accounting for the board's saved rotation. At the usual saved rotation of 180°, the image's top edge faces −z.
-- **If Forge Map drafts are built later,** the Forge can produce `BoardLayout` alongside the map's TTS objects, the same way faction drafts produce theirs.
+- **Reuse `tts_map.py`** (`MapGeometry`, `build_map_tts_json`) rather than re-deriving the geometry.
+- **If Forge Map drafts are built later,** they can store the same builder layout and generate their JSON the same way.
