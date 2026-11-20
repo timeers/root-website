@@ -3,6 +3,53 @@
 
 {% block title %}{% trans 'Map builder' %} - {{ object.title }}{% endblock %}
 
+{% block styles %}
+<style>
+    #mb-popover {
+        position: absolute; z-index: 5; top: 0; left: 0;
+        background: #fff; border-radius: 12px; padding: 6px 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, .18), 0 1px 3px rgba(0, 0, 0, .12);
+        opacity: 0; transform: translateY(4px) scale(.96); pointer-events: none;
+        transition: opacity .12s ease, transform .12s ease;
+    }
+    #mb-popover.show { opacity: 1; transform: none; pointer-events: auto; }
+    #mb-popover.below { transform-origin: top center; }
+    /* The arrow points at the selected element. */
+    #mb-popover::after {
+        content: ''; position: absolute; left: var(--mb-arrow-x, 50%); bottom: -6px;
+        width: 12px; height: 12px; margin-left: -6px; background: #fff;
+        transform: rotate(45deg); box-shadow: 3px 3px 4px rgba(0, 0, 0, .08);
+    }
+    #mb-popover.below::after { bottom: auto; top: -6px; box-shadow: -3px -3px 4px rgba(0, 0, 0, .06); }
+    #mb-popover .mb-pop-row { display: flex; align-items: center; gap: 10px; position: relative; z-index: 1; }
+
+    .mb-pop-stepper { display: flex; align-items: center; gap: 2px; background: #f1f3f5; border-radius: 999px; padding: 2px; }
+    .mb-pop-stepper button {
+        width: 26px; height: 26px; border: 0; border-radius: 50%; background: #fff; color: #212529;
+        display: inline-flex; align-items: center; justify-content: center; line-height: 1;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+    }
+    .mb-pop-stepper button:disabled { opacity: .35; box-shadow: none; }
+    .mb-pop-stepper span { min-width: 2ch; text-align: center; font-weight: 700; color: #212529; }
+
+    .mb-pop-suits { display: flex; align-items: center; gap: 6px; }
+    .mb-pop-suits button { border: 0; background: none; padding: 0; line-height: 0; }
+    .mb-pop-suits img {
+        width: 30px; height: 30px; filter: grayscale(1); opacity: .55; transform: scale(1);
+        transition: filter .15s ease, opacity .15s ease, transform .15s ease;
+    }
+    .mb-pop-suits button:hover img { opacity: .8; }
+    .mb-pop-suits button.selected img { filter: none; opacity: 1; transform: scale(1.2); }
+
+    .mb-pop-delete {
+        width: 32px; height: 32px; border-radius: 50%; border: 2px solid #fff; background: #dc3545; color: #fff;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, .15); display: inline-flex; align-items: center; justify-content: center;
+        padding: 0; font-size: 14px; transition: background .12s ease;
+    }
+    .mb-pop-delete:hover, .mb-pop-delete:focus-visible { background: #bb2d3b; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container py-4">
     <div class="d-flex justify-content-between align-items-center mb-3">
@@ -43,31 +90,31 @@
         <span class="badge fs-6" id="mb-counter"></span>
     </div>
 
-    <!-- Selected clearing tools -->
-    <div class="d-flex flex-wrap align-items-center gap-2 mb-2 d-none" id="mb-tools">
-        <label class="small mb-0" for="mb-number">{% trans 'Number' %}</label>
-        <input type="number" min="1" class="form-control form-control-sm" style="width: 5rem;" id="mb-number">
-        <div class="btn-group btn-group-sm d-none" role="group" id="mb-suits">
-            <button type="button" class="btn btn-outline-secondary" data-suit="fox">{% trans 'Fox' %}</button>
-            <button type="button" class="btn btn-outline-secondary" data-suit="rabbit">{% trans 'Rabbit' %}</button>
-            <button type="button" class="btn btn-outline-secondary" data-suit="mouse">{% trans 'Mouse' %}</button>
-            <button type="button" class="btn btn-outline-secondary" data-suit="bird">{% trans 'Bird' %}</button>
-        </div>
-        <button type="button" class="btn btn-sm btn-outline-danger" id="mb-delete">
-            <i class="bi bi-x-lg me-1"></i>{% trans 'Delete' %}
-        </button>
-    </div>
-    <div class="d-flex gap-2 mb-2 d-none" id="mb-delete-only">
-        <button type="button" class="btn btn-sm btn-outline-danger" id="mb-delete-2">
-            <i class="bi bi-x-lg me-1"></i>{% trans 'Delete selected' %}
-        </button>
-    </div>
-
     <!-- Board -->
     <div class="position-relative border rounded mb-3" id="mb-board" style="touch-action: none; user-select: none;">
         <img src="{{ config.image }}" alt="{{ object.title }}" class="w-100 d-block" id="mb-image" draggable="false">
         <svg id="mb-svg" class="position-absolute top-0 start-0 w-100 h-100"
              viewBox="0 0 {{ config.width }} {{ config.height }}" preserveAspectRatio="none"></svg>
+
+        <!-- Edit pop-up for the selected clearing, forest or building -->
+        <div id="mb-popover" role="dialog" aria-label="{% trans 'Edit' %}">
+            <div class="mb-pop-row">
+                <div id="mb-pop-clearing" class="mb-pop-stepper">
+                    <button type="button" id="mb-pop-minus" aria-label="{% trans 'Lower number' %}"><i class="bi bi-dash"></i></button>
+                    <span id="mb-pop-number" title="{% trans 'Clearing number' %}"></span>
+                    <button type="button" id="mb-pop-plus" aria-label="{% trans 'Higher number' %}"><i class="bi bi-plus"></i></button>
+                </div>
+                <div id="mb-pop-suits" class="mb-pop-suits">
+                    <button type="button" data-suit="fox" title="{% trans 'Fox' %}" aria-label="{% trans 'Fox' %}" aria-pressed="false"><img alt=""></button>
+                    <button type="button" data-suit="rabbit" title="{% trans 'Rabbit' %}" aria-label="{% trans 'Rabbit' %}" aria-pressed="false"><img alt=""></button>
+                    <button type="button" data-suit="mouse" title="{% trans 'Mouse' %}" aria-label="{% trans 'Mouse' %}" aria-pressed="false"><img alt=""></button>
+                    <button type="button" data-suit="bird" title="{% trans 'Bird' %}" aria-label="{% trans 'Bird' %}" aria-pressed="false"><img alt=""></button>
+                </div>
+                <button type="button" id="mb-pop-delete" class="mb-pop-delete" title="{% trans 'Delete' %}" aria-label="{% trans 'Delete' %}">
+                    <i class="bi bi-x-lg"></i>
+                </button>
+            </div>
+        </div>
     </div>
 
     <!-- Review -->

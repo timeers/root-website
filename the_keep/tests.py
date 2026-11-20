@@ -1239,3 +1239,25 @@ class MapBuilderTests(TestCase):
         Map.objects.filter(pk=self.map.pk).update(board_image='')
         self.client.force_login(self.designer_user)
         self.assertContains(self.client.get(self._builder_url()), 'no board image')
+
+    def test_builder_config_has_suit_icons_and_marker_outline(self):
+        self.client.force_login(self.designer_user)
+        config = self.client.get(self._builder_url()).context['config']
+        self.assertEqual(set(config['suit_icons']), {'fox', 'rabbit', 'mouse', 'bird'})
+        self.assertIn('images/tags/Bird_Tag.png', config['suit_icons']['bird'])
+        self.assertIn('images/map_builder/clearing_marker.svg', config['marker_svg'])
+        width, height = config['marker_px']
+        self.assertAlmostEqual(width / height, 2.0, delta=0.05)
+        with mock.patch('the_keep.tts_views.finders.find', return_value=None):
+            self.assertIsNone(self.client.get(self._builder_url()).context['config']['marker_svg'])
+
+    def test_marker_outline_svg(self):
+        from django.contrib.staticfiles import finders
+        path = finders.find('images/map_builder/clearing_marker.svg')
+        self.assertTrue(path)
+        svg = open(path).read()
+        self.assertIn('fill="currentColor"', svg)
+        x, y, w, h = map(float, re.search(r'viewBox="([^"]+)"', svg).group(1).split())
+        # The marker's spot (0, 0) is inside, with the bump (more room) above it.
+        self.assertTrue(x < 0 < x + w and y < 0 < y + h)
+        self.assertGreater(-y, y + h)

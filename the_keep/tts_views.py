@@ -6,6 +6,8 @@ import json
 from datetime import timedelta
 
 from django.contrib import messages
+from django.contrib.staticfiles import finders
+from django.templatetags.static import static
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpResponse, JsonResponse
@@ -17,7 +19,7 @@ from the_gatehouse.views import admin_required
 
 from .models import Post, TTSJsonUpload, post_model_for_component
 from .services.tts_inspect import inspect_tts_json
-from .services.tts_map import (MapGeometry, apply_builder_counts, check_builder, highest_number,
+from .services.tts_map import (BOARD_SCALE, MapGeometry, apply_builder_counts, check_builder, highest_number,
                                number_tile_radius_px,
                                pieces, TRACK_CELLS, TRACK_ROW_GAP, TRACK_STEP, TRACK_X0)
 from .services.tts_store import (clear_tts_json, forge_linked, generate_tts_json,
@@ -25,6 +27,7 @@ from .services.tts_store import (clear_tts_json, forge_linked, generate_tts_json
 from .utils import user_can_edit, validate_tts_save
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+MARKER_SVG = 'images/map_builder/clearing_marker.svg'
 # Above this the page shows the start of the JSON and points to Download.
 MAX_DISPLAY_CHARS = 1024 * 1024
 PENDING_UPLOAD_LIFETIME = timedelta(days=1)
@@ -302,6 +305,13 @@ def map_builder(request, slug):
                           'half_width': geometry.hx, 'half_height': geometry.hz},
                 'item_grid': grid,
                 'number_radius_px': number_tile_radius_px(geometry),
+                'suit_icons': {suit: static(f'images/tags/{suit.capitalize()}_Tag.png')
+                               for suit in ('fox', 'rabbit', 'mouse', 'bird')},
+                # The suit marker's outline (tts/make_marker_svg.py); round dots without it.
+                'marker_svg': static(MARKER_SVG) if finders.find(MARKER_SVG) else None,
+                # The marker mesh's footprint (mesh units x its 1.3 scale), in pixels.
+                'marker_px': [3.164 * 1.3 / BOARD_SCALE * geometry.px_per_local,
+                              1.575 * 1.3 / BOARD_SCALE * geometry.px_per_local],
                 'save_url': request.path,
                 'manage_url': reverse_manage(post),
             },

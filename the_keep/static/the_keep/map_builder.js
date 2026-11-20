@@ -24,13 +24,13 @@
   const STEPS = [
     { heading: 'Line up the VP and Item Tracks',
       hint: 'Drag the track up or down onto the printed 0-30 track. Drag the item grid onto the printed item spaces.' },
-    { heading: 'Mark the middle of each clearing',
+    { heading: 'Mark each Clearing',
       hint: 'Click the middle of a clearing, then drag (or click) to where its suit marker goes. Drag the number tile around the circle. Select a clearing to renumber or delete it.' },
-    { heading: 'Mark the middle of each forest',
+    { heading: 'Mark each Forest. This is used for Relic placements',
       hint: 'Click the middle of each forest. Drag a dot to move it; select it and press Delete to remove it.' },
-    { heading: 'Mark each building space',
+    { heading: 'Mark each Building',
       hint: 'Click each building space. Drag inside a square to move it; select it and press Delete to remove it.' },
-    { heading: 'Select which buildings are ruins',
+    { heading: 'Select Ruins',
       hint: 'Click a building to mark it as a ruin; click again to unmark it.' },
     { heading: 'Review', hint: 'Check the counts, then save and generate the TTS JSON.' },
   ];
@@ -91,8 +91,26 @@
   function el(name, attrs, parent) {
     const node = document.createElementNS(NS, name);
     for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, v);
-    (parent || svg).appendChild(node);
+    (parent || content).appendChild(node);
     return node;
+  }
+
+  // <defs> (the marker symbol) survives redraws; only `content` is cleared.
+  const defs = el('defs', {}, svg);
+  const content = el('g', {}, svg);
+  let markerSymbol = false;
+
+  if (config.marker_svg) {
+    fetch(config.marker_svg).then(r => r.ok ? r.text() : Promise.reject()).then(text => {
+      const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+      const source = doc.documentElement;
+      if (source.nodeName !== 'svg') return;
+      const symbol = el('symbol', { id: 'mb-marker', viewBox: source.getAttribute('viewBox'),
+                                    preserveAspectRatio: 'none', overflow: 'visible' }, defs);
+      for (const child of Array.from(source.childNodes)) symbol.appendChild(document.importNode(child, true));
+      markerSymbol = true;
+      render();
+    }).catch(() => {});   // keep the round dots
   }
 
   function layer(active) {
@@ -105,7 +123,7 @@
   }
 
   function render() {
-    svg.innerHTML = '';
+    content.innerHTML = '';
     // Track and items (step 0).
     const g0 = layer(step === 0);
     const rows = trackRows(), cols = trackColumns();
@@ -134,28 +152,29 @@
     // Clearings (step 1).
     const g1 = layer(step === 1);
     state.clearings.forEach((c, i) => {
+      // One group per clearing, so the edit pop-up can measure the whole clearing.
+      const g = el('g', { 'data-clearing': i }, g1);
       const centre = px(c.centre);
       const isSel = selected && selected.kind === 'clearing' && selected.index === i;
       const colour = isSel ? '#dc3545' : '#ffffff';
       if (c.marker) {
         const m = px(c.marker);
         el('circle', { cx: centre[0], cy: centre[1], r: dist(centre, m), fill: 'rgba(255,255,255,0.12)',
-                       stroke: colour, 'stroke-width': STROKE, 'pointer-events': 'none' }, g1);
+                       stroke: colour, 'stroke-width': STROKE, 'pointer-events': 'none' }, g);
         el('line', { x1: centre[0], y1: centre[1], x2: m[0], y2: m[1], stroke: colour,
-                     'stroke-width': STROKE, 'stroke-dasharray': `${STROKE * 4} ${STROKE * 3}`, 'pointer-events': 'none' }, g1);
-        el('circle', { cx: m[0], cy: m[1], r: DOT_PX * 1.3, fill: suitColour(c), stroke: '#000',
-                       'stroke-width': STROKE, 'data-kind': 'marker', 'data-index': i, style: 'cursor: move' }, g1);
+                     'stroke-width': STROKE, 'stroke-dasharray': `${STROKE * 4} ${STROKE * 3}`, 'pointer-events': 'none' }, g);
+        drawMarker(g, c, i, centre, m, isSel);
         const t = numberTile(c);
         el('circle', { cx: t[0], cy: t[1], r: config.number_radius_px, fill: '#231f20', stroke: colour,
-                       'stroke-width': STROKE, 'data-kind': 'number', 'data-index': i, style: 'cursor: grab' }, g1);
+                       'stroke-width': STROKE, 'data-kind': 'number', 'data-index': i, style: 'cursor: grab' }, g);
         const label = el('text', { x: t[0], y: t[1], fill: '#fff', 'font-size': config.number_radius_px * 1.1,
                                    'text-anchor': 'middle', 'dominant-baseline': 'central', 'pointer-events': 'none',
-                                   'font-weight': 'bold' }, g1);
+                                   'font-weight': 'bold' }, g);
         label.textContent = c.number || '?';
       }
       el('circle', { cx: centre[0], cy: centre[1], r: DOT_PX * 1.6, fill: 'rgba(0,0,0,0.001)',
-                     'data-kind': 'centre', 'data-index': i, style: 'cursor: move' }, g1);
-      plus(g1, centre[0], centre[1], DOT_PX * 1.4, colour, { 'pointer-events': 'none' });
+                     'data-kind': 'centre', 'data-index': i, style: 'cursor: move' }, g);
+      plus(g, centre[0], centre[1], DOT_PX * 1.4, colour, { 'pointer-events': 'none' });
     });
 
     // Forests (step 2).
@@ -187,6 +206,31 @@
     });
 
     updatePanel();
+  }
+
+  // The suit marker: its real outline (turned so its bump faces away from the
+  // clearing centre, as TTS will place it) at its real size, or a dot until the
+  // outline has loaded.
+  function drawMarker(g, c, i, centre, m, isSel) {
+    const data = { 'data-kind': 'marker', 'data-index': i, style: 'cursor: move' };
+    if (!markerSymbol) {
+      el('circle', { cx: m[0], cy: m[1], r: DOT_PX * 1.3, fill: suitColour(c), stroke: isSel ? '#dc3545' : '#000',
+                     'stroke-width': STROKE, ...data }, g);
+      return;
+    }
+    const [w, h] = config.marker_px;
+    const angle = Math.atan2(m[1] - centre[1], m[0] - centre[0]) * 180 / Math.PI + 90;
+    const box = viewBoxOf(defs.querySelector('#mb-marker'));
+    // Place the symbol so its (0, 0) -- the marker's spot -- sits on m.
+    const x = box[0] / box[2] * w, y = box[1] / box[3] * h;
+    el('use', { href: '#mb-marker', x, y, width: w, height: h,
+                transform: `translate(${m[0]} ${m[1]}) rotate(${angle})`,
+                style: `color: ${suitColour(c)}; --mb-marker-stroke: ${isSel ? '#dc3545' : '#231f20'}; cursor: move`,
+                'data-kind': 'marker', 'data-index': i }, g);
+  }
+
+  function viewBoxOf(node) {
+    return (node.getAttribute('viewBox') || '0 0 1 1').split(/[\s,]+/).map(Number);
   }
 
   function suitColour(c) {
@@ -226,20 +270,7 @@
       counter.className = 'badge fs-6';
     }
 
-    const clearingSel = step === 1 && selected && selected.kind === 'clearing';
-    document.getElementById('mb-tools').classList.toggle('d-none', !clearingSel);
-    document.getElementById('mb-suits').classList.toggle('d-none', !(clearingSel && config.fixed));
-    if (clearingSel) {
-      const c = state.clearings[selected.index];
-      const box = document.getElementById('mb-number');
-      box.max = state.clearings.length;
-      if (document.activeElement !== box) box.value = c.number || '';
-      document.querySelectorAll('#mb-suits [data-suit]').forEach(b => {
-        b.classList.toggle('active', b.dataset.suit === c.suit);
-      });
-    }
-    const otherSel = selected && ((step === 2 && selected.kind === 'forest') || (step === 3 && selected.kind === 'building'));
-    document.getElementById('mb-delete-only').classList.toggle('d-none', !otherSel);
+    updatePopover();
 
     document.getElementById('mb-back').disabled = step === 0;
     document.getElementById('mb-next').classList.toggle('d-none', step === STEPS.length - 1);
@@ -451,9 +482,10 @@
     if (drag && drag.kind === 'new-marker' && !state.clearings[drag.index].marker) {
       // A click, not a drag: the next click places the marker.
       pendingMarker = drag.index;
-      render();
     }
+    const wasDragging = drag !== null;
     drag = null;
+    if (wasDragging) render();   // the edit pop-up hides while dragging
   }
   svg.addEventListener('pointerup', endDrag);
   svg.addEventListener('pointercancel', endDrag);
@@ -474,17 +506,80 @@
     }
   });
 
-  document.getElementById('mb-delete').addEventListener('click', deleteSelected);
-  document.getElementById('mb-delete-2').addEventListener('click', deleteSelected);
-  document.getElementById('mb-number').addEventListener('change', (evt) => {
-    if (selected && selected.kind === 'clearing') renumber(selected.index, evt.target.value);
+  // ── Edit pop-up ──────────────────────────────────────────────────────────
+  // Floats above (or, without room, below) the selected clearing, forest or
+  // building: the clearing's number and suit, and a delete button.
+  const board = document.getElementById('mb-board');
+  const popover = document.getElementById('mb-popover');
+  const popNumber = document.getElementById('mb-pop-number');
+  const popSuits = document.getElementById('mb-pop-suits');
+
+  popSuits.querySelectorAll('[data-suit]').forEach(btn => {
+    const img = btn.querySelector('img');
+    img.src = config.suit_icons[btn.dataset.suit];
+    btn.addEventListener('click', () => {
+      if (selected && selected.kind === 'clearing') {
+        state.clearings[selected.index].suit = btn.dataset.suit;
+        changed();
+      }
+    });
   });
-  document.querySelectorAll('#mb-suits [data-suit]').forEach(btn => btn.addEventListener('click', () => {
-    if (selected && selected.kind === 'clearing') {
-      state.clearings[selected.index].suit = btn.dataset.suit;
-      changed();
+  document.getElementById('mb-pop-minus').addEventListener('click', () => {
+    if (selected && selected.kind === 'clearing') renumber(selected.index, state.clearings[selected.index].number - 1);
+  });
+  document.getElementById('mb-pop-plus').addEventListener('click', () => {
+    if (selected && selected.kind === 'clearing') renumber(selected.index, state.clearings[selected.index].number + 1);
+  });
+  document.getElementById('mb-pop-delete').addEventListener('click', deleteSelected);
+  // The pop-up sits over the board: keep its clicks away from the board.
+  popover.addEventListener('pointerdown', (evt) => evt.stopPropagation());
+
+  function selectedNode() {
+    if (!selected) return null;
+    if (selected.kind === 'clearing') return content.querySelector(`[data-clearing="${selected.index}"]`);
+    return content.querySelector(`[data-kind="${selected.kind}"][data-index="${selected.index}"]`);
+  }
+
+  function updatePopover() {
+    const editable = selected && !drag && (
+      (step === 1 && selected.kind === 'clearing') || (step === 2 && selected.kind === 'forest')
+      || (step === 3 && selected.kind === 'building'));
+    const node = editable && selectedNode();
+    if (!node) {
+      popover.classList.remove('show');
+      return;
     }
-  }));
+    const isClearing = selected.kind === 'clearing';
+    document.getElementById('mb-pop-clearing').classList.toggle('d-none', !isClearing);
+    popSuits.classList.toggle('d-none', !(isClearing && config.fixed));
+    if (isClearing) {
+      const c = state.clearings[selected.index];
+      popNumber.textContent = c.number || '?';
+      document.getElementById('mb-pop-minus').disabled = !(c.number > 1);
+      document.getElementById('mb-pop-plus').disabled = !(c.number < state.clearings.length);
+      popSuits.querySelectorAll('[data-suit]').forEach(btn => {
+        const on = btn.dataset.suit === c.suit;
+        btn.classList.toggle('selected', on);
+        btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    }
+
+    popover.classList.add('show');
+    const area = board.getBoundingClientRect();
+    const target = node.getBoundingClientRect();
+    const w = popover.offsetWidth, h = popover.offsetHeight, gap = 10;
+    let top = target.top - area.top - h - gap;
+    const below = top < 0;
+    if (below) top = target.bottom - area.top + gap;
+    const centreX = target.left + target.width / 2 - area.left;
+    const left = Math.min(Math.max(centreX - w / 2, 4), Math.max(area.width - w - 4, 4));
+    popover.style.top = `${top}px`;
+    popover.style.left = `${left}px`;
+    popover.classList.toggle('below', below);
+    popover.style.setProperty('--mb-arrow-x', `${Math.min(Math.max(centreX - left, 14), w - 14)}px`);
+  }
+  window.addEventListener('resize', updatePopover);
+  window.addEventListener('scroll', updatePopover, { passive: true });
 
   // ── Steps and saving ──────────────────────────────────────────────────────
   function goTo(n) {
