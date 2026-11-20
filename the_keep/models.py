@@ -380,7 +380,12 @@ class Post(models.Model):
     tts_json = models.JSONField(
         null=True, blank=True,
         validators=[validate_tts_save],
-        help_text="A TTS save or Save Object file (must contain ObjectStates). Served to the in-game TTS Library.",
+        help_text=(
+            "A TTS save or Save Object file (must contain ObjectStates). Served to the in-game TTS Library. "
+            "Maps: tag ruins \"Ruin\" and suit markers \"Clearing Marker\" plus \"Suit: fox|rabbit|mouse|bird\" "
+            "for random set-up, and optionally add a \"BoardLayout\" key (clearings / forests / relics) "
+            "-- see tts/BOARD_LAYOUT.md."
+        ),
     )
     small_icon = models.ImageField(upload_to=post_icon_upload_path, null=True, blank=True)
 

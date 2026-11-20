@@ -1,0 +1,30 @@
+--- boxscore.lua
++++ boxscore.lua
+@@ -829,6 +829,9 @@
+   if not ok or type(d) ~= "table" or type(d.seats) ~= "table" then return end
+   rttRunChanged(d)
+   S.rttSeats = d
++  -- Show an outside map / deck name when nothing was detected from the table.
++  if type(d.map_name) == "string" and d.map_name ~= "" and (S.meta.map or "") == "" then S.meta.map = d.map_name end
++  if type(d.deck_name) == "string" and d.deck_name ~= "" and (S.meta.deck or "") == "" then S.meta.deck = d.deck_name end
+   seatPushPending = true
+ end
+ 
+@@ -1314,6 +1317,17 @@
+       if type(r) == "string" and r ~= "" then hr[#hr + 1] = r end
+     end
+     if #hr > 0 then p.houserules = hr end
++  end
++  -- Outside map / deck / landmarks / hirelings recorded by the coordinator
++  -- (RTT_EXTERNAL_API): sent as Root Database slugs.
++  if seatRec ~= nil then
++    if type(seatRec.map) == "string" and seatRec.map ~= "" then p.board_map = seatRec.map end
++    if type(seatRec.deck) == "string" and seatRec.deck ~= "" then p.deck = seatRec.deck end
++    if type(seatRec.landmarks) == "table" and #seatRec.landmarks > 0 then
++      for _, s in ipairs(seatRec.landmarks) do lms[#lms + 1] = s end
++      p.landmarks = lms
++    end
++    if type(seatRec.hirelings) == "table" and #seatRec.hirelings > 0 then p.hirelings = seatRec.hirelings end
+   end
+   for _, fac in ipairs(ROSTER) do
+     if S.unpicked[fac] == true then

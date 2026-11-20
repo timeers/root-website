@@ -533,3 +533,84 @@ class TTSVPPanelTests(TestCase):
                                       status=StatusChoices.STABLE, tts_json=save)
         data = self.client.get(reverse('api-tts-keep-detail', args=[post.slug])).json()
         self.assertEqual(data['vp_rows'][0]['board'], 2)  # 1-based, as Lua indexes the spawned objects
+
+
+@override_settings(CACHES=_LOCMEM)
+class TTSRTTPayloadTests(TestCase):
+    """Detail payloads tagged so the RTT coordinator treats maps/decks as its own."""
+
+    def setUp(self):
+        cache.clear()
+        self.designer = Profile.objects.create(discord='rttpayload')
+
+    def _detail(self, post):
+        return self.client.get(reverse('api-tts-keep-detail', args=[post.slug])).json()
+
+    @staticmethod
+    def _tags(payload, i):
+        return json.loads(payload['objects'][i]['json']).get('Tags', [])
+
+    def _map(self, states, **kwargs):
+        from the_keep.models import Map
+        return Map.objects.create(title='Fall Map', designer=self.designer, status=StatusChoices.STABLE,
+                                  tts_json={'ObjectStates': states, **kwargs.pop('extra', {})}, **kwargs)
+
+    def test_map_objects_and_board_are_tagged(self):
+        snaps = [{'Position': {'x': 0, 'y': 0, 'z': 0}}] * 3
+        post = self._map([
+            {'Name': 'Custom_Token', 'Nickname': 'Ruin', 'Tags': ['Ruin'], 'Transform': {'posX': 5}},
+            {'Name': 'Custom_Tile', 'Nickname': 'Board', 'AttachedSnapPoints': snaps, 'Transform': {'posX': 0}},
+        ])
+        data = self._detail(post)
+        self.assertEqual((data['component'], data['slug'], data['map_board']), ('Map', post.slug, 2))
+        self.assertEqual(self._tags(data, 0), ['Ruin', 'Map Object'])
+        self.assertEqual(self._tags(data, 1), ['Map Object', 'RTT Map', 'RTT Map: Fall Map'])
+        self.assertTrue(data['shuffle'])
+        self.assertNotIn('layout', data)
+        # Only the served copy is tagged.
+        from the_keep.models import Map
+        stored = Map.objects.get(pk=post.pk).tts_json['ObjectStates']
+        self.assertEqual(stored[1].get('Tags'), None)
+
+    def test_fixed_clearings_keep_suits_in_place(self):
+        post = self._map([
+            {'Name': 'Custom_Token', 'Tags': ['Clearing Marker', 'Suit: fox']},
+            {'Name': 'Custom_Tile', 'Nickname': 'Board', 'AttachedSnapPoints': [{'Position': {}}]},
+        ], fixed_clearings=True)
+        data = self._detail(post)
+        self.assertEqual(self._tags(data, 0), ['Suit: fox', 'Map Object'])
+        self.assertFalse(data['shuffle'])
+
+    def test_board_layout_is_passed_through(self):
+        layout = {'clearings': [[1.5, -2.0], [3, 4]], 'relics': [[0, 0]]}
+        post = self._map([{'Name': 'Custom_Tile'}], extra={'BoardLayout': layout})
+        self.assertEqual(self._detail(post)['layout'], layout)
+
+    def test_deck_objects_are_tagged(self):
+        from the_keep.models import Deck
+        post = Deck.objects.create(title='Big Deck', designer=self.designer, status=StatusChoices.STABLE,
+                                   card_total=54, tts_json={'ObjectStates': [
+                                       {'Name': 'DeckCustom'}, {'Name': 'Card'}, {'Name': 'Custom_Tile'}]})
+        data = self._detail(post)
+        self.assertEqual(data['component'], 'Deck')
+        self.assertEqual([self._tags(data, i) for i in range(3)], [['Deck Object'], ['Deck Object'], []])
+        self.assertNotIn('map_board', data)
+
+    def test_factions_are_not_tagged(self):
+        post = Faction.objects.create(title='Fox Folk', animal='Fox', designer=self.designer, component='Faction',
+                                      status=StatusChoices.STABLE, tts_json=_tts_save())
+        data = self._detail(post)
+        self.assertEqual(data['component'], 'Faction')
+        self.assertNotIn('Tags', json.loads(data['objects'][0]['json']))
+
+
+class BoardLayoutValidationTests(TestCase):
+    def test_accepts_well_formed_layout(self):
+        validate_tts_save({'ObjectStates': [{'Name': 'x'}],
+                           'BoardLayout': {'clearings': [[1, 2.5]], 'forests': [], 'relics': [[-3, 0]]}})
+
+    def test_rejects_malformed_layout(self):
+        for bad in ([], {'clearings': [[1]]}, {'clearings': [[1, 'a']]}, {'clearings': 'x'},
+                    {'rivers': [[0, 0]]}, {'clearings': [[True, 1]]}):
+            with self.subTest(bad=bad), self.assertRaises(ValidationError):
+                validate_tts_save({'ObjectStates': [{'Name': 'x'}], 'BoardLayout': bad})

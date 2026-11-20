@@ -39,6 +39,13 @@ SPAWN_OFFSET = {x = 0, y = 2, z = 0}    -- spawned items replace this object, in
 -- every panel button relays to it, so without it the panel would do nothing.
 RTT_COORD_GUID = "bab7e1"
 VP_PANEL_OFFSET = {x = 3, z = -5}       -- panel position relative to its VP marker; tune in game
+
+-- Maps and decks on the RTT table go where the coordinator puts its own.
+MAP_CENTER = {x = 0, y = 11.46, z = 0}   -- table centre at makeMap's board height (move_to.y + 11.46)
+MAP_SETTLE_SECONDS = 2.5                -- let a map spawn before shuffling / placing VP tokens
+DECK_HOLDER_GUID = "aa1464"             -- the RTT deck holder
+DECK_DRAW_SLOT = {0.957, 0.178, 0.222}  -- its draw slot, in holder-local coordinates
+DECK_ROT_Y = 0                          -- extra y rotation for spawned decks; tune in game
 vpPanelTemplate = nil                   -- fetched once, from /api/tts/vp-panel/
 
 -- Shown under the tabs; explains where each tab's items come from.
@@ -430,7 +437,7 @@ end
 function withVPPanel(data, done)
   local rows = (data and data.vp_rows) or {}
   -- With the external-faction API the coordinator spawns its own panel.
-  if #rows == 0 or not rttCoordinatorPresent() or externalFactionAPI() ~= nil then
+  if #rows == 0 or not rttCoordinatorPresent() or externalAPI() ~= nil then
     done(nil)
     return
   end
@@ -447,15 +454,15 @@ function withVPPanel(data, done)
 end
 
 -- The coordinator, when it offers the external-faction API (see
--- tts/RTT_EXTERNAL_FACTION_API.md): claim before spawning, report after, and
+-- tts/RTT_EXTERNAL_API.md): claim before spawning, report after, and
 -- it then handles seat, Box Score record, hands, VP token and VP panel itself.
-function externalFactionAPI()
+function externalAPI()
   local coordinator = getObjectFromGUID(RTT_COORD_GUID)
   if coordinator == nil then
     return nil
   end
   local version = nil
-  pcall(function() version = coordinator.getVar("RTT_EXTERNAL_FACTION_API") end)
+  pcall(function() version = coordinator.getVar("RTT_EXTERNAL_API") end)
   if type(version) == "number" and version >= 1 then
     return coordinator
   end
@@ -504,6 +511,120 @@ local function jsonString(value)
   return '"' .. escaped .. '"'
 end
 
+-- ── Maps, decks, house rules (RTT table) ────────────────────────────────────
+
+-- A map replaces the table's map at its centre. With the coordinator's API it
+-- places the map itself (clearing, tags, shuffle, extras, layout); otherwise we
+-- clear and place it the same way. Layout data: tts/BOARD_LAYOUT.md.
+function placeMap(data, player)
+  local coordinator = getObjectFromGUID(RTT_COORD_GUID)
+  local objects = data.objects
+  local boardIndex = data.map_board or 1
+  local board = objects[boardIndex] or objects[1]
+  local api = externalAPI()
+  if api ~= nil then
+    local list = {}
+    for i, o in ipairs(objects) do
+      list[i] = {json = o.json, x = o.x - board.x, y = o.y - board.y, z = o.z - board.z,
+                 board = (i == boardIndex)}
+    end
+    local answer = nil
+    pcall(function()
+      answer = api.call("rttPlaceExternalMap", {name = data.title, slug = data.slug,
+        shuffle = data.shuffle, layout = data.layout, objects = list})
+    end)
+    if type(answer) == "table" and answer.ok then
+      deleteThis()
+    else
+      broadcastToColor((type(answer) == "table" and answer.reason) or "The table couldn't place that map.",
+        player.color, {1, 0.4, 0.4})
+    end
+    return
+  end
+
+  pcall(function() coordinator.call("removeMapItems") end)
+  for _, o in ipairs(objects) do
+    spawnObjectJSON({
+      json = o.json,
+      position = {MAP_CENTER.x + o.x - board.x, MAP_CENTER.y + o.y - board.y, MAP_CENTER.z + o.z - board.z},
+    })
+  end
+  busy = true   -- ignore clicks while the map settles; this object is about to go
+  Wait.time(function()
+    if data.shuffle then pcall(function() coordinator.call("shuffleMaps") end) end
+    pcall(function() coordinator.call("rttPlaceUnplacedVPs") end)
+    pcall(function() coordinator.call("rttTellSheet") end)
+    deleteThis()
+  end, MAP_SETTLE_SECONDS)
+end
+
+-- A deck replaces the table's deck on the deck holder's draw slot. Returns
+-- false when it can't (no holder, or the coordinator refused), so the caller
+-- spawns it where the library sits instead.
+function placeDeck(data)
+  local api = externalAPI()
+  if api ~= nil then
+    local jsons = {}
+    for i, o in ipairs(data.objects) do jsons[i] = o.json end
+    local answer = nil
+    pcall(function()
+      answer = api.call("rttPlaceExternalDeck", {name = data.title, slug = data.slug, objects = jsons})
+    end)
+    if type(answer) == "table" and answer.ok then
+      deleteThis()
+      return true
+    end
+    return false
+  end
+
+  local holder = getObjectFromGUID(DECK_HOLDER_GUID)
+  if holder == nil then
+    return false
+  end
+  local coordinator = getObjectFromGUID(RTT_COORD_GUID)
+  pcall(function() coordinator.call("removeDeckItems") end)
+  local slot = holder.positionToWorld(DECK_DRAW_SLOT)
+  local ry = holder.getRotation().y + DECK_ROT_Y
+  for i, o in ipairs(data.objects) do
+    spawnObjectJSON({
+      json = o.json,
+      position = {slot.x, slot.y + 0.5 + i * 0.3, slot.z},
+      rotation = {0, ry, 180},   -- face down
+    })
+  end
+  deleteThis()
+  return true
+end
+
+-- House rules always reach the Box Score (through the coordinator's house-rule
+-- list); landmarks and hirelings only with the coordinator's API.
+function recordAsset(data)
+  if data.slug == nil or data.slug == "" then
+    return
+  end
+  local api = externalAPI()
+  if data.component == "Tweak" then
+    if api ~= nil then
+      pcall(function() api.call("rttAddHouseRule", {slug = data.slug}) end)
+      return
+    end
+    local coordinator = getObjectFromGUID(RTT_COORD_GUID)
+    pcall(function()
+      local rules = coordinator.getTable("RTT_HOUSERULES") or {}
+      for _, r in ipairs(rules) do
+        if r == data.slug then return end
+      end
+      rules[#rules + 1] = data.slug
+      coordinator.setTable("RTT_HOUSERULES", rules)
+      coordinator.call("rttPublishSeats")
+    end)
+  elseif api ~= nil and (data.component == "Landmark" or data.component == "Hireling") then
+    pcall(function()
+      api.call("rttExternalAssetAdded", {kind = string.lower(data.component), slug = data.slug})
+    end)
+  end
+end
+
 -- The selected item replaces the library: spawn it where this object sits,
 -- then delete this object. Nothing is deleted if there was nothing to spawn.
 function spawnAll(data, player, panelTemplate)
@@ -521,9 +642,20 @@ function spawnAll(data, player, panelTemplate)
   }
   local vpRows = data.vp_rows or {}
 
+  -- Maps and decks replace the table's current ones, like the coordinator's buttons.
+  if rttCoordinatorPresent() then
+    if data.component == "Map" then
+      placeMap(data, player)
+      return
+    end
+    if data.component == "Deck" and placeDeck(data) then
+      return
+    end
+  end
+
   -- With the coordinator's external-faction API, claim each faction first so
   -- it can refuse spectators, duplicates and taken seats before anything spawns.
-  local api = (#vpRows > 0) and externalFactionAPI() or nil
+  local api = (#vpRows > 0) and externalAPI() or nil
   local claimed = {}
   if api ~= nil then
     for _, vp in ipairs(vpRows) do
@@ -590,6 +722,11 @@ function spawnAll(data, player, panelTemplate)
     if #vpRows > 0 and rttCoordinatorPresent() then
       queueVPPlacement(vpRows)
     end
+  end
+
+  -- House rules, landmarks and hirelings: record them for the Box Score.
+  if rttCoordinatorPresent() then
+    recordAsset(data)
   end
 
   -- No chat message on success (only errors are reported); the spawned item is
