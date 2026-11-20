@@ -833,7 +833,7 @@ class PostTTSJsonPageTests(TestCase):
         self.post = Deck.objects.create(title='Big Deck', designer=self.admin_user.profile,
                                         status=StatusChoices.STABLE, card_total=54)
 
-    def _url(self, name='post-tts-json', **kwargs):
+    def _url(self, name='manage-tts-json', **kwargs):
         return reverse(name, kwargs={'slug': self.post.slug, **kwargs})
 
     def _upload(self, data, name='deck.json'):
@@ -888,7 +888,8 @@ class PostTTSJsonPageTests(TestCase):
 
         page = self.client.get(self._url()).content.decode()
         self.assertIn('Uploaded', page)
-        download = self.client.get(self._url('post-tts-json-download'))
+        self.assertIn('value="remove"', page)   # the manage page keeps its actions
+        download = self.client.get(self._url('download-tts-json'))
         self.assertEqual(json.loads(download.content), data)
 
     def test_review_belongs_to_its_post(self):
@@ -920,12 +921,12 @@ class PostTTSJsonPageTests(TestCase):
         from the_forge.models import ForgedFaction
         from the_keep.models import Map
         map_post = Map.objects.create(title='Lake', designer=self.admin_user.profile)
-        self.client.post(reverse('post-tts-json', kwargs={'slug': map_post.slug}), {'action': 'generate'})
+        self.client.post(reverse('manage-tts-json', kwargs={'slug': map_post.slug}), {'action': 'generate'})
         self.assertIsNone(Post.objects.get(pk=map_post.pk).tts_json)
         faction = Faction.objects.create(title='Fox Folk', animal='Fox', designer=self.admin_user.profile,
                                          component='Faction')
         ForgedFaction.objects.create(designer=self.admin_user.profile, faction_name='Fox Folk', published_post=faction)
-        page = self.client.get(reverse('post-tts-json', kwargs={'slug': faction.slug})).content.decode()
+        page = self.client.get(reverse('manage-tts-json', kwargs={'slug': faction.slug})).content.decode()
         self.assertIn('Forge sync page', page)
 
     def test_generate_keeps_json_when_nothing_to_build(self):
@@ -933,6 +934,38 @@ class PostTTSJsonPageTests(TestCase):
         store_tts_json(self.post, {'ObjectStates': [{'Name': 'Card'}]}, source='uploaded')
         self.client.post(self._url(), {'action': 'generate'})   # the deck has no card groups
         self.assertEqual(Post.objects.get(pk=self.post.pk).tts_json, {'ObjectStates': [{'Name': 'Card'}]})
+
+    def test_view_page_is_read_only_and_public_for_listed_posts(self):
+        from the_keep.services.tts_store import store_tts_json
+        store_tts_json(self.post, {'ObjectStates': [{'Name': 'Card', 'Nickname': 'Visible'}]}, source='generated')
+        self.client.logout()
+        page = self.client.get(reverse('view-tts-json', kwargs={'slug': self.post.slug}))
+        self.assertEqual(page.status_code, 200)
+        html = page.content.decode()
+        self.assertIn('Visible', html)
+        self.assertIn('Generated', html)
+        self.assertIn('Download', html)
+        self.assertNotIn('value="remove"', html)
+        self.assertNotIn('value="recheck"', html)
+        download = self.client.get(reverse('download-tts-json', kwargs={'slug': self.post.slug}))
+        self.assertEqual(download.status_code, 200)
+        # The post page links to it.
+        self.assertIn(reverse('view-tts-json', kwargs={'slug': self.post.slug}),
+                      self.client.get(self.post.get_absolute_url()).content.decode())
+
+    def test_view_page_for_unlisted_posts_needs_an_editor(self):
+        from the_keep.services.tts_store import store_tts_json
+        Post.objects.filter(pk=self.post.pk).update(status=StatusChoices.SUBMITTED)
+        self.post.refresh_from_db()
+        store_tts_json(self.post, {'ObjectStates': [{'Name': 'Card'}]}, source='generated')
+        url = reverse('view-tts-json', kwargs={'slug': self.post.slug})
+        self.assertEqual(self.client.get(url).status_code, 200)   # admin
+        self.client.logout()
+        self.assertEqual(self.client.get(url).status_code, 404)
+        self.assertEqual(self.client.get(reverse('download-tts-json', kwargs={'slug': self.post.slug})).status_code, 404)
+
+    def test_view_page_without_json_is_404(self):
+        self.assertEqual(self.client.get(reverse('view-tts-json', kwargs={'slug': self.post.slug})).status_code, 404)
 
     def test_settings_hub_card_for_admins_only(self):
         hub = reverse('post-settings', kwargs={'slug': self.post.slug})

@@ -70,7 +70,7 @@ class TTSJsonAdminMixin:
     def tts_json_summary(self, obj):
         if obj is None or not obj.pk:
             return "-"
-        link = format_html('<a href="{}">Manage TTS JSON</a>', reverse('post-tts-json', args=[obj.slug]))
+        link = format_html('<a href="{}">Manage TTS JSON</a>', reverse('manage-tts-json', args=[obj.slug]))
         if not obj.tts_json:
             return format_html('None. {}', link)
         info = obj.tts_info or {}

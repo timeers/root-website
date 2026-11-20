@@ -49,7 +49,7 @@ from the_gatehouse.utils import build_absolute_uri
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
 from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
 from .tasks import sync_rules_task
-from .tts_views import tts_status
+from .tts_views import can_view_tts_json, tts_status
 from .models import (
     Post, Expansion,
     Faction, Vagabond,
@@ -1078,12 +1078,15 @@ def ultimate_component_view(request, slug, component):
             start_date__gt=now
         )
 
-    # Count items for the law/faq/surveys/cards section
+    has_tts_json = can_view_tts_json(request, obj)
+
+    # Count items for the law/faq/surveys/cards/TTS JSON section
     items_count = sum([
         1 if available_law else 0,
         1 if available_faq else 0,
         1 if available_surveys else 0,
-        1 if has_decks else 0
+        1 if has_decks else 0,
+        1 if has_tts_json else 0,
     ])
 
 
@@ -1463,6 +1466,7 @@ def ultimate_component_view(request, slug, component):
         'cards': cards,
         'otherpieces': otherpieces,
         'has_decks': has_decks,
+        'has_tts_json': has_tts_json,
     }
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)

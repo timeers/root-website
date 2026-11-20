@@ -16,7 +16,7 @@ from .models import Post, TTSJsonUpload, post_model_for_component
 from .services.tts_inspect import inspect_tts_json
 from .services.tts_store import (clear_tts_json, forge_linked, generate_tts_json,
                                  generate_unavailable_reason, recheck_tts_info, store_tts_json)
-from .utils import validate_tts_save
+from .utils import user_can_edit, validate_tts_save
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 # Above this the page shows the start of the JSON and points to Download.
@@ -60,6 +60,25 @@ def _parse_time(value):
         return timezone.datetime.fromisoformat(value) if value else None
     except (TypeError, ValueError):
         return None
+
+
+def _pretty_json(post):
+    """(pretty-printed JSON, truncated) for the JSON window partial."""
+    if not post.tts_json:
+        return '', False
+    pretty = json.dumps(post.tts_json, indent=2, ensure_ascii=False)
+    if len(pretty) > MAX_DISPLAY_CHARS:
+        return pretty[:MAX_DISPLAY_CHARS], True
+    return pretty, False
+
+
+def can_view_tts_json(request, post):
+    """Anyone may view the JSON of a post the TTS Library lists (its public API
+    serves exactly that JSON); otherwise only people who can edit the post."""
+    from .api_views import TTS_LISTED_STATUSES
+    if not post.tts_json:
+        return False
+    return post.status in TTS_LISTED_STATUSES or user_can_edit(request, post)
 
 
 def _needs_acknowledgement(report):
@@ -119,14 +138,9 @@ def post_tts_json(request, slug):
                 pending = TTSJsonUpload.objects.create(
                     post=post, filename=upload.name[:255], tts_json=data, uploaded_by=profile)
                 return redirect('post-tts-json-review', slug=post.slug, upload_id=pending.pk)
-        return redirect('post-tts-json', slug=post.slug)
+        return redirect('manage-tts-json', slug=post.slug)
 
-    pretty = ''
-    truncated = False
-    if post.tts_json:
-        pretty = json.dumps(post.tts_json, indent=2, ensure_ascii=False)
-        if len(pretty) > MAX_DISPLAY_CHARS:
-            pretty, truncated = pretty[:MAX_DISPLAY_CHARS], True
+    pretty, truncated = _pretty_json(post)
     forged = forge_linked(post)
     status = tts_status(post)
     generate_confirm = ''
@@ -160,7 +174,7 @@ def post_tts_json_review(request, slug, upload_id):
         if request.POST.get('action') == 'cancel':
             pending.delete()
             messages.info(request, "Upload cancelled. The current TTS JSON is unchanged.")
-            return redirect('post-tts-json', slug=post.slug)
+            return redirect('manage-tts-json', slug=post.slug)
         if request.POST.get('action') == 'confirm':
             if needs_ack and request.POST.get('acknowledge') != 'on':
                 messages.error(request, "Tick the box to confirm you've reviewed the scripts and external files.")
@@ -171,7 +185,7 @@ def post_tts_json_review(request, slug, upload_id):
                 pending.warnings = report
                 pending.save(update_fields=['confirmed_at', 'warnings'])
                 messages.success(request, "Saved the uploaded TTS JSON. It's served exactly as uploaded.")
-                return redirect('post-tts-json', slug=post.slug)
+                return redirect('manage-tts-json', slug=post.slug)
 
     new_states = pending.tts_json.get('ObjectStates') or []
     return render(request, 'the_keep/post_tts_json_review.html', {
@@ -185,10 +199,23 @@ def post_tts_json_review(request, slug, upload_id):
     })
 
 
-@admin_required
+def post_tts_json_view(request, slug):
+    """Read-only view of the stored JSON (see can_view_tts_json)."""
+    post = _post_for(slug)
+    if not can_view_tts_json(request, post):
+        raise Http404("No TTS JSON.")
+    pretty, truncated = _pretty_json(post)
+    return render(request, 'the_keep/post_tts_json_view.html', {
+        'object': post,
+        'status': tts_status(post),
+        'pretty_json': pretty,
+        'truncated': truncated,
+    })
+
+
 def post_tts_json_download(request, slug):
     post = _post_for(slug)
-    if not post.tts_json:
+    if not can_view_tts_json(request, post):
         raise Http404("No TTS JSON.")
     response = HttpResponse(json.dumps(post.tts_json, indent=2, ensure_ascii=False),
                             content_type='application/json')

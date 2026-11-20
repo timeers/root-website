@@ -1,0 +1,21 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+
+{% block title %}{% trans 'TTS JSON' %} - {{ object.title }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0 root-title"><i class="bi bi-filetype-json me-2"></i>{{ object.title }} {% trans 'TTS JSON' %}</h2>
+        <a href="{{ object.get_absolute_url }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>{% blocktrans with component=object.get_component_display %}Back to {{ component }}{% endblocktrans %}
+        </a>
+    </div>
+
+    {% comment %} <p class="text-muted">
+        {% trans 'This is what the in-game TTS Library spawns for this post.' %}
+    </p> {% endcomment %}
+
+    {% include 'the_keep/partials/tts_json_window.html' with manage=False fill=True %}
+</div>
+{% endblock %}
