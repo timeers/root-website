@@ -1,30 +1,101 @@
 --- boxscore.lua
 +++ boxscore.lua
-@@ -829,6 +829,9 @@
+@@ -748,28 +748,43 @@
+   if mapObj == nil then return false end
+   local mp = mapObj.getPosition()
+   local best, bestD = nil, math.huge
++  -- Outside decks (the Root Database's) carry "rdb:deck:<slug>" in their GM
++  -- notes. One is used only when no official deck is on the table.
++  local rdb, rdbSlug, rdbD = nil, nil, math.huge
+   for _, o in ipairs(getAllObjects()) do
+     if o.type == "Deck" then
+       local q = 0
+       pcall(function() q = o.getQuantity() end)
+       if q >= 15 then
++        local op = o.getPosition()
++        local dx, dz = op.x - mp.x, op.z - mp.z
++        local d = dx * dx + dz * dz
++        local official = false
+         local ok, data = pcall(function() return o.getData() end)
+         if ok and data and data.CustomDeck then
+           for _, cd in pairs(data.CustomDeck) do
+             local name = DECK_BACKS[urlTail(cd.BackURL)]
+             if name then
+-              local op = o.getPosition()
+-              local dx, dz = op.x - mp.x, op.z - mp.z
+-              local d = dx * dx + dz * dz
++              official = true
+               if d < bestD then best, bestD = name, d end
+             end
+           end
+         end
++        if not official and d < rdbD then
++          local notes, name = "", ""
++          pcall(function() notes = o.getGMNotes() or "" end)
++          pcall(function() name = o.getName() or "" end)
++          local slugNote = notes:match("^rdb:deck:(.+)$")
++          if slugNote ~= nil and name ~= "" then rdb, rdbSlug, rdbD = name, slugNote, d end
++        end
+       end
+     end
+   end
+-  if best and S.meta.deck ~= best then
++  local slugNow = nil
++  if best == nil and rdb ~= nil then best, slugNow = rdb, rdbSlug end
++  if best and (S.meta.deck ~= best or S.deckSlug ~= slugNow) then
+     S.meta.deck = best
++    S.deckSlug = slugNow
+     return true
+   end
+   return false
+@@ -829,6 +844,8 @@
    if not ok or type(d) ~= "table" or type(d.seats) ~= "table" then return end
    rttRunChanged(d)
    S.rttSeats = d
-+  -- Show an outside map / deck name when nothing was detected from the table.
++  -- Show an outside map name when nothing was detected from the table.
 +  if type(d.map_name) == "string" and d.map_name ~= "" and (S.meta.map or "") == "" then S.meta.map = d.map_name end
-+  if type(d.deck_name) == "string" and d.deck_name ~= "" and (S.meta.deck or "") == "" then S.meta.deck = d.deck_name end
    seatPushPending = true
  end
  
-@@ -1314,6 +1317,17 @@
-       if type(r) == "string" and r ~= "" then hr[#hr + 1] = r end
+@@ -1296,7 +1313,7 @@
+ function tournamentPayload()
+   local p = {
+     board_map          = S.meta.map  ~= "" and slug(S.meta.map)  or JNULL,
+-    deck               = deckSlug(S.meta.deck) or JNULL,
++    deck               = (S.deckSlug ~= nil and S.meta.deck ~= "") and S.deckSlug or deckSlug(S.meta.deck) or JNULL,
+     undrafted_faction  = JNULL,
+     undrafted_vagabond = JNULL,
+     undrafted_captains = JLIST,
+@@ -1315,6 +1332,16 @@
      end
      if #hr > 0 then p.houserules = hr end
-+  end
-+  -- Outside map / deck / landmarks / hirelings recorded by the coordinator
+   end
++  -- Outside map / landmarks / hirelings recorded by the coordinator
 +  -- (RTT_EXTERNAL_API): sent as Root Database slugs.
 +  if seatRec ~= nil then
 +    if type(seatRec.map) == "string" and seatRec.map ~= "" then p.board_map = seatRec.map end
-+    if type(seatRec.deck) == "string" and seatRec.deck ~= "" then p.deck = seatRec.deck end
 +    if type(seatRec.landmarks) == "table" and #seatRec.landmarks > 0 then
 +      for _, s in ipairs(seatRec.landmarks) do lms[#lms + 1] = s end
 +      p.landmarks = lms
 +    end
 +    if type(seatRec.hirelings) == "table" and #seatRec.hirelings > 0 then p.hirelings = seatRec.hirelings end
-   end
++  end
    for _, fac in ipairs(ROSTER) do
      if S.unpicked[fac] == true then
+       p.undrafted_faction = FACTION_SLUG[baseFac(fac)] or slug(baseFac(fac))
+@@ -2342,6 +2369,7 @@
+   S.unpickedVar = {}
+   S.meta.map = ""
+   S.meta.deck = ""
++  S.deckSlug = nil
+   S.mapAuto = nil
+   S.deckAuto = nil
+   S.flip = false
+@@ -2560,6 +2588,7 @@
+   elseif kind == "deck" then
+     local d = DECKS[i]
+     S.meta.deck = (S.meta.deck == d) and "" or d
++    S.deckSlug = nil
+     S.deckAuto = false
+     S.overlay = nil
+     rebuildUI()

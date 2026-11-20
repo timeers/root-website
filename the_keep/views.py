@@ -49,6 +49,7 @@ from the_gatehouse.utils import build_absolute_uri
 from the_gatehouse.services.context_service import get_theme, get_thematic_images
 from the_gatehouse.tasks import send_rich_discord_message_task, send_discord_message_task
 from .tasks import sync_rules_task
+from .tts_views import tts_status
 from .models import (
     Post, Expansion,
     Faction, Vagabond,
@@ -3071,6 +3072,8 @@ def post_settings_hub(request, slug):
         'has_decks': has_decks,
         'survey_count': survey_count,
         'can_delete': can_delete,
+        'is_admin': profile.admin,
+        'tts_status': tts_status(obj) if profile.admin else None,
         'language_code': language_code,
     }
     return render(request, 'the_keep/post_settings_hub.html', context)

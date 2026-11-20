@@ -30,7 +30,7 @@ It says where a map's clearings, forests and relic spots are. It's **data, not T
   - `clearings`: nothing relies on the order today. **List them in the map's clearing-number order anyway**, so later features (clearing numbers, suits per clearing) can use it.
   - `forests` and `relics`: the order doesn't matter.
 
-**Validation** is `validate_board_layout` in `the_keep/utils.py`, called by `validate_tts_save` (the field validator on `Post.tts_json`). A malformed layout is rejected when an admin saves the post.
+**Validation** is `validate_board_layout` in `the_keep/utils.py`, called by `validate_tts_save`. A malformed layout is rejected when the file is uploaded.
 
 ## What each list is used for
 
@@ -46,11 +46,12 @@ These are used on the RTT table, when the coordinator offers `RTT_EXTERNAL_API`.
 
 ## How it flows
 
-1. **An admin pastes** the map's TTS JSON, including `BoardLayout`, into the Map post's `tts_json` in the Django admin.
-2. **`validate_tts_save`** checks the shape (`the_keep/utils.py`).
-3. **The keep detail API** (`TTSKeepDetailView` / `_tts_objects_payload` in `the_keep/api_views.py`) sends it unchanged as `layout`, for Map posts only.
-4. **The TTS loader** (`placeMap` in `tts/loader.lua`) passes `layout` to the coordinator's `rttPlaceExternalMap`.
-5. **The coordinator** stores it per map (`RTT_EXTERNAL.layouts[name]`), saved with the table. `rttExternalLayoutWorld(mapId, key)` turns each offset into a world position by adding the board's current position.
+1. **An admin uploads** the map's TTS JSON, including `BoardLayout`, on the post's TTS JSON page (settings hub → TTS JSON; `the_keep/tts_views.py`). `tts_json` can't be edited in the Django admin.
+2. **`validate_tts_save`** checks the shape (`the_keep/utils.py`). The admin then reviews the upload's warnings (scripts, files from untrusted hosts, missing Library tags; `inspect_tts_json` in `the_keep/services/tts_inspect.py`) and confirms it.
+3. **It's stored exactly as uploaded,** with the derived `Post.tts_info` (`map_board`, `shuffle`; `describe_tts_json`).
+4. **The keep detail API** (`TTSKeepDetailView` / `_tts_objects_payload` in `the_keep/api_views.py`) serves the JSON as stored, and sends `BoardLayout` unchanged as `layout`, for Map posts only.
+5. **The TTS loader** (`placeMap` in `tts/loader.lua`) passes `layout` to the coordinator's `rttPlaceExternalMap`.
+6. **The coordinator** stores it per map (`RTT_EXTERNAL.layouts[name]`), saved with the table. `rttExternalLayoutWorld(mapId, key)` turns each offset into a world position by adding the board's current position.
 
 ## Related tags (on objects, not in BoardLayout)
 
@@ -64,7 +65,9 @@ Randomised set-up comes from tags on the map's pieces, which the coordinator's `
 | `Shuffleable` | That deck is shuffled |
 | `Suit: fox` / `Suit: rabbit` / `Suit: mouse` / `Suit: bird` | Tells the coordinator a marker's suit (`rttSuitOfJson`), so the suits are published |
 
-If a Map post has `fixed_clearings` set, the site removes `Clearing Marker` from the copy it serves, so suits stay where the designer put them.
+**Tags travel in the JSON itself:** the site serves uploaded JSON exactly as stored and adds nothing. So a map's pieces need `Map Object` (so the RTT table clears them when the map is replaced) and the board needs `RTT Map`, before you export it from TTS. The upload review lists any that are missing.
+
+**Fixed suits:** leave `Clearing Marker` off the suit markers. The site no longer changes the JSON for a Map post's `fixed_clearings` setting; the review warns when the setting is on but the JSON still has the tag.
 
 ## Measuring a layout today (until an editor exists)
 

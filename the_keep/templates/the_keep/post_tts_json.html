@@ -1,0 +1,116 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+
+{% block title %}{% trans 'TTS JSON' %} - {{ object.title }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0 root-title"><i class="bi bi-filetype-json me-2"></i>{{ object.title }} {% trans 'TTS JSON' %}</h2>
+        <a href="{% url 'post-settings' object.slug %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>{% trans 'Back to Settings' %}
+        </a>
+    </div>
+
+    <p class="text-muted">
+        {% trans 'This JSON is what the RDB Library spawns in TTS.' %}
+    </p>
+
+    {% if object.tts_json %}
+    <div class="card mb-4">
+        <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+                <span class="badge {% if status.source == 'generated' %}bg-success{% elif status.source == 'uploaded' %}bg-warning text-dark{% elif status.source == 'forge' %}bg-info text-dark{% else %}bg-secondary{% endif %}">
+                    {{ status.label }}
+                </span>
+                {% if status.detail %}<small class="text-muted ms-2">{{ status.detail }}</small>{% endif %}
+                <small class="text-muted ms-2">{{ status.object_count }} {% trans 'object' %}{{ status.object_count|pluralize }}</small>
+            </div>
+            <div class="d-flex gap-2">
+                <a href="{% url 'post-tts-json-download' object.slug %}" class="btn btn-sm btn-outline-secondary">
+                    <i class="bi bi-download me-1"></i>{% trans 'Download' %}
+                </a>
+                <form method="post" class="d-inline">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="recheck">
+                    <button type="submit" class="btn btn-sm btn-outline-secondary" title="{% trans 'Recompute the Library data for the stored JSON, without changing it' %}">
+                        <i class="bi bi-arrow-repeat me-1"></i>{% trans 'Recheck' %}
+                    </button>
+                </form>
+                <form method="post" class="d-inline"
+                      onsubmit="return confirm('{% trans 'Remove this TTS JSON? The post will no longer appear in the TTS Library.' as remove_msg %}{{ remove_msg|escapejs }}');">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="remove">
+                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                        <i class="bi bi-trash me-1"></i>{% trans 'Remove' %}
+                    </button>
+                </form>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <pre class="mb-0 p-3 bg-light small" style="max-height: 28rem; overflow: auto; white-space: pre;">{{ pretty_json }}</pre>
+        </div>
+        {% if truncated %}
+        <div class="card-footer small text-muted">
+            {% trans 'Only the first 1 MB is shown. Download the file to see all of it.' %}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div class="row g-4">
+        <!-- Generate -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-magic me-2"></i>{% trans 'Generate JSON' %}</h5>
+                    <p class="card-text text-muted">
+                        {% trans "Build the JSON from this post's data (boards, cards and decks)." %}
+                        {% if object.tts_json %}{% trans 'This replaces the current JSON.' %}{% endif %}
+                    </p>
+                    {% if generate_reason %}
+                    <p class="card-text small text-warning-emphasis mb-0">
+                        <i class="bi bi-info-circle me-1"></i>{{ generate_reason }}
+                        {% if forged_faction %}
+                        <a href="{% url 'forge-faction-detail' pk=forged_faction.pk %}">{% trans 'Open the Forge draft' %}</a>
+                        {% endif %}
+                    </p>
+                    {% endif %}
+                </div>
+                <div class="card-footer bg-transparent">
+                    <form method="post"
+                          {% if generate_confirm %}onsubmit="return confirm('{{ generate_confirm|escapejs }}');"{% endif %}>
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="generate">
+                        <button type="submit" class="btn btn-primary w-100" {% if generate_reason %}disabled{% endif %}>
+                            <i class="bi bi-magic me-1"></i>{% if object.tts_json %}{% trans 'Regenerate JSON' %}{% else %}{% trans 'Generate JSON' %}{% endif %}
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <form method="post" enctype="multipart/form-data" class="d-flex flex-column h-100">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="upload">
+                    <div class="card-body">
+                        <h5 class="card-title"><i class="bi bi-upload me-2"></i>{% trans 'Upload JSON' %}</h5>
+                        <p class="card-text text-muted">
+                            {% blocktrans %}Upload a TTS save or Save Object file (up to {{ max_upload_mb }} MB). You'll review its scripts and external files before it's saved. It is then stored and served exactly as uploaded.{% endblocktrans %}
+                        </p>
+                        <input type="file" name="tts_file" accept=".json,application/json" class="form-control" required>
+                    </div>
+                    <div class="card-footer bg-transparent">
+                        <button type="submit" class="btn btn-outline-primary w-100">
+                            <i class="bi bi-search me-1"></i>{% trans 'Upload and review' %}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

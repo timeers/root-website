@@ -36,7 +36,15 @@
    RTT_ORDER      = {}
    RTT_TURN_SEATS = nil
    for _, k in ipairs({ "RTT_SEAT_POS", "RTT_SEAT_COLOR", "RTT_SEAT_PLAYER", "RTT_SEAT_STEAM",
-@@ -3977,10 +3985,10 @@
+@@ -3893,6 +3901,7 @@
+   for _, dk in ipairs(getObjectsWithTag("Deck Object") or {}) do
+     pcall(function()
+       if dk.name ~= "Deck" and dk.name ~= "DeckCustom" then return end
++      if dk.hasTag("Deck Accessory") then return end
+       local data = dk.getData()
+       for _, c in ipairs((data and data.ContainedObjects) or {}) do
+         if (c.Description or "") == "Frog" then
+@@ -3977,13 +3986,10 @@
  end
  
  function makeDeck(player,value,id)
@@ -46,15 +54,32 @@
 -  removeDeckItems()
 +  local frogs = rttBeginDeck(player)
 +  if frogs == nil then return end
-+  -- A built-in deck replaces any outside one in the seat record.
-+  if RTT_EXTERNAL ~= nil then RTT_EXTERNAL.deck, RTT_EXTERNAL.deck_name = nil, nil end
    local my_rot = self.getRotation()
    local objects = {}
-   local scale = rttPlaceScale()
-@@ -4009,27 +4017,11 @@
+-  local scale = rttPlaceScale()
+ 
+   if (ends_with(id,"2")) then
+     allObjects = {EVERYTHING["Decks"]['Refill Card']['data'],EVERYTHING["Decks"][id]['data']}
+@@ -3993,43 +3999,14 @@
+ 
+   for _,n in ipairs(allObjects) do
+     for _,v in ipairs(n) do
+-      local vec = Vector(v.move_to) * scale
+-      vec.y = vec.y - 0.1
+-
+-      vec = vec * Vector({15.5, 1, 15.5})
+-
+-      local newVec = Vector({0,1,0})
+-      newVec.x = vec.z * -1
+-      newVec.y = vec.y + 10.01
+-      newVec.z = vec.x
+-
+-      local new_pos = newVec
+-      new_pos.y = new_pos.y+10-8.5+0.05
+-      new_pos.x = new_pos.x - 45 + 8.01
        spawnObjectJSON({
            json              = v.json,
-           position          = new_pos,
+-          position          = new_pos,
 -          callback_function = function(o)
 -            o.setRotation({o.getRotation().x, o.getRotation().y-90, o.getRotation().z})
 -            local _tg=o.getTags(); table.insert(_tg,"Deck Object"); o.setTags(_tg)
@@ -69,32 +94,32 @@
 -              end
 -            end
 -          end
++          position          = rttDeckCatalogPosition(v.move_to),
 +          callback_function = rttDeckPieceCallback
        })
      end
-   end
+-  end
 -  if find_object_by_gm_note("Dragon God") ~= nil then
 -    Wait.frames(function() pcall(function() rttPlaceDragonGod() end) end, 2)
--  end
+   end
 -  if #frogs > 0 then Wait.time(function() rttRestoreFrogs(frogs, 0) end, RTT_FROG_WAIT) end
 +  rttFinishDeck(frogs)
  end
  
  function makeTool(player,value,id)
-@@ -4768,6 +4760,12 @@
+@@ -4768,6 +4745,11 @@
      out.houserules = {}
      for i, r in ipairs(RTT_HOUSERULES) do out.houserules[i] = r end
    end
 +  if RTT_EXTERNAL ~= nil then
 +    out.map, out.map_name = RTT_EXTERNAL.map, RTT_EXTERNAL.map_name
-+    out.deck, out.deck_name = RTT_EXTERNAL.deck, RTT_EXTERNAL.deck_name
 +    if #(RTT_EXTERNAL.landmarks or {}) > 0 then out.landmarks = RTT_EXTERNAL.landmarks end
 +    if #(RTT_EXTERNAL.hirelings or {}) > 0 then out.hirelings = RTT_EXTERNAL.hirelings end
 +  end
    return out
  end
  
-@@ -6608,7 +6606,7 @@
+@@ -6608,7 +6590,7 @@
      end
    end
    local board, mapId, fivep = rttMap()
@@ -103,7 +128,7 @@
    if board == nil or centres == nil then
      if tries > 0 then later() return end
      rttReply(who, "Place a map before deploying the Marquise warriors.")
-@@ -7033,7 +7031,7 @@
+@@ -7033,7 +7015,7 @@
  
  function rttForestWorldCenters(mapId)
    local cents = RTT_FOREST_UV[mapId]
@@ -112,7 +137,7 @@
    local m = rttFindMapObject()
    if m == nil then return {} end
    local b = m.getBounds()
-@@ -7070,7 +7068,7 @@
+@@ -7070,7 +7052,7 @@
        targets[#targets + 1] = { w.x, w.z }
      end
    else
@@ -121,7 +146,7 @@
    end
    if #targets == 0 then return end
  
-@@ -7580,63 +7578,22 @@
+@@ -7580,63 +7562,22 @@
  end
  
  function makeMap(player,value,id,keepBoard)
@@ -199,7 +224,7 @@
  
    local objects = {}
    objects = EVERYTHING["Maps"][id]['data']
-@@ -7685,16 +7642,7 @@
+@@ -7685,16 +7626,7 @@
          callback_function = function(spawned_object)
  
          if rtt_ov then spawned_object.setLock(true) end
@@ -217,7 +242,7 @@
          if rtt_ov and RTT_MARSH_PIECES ~= nil then
            pcall(function() RTT_MARSH_PIECES[#RTT_MARSH_PIECES + 1] = spawned_object.getGUID() end)
          end
-@@ -7710,22 +7658,7 @@
+@@ -7710,22 +7642,7 @@
      }
      end
    end
@@ -241,7 +266,7 @@
  end
  
  function rttLockRuins()
-@@ -9132,4 +9065,351 @@
+@@ -9132,4 +9049,413 @@
  function onScriptingButtonUp(idx, color)
    if idx == 2 then pcall(function() rttKey2Up(color) end) end
    if idx == 4 then pcall(function() rttKey4Up(color) end) end
@@ -397,9 +422,26 @@
 +  return { ok = true }
  end
 +
-+-- Place an outside deck exactly like a built-in one: clear the old deck, put the
-+-- new one face down on the deck holder's draw slot, tag and shuffle it.
-+-- params = { name = "Deck name", slug = "deck-slug", objects = { "<object JSON>", ... } }
++-- Where an outside deck's accessory decks go: a row past the draw slot, in
++-- holder-local coordinates (tune in game).
++RTT_HOLDER_ACCESSORY      = { 1.9, 0.178, 0.222 }
++RTT_HOLDER_ACCESSORY_STEP = { 0.85, 0, 0 }
++
++-- Place an outside deck exactly like a built-in one: clear the old deck, spawn
++-- the Refill Card (and the Dominance Track Card when the deck has dominance
++-- cards) from the catalogue, then put the main deck face down on the deck
++-- holder's draw slot, tagged and shuffled. Accessory decks (extra decks the
++-- outside source ships with its main deck) go beside the holder: tagged
++-- "Deck Object" so the next deck clears them, but never shuffled.
++-- params = {
++--   name        = "Deck name",
++--   slug        = "deck-slug",
++--   dominance   = true,                       -- the deck has Dominance cards
++--   objects     = { "<object JSON>", ... },   -- the main deck
++--   accessories = { "<object JSON>", ... },   -- optional
++-- }
++-- The Box Score names the deck itself, from the "rdb:deck:<slug>" GM note on
++-- the main deck, so nothing is recorded here.
 +function rttPlaceExternalDeck(params)
 +  if type(params) ~= "table" or type(params.objects) ~= "table" or #params.objects == 0 then
 +    return { ok = false, reason = "No deck objects given." }
@@ -408,6 +450,16 @@
 +  if holder == nil then return { ok = false, reason = "No deck holder on this table." } end
 +  local frogs = rttBeginDeck(nil)
 +  if frogs == nil then return { ok = false, reason = "The deck is being placed." } end
++  local tokens = { EVERYTHING["Decks"]["Refill Card"]["data"] }
++  if params.dominance == true then
++    tokens[#tokens + 1] = EVERYTHING["Decks"]["Dominance Track Card"]["data"]
++  end
++  for _, n in ipairs(tokens) do
++    for _, v in ipairs(n) do
++      spawnObjectJSON({ json = v.json, position = rttDeckCatalogPosition(v.move_to),
++                        callback_function = rttDeckPieceCallback })
++    end
++  end
 +  local slot = holder.positionToWorld(RTT_HOLDER_DRAW)
 +  local ry = holder.getRotation().y
 +  for i, json in ipairs(params.objects) do
@@ -422,9 +474,25 @@
 +      end,
 +    })
 +  end
++  for i, json in ipairs(params.accessories or {}) do
++    local at = holder.positionToWorld({
++      RTT_HOLDER_ACCESSORY[1] + (i - 1) * RTT_HOLDER_ACCESSORY_STEP[1],
++      RTT_HOLDER_ACCESSORY[2] + (i - 1) * RTT_HOLDER_ACCESSORY_STEP[2],
++      RTT_HOLDER_ACCESSORY[3] + (i - 1) * RTT_HOLDER_ACCESSORY_STEP[3],
++    })
++    spawnObjectJSON({
++      json = json,
++      position = { at.x, at.y + 0.5, at.z },
++      rotation = { 0, ry, 180 },
++      callback_function = function(o)
++        local tg = o.getTags()
++        local has = false
++        for _, t in ipairs(tg) do if t == "Deck Object" then has = true end end
++        if not has then table.insert(tg, "Deck Object"); o.setTags(tg) end
++      end,
++    })
++  end
 +  rttFinishDeck(frogs)
-+  RTT_EXTERNAL.deck, RTT_EXTERNAL.deck_name = params.slug, params.name
-+  rttPublishSeats()
 +  return { ok = true }
 +end
 +
@@ -584,6 +652,25 @@
 +  if o.name == "Deck" then
 +    o.shuffle()
 +  end
++end
++
++-- Where a deck catalogue piece spawns, moved unchanged from makeDeck.
++function rttDeckCatalogPosition(move_to)
++  local scale = rttPlaceScale()
++  local vec = Vector(move_to) * scale
++  vec.y = vec.y - 0.1
++
++  vec = vec * Vector({15.5, 1, 15.5})
++
++  local newVec = Vector({0,1,0})
++  newVec.x = vec.z * -1
++  newVec.y = vec.y + 10.01
++  newVec.z = vec.x
++
++  local new_pos = newVec
++  new_pos.y = new_pos.y+10-8.5+0.05
++  new_pos.x = new_pos.x - 45 + 8.01
++  return new_pos
 +end
 +
 +-- Generic close of a deck spawn, moved unchanged from makeDeck.

@@ -375,18 +375,24 @@ class Post(models.Model):
     rootjam_link = models.CharField(max_length=400, null=True, blank=True)
     fr_link = models.CharField(max_length=400, null=True, blank=True)
     based_on = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True)
-    # Admin-only (kept out of every public form). Served to the in-game TTS loader,
-    # which spawns it as-is -- including any LuaScript inside it.
+    # Admin-only (kept out of every form, including the Django admin). Built by the
+    # site (the keep builder or the forge sync) or uploaded and reviewed on the
+    # post's TTS JSON page, then served to the in-game TTS loader exactly as
+    # stored -- including any LuaScript an admin accepted.
     tts_json = models.JSONField(
         null=True, blank=True,
         validators=[validate_tts_save],
         help_text=(
-            "A TTS save or Save Object file (must contain ObjectStates). Served to the in-game TTS Library. "
-            "Maps: tag ruins \"Ruin\" and suit markers \"Clearing Marker\" plus \"Suit: fox|rabbit|mouse|bird\" "
-            "for random set-up, and optionally add a \"BoardLayout\" key (clearings / forests / relics) "
-            "-- see tts/BOARD_LAYOUT.md."
+            "A TTS save or Save Object file (must contain ObjectStates), served as stored to the in-game "
+            "TTS Library. Generate it or upload it on the post's TTS JSON page. Uploaded maps carry their "
+            "own tags (\"Map Object\", \"RTT Map\", \"Ruin\", \"Clearing Marker\", \"Suit: fox|rabbit|mouse|bird\") "
+            "and an optional \"BoardLayout\" key -- see tts/BOARD_LAYOUT.md."
         ),
     )
+    # Derived from tts_json whenever it's written (never part of it): where it
+    # came from, plus what the loader needs (deck roles, map board, ...). See
+    # the_keep/services/tts_inspect.py.
+    tts_info = models.JSONField(null=True, blank=True)
     small_icon = models.ImageField(upload_to=post_icon_upload_path, null=True, blank=True)
 
     picture = models.ImageField(upload_to=post_picture_upload_path, null=True, blank=True)
@@ -2957,6 +2963,27 @@ class TTSAsset(models.Model):
 
     def __str__(self):
         return f"{self.post} - {self.get_role_display()}"
+
+
+class TTSJsonUpload(models.Model):
+    """TTS JSON an admin uploaded on a post's TTS JSON page. Held here between
+    upload and review/confirm, then kept as a record of who uploaded what and
+    which warnings they accepted."""
+    post = models.ForeignKey(Post, on_delete=models.CASCADE, related_name='tts_uploads')
+    filename = models.CharField(max_length=255, blank=True, default='')
+    tts_json = models.JSONField()
+    uploaded_by = models.ForeignKey(Profile, on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='tts_uploads')
+    created_at = models.DateTimeField(auto_now_add=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    # The review's warnings (see inspect_tts_json), as shown when confirmed.
+    warnings = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.post} - {self.filename or 'upload'} ({'confirmed' if self.confirmed_at else 'pending'})"
 
 
 class SnapPoint(models.Model):

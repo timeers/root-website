@@ -46,6 +46,8 @@ MAP_SETTLE_SECONDS = 2.5                -- let a map spawn before shuffling / pl
 DECK_HOLDER_GUID = "aa1464"             -- the RTT deck holder
 DECK_DRAW_SLOT = {0.957, 0.178, 0.222}  -- its draw slot, in holder-local coordinates
 DECK_ROT_Y = 0                          -- extra y rotation for spawned decks; tune in game
+DECK_ACCESSORY_SLOT = {1.9, 0.178, 0.222} -- first accessory deck, holder-local, past the draw slot; tune in game
+DECK_ACCESSORY_STEP = {0.85, 0, 0}        -- holder-local step between accessory decks; tune in game
 vpPanelTemplate = nil                   -- fetched once, from /api/tts/vp-panel/
 
 -- Shown under the tabs; explains where each tab's items come from.
@@ -562,13 +564,28 @@ end
 -- false when it can't (no holder, or the coordinator refused), so the caller
 -- spawns it where the library sits instead.
 function placeDeck(data)
+  -- The server marks the deck with the most cards "main"; the rest are
+  -- accessories, kept apart so they never merge into it.
+  local main, accessories = {}, {}
+  for _, o in ipairs(data.objects) do
+    if o.deck_role == "accessory" then
+      table.insert(accessories, o)
+    else
+      table.insert(main, o)
+    end
+  end
+
   local api = externalAPI()
   if api ~= nil then
-    local jsons = {}
-    for i, o in ipairs(data.objects) do jsons[i] = o.json end
+    local mainJson, accessoryJson = {}, {}
+    for i, o in ipairs(main) do mainJson[i] = o.json end
+    for i, o in ipairs(accessories) do accessoryJson[i] = o.json end
     local answer = nil
     pcall(function()
-      answer = api.call("rttPlaceExternalDeck", {name = data.title, slug = data.slug, objects = jsons})
+      answer = api.call("rttPlaceExternalDeck", {
+        name = data.title, slug = data.slug, dominance = data.dominance == true,
+        objects = mainJson, accessories = accessoryJson,
+      })
     end)
     if type(answer) == "table" and answer.ok then
       deleteThis()
@@ -581,15 +598,33 @@ function placeDeck(data)
   if holder == nil then
     return false
   end
-  local coordinator = getObjectFromGUID(RTT_COORD_GUID)
-  pcall(function() coordinator.call("removeDeckItems") end)
-  local slot = holder.positionToWorld(DECK_DRAW_SLOT)
+  -- Clear the old deck's decks and cards ("Deck Object"), but keep the Refill
+  -- Card and Dominance Track Card tokens: the coordinator's removeDeckItems
+  -- would delete those too, and only its own deck buttons respawn them.
+  for _, o in ipairs(getObjectsWithTag("Deck Object")) do
+    if o.type == "Deck" or o.type == "Card" then
+      o.destruct()
+    end
+  end
   local ry = holder.getRotation().y + DECK_ROT_Y
-  for i, o in ipairs(data.objects) do
+  local slot = holder.positionToWorld(DECK_DRAW_SLOT)
+  for i, o in ipairs(main) do
     spawnObjectJSON({
       json = o.json,
       position = {slot.x, slot.y + 0.5 + i * 0.3, slot.z},
       rotation = {0, ry, 180},   -- face down
+    })
+  end
+  for i, o in ipairs(accessories) do
+    local at = holder.positionToWorld({
+      DECK_ACCESSORY_SLOT[1] + (i - 1) * DECK_ACCESSORY_STEP[1],
+      DECK_ACCESSORY_SLOT[2] + (i - 1) * DECK_ACCESSORY_STEP[2],
+      DECK_ACCESSORY_SLOT[3] + (i - 1) * DECK_ACCESSORY_STEP[3],
+    })
+    spawnObjectJSON({
+      json = o.json,
+      position = {at.x, at.y + 0.5, at.z},
+      rotation = {0, ry, 180},
     })
   end
   deleteThis()

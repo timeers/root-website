@@ -2,7 +2,7 @@ from django.urls import path
 from .api_views import (search_posts, TTSCatalogView, TTSKeepDetailView, TTSForgeDetailView,
                         TTSLoaderVersionView, TTSLoaderScriptView, TTSLoaderObjectView,
                         TTSVPPanelView)
-from . import views
+from . import tts_views, views
 
 urlpatterns = [
     # path('', views.home, name='site-home'),
@@ -92,6 +92,10 @@ urlpatterns = [
     
     path('post/<slug:slug>/settings/', views.post_settings_hub, name='post-settings'),
     path('post/<slug:slug>/pieces/', views.post_pieces_view, name='post-pieces'),
+    path('post/<slug:slug>/tts-json/', tts_views.post_tts_json, name='post-tts-json'),
+    path('post/<slug:slug>/tts-json/download/', tts_views.post_tts_json_download, name='post-tts-json-download'),
+    path('post/<slug:slug>/tts-json/review/<int:upload_id>/', tts_views.post_tts_json_review,
+         name='post-tts-json-review'),
 
     path('map/<slug:slug>/', views.ultimate_component_view, {'component': "Map"}, name='map-detail'),
     path('deck/<slug:slug>/', views.ultimate_component_view, {'component': "Deck"}, name='deck-detail'),

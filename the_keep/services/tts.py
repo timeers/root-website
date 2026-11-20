@@ -277,6 +277,12 @@ class TTSSpriteDeck(TTSDeckBase):
         self.carddeck_name = carddeck.group.name
 
     def custom_deck(self):
+        # Cached: generate_sprite_sheet hashes every card image on each call.
+        if getattr(self, "_custom_deck", None) is None:
+            self._custom_deck = self._build_custom_deck()
+        return self._custom_deck
+
+    def _build_custom_deck(self):
         num_width = 6
         num_height = math.ceil(self.carddeck.card_count / num_width)
         return {
@@ -291,59 +297,71 @@ class TTSSpriteDeck(TTSDeckBase):
             }
         }
 
-    def to_object(self):
+    def card_objects(self):
+        """The deck's cards as TTS Card dicts, following the official RTT decks:
+        Nickname is the card name ("Dominance" for dominance cards) and the
+        Description holds only the card's suits."""
         transform = self.get_transform()
         cards = []
         for i, card in enumerate(self.carddeck.cards_in_deck):
-            card_name = getattr(card, "name", None) or ""
-            card_tags = card.tag_string
-            # Dominance is an identity tag — promote it into the Nickname
-            # (so TTS shows "Bird Dominance", etc.) and drop the bare tag
-            # token from the Description.
             raw_tags = getattr(card, "tags", None) or []
+            card_name = getattr(card, "name", None) or ""
+            # The RTT Box Score only recognises a dominance card named exactly
+            # "Dominance" with its suit as the Description.
             if "Dominance" in raw_tags:
-                if "dominance" not in card_name.lower():
-                    card_name = f"{card_name} Dominance".strip()
-                # tag_string puts tags as whitespace-separated tokens; drop
-                # the "Dominance" token without touching surrounding text.
-                card_tags = " ".join(
-                    tok for tok in card_tags.split(" ") if tok != "Dominance"
-                ).strip()
+                card_name = "Dominance"
             cards.append({
                 "GUID": generate_tts_guid(),
                 "Name": "Card",
                 "Transform": dict(transform),
                 "Nickname": card_name,
-                "Description": card_tags,
+                "Description": card_suits(raw_tags),
                 "CardID": self.card_id(i),
                 "CustomDeck": self.custom_deck(),
                 "HideWhenFaceDown": True,
                 "Hands": True,
             })
+        return cards
 
-        # TTS requires a deck to contain at least 2 cards. A single-card
-        # "deck" must be exported as a bare Card object instead, or the
-        # prefab fails to load.
-        if len(cards) == 1:
-            only = dict(cards[0])
-            # Inherit the deck-group's display name as the card's Nickname
-            # if the card itself doesn't have one.
-            if not only.get("Nickname") and self.carddeck_name:
-                only["Nickname"] = self.carddeck_name
-            return only
+    def to_object(self):
+        return deck_object(self.card_objects(), self.custom_deck(), self.carddeck_name, self.get_transform())
 
-        return {
-            "GUID": generate_tts_guid(),
-            # "DeckCustom" is the TTS prefab type for image-backed decks.
-            # The deck-group's display name belongs in Nickname; using it
-            # as Name made TTS look up a prefab by that name and fail.
-            "Name": "DeckCustom",
-            "Nickname": self.carddeck_name or "",
-            "Transform": transform,
-            "DeckIDs": [self.card_id(i) for i in range(len(cards))],
-            "ContainedObjects": cards,
-            "CustomDeck": self.custom_deck(),
-        }
+
+CARD_SUITS = ("Fox", "Rabbit", "Mouse", "Bird", "Frog")
+
+
+def card_suits(tags):
+    """A card's suit tags in a fixed order, e.g. "Fox Mouse"; "" for none."""
+    return " ".join(suit for suit in CARD_SUITS if suit in (tags or []))
+
+
+def deck_object(cards, custom_deck, name, transform):
+    """Wrap Card dicts in a TTS deck, or return the bare Card for a single card
+    (TTS requires a deck to contain at least 2 cards). `custom_deck` holds every
+    sheet the cards use."""
+    if not cards:
+        return None
+    if len(cards) == 1:
+        only = dict(cards[0])
+        # Inherit the deck-group's display name as the card's Nickname
+        # if the card itself doesn't have one.
+        if not only.get("Nickname") and name:
+            only["Nickname"] = name
+        return only
+    return {
+        "GUID": generate_tts_guid(),
+        # "Deck" is what TTS saves for image-backed decks, and what the official
+        # RTT decks use (its coordinator only shuffles "Deck"). The deck-group's
+        # display name belongs in Nickname; using it as Name made TTS look up a
+        # prefab by that name and fail.
+        "Name": "Deck",
+        "Nickname": name or "",
+        "Transform": dict(transform),
+        "DeckIDs": [card["CardID"] for card in cards],
+        "ContainedObjects": cards,
+        "CustomDeck": custom_deck,
+    }
+
 
 class TTSSingleCardDeck(TTSDeckBase):
     def __init__(self, face_image, back_image, deck_id, request=None, card_name="Card", transform=None):
@@ -425,6 +443,19 @@ class TTSDeckGroup:
 
         return decks
 
+    def to_object(self, starting_deck_id):
+        """The whole group as ONE TTS object, however many 99-card sheets it
+        spans: a deck whose CustomDeck holds every sheet, as TTS itself saves
+        such decks. Returns (object or None, next free deck id)."""
+        sprite_decks = self.build(starting_deck_id)
+        cards, custom_deck = [], {}
+        for sprite_deck in sprite_decks:
+            cards.extend(sprite_deck.card_objects())
+            custom_deck.update(sprite_deck.custom_deck())
+        next_deck_id = starting_deck_id + len(sprite_decks)
+        obj = deck_object(cards, custom_deck, self.group.name, DEFAULT_CARD_TRANSFORM)
+        return obj, next_deck_id
+
 
 
 # class TTSDeckGroup:
@@ -472,12 +503,61 @@ def build_tts_objects(post, request=None):
         objects.append(vb_card.to_object())
         next_deck_id += 1
 
+    decks = []
     for deck_group in post.decks.filter(language=post.language):
-        for deck in TTSDeckGroup(deck_group, request=request).build(starting_deck_id=next_deck_id):
-            objects.append(deck.to_object())
-            next_deck_id += 1
+        deck, next_deck_id = TTSDeckGroup(deck_group, request=request).to_object(next_deck_id)
+        if deck is not None:
+            decks.append(deck)
+    if post.component == "Deck":
+        prepare_shared_deck(decks, post)
+    objects.extend(decks)
 
     return objects
+
+
+# Space between a Deck post's accessory decks, so TTS doesn't merge them.
+ACCESSORY_DECK_SPACING = 3.0
+
+
+def prepare_shared_deck(decks, post):
+    """Final conventions for a Deck post (the shared deck on the RTT table), so
+    the stored JSON is served as is. See tts/RTT_EXTERNAL_API.md.
+
+    Every deck and card is tagged "Deck Object" (the RTT coordinator clears
+    those when the deck is replaced) and lies face down. The deck with the most
+    cards is the MAIN deck: it carries the post's title and an
+    "rdb:deck:<slug>" GM note, which the Box Score reads to name the deck and
+    upload its slug. The others are ACCESSORIES ("Deck Accessory"), set beside
+    it so they never merge into it.
+
+    Only for Deck posts: a faction's decks must never be tagged "Deck Object",
+    or the coordinator would delete them along with the shared deck."""
+    if not decks:
+        return
+    sizes = [len(d.get("ContainedObjects") or [d]) for d in decks]
+    main = max(range(len(decks)), key=lambda i: (sizes[i], -i))
+    accessories = 0
+    for i, deck in enumerate(decks):
+        deck["Tags"] = _with_tag(deck.get("Tags"), "Deck Object")
+        for card in deck.get("ContainedObjects") or []:
+            card["Tags"] = _with_tag(card.get("Tags"), "Deck Object")
+        transform = dict(deck.get("Transform") or DEFAULT_CARD_TRANSFORM)
+        transform["rotZ"] = 180.0  # face down, like the official decks
+        if i == main:
+            deck["Nickname"] = post.title
+            deck["GMNotes"] = f"rdb:deck:{post.slug}"
+        else:
+            accessories += 1
+            deck["Tags"] = _with_tag(deck["Tags"], "Deck Accessory")
+            transform["posX"] = transform.get("posX", 0.0) + ACCESSORY_DECK_SPACING * accessories
+        deck["Transform"] = transform
+
+
+def _with_tag(tags, tag):
+    tags = list(tags or [])
+    if tag not in tags:
+        tags.append(tag)
+    return tags
 
 
 def wrap_tts_save(objects, save_name=""):

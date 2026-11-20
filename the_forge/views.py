@@ -3025,8 +3025,9 @@ def _build_forged_tts_save(request, faction, refresh_previews=True):
                 pile_sp = sp
                 break
 
-        for built_deck in TTSDeckGroup(group, request=request).build(deck_id):
-            obj = built_deck.to_object()
+        # One object per group, however many 99-card sheets it spans.
+        obj, deck_id = TTSDeckGroup(group, request=request).to_object(deck_id)
+        if obj is not None:
             if pile_sp is not None:
                 wx, wz, wy = _snap_to_world(pile_sp)
                 transform = dict(DEFAULT_CARD_TRANSFORM)
@@ -3042,8 +3043,6 @@ def _build_forged_tts_save(request, faction, refresh_previews=True):
             for contained in obj.get('ContainedObjects', []):
                 contained['Transform'] = dict(transform)
             boards.append(obj)
-            deck_id += 1
-            pile_sp = None  # only the first sub-deck of a group consumes the snap point
 
     return wrap_tts_save(boards, save_name=faction.faction_name), None, parts
 
@@ -3580,13 +3579,14 @@ def forgedfaction_unlink(request, pk):
     return redirect('forge-faction-detail', pk=forged.pk)
 
 
-def _sync_keep_tts_json(forged_pk):
+def _sync_keep_tts_json(forged_pk, profile=None):
     """Rebuild the linked keep Faction's tts_json from keep copies of every forge
     asset (forge sync, after its assets were applied). Returns None on success,
     else why nothing was written."""
     from django.core.exceptions import ValidationError
     from the_keep.models import Post
     from the_keep.services.tts import SiteURLRequest
+    from the_keep.services.tts_store import store_tts_json
     from the_keep.utils import tts_json_hash, validate_tts_save
     from .forms_publish import forge_tts_fingerprint
     from .services.tts_convert import build_url_map, convert_save, find_forge_urls
@@ -3621,8 +3621,8 @@ def _sync_keep_tts_json(forged_pk):
     except ValidationError:
         return "the export produced no objects."
 
-    # tts_json lives on the Post table; queryset update skips Post.save().
-    Post.objects.filter(pk=faction.pk).update(tts_json=converted)
+    # A queryset update with its tts_info (store_tts_json): skips Post.save().
+    store_tts_json(faction, converted, source='forge', profile=profile)
     # Hash the value as stored: Postgres jsonb reorders keys.
     stored = Post.objects.values_list('tts_json', flat=True).get(pk=faction.pk)
     ForgedFaction.objects.filter(pk=forged.pk).update(
@@ -3662,7 +3662,7 @@ def forgedfaction_sync(request, pk):
         if form.is_valid():
             form.save()
             if mode == 'faction' and form.cleaned_data.get('sync_tts_json'):
-                tts_error = _sync_keep_tts_json(forged.pk)
+                tts_error = _sync_keep_tts_json(forged.pk, profile=request.user.profile)
                 if tts_error:
                     messages.error(
                         request,

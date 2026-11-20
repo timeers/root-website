@@ -1,0 +1,104 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+
+{% block title %}{% trans 'Review TTS JSON' %} - {{ object.title }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0 root-title"><i class="bi bi-shield-check me-2"></i>{% trans 'Review upload' %}: {{ object.title }}</h2>
+        <a href="{% url 'post-tts-json' object.slug %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>{% trans 'Back to TTS JSON' %}
+        </a>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <p class="mb-1"><strong>{% trans 'File' %}:</strong> {{ pending.filename|default:"-" }} ({{ new_size_kb }} KB, {{ new_count }} {% trans 'object' %}{{ new_count|pluralize }})</p>
+            <p class="mb-0"><strong>{% trans 'Replaces' %}:</strong>
+                {% if object.tts_json %}{{ status.label }}{% if status.detail %} {{ status.detail }}{% endif %}, {{ status.object_count }} {% trans 'object' %}{{ status.object_count|pluralize }}{% else %}{% trans 'nothing (this post has no TTS JSON yet)' %}{% endif %}
+            </p>
+        </div>
+    </div>
+
+    <!-- Lua scripts -->
+    <div class="card mb-4 {% if report.scripts %}border-warning{% endif %}">
+        <div class="card-header"><i class="bi bi-code-slash me-2"></i>{% trans 'Lua scripts' %} ({{ report.scripts|length }})</div>
+        <div class="card-body">
+            {% if report.scripts %}
+                <p class="text-muted small">
+                    {% trans "Each script runs in every player's game when the object spawns. It can move or delete anything on the table, spawn objects and make web requests. Only keep scripts you trust." %}
+                </p>
+                {% for script in report.scripts %}
+                <details class="mb-2">
+                    <summary>
+                        {{ script.name }}
+                        {% if script.known %}<span class="badge bg-success ms-1">{% trans "The site's own script" %}</span>{% else %}<span class="badge bg-warning text-dark ms-1">{% trans 'Review' %}</span>{% endif %}
+                    </summary>
+                    <pre class="bg-light p-2 small mt-2" style="max-height: 20rem; overflow: auto;">{{ script.script }}</pre>
+                </details>
+                {% endfor %}
+            {% else %}
+                <p class="mb-0 text-muted">{% trans 'No scripts.' %}</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Untrusted hosts -->
+    <div class="card mb-4 {% if report.untrusted_hosts %}border-warning{% endif %}">
+        <div class="card-header"><i class="bi bi-globe me-2"></i>{% trans 'Files from untrusted hosts' %} ({{ report.untrusted_hosts|length }})</div>
+        <div class="card-body">
+            {% if report.untrusted_hosts %}
+                <p class="text-muted small">
+                    {% trans "Every player's TTS downloads these files, which shows the host their IP address. The file can also change or disappear without notice." %}
+                </p>
+                <ul class="mb-0">
+                    {% for host in report.untrusted_hosts %}
+                    <li>
+                        <strong>{{ host.host }}</strong> ({{ host.count }} {% trans 'file' %}{{ host.count|pluralize }})
+                        <ul class="small text-muted">
+                            {% for url in host.examples %}<li class="text-break">{{ url }}</li>{% endfor %}
+                        </ul>
+                    </li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p class="mb-0 text-muted">{% trans 'All files come from trusted hosts.' %}</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Library notes -->
+    {% if report.notes %}
+    <div class="card mb-4">
+        <div class="card-header"><i class="bi bi-info-circle me-2"></i>{% trans 'Library notes' %}</div>
+        <div class="card-body">
+            <p class="text-muted small">{% trans 'Nothing is changed: the JSON is saved exactly as uploaded. These are only things to be aware of.' %}</p>
+            <ul class="mb-0">
+                {% for note in report.notes %}<li>{{ note }}</li>{% endfor %}
+            </ul>
+        </div>
+    </div>
+    {% endif %}
+
+    <form method="post" class="card">
+        {% csrf_token %}
+        <div class="card-body">
+            {% if needs_ack %}
+            <div class="form-check mb-3">
+                <input class="form-check-input" type="checkbox" name="acknowledge" id="acknowledge">
+                <label class="form-check-label" for="acknowledge">
+                    {% trans "I've reviewed the scripts and external files above." %}
+                </label>
+            </div>
+            {% endif %}
+            <div class="d-flex gap-2 justify-content-end">
+                <button type="submit" name="action" value="cancel" class="btn btn-outline-secondary">{% trans 'Cancel' %}</button>
+                <button type="submit" name="action" value="confirm" class="btn btn-primary">
+                    <i class="bi bi-check-circle me-1"></i>{% trans 'Save this JSON' %}
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+{% endblock %}

@@ -313,6 +313,62 @@ class TTSJsonHelperTests(TestCase):
                          'https://example.test/media/x.webp')
 
 
+@mock.patch('the_keep.services.tts.generate_sprite_sheet', return_value='/media/sheet.png')
+class TTSDeckBuilderTests(TestCase):
+    """Decks built like the official RTT decks (see tts/RTT_EXTERNAL_API.md)."""
+
+    @staticmethod
+    def _sprite_deck(cards, deck_id=1, group_name='Cards'):
+        from the_keep.services.tts import TTSSpriteDeck
+        group = SimpleNamespace(name=group_name, back_image='/media/back.png')
+        carddeck = SimpleNamespace(group=group, cards_in_deck=cards, card_count=len(cards))
+        return TTSSpriteDeck(carddeck, deck_id)
+
+    @staticmethod
+    def _card(name, *tags):
+        return SimpleNamespace(name=name, tags=list(tags))
+
+    def test_deck_matches_official_conventions(self, _sheet):
+        deck = self._sprite_deck([self._card('Sword', 'Mouse'), self._card('Ambush', 'Bird')]).to_object()
+        self.assertEqual(deck['Name'], 'Deck')
+        self.assertEqual(deck['Nickname'], 'Cards')
+        self.assertEqual([c['Nickname'] for c in deck['ContainedObjects']], ['Sword', 'Ambush'])
+        self.assertEqual([c['Description'] for c in deck['ContainedObjects']], ['Mouse', 'Bird'])
+        self.assertEqual(deck['DeckIDs'], [100, 101])
+
+    def test_description_lists_only_suits_in_fixed_order(self, _sheet):
+        cards = self._sprite_deck([self._card('Mixed', 'Mouse', 'Fox'), self._card('Blank')]).card_objects()
+        self.assertEqual([c['Description'] for c in cards], ['Fox Mouse', ''])
+
+    def test_dominance_card_is_named_dominance(self, _sheet):
+        cards = self._sprite_deck([self._card('Fox Dominance', 'Fox', 'Dominance'),
+                                   self._card('Bird Dom', 'Dominance', 'Bird')]).card_objects()
+        self.assertEqual([(c['Nickname'], c['Description']) for c in cards],
+                         [('Dominance', 'Fox'), ('Dominance', 'Bird')])
+
+    def test_single_card_is_a_bare_card(self, _sheet):
+        card = self._sprite_deck([self._card('', 'Fox')]).to_object()
+        self.assertEqual((card['Name'], card['Nickname']), ('Card', 'Cards'))
+
+    def test_group_over_99_cards_is_one_deck(self, _sheet):
+        from the_keep.services.tts import TTSDeckGroup
+        first = self._sprite_deck([self._card(f'A{i}', 'Fox') for i in range(99)], deck_id=3)
+        second = self._sprite_deck([self._card(f'B{i}', 'Fox') for i in range(21)], deck_id=4)
+        group = SimpleNamespace(name='Cards')
+        with mock.patch.object(TTSDeckGroup, 'build', return_value=[first, second]):
+            deck, next_id = TTSDeckGroup(group).to_object(3)
+        self.assertEqual(next_id, 5)
+        self.assertEqual(deck['Name'], 'Deck')
+        self.assertEqual(set(deck['CustomDeck']), {'3', '4'})
+        self.assertEqual(len(deck['ContainedObjects']), 120)
+        self.assertEqual((deck['DeckIDs'][98], deck['DeckIDs'][99]), (398, 400))
+
+    def test_empty_group_gives_no_object(self, _sheet):
+        from the_keep.services.tts import TTSDeckGroup
+        with mock.patch.object(TTSDeckGroup, 'build', return_value=[]):
+            self.assertEqual(TTSDeckGroup(SimpleNamespace(name='x')).to_object(7), (None, 7))
+
+
 @override_settings(CACHES=_LOCMEM, SITE_URL='https://example.test')
 class TTSLoaderApiTests(TestCase):
     def setUp(self):
@@ -403,8 +459,8 @@ class GenerateTTSJsonActionTests(TestCase):
         self.assertIsNone(Post.objects.get(pk=linked.pk).tts_json)
         self.assertIsNone(Post.objects.get(pk=tweak.pk).tts_json)
         message = self.modeladmin.message_user.call_args_list[-1].args[1]
-        self.assertIn('update via forge sync', message)
-        self.assertIn('nothing to export', message)
+        self.assertIn('Forge sync page', message)
+        self.assertIn('Nothing to generate', message)
 
 
 # ── TTS Library object served from tts/loader.lua ───────────────────────────
@@ -537,7 +593,7 @@ class TTSVPPanelTests(TestCase):
 
 @override_settings(CACHES=_LOCMEM)
 class TTSRTTPayloadTests(TestCase):
-    """Detail payloads tagged so the RTT coordinator treats maps/decks as its own."""
+    """Detail payloads: stored JSON served as is, plus what tts_info worked out."""
 
     def setUp(self):
         cache.clear()
@@ -547,61 +603,346 @@ class TTSRTTPayloadTests(TestCase):
         return self.client.get(reverse('api-tts-keep-detail', args=[post.slug])).json()
 
     @staticmethod
-    def _tags(payload, i):
-        return json.loads(payload['objects'][i]['json']).get('Tags', [])
+    def _obj(payload, i):
+        return json.loads(payload['objects'][i]['json'])
 
-    def _map(self, states, **kwargs):
+    def _stored(self, model, states, **kwargs):
+        from the_keep.services.tts_store import store_tts_json
+        post = model.objects.create(designer=self.designer, status=StatusChoices.STABLE, **kwargs)
+        store_tts_json(post, {'ObjectStates': states, **kwargs.pop('extra', {})}, source='uploaded')
+        return post
+
+    def test_map_is_served_as_stored_with_board_and_shuffle(self):
         from the_keep.models import Map
-        return Map.objects.create(title='Fall Map', designer=self.designer, status=StatusChoices.STABLE,
-                                  tts_json={'ObjectStates': states, **kwargs.pop('extra', {})}, **kwargs)
-
-    def test_map_objects_and_board_are_tagged(self):
         snaps = [{'Position': {'x': 0, 'y': 0, 'z': 0}}] * 3
-        post = self._map([
+        states = [
             {'Name': 'Custom_Token', 'Nickname': 'Ruin', 'Tags': ['Ruin'], 'Transform': {'posX': 5}},
             {'Name': 'Custom_Tile', 'Nickname': 'Board', 'AttachedSnapPoints': snaps, 'Transform': {'posX': 0}},
-        ])
+        ]
+        post = self._stored(Map, states, title='Fall Map')
         data = self._detail(post)
         self.assertEqual((data['component'], data['slug'], data['map_board']), ('Map', post.slug, 2))
-        self.assertEqual(self._tags(data, 0), ['Ruin', 'Map Object'])
-        self.assertEqual(self._tags(data, 1), ['Map Object', 'RTT Map', 'RTT Map: Fall Map'])
         self.assertTrue(data['shuffle'])
         self.assertNotIn('layout', data)
-        # Only the served copy is tagged.
-        from the_keep.models import Map
-        stored = Map.objects.get(pk=post.pk).tts_json['ObjectStates']
-        self.assertEqual(stored[1].get('Tags'), None)
-
-    def test_fixed_clearings_keep_suits_in_place(self):
-        post = self._map([
-            {'Name': 'Custom_Token', 'Tags': ['Clearing Marker', 'Suit: fox']},
-            {'Name': 'Custom_Tile', 'Nickname': 'Board', 'AttachedSnapPoints': [{'Position': {}}]},
-        ], fixed_clearings=True)
-        data = self._detail(post)
-        self.assertEqual(self._tags(data, 0), ['Suit: fox', 'Map Object'])
-        self.assertFalse(data['shuffle'])
+        # Nothing is added when serving.
+        self.assertEqual(self._obj(data, 0), states[0])
+        self.assertEqual(self._obj(data, 1), states[1])
 
     def test_board_layout_is_passed_through(self):
+        from the_keep.models import Map
+        from the_keep.services.tts_store import store_tts_json
         layout = {'clearings': [[1.5, -2.0], [3, 4]], 'relics': [[0, 0]]}
-        post = self._map([{'Name': 'Custom_Tile'}], extra={'BoardLayout': layout})
+        post = Map.objects.create(title='Lake', designer=self.designer, status=StatusChoices.STABLE)
+        store_tts_json(post, {'ObjectStates': [{'Name': 'Custom_Tile'}], 'BoardLayout': layout}, source='uploaded')
         self.assertEqual(self._detail(post)['layout'], layout)
 
-    def test_deck_objects_are_tagged(self):
+    def test_deck_roles_and_dominance_come_from_tts_info(self):
         from the_keep.models import Deck
-        post = Deck.objects.create(title='Big Deck', designer=self.designer, status=StatusChoices.STABLE,
-                                   card_total=54, tts_json={'ObjectStates': [
-                                       {'Name': 'DeckCustom'}, {'Name': 'Card'}, {'Name': 'Custom_Tile'}]})
+        cards = lambda n, name='Sword': [{'Name': 'Card', 'Nickname': name} for _ in range(n)]
+        states = [
+            {'Name': 'Deck', 'ContainedObjects': cards(3)},
+            {'Name': 'Deck', 'ContainedObjects': cards(20) + cards(1, 'Dominance')},
+            {'Name': 'Custom_Tile'},
+        ]
+        post = self._stored(Deck, states, title='Big Deck', card_total=54)
         data = self._detail(post)
-        self.assertEqual(data['component'], 'Deck')
-        self.assertEqual([self._tags(data, i) for i in range(3)], [['Deck Object'], ['Deck Object'], []])
-        self.assertNotIn('map_board', data)
+        self.assertEqual([o.get('deck_role') for o in data['objects']], ['accessory', 'main', None])
+        self.assertTrue(data['dominance'])
+        self.assertEqual(self._obj(data, 1), states[1])   # no tags added
 
-    def test_factions_are_not_tagged(self):
+    def test_missing_tts_info_leaves_extras_out(self):
+        from the_keep.models import Deck
+        post = Deck.objects.create(title='Old Deck', designer=self.designer, status=StatusChoices.STABLE,
+                                   card_total=54, tts_json={'ObjectStates': [{'Name': 'Deck'}]})
+        data = self._detail(post)
+        self.assertNotIn('deck_role', data['objects'][0])
+        self.assertNotIn('dominance', data)
+
+    def test_factions_are_served_as_stored(self):
         post = Faction.objects.create(title='Fox Folk', animal='Fox', designer=self.designer, component='Faction',
                                       status=StatusChoices.STABLE, tts_json=_tts_save())
         data = self._detail(post)
         self.assertEqual(data['component'], 'Faction')
         self.assertNotIn('Tags', json.loads(data['objects'][0]['json']))
+
+
+class TTSInspectTests(TestCase):
+    """Read-only analysis: tts_info and the upload review's warnings."""
+
+    def setUp(self):
+        self.designer = Profile.objects.create(discord='inspector')
+
+    def _post(self, component, **kwargs):
+        return SimpleNamespace(component=component, slug=kwargs.get('slug', 'my-post'))
+
+    def test_describe_deck_roles_by_tag_and_size(self):
+        from the_keep.services.tts_inspect import describe_tts_json
+        cards = [{'Name': 'Card'}] * 5
+        save = {'ObjectStates': [
+            {'Name': 'Deck', 'ContainedObjects': cards * 4, 'Tags': ['Deck Accessory']},
+            {'Name': 'Deck', 'ContainedObjects': cards},
+            {'Name': 'Custom_Token'},
+        ]}
+        info = describe_tts_json(self._post('Deck'), save, source='generated')
+        # The tagged accessory is never main, even with more cards.
+        self.assertEqual(info['deck_roles'], ['accessory', 'main', None])
+        self.assertFalse(info['dominance'])
+        self.assertEqual((info['source'], info['object_count']), ('generated', 3))
+
+    def test_describe_map_board_and_shuffle(self):
+        from the_keep.services.tts_inspect import describe_tts_json
+        save = {'ObjectStates': [{'Name': 'a'}, {'Name': 'board', 'AttachedSnapPoints': [{}]}]}
+        info = describe_tts_json(self._post('Map'), save, source='uploaded', filename='m.json')
+        self.assertEqual((info['map_board'], info['shuffle'], info['filename']), (2, False, 'm.json'))
+
+    def test_recheck_keeps_previous_source(self):
+        from the_keep.services.tts_inspect import describe_tts_json
+        previous = {'source': 'uploaded', 'updated_by': 'Tim', 'updated_at': 'x', 'filename': 'f.json'}
+        info = describe_tts_json(self._post('Tweak'), {'ObjectStates': [{'Name': 'a'}]}, previous=previous)
+        self.assertEqual({k: info[k] for k in previous}, previous)
+        self.assertNotIn('source', describe_tts_json(self._post('Tweak'), {'ObjectStates': [{'Name': 'a'}]}))
+
+    def test_scripts_found_at_every_depth(self):
+        from the_keep.services.tts import LOCK_ON_REST_LUA
+        from the_keep.services.tts_inspect import inspect_tts_json
+        save = {
+            'LuaScript': 'print("global")',
+            'ObjectStates': [
+                {'Name': 'Custom_Tile', 'Nickname': 'Board', 'LuaScript': LOCK_ON_REST_LUA},
+                {'Name': 'Deck', 'ContainedObjects': [{'Name': 'Card', 'Nickname': 'Sneaky', 'LuaScript': 'x()'}]},
+                {'Name': 'Custom_Tile', 'States': {'2': {'Name': 'Custom_Tile', 'Nickname': 'Back', 'LuaScript': 'y()'}}},
+                {'Name': 'Custom_Model', 'ChildObjects': [{'Name': 'Child', 'LuaScript': 'z()'}]},
+                {'Name': 'Blank', 'LuaScript': '   '},
+            ],
+        }
+        scripts = inspect_tts_json(self._post('Map'), save)['scripts']
+        self.assertEqual([(s['name'], s['known']) for s in scripts], [
+            ('Save file (global script)', False), ('Board', True), ('Sneaky', False),
+            ('Back', False), ('Child', False)])
+
+    @override_settings(SITE_URL='https://www.example.test')
+    def test_untrusted_hosts(self):
+        from the_keep.services.tts_inspect import inspect_tts_json
+        save = {'ObjectStates': [
+            {'Name': 'a', 'CustomImage': {'ImageURL': '{verifycache}https://example.test/media/a.png',
+                                          'ImageSecondaryURL': 'https://www.example.test/b.png'}},
+            {'Name': 'b', 'CustomDeck': {'1': {'FaceURL': 'https://cloud-3.steamusercontent.com/ugc/1/',
+                                               'BackURL': 'https://i.imgur.com/x.png'}}},
+            {'Name': 'c', 'CustomMesh': {'MeshURL': 'https://mrdrouf.github.io/art/1'},
+             'XmlUI': '<Image image="https://evil.example/pixel.gif" />'},
+            {'Name': 'd', 'CustomImage': {'ImageURL': 'https://i.imgur.com/y.png'}},
+        ]}
+        hosts = inspect_tts_json(self._post('Map'), save)['untrusted_hosts']
+        self.assertEqual([(h['host'], h['count']) for h in hosts], [('i.imgur.com', 2), ('evil.example', 1)])
+
+    def test_deck_notes(self):
+        from the_keep.services.tts_inspect import inspect_tts_json
+        save = {'ObjectStates': [{'Name': 'Deck', 'ContainedObjects': [
+            {'Name': 'Card', 'Nickname': 'Fox Dominance', 'Description': 'Fox'},
+            {'Name': 'Card', 'Nickname': 'Sword', 'Description': 'Mouse craftable'},
+        ]}]}
+        notes = ' '.join(inspect_tts_json(self._post('Deck'), save)['notes'])
+        self.assertIn('Deck Object', notes)
+        self.assertIn('rdb:deck:my-post', notes)
+        self.assertIn('Fox Dominance', notes)
+        self.assertIn('Sword', notes)
+
+    def test_map_notes(self):
+        from the_keep.services.tts_inspect import inspect_tts_json
+        save = {'ObjectStates': [{'Name': 'Custom_Token', 'Tags': ['Clearing Marker']}]}
+        notes = ' '.join(inspect_tts_json(self._post('Map'), save, fixed_clearings=True)['notes'])
+        self.assertIn('Map Object', notes)
+        self.assertIn('RTT Map', notes)
+        self.assertIn('fixed clearings', notes)
+
+
+class TTSJsonAdminMixinTests(TestCase):
+    def test_tts_json_is_not_editable_in_the_admin(self):
+        from django.contrib.admin.sites import AdminSite
+        from django.test import RequestFactory
+        from the_keep.admin import DeckAdmin, MapAdmin, FactionAdmin
+        from the_keep.models import Deck, Map
+        request = RequestFactory().get('/')
+        request.user = mock.Mock(is_superuser=True)
+        for admin_class, model in ((DeckAdmin, Deck), (MapAdmin, Map), (FactionAdmin, Faction)):
+            with self.subTest(admin=admin_class.__name__):
+                model_admin = admin_class(model, AdminSite())
+                self.assertIn('tts_json', model_admin.get_exclude(request))
+                self.assertIn('tts_info', model_admin.get_exclude(request))
+                self.assertIn('tts_json_summary', model_admin.get_readonly_fields(request))
+                form = model_admin.get_form(request)
+                self.assertNotIn('tts_json', form.base_fields)
+
+
+@mock.patch('the_keep.services.tts.generate_sprite_sheet', return_value='/media/sheet.png')
+class TTSSharedDeckBuilderTests(TestCase):
+    """build_tts_objects gives a Deck post the RTT table's conventions."""
+
+    def setUp(self):
+        self.designer = Profile.objects.create(discord='deckbuilder')
+
+    def _built(self, component, groups):
+        from the_keep.services import tts
+        post = SimpleNamespace(component=component, title='Big Deck', slug='big-deck',
+                               decks=mock.Mock(filter=mock.Mock(return_value=groups)), language=None)
+        with mock.patch.object(tts.TTSDeckGroup, 'to_object',
+                               side_effect=lambda self, i: (self.group.obj, i + 1), autospec=True):
+            return tts.build_tts_objects(post)
+
+    @staticmethod
+    def _group(n):
+        cards = [{'Name': 'Card', 'Nickname': f'C{i}', 'Tags': []} for i in range(n)]
+        from the_keep.services.tts import DEFAULT_CARD_TRANSFORM
+        return SimpleNamespace(obj={'Name': 'Deck', 'Nickname': 'Group', 'ContainedObjects': cards,
+                                    'Transform': dict(DEFAULT_CARD_TRANSFORM)})
+
+    def test_deck_post_conventions(self, _sheet):
+        small, big = self._group(3), self._group(30)
+        accessory, main = self._built('Deck', [small, big])
+        self.assertEqual((main['Nickname'], main['GMNotes']), ('Big Deck', 'rdb:deck:big-deck'))
+        self.assertEqual(main['Tags'], ['Deck Object'])
+        self.assertEqual(accessory['Tags'], ['Deck Object', 'Deck Accessory'])
+        self.assertNotIn('GMNotes', accessory)
+        self.assertTrue(all(c['Tags'] == ['Deck Object'] for d in (main, accessory) for c in d['ContainedObjects']))
+        self.assertEqual((main['Transform']['rotZ'], accessory['Transform']['rotZ']), (180.0, 180.0))
+        self.assertEqual((main['Transform']['posX'], accessory['Transform']['posX']), (0.0, 3.0))
+
+    def test_other_posts_decks_unchanged(self, _sheet):
+        # Never "Deck Object" outside a Deck post: the coordinator deletes those
+        # whenever the shared deck is replaced.
+        (deck,) = self._built('Tweak', [self._group(5)])
+        self.assertNotIn('Tags', deck)
+        self.assertEqual(deck['Transform']['rotZ'], 0.0)
+        self.assertNotIn('GMNotes', deck)
+
+
+@override_settings(CACHES=_LOCMEM, SITE_URL='https://www.example.test')
+class PostTTSJsonPageTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        from django.contrib.auth.models import User
+        from the_gatehouse.signals import user_logged_in_handler
+        from django.contrib.auth.signals import user_logged_in
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+        self.admin_user = User.objects.create_user('ttsadmin')
+        self.admin_user.profile.group = 'A'   # Profile.admin is derived from the group
+        self.admin_user.profile.save()
+        self.client.force_login(self.admin_user)
+        from the_keep.models import Deck
+        self.post = Deck.objects.create(title='Big Deck', designer=self.admin_user.profile,
+                                        status=StatusChoices.STABLE, card_total=54)
+
+    def _url(self, name='post-tts-json', **kwargs):
+        return reverse(name, kwargs={'slug': self.post.slug, **kwargs})
+
+    def _upload(self, data, name='deck.json'):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        raw = data if isinstance(data, bytes) else json.dumps(data).encode()
+        return self.client.post(self._url(), {'action': 'upload', 'tts_file': SimpleUploadedFile(name, raw)})
+
+    def test_non_admin_gets_403(self):
+        from django.contrib.auth.models import User
+        other = User.objects.create_user('notadmin')
+        self.client.force_login(other)
+        self.assertEqual(self.client.get(self._url()).status_code, 403)
+
+    def test_bad_uploads_store_nothing(self):
+        from the_keep.models import TTSJsonUpload
+        for raw in (b'{not json', b'{"ObjectStates": []}', b'{"ObjectStates": [{"Name": "a", "x": NaN}]}',
+                    '{"ObjectStates": [{"Name": "é"}]}'.encode('latin-1')):
+            with self.subTest(raw=raw[:30]):
+                response = self._upload(raw)
+                self.assertRedirects(response, self._url())
+        self.assertFalse(TTSJsonUpload.objects.exists())
+
+    def test_upload_review_confirm_stores_json_unchanged(self):
+        from the_keep.models import Post, TTSJsonUpload
+        data = {'ObjectStates': [{'Name': 'Deck', 'Nickname': 'Mine', 'LuaScript': 'print("<script>hi</script>")',
+                                  'CustomDeck': {'1': {'FaceURL': 'https://i.imgur.com/x.png'}},
+                                  'ContainedObjects': [{'Name': 'Card'}, {'Name': 'Card'}]}],
+                'SaveName': 'whatever'}
+        response = self._upload(data)
+        pending = TTSJsonUpload.objects.get()
+        review = self._url('post-tts-json-review', upload_id=pending.pk)
+        self.assertRedirects(response, review)
+
+        page = self.client.get(review).content.decode()
+        self.assertIn('i.imgur.com', page)
+        self.assertIn('&lt;script&gt;hi&lt;/script&gt;', page)
+        self.assertNotIn('<script>hi</script>', page)
+
+        # Warnings need the acknowledgement.
+        self.client.post(review, {'action': 'confirm'})
+        self.assertIsNone(Post.objects.get(pk=self.post.pk).tts_json)
+
+        response = self.client.post(review, {'action': 'confirm', 'acknowledge': 'on'})
+        self.assertRedirects(response, self._url())
+        stored = Post.objects.get(pk=self.post.pk)
+        self.assertEqual(stored.tts_json, data)
+        self.assertEqual((stored.tts_info['source'], stored.tts_info['filename']), ('uploaded', 'deck.json'))
+        self.assertEqual(stored.tts_info['deck_roles'], ['main'])
+        pending.refresh_from_db()
+        self.assertIsNotNone(pending.confirmed_at)
+        self.assertEqual(self.client.post(review, {'action': 'confirm', 'acknowledge': 'on'}).status_code, 404)
+
+        page = self.client.get(self._url()).content.decode()
+        self.assertIn('Uploaded', page)
+        download = self.client.get(self._url('post-tts-json-download'))
+        self.assertEqual(json.loads(download.content), data)
+
+    def test_review_belongs_to_its_post(self):
+        from the_keep.models import Deck, TTSJsonUpload
+        other = Deck.objects.create(title='Other', designer=self.admin_user.profile, card_total=1)
+        pending = TTSJsonUpload.objects.create(post=other, tts_json={'ObjectStates': [{'Name': 'a'}]})
+        self.assertEqual(self.client.get(self._url('post-tts-json-review', upload_id=pending.pk)).status_code, 404)
+
+    def test_cancel_remove_and_recheck(self):
+        from the_keep.models import Post, TTSJsonUpload
+        self._upload({'ObjectStates': [{'Name': 'Card'}]})
+        pending = TTSJsonUpload.objects.get()
+        self.client.post(self._url('post-tts-json-review', upload_id=pending.pk), {'action': 'cancel'})
+        self.assertFalse(TTSJsonUpload.objects.exists())
+
+        from the_keep.services.tts_store import store_tts_json
+        store_tts_json(self.post, {'ObjectStates': [{'Name': 'Card'}]}, source='uploaded', filename='a.json')
+        Post.objects.filter(pk=self.post.pk).update(tts_info={'source': 'uploaded', 'filename': 'a.json'})
+        self.client.post(self._url(), {'action': 'recheck'})
+        info = Post.objects.get(pk=self.post.pk).tts_info
+        self.assertEqual((info['source'], info['filename'], info['deck_roles']), ('uploaded', 'a.json', ['main']))
+
+        self.client.post(self._url(), {'action': 'remove'})
+        stored = Post.objects.get(pk=self.post.pk)
+        self.assertIsNone(stored.tts_json)
+        self.assertIsNone(stored.tts_info)
+
+    def test_generate_refused_for_maps_and_forge_factions(self):
+        from the_forge.models import ForgedFaction
+        from the_keep.models import Map
+        map_post = Map.objects.create(title='Lake', designer=self.admin_user.profile)
+        self.client.post(reverse('post-tts-json', kwargs={'slug': map_post.slug}), {'action': 'generate'})
+        self.assertIsNone(Post.objects.get(pk=map_post.pk).tts_json)
+        faction = Faction.objects.create(title='Fox Folk', animal='Fox', designer=self.admin_user.profile,
+                                         component='Faction')
+        ForgedFaction.objects.create(designer=self.admin_user.profile, faction_name='Fox Folk', published_post=faction)
+        page = self.client.get(reverse('post-tts-json', kwargs={'slug': faction.slug})).content.decode()
+        self.assertIn('Forge sync page', page)
+
+    def test_generate_keeps_json_when_nothing_to_build(self):
+        from the_keep.services.tts_store import store_tts_json
+        store_tts_json(self.post, {'ObjectStates': [{'Name': 'Card'}]}, source='uploaded')
+        self.client.post(self._url(), {'action': 'generate'})   # the deck has no card groups
+        self.assertEqual(Post.objects.get(pk=self.post.pk).tts_json, {'ObjectStates': [{'Name': 'Card'}]})
+
+    def test_settings_hub_card_for_admins_only(self):
+        hub = reverse('post-settings', kwargs={'slug': self.post.slug})
+        self.assertIn('Manage TTS JSON', self.client.get(hub).content.decode())
+        from django.contrib.auth.models import User
+        designer = User.objects.create_user('designer2')
+        self.post.designer = designer.profile
+        self.post.save()
+        self.client.force_login(designer)
+        self.assertNotIn('Manage TTS JSON', self.client.get(hub).content.decode())
 
 
 class BoardLayoutValidationTests(TestCase):
