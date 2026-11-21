@@ -301,19 +301,20 @@
     <div id="mb-messages"></div>
 
     <div class="d-flex flex-wrap justify-content-between gap-2">
-        <button type="button" class="btn btn-outline-secondary" id="mb-back">
+        <button type="button" class="btn btn-outline-secondary text-nowrap" id="mb-back">
             <i class="bi bi-arrow-left me-1"></i>{% trans 'Back' %}
         </button>
-        <div class="d-flex gap-2">
-            <button type="button" class="btn btn-outline-primary" id="mb-save"
+        <div class="d-flex gap-2 ms-auto">
+            <button type="button" class="btn btn-outline-primary text-nowrap" id="mb-save"
                     data-label="{% trans 'Save Progress' %}" data-saved-label="{% trans 'Saved' %}">
                 <i class="bi bi-floppy-fill me-1"></i><span>{% trans 'Save Progress' %}</span>
             </button>
-            <button type="button" class="btn btn-primary" id="mb-next">
+            <button type="button" class="btn btn-primary text-nowrap" id="mb-next">
                 {% trans 'Next' %}<i class="bi bi-arrow-right ms-1"></i>
             </button>
-            <button type="button" class="btn btn-success d-none" id="mb-generate">
-                <i class="bi bi-filetype-json me-1"></i>{% trans 'Save JSON' %}
+            <button type="button" class="btn btn-success text-nowrap d-none" id="mb-generate"
+                    title="{% trans 'Save and generate the TTS JSON' %}">
+                <i class="bi bi-filetype-json me-1"></i>{% trans 'Complete' %}
             </button>
         </div>
     </div>
