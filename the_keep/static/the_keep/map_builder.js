@@ -138,14 +138,23 @@
     }).catch(() => {});   // keep the round dots
   }
 
-  // Each step's own pieces are editable; the rest are dimmed. On the review
-  // step everything shows at full strength (it's how the map will load) but
-  // nothing is editable, so no move or grab cursors appear.
-  function layer(active) {
-    // On the review step every piece shows at full strength and can be
-    // clicked to jump to its step (nothing is dragged there).
-    const review = step === STEP_REVIEW;
-    return el('g', { opacity: active || review ? 1 : 0.35, 'pointer-events': active || review ? 'auto' : 'none' });
+  // A step's pieces appear from that step on: never before it (they'd be in
+  // the way of what's being placed now), dimmed on the steps after it, and at
+  // full strength on the review (the last step), which shows the whole map.
+  // Step numbers follow STEPS, so a step added or moved keeps the rule; a step
+  // this builder doesn't have (-1) is never shown.
+  function shownFrom(own) {
+    return own >= 0 && step >= own;
+  }
+
+  // The group for a step's pieces: full strength and editable on their own
+  // step, clickable on the review (to jump to their step; nothing is dragged
+  // there), dimmed and inert in between, absent before their step.
+  function layer(own) {
+    const active = step === own || step === STEP_REVIEW;
+    const g = el('g', { opacity: active ? 1 : 0.35, 'pointer-events': active ? 'auto' : 'none' });
+    if (!shownFrom(own)) g.setAttribute('display', 'none');
+    return g;
   }
 
   function plus(g, x, y, size, colour, data) {
@@ -153,11 +162,11 @@
     el('line', { x1: x, y1: y - size, x2: x, y2: y + size, stroke: colour, 'stroke-width': STROKE * 1.5, ...data }, g);
   }
 
-  // The Forge's printed art, under the pieces from the Tracks step on: the VP
-  // track, the items and the Root logo (placed on the Tracks step). The Art step
-  // shows none of it.
+  // The Forge's printed art, under the pieces: the VP track, the items and the
+  // Root logo. It belongs to the Tracks step (shownFrom), but it's part of the
+  // map, so it's never dimmed like the pieces' layers.
   function drawPrinted() {
-    if (!PRINT || step < STEP_TRACK) return;
+    if (!PRINT || !shownFrom(STEP_TRACK)) return;
     const under = el('g', { 'pointer-events': 'none' });
     const image = (art, cx, cy, parent, data) => {
       const w = art.w * PPL, h = art.h * PPL;
@@ -185,9 +194,7 @@
     content.innerHTML = '';
     drawPrinted();
     // Track and items.
-    const g0 = layer(step === STEP_TRACK);
-    // The Forge's Start step is just the art and the name.
-    if (step === STEP_UPLOAD) g0.setAttribute('display', 'none');
+    const g0 = layer(STEP_TRACK);
     const rows = trackRows(), cols = trackColumns();
     const band = el('rect', {
       x: Math.min(...cols) - STEP_TRACK_PX, y: rows[0] - STEP_TRACK_PX * 0.6,
@@ -232,7 +239,7 @@
     }
 
     // Clearings (step 1).
-    const g1 = layer(step === STEP_CLEARINGS);
+    const g1 = layer(STEP_CLEARINGS);
     state.clearings.forEach((c, i) => {
       // One group per clearing, so the edit pop-up can measure the whole clearing.
       const g = el('g', { 'data-clearing': i }, g1);
@@ -260,7 +267,7 @@
     });
 
     // Forests (step 2).
-    const g2 = layer(step === STEP_FORESTS);
+    const g2 = layer(STEP_FORESTS);
     state.forests.forEach((f, i) => {
       const p = px(f);
       const isSel = selected && selected.kind === 'forest' && selected.index === i;
@@ -269,7 +276,7 @@
     });
 
     // Buildings and ruins (steps 3 and 4).
-    const g3 = layer(step === STEP_BUILDINGS);
+    const g3 = layer(STEP_BUILDINGS);
     state.buildings.forEach((b, i) => {
       const p = px(b.at);
       const isSel = selected && selected.kind === 'building' && selected.index === i;

@@ -26,12 +26,12 @@ def step_text():
     """The Forge's wording for the builder's steps (the rest is the keep's)."""
     return {
         'upload': {
-            'hint': "Here we'll walk you through creating a Root map. All you need to start is your art. "
-                    "Please don't use AI-generated art. Name your map, then upload its art.",
+            'hint': "Here we'll walk you through creating a Root map. All you need is to name your map and upload its art. "
+                    "Please don't use AI-generated art.",
             'link': {'before': 'If you already have a finished map, ',
-                     'label': 'submit it as a Map post',
+                     'label': 'submit it to the Database',
                      'url': reverse('map-create'),
-                     'after': ' and convert it to TTS JSON from there.'},
+                     'after': ' and edit it from there.'},
         },
         'track': {
             'hint': 'Drag the VP track up or down, and the item grid and the Root logo, to where they should be '
