@@ -25,10 +25,10 @@
         <div class="col-md-6">
             <div class="card h-100">
                 <div class="card-body">
-                    <h5 class="card-title"><i class="bi bi-magic me-2"></i>{% trans 'Generate JSON' %}</h5>
+                    <h5 class="card-title"><i class="bi bi-wrench-adjustable me-2"></i>{% trans 'Build JSON' %}</h5>
                     <p class="card-text text-muted">
                         {% if is_map %}
-                        {% trans "Lay out the map's VP track, items, clearings, forests and buildings on its board image, then build the JSON from it." %}
+                        {% trans "Lay out the map's VP and item tracks, clearings, forests and buildings on its board, then build the JSON from it." %}
                         {% else %}
                         {% trans "Build the JSON from this post's data (boards, cards and decks)." %}
                         {% endif %}
@@ -46,7 +46,7 @@
                 <div class="card-footer bg-transparent d-flex flex-column gap-2">
                     {% if is_map %}
                     <a href="{% url 'map-builder' object.slug %}" class="btn btn-outline-primary w-100">
-                        <i class="bi bi-map me-1"></i>{% trans 'Open map builder' %}
+                        <i class="bi bi-map me-1"></i>{% trans 'Open Map Builder' %}
                     </a>
                     {% endif %}
                     {% if not is_map or not generate_reason %}
@@ -55,7 +55,7 @@
                         {% csrf_token %}
                         <input type="hidden" name="action" value="generate">
                         <button type="submit" class="btn btn-primary w-100" {% if generate_reason %}disabled{% endif %}>
-                            <i class="bi bi-magic me-1"></i>{% if object.tts_json %}{% trans 'Regenerate JSON' %}{% else %}{% trans 'Generate JSON' %}{% endif %}
+                            {% if object.tts_json %}<i class="bi bi-arrow-clockwise me-1"></i>{% trans 'Regenerate JSON' %}{% else %}<i class="bi bi-floppy-fill me-1"></i>{% trans 'Generate JSON' %}{% endif %}
                         </button>
                     </form>
                     {% endif %}
@@ -79,7 +79,7 @@
                     </div>
                     <div class="card-footer bg-transparent">
                         <button type="submit" class="btn btn-outline-primary w-100">
-                            <i class="bi bi-search me-1"></i>{% trans 'Upload and review' %}
+                            <i class="bi bi-search me-1"></i>{% trans 'Upload and Review' %}
                         </button>
                     </div>
                 </form>

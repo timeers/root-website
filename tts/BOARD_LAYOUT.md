@@ -78,7 +78,7 @@ Map posts get their layout from the **map builder** (post → TTS JSON → Open 
   - **Unverified:** every official image is about 1.09 : 1, so this rule is unconfirmed for other image shapes.
   - **Axes:** image left is local +x and image top is local −z.
   - **Table offsets:** `dx = −x·12.9794`, `dz = −z·12.9794`.
-- **The VP track:** 3 rows × 31 snaps, x from −1.803 in steps of 0.12017, rows 0.112 apart. The RTT Box Score finds the track by looking for evenly spaced rows of 28–60 snaps.
+- **The VP track:** 3 rows × 31 snaps, centred, 0.1232 apart (the spacing of the track printed on the official board images; the mod's own snaps are about 2.5% tighter), rows 0.112 apart. The RTT Box Score finds the track by looking for evenly spaced rows of 28–60 snaps.
 - **Items:** a 2 × 6 grid of snaps, 0.1421 × 0.1372 local units apart.
 - **Suit markers:**
   - **Snaps:** each marker spot is a snap tagged `Enclave`, whose local rotY is the marker's rotY − 180.

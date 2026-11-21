@@ -20,20 +20,23 @@
   state.clearings = state.clearings || [];
   state.forests = state.forests || [];
   state.buildings = state.buildings || [];
+  state.fixed = !!config.fixed;   // the Map's setting; saved back with the layout
 
   const STEPS = [
-    { heading: 'Line up the VP and Item Tracks',
-      hint: 'Drag the track up or down onto the printed 0-30 track. Drag the item grid onto the printed item spaces.' },
-    { heading: 'Mark each Clearing',
-      hint: 'Click the middle of a clearing, then drag (or click) to where its suit marker goes. Drag the number tile around the circle. Select a clearing to renumber or delete it.' },
-    { heading: 'Mark each Forest. This is used for Relic placements',
-      hint: 'Click the middle of each forest. Drag a dot to move it; select it and press Delete to remove it.' },
-    { heading: 'Mark each Building',
-      hint: 'Click each building space. Drag inside a square to move it; select it and press Delete to remove it.' },
-    { heading: 'Select Ruins',
-      hint: 'Click a building to mark it as a ruin; click again to unmark it.' },
-    { heading: 'Review', hint: 'Check the counts, then save and generate the TTS JSON.' },
+    { heading: 'VP and Item Tracks',
+      hint: 'Drag the item grid onto the printed item spaces. Drag the VP track up or down so the blue dots align with the printed 0-30 track.' },
+    { heading: 'Clearings',
+      hint: 'Click the middle of a clearing, then drag (or click) to where its suit marker goes. Drag the number tile around the circle. Select a clearing to re-number or delete it.' },
+    { heading: 'Buildings & Ruins',
+      hint: 'Click each building space. Drag inside a square to move it and press X to remove it. Select a building and click the ruin tile to make it a ruin.' },
+    { heading: 'Forests',
+      hint: 'Click the middle of each forest. Drag a dot to move it and press X to remove it. These are used for Relic placements.' },
+    { heading: 'Review', 
+      hint: 'Check the counts, then save and generate the TTS JSON.' },
   ];
+
+  // Step numbers, in the order the steps appear (Review is the last).
+  const STEP_TRACK = 0, STEP_CLEARINGS = 1, STEP_BUILDINGS = 2, STEP_FORESTS = 3;
 
   let step = 0;
   let selected = null;        // {kind: 'clearing'|'forest'|'building', index}
@@ -125,7 +128,7 @@
   function render() {
     content.innerHTML = '';
     // Track and items (step 0).
-    const g0 = layer(step === 0);
+    const g0 = layer(step === STEP_TRACK);
     const rows = trackRows(), cols = trackColumns();
     const band = el('rect', {
       x: Math.min(...cols) - STEP_TRACK_PX, y: rows[0] - STEP_TRACK_PX * 0.6,
@@ -133,12 +136,16 @@
       fill: 'rgba(13,110,253,0.15)', stroke: '#0d6efd', 'stroke-width': STROKE, 'data-kind': 'track',
       style: 'cursor: ns-resize',
     }, g0);
-    for (const y of rows) {
-      for (const x of cols) el('circle', { cx: x, cy: y, r: STEP_TRACK_PX * 0.18, fill: '#0d6efd', 'pointer-events': 'none' }, g0);
-    }
+    // The middle row (on the printed numbers) in blue; the rows above and below in grey.
+    rows.forEach((y, row) => {
+      const fill = row === 1 ? '#0d6efd' : '#6c757d';
+      for (const x of cols) el('circle', { cx: x, cy: y, r: STEP_TRACK_PX * 0.18, fill, 'pointer-events': 'none' }, g0);
+    });
     const slots = itemSlots();
     const size = ITEM.step_x * PPL * 0.85;
     const xs = slots.map(s => s[0]), ys = slots.map(s => s[1]);
+    // On the Clearings step the fixed/random panel sits over the item grid instead.
+    if (step !== STEP_CLEARINGS) {
     el('rect', {
       x: Math.min(...xs) - size * 0.65, y: Math.min(...ys) - size * 0.65,
       width: Math.max(...xs) - Math.min(...xs) + size * 1.3, height: Math.max(...ys) - Math.min(...ys) + size * 1.3,
@@ -148,9 +155,10 @@
       el('rect', { x: x - size / 2, y: y - size / 2, width: size, height: size, rx: size * 0.15,
                    fill: 'none', stroke: '#ffc107', 'stroke-width': STROKE * 1.5, 'pointer-events': 'none' }, g0);
     }
+    }
 
     // Clearings (step 1).
-    const g1 = layer(step === 1);
+    const g1 = layer(step === STEP_CLEARINGS);
     state.clearings.forEach((c, i) => {
       // One group per clearing, so the edit pop-up can measure the whole clearing.
       const g = el('g', { 'data-clearing': i }, g1);
@@ -178,7 +186,7 @@
     });
 
     // Forests (step 2).
-    const g2 = layer(step === 2);
+    const g2 = layer(step === STEP_FORESTS);
     state.forests.forEach((f, i) => {
       const p = px(f);
       const isSel = selected && selected.kind === 'forest' && selected.index === i;
@@ -187,7 +195,7 @@
     });
 
     // Buildings and ruins (steps 3 and 4).
-    const g3 = layer(step === 3 || step === 4);
+    const g3 = layer(step === STEP_BUILDINGS);
     state.buildings.forEach((b, i) => {
       const p = px(b.at);
       const isSel = selected && selected.kind === 'building' && selected.index === i;
@@ -195,7 +203,7 @@
       el('rect', { x: p[0] - s / 2, y: p[1] - s / 2, width: s, height: s, rx: s * 0.2,
                    fill: b.ruin ? 'rgba(220,53,69,0.85)' : 'rgba(255,255,255,0.85)',
                    stroke: isSel ? '#dc3545' : '#333', 'stroke-width': STROKE * 1.5,
-                   'data-kind': 'building', 'data-index': i, style: step === 3 ? 'cursor: move' : 'cursor: pointer' }, g3);
+                   'data-kind': 'building', 'data-index': i, style: 'cursor: move' }, g3);
       if (b.ruin) {
         const r = el('text', { x: p[0], y: p[1], fill: '#fff', 'font-size': s * 0.6, 'font-weight': 'bold',
                                'text-anchor': 'middle', 'dominant-baseline': 'central', 'pointer-events': 'none' }, g3);
@@ -249,28 +257,33 @@
   }
 
   function updatePanel() {
-    document.querySelectorAll('#mb-steps [data-step]').forEach(btn => {
-      btn.classList.toggle('active', Number(btn.dataset.step) === step);
+    // Progress bar: the highlight slides to the current step.
+    document.querySelectorAll('#mb-progress [data-step]').forEach(btn => {
+      const n = Number(btn.dataset.step);
+      btn.classList.toggle('active', n === step);
+      btn.classList.toggle('done', n < step);
+      if (n === step) btn.setAttribute('aria-current', 'step'); else btn.removeAttribute('aria-current');
     });
+    document.getElementById('mb-progress-thumb').style.transform = `translateX(${step * 100}%)`;
     document.getElementById('mb-heading').textContent = STEPS[step].heading;
-    document.getElementById('mb-hint').textContent = pendingMarker !== null
-      ? 'Now click (or drag to) where this clearing\'s suit marker goes.' : STEPS[step].hint;
 
-    const key = [null, 'clearings', 'forests', 'buildings', 'ruins', null][step];
+    // One badge per count on this step; amber when it differs from the Map.
+    const COUNTERS = { [STEP_CLEARINGS]: [['clearings']], [STEP_BUILDINGS]: [['buildings', 'Buildings'], ['ruins', 'Ruins']],
+                       [STEP_FORESTS]: [['forests']] };
     const counter = document.getElementById('mb-counter');
-    if (key) {
+    counter.innerHTML = '';
+    for (const [key, label] of COUNTERS[step] || []) {
       const n = counts()[key], expected = config.expected[key];
-      counter.textContent = expected !== null && expected !== undefined ? `${n} / ${expected}` : `${n}`;
-      counter.className = 'badge fs-6 ' + (expected === null || expected === undefined || n === expected
-        ? 'bg-secondary' : 'bg-warning text-dark');
-      counter.title = expected !== null && expected !== undefined && n !== expected
-        ? `Currently ${expected}. Saving updates the Map to ${n}.` : '';
-    } else {
-      counter.textContent = '';
-      counter.className = 'badge fs-6';
+      const known = expected !== null && expected !== undefined;
+      const badge = document.createElement('span');
+      badge.className = 'badge fs-6 ' + (!known || n === expected ? 'bg-secondary' : 'bg-warning text-dark');
+      badge.textContent = (known ? `${n} / ${expected}` : `${n}`) + (label ? ` ${label}` : '');
+      badge.title = known && n !== expected ? `Currently ${expected}. Saving updates the Map to ${n}.` : '';
+      counter.appendChild(badge);
     }
 
     updatePopover();
+    updateSuitMode();
 
     document.getElementById('mb-back').disabled = step === 0;
     document.getElementById('mb-next').classList.toggle('d-none', step === STEPS.length - 1);
@@ -304,11 +317,22 @@
     const errors = [];
     if (!state.clearings.length) errors.push('Mark at least one clearing.');
     if (state.clearings.some(c => !c.marker)) errors.push('Every clearing needs its suit-marker spot.');
-    if (config.fixed && state.clearings.some(c => !c.suit)) errors.push('This map has fixed clearings: choose a suit for every clearing.');
+    // Same wording as check_builder in tts_map.py, so a server copy can be matched to it.
+    if (config.fixed && state.clearings.some(c => !c.suit)) errors.push('This Map has fixed clearings: choose a suit for each clearing before generating.');
     if (state.clearings.length > config.numbers) {
       errors.push(`Only numbers 1-${config.numbers} have tiles: clearings above ${config.numbers} get no number tile.`);
     }
     return errors;
+  }
+
+  // Draw attention to the review step's list of problems (instead of repeating it).
+  function highlightReview() {
+    const alert = document.querySelector('#mb-review-problems .alert');
+    if (!alert) return;
+    alert.classList.remove('mb-flash');
+    void alert.offsetWidth;   // restart the animation
+    alert.classList.add('mb-flash');
+    alert.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
   function alertBox(kind, lines) {
@@ -328,7 +352,15 @@
   // ── Editing ───────────────────────────────────────────────────────────────
   function changed() {
     dirty = true;
+    showSaved(false);
     render();
+  }
+
+  // The Save button reads "Saved" with a check after a save, until the next change.
+  function showSaved(saved) {
+    const btn = document.getElementById('mb-save');
+    btn.querySelector('i').className = saved ? 'bi bi-check-lg me-1' : 'bi bi-floppy-fill me-1';
+    btn.querySelector('span').textContent = saved ? btn.dataset.savedLabel : btn.dataset.label;
   }
 
   function deleteSelected() {
@@ -363,11 +395,16 @@
   }
 
   svg.addEventListener('pointerdown', (evt) => {
+    // Don't let a press on the board start a text selection or a native drag,
+    // and keep the whole page unselectable until the drag ends.
+    evt.preventDefault();
+    window.getSelection().removeAllRanges();
+    document.body.classList.add('mb-dragging');
     const p = pointer(evt);
     const h = hit(evt);
     svg.setPointerCapture(evt.pointerId);
 
-    if (step === 0 && h) {
+    if (step === STEP_TRACK && h) {
       if (h.kind === 'track') drag = { kind: 'track', offset: p[1] - state.track_y * H };
       if (h.kind === 'items') {
         const [x0, y0] = px(state.items);
@@ -376,7 +413,7 @@
       return;
     }
 
-    if (step === 1) {
+    if (step === STEP_CLEARINGS) {
       if (pendingMarker !== null && !h) {
         state.clearings[pendingMarker].marker = norm(...p);
         setDefaultAngle(state.clearings[pendingMarker]);
@@ -406,20 +443,22 @@
       return;
     }
 
-    if (step === 2) {
+    if (step === STEP_FORESTS) {
       if (h && h.kind === 'forest') {
         selected = { kind: 'forest', index: h.index };
         drag = { kind: 'forest', index: h.index };
         render();
         return;
       }
+      // Place it and keep it under the pointer, so press-and-drag places and moves it.
       state.forests.push(norm(...p));
       selected = { kind: 'forest', index: state.forests.length - 1 };
+      drag = { kind: 'forest', index: selected.index };
       changed();
       return;
     }
 
-    if (step === 3) {
+    if (step === STEP_BUILDINGS) {
       if (h && h.kind === 'building') {
         selected = { kind: 'building', index: h.index };
         const at = px(state.buildings[h.index].at);
@@ -427,16 +466,12 @@
         render();
         return;
       }
+      // Place it and keep it under the pointer, so press-and-drag places and moves it.
       state.buildings.push({ at: norm(...p), ruin: false });
       selected = { kind: 'building', index: state.buildings.length - 1 };
+      drag = { kind: 'building', index: selected.index, offset: [0, 0] };
       changed();
       return;
-    }
-
-    if (step === 4 && h && h.kind === 'building') {
-      const b = state.buildings[h.index];
-      b.ruin = !b.ruin;
-      changed();
     }
   });
 
@@ -479,6 +514,7 @@
   });
 
   function endDrag() {
+    document.body.classList.remove('mb-dragging');
     if (drag && drag.kind === 'new-marker' && !state.clearings[drag.index].marker) {
       // A click, not a drag: the next click places the marker.
       pendingMarker = drag.index;
@@ -491,6 +527,13 @@
   svg.addEventListener('pointercancel', endDrag);
 
   document.addEventListener('keydown', (evt) => {
+    if (cardOpen()) {
+      if (evt.key === 'Escape' || evt.key === 'Enter') {
+        evt.preventDefault();
+        closeCard();
+      }
+      return;   // the board ignores keys while a step card is open
+    }
     if ((evt.key === 'Delete' || evt.key === 'Backspace') && selected
         && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
       evt.preventDefault();
@@ -531,6 +574,13 @@
     if (selected && selected.kind === 'clearing') renumber(selected.index, state.clearings[selected.index].number + 1);
   });
   document.getElementById('mb-pop-delete').addEventListener('click', deleteSelected);
+  document.getElementById('mb-pop-ruin').addEventListener('click', () => {
+    if (selected && selected.kind === 'building') {
+      const b = state.buildings[selected.index];
+      b.ruin = !b.ruin;
+      changed();
+    }
+  });
   // The pop-up sits over the board: keep its clicks away from the board.
   popover.addEventListener('pointerdown', (evt) => evt.stopPropagation());
 
@@ -542,14 +592,23 @@
 
   function updatePopover() {
     const editable = selected && !drag && (
-      (step === 1 && selected.kind === 'clearing') || (step === 2 && selected.kind === 'forest')
-      || (step === 3 && selected.kind === 'building'));
+      (step === STEP_CLEARINGS && selected.kind === 'clearing') || (step === STEP_FORESTS && selected.kind === 'forest')
+      || (step === STEP_BUILDINGS && selected.kind === 'building'));
     const node = editable && selectedNode();
     if (!node) {
       popover.classList.remove('show');
       return;
     }
     const isClearing = selected.kind === 'clearing';
+    const ruinBtn = document.getElementById('mb-pop-ruin');
+    ruinBtn.classList.toggle('d-none', selected.kind !== 'building');
+    if (selected.kind === 'building') {
+      const on = !!state.buildings[selected.index].ruin;
+      ruinBtn.classList.toggle('on', on);
+      ruinBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    // A new clearing still waiting for its suit-marker spot gets the prompt on top.
+    document.getElementById('mb-pop-prompt').classList.toggle('d-none', !(isClearing && pendingMarker === selected.index));
     document.getElementById('mb-pop-clearing').classList.toggle('d-none', !isClearing);
     popSuits.classList.toggle('d-none', !(isClearing && config.fixed));
     if (isClearing) {
@@ -579,6 +638,69 @@
     popover.style.setProperty('--mb-arrow-x', `${Math.min(Math.max(centreX - left, 14), w - 14)}px`);
   }
   window.addEventListener('resize', updatePopover);
+
+  // ── Fixed / random clearing suits ─────────────────────────────────────────
+  // Shown on the Clearings step where the item track sits (unused there).
+  const modePanel = document.getElementById('mb-suit-mode');
+  let modeFolded = false;
+
+  function setFixed(fixed) {
+    if (config.fixed === fixed) return;
+    config.fixed = fixed;
+    state.fixed = fixed;
+    changed();
+  }
+
+  function updateSuitMode() {
+    const show = step === STEP_CLEARINGS;
+    modePanel.classList.toggle('d-none', !show);
+    if (!show) return;
+    const fixed = !!config.fixed;
+    modePanel.classList.toggle('fixed', fixed);
+    modePanel.classList.toggle('folded', modeFolded);
+    modePanel.querySelectorAll('.mb-mode-image img').forEach(img => {
+      img.style.opacity = (img.dataset.mode === 'fixed') === fixed ? '1' : '0';
+    });
+    modePanel.querySelectorAll('.mb-mode-switch button').forEach(btn => {
+      btn.setAttribute('aria-pressed', (btn.dataset.mode === 'fixed') === fixed ? 'true' : 'false');
+    });
+    const fold = document.getElementById('mb-mode-fold');
+    fold.setAttribute('aria-expanded', modeFolded ? 'false' : 'true');
+
+    // Anchor at the item grid's top-left, in board pixels; keep it inside the board.
+    const slots = itemSlots();
+    const half = ITEM.step_x * PPL * 0.5;
+    const area = board.getBoundingClientRect();
+    const scale = area.width / W;
+    const gridLeft = (Math.min(...slots.map(s => s[0])) - half) * scale;
+    const gridTop = (Math.min(...slots.map(s => s[1])) - half) * scale;
+    const gridWidth = (Math.max(...slots.map(s => s[0])) - Math.min(...slots.map(s => s[0])) + 2 * half) * scale;
+    const width = Math.min(Math.max(gridWidth, 200), 300, area.width - 8);
+    modePanel.style.width = `${width}px`;
+    const left = Math.min(Math.max(gridLeft, 4), area.width - width - 4);
+    const top = Math.min(Math.max(gridTop, 4), Math.max(area.height - modePanel.offsetHeight - 4, 4));
+    modePanel.style.left = `${left}px`;
+    modePanel.style.top = `${top}px`;
+  }
+
+  modePanel.addEventListener('pointerdown', (evt) => evt.stopPropagation());
+  modePanel.querySelectorAll('.mb-mode-switch button').forEach(btn => {
+    btn.addEventListener('click', () => setFixed(btn.dataset.mode === 'fixed'));
+  });
+  document.getElementById('mb-mode-image').addEventListener('click', () => setFixed(!config.fixed));
+  document.getElementById('mb-mode-fold').addEventListener('click', () => {
+    modeFolded = !modeFolded;
+    updateSuitMode();
+  });
+  window.addEventListener('resize', updateSuitMode);
+  // The panel opens unfolded, then folds on the first press anywhere outside it
+  // (except on a step card), once you start working.
+  document.addEventListener('pointerdown', (evt) => {
+    if (modeFolded || step !== STEP_CLEARINGS || modePanel.classList.contains('d-none')) return;
+    if (modePanel.contains(evt.target) || evt.target.closest('#mb-step-card')) return;
+    modeFolded = true;
+    updateSuitMode();
+  }, true);
   window.addEventListener('scroll', updatePopover, { passive: true });
 
   // ── Steps and saving ──────────────────────────────────────────────────────
@@ -590,10 +712,63 @@
     }
     pendingMarker = null;
     render();
+    introduceStep();
   }
-  document.querySelectorAll('#mb-steps [data-step]').forEach(btn => {
-    btn.addEventListener('click', () => goTo(Number(btn.dataset.step)));
+  document.querySelectorAll('#mb-progress [data-step]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (Number(btn.dataset.step) !== step) goTo(Number(btn.dataset.step));
+    });
   });
+
+  // ── Step cards ────────────────────────────────────────────────────────────
+  // A card introduces each step; the info button beside the title reopens it.
+  const card = document.getElementById('mb-step-card');
+  const cardOk = document.getElementById('mb-card-ok');
+  let cardReturn = null;
+  const introduced = new Set();   // steps whose card has shown on this visit
+
+  // Show a step's card the first time it's reached; going back doesn't
+  // reopen it (the info button does).
+  // Stages reached so far (saved with the layout): a save only updates the
+  // Map's counts for these, so an unvisited stage never overwrites them with 0.
+  const STAGE_OF_STEP = { [STEP_CLEARINGS]: 'clearings', [STEP_BUILDINGS]: 'buildings', [STEP_FORESTS]: 'forests' };
+  const visited = new Set(state.visited || []);
+
+  function introduceStep() {
+    if (STAGE_OF_STEP[step] && !visited.has(STAGE_OF_STEP[step])) {
+      visited.add(STAGE_OF_STEP[step]);
+      state.visited = Array.from(visited).sort();
+    }
+    if (introduced.has(step)) return;
+    introduced.add(step);
+    openCard();
+  }
+
+  function cardOpen() {
+    return card.classList.contains('show');
+  }
+
+  function openCard() {
+    document.getElementById('mb-card-heading').textContent = STEPS[step].heading;
+    document.getElementById('mb-card-hint').textContent = STEPS[step].hint;
+    cardReturn = document.activeElement;
+    card.classList.add('show');
+    card.setAttribute('aria-hidden', 'false');
+    cardOk.focus({ preventScroll: true });
+  }
+
+  function closeCard() {
+    card.classList.remove('show');
+    card.setAttribute('aria-hidden', 'true');
+    if (cardReturn && document.body.contains(cardReturn)) cardReturn.focus({ preventScroll: true });
+    cardReturn = null;
+  }
+
+  cardOk.addEventListener('click', closeCard);
+  card.addEventListener('click', (evt) => {
+    if (evt.target === card) closeCard();   // the backdrop, not the card
+  });
+  document.getElementById('mb-info').addEventListener('click', openCard);
   document.getElementById('mb-back').addEventListener('click', () => goTo(step - 1));
   document.getElementById('mb-next').addEventListener('click', () => goTo(step + 1));
   document.getElementById('mb-save').addEventListener('click', () => save(false));
@@ -619,21 +794,36 @@
       box.appendChild(alertBox('danger', ['Saving failed. Check your connection and try again.']));
       return;
     }
-    if (result.saved) dirty = false;
+    if (result.saved) {
+      dirty = false;
+      showSaved(true);
+    }
     if (result.changes && result.changes.length) {
       box.appendChild(alertBox('info', ['Updated the post: ' + result.changes.join(', ') + '.']));
-      for (const key of Object.keys(config.expected)) config.expected[key] = counts()[key];
+      // Only the stages the server counted now match the Map.
+      const KEYS = { clearings: ['clearings'], buildings: ['buildings', 'ruins'], forests: ['forests'] };
+      for (const stage of result.counted || []) {
+        for (const key of KEYS[stage] || []) config.expected[key] = counts()[key];
+      }
     }
-    // Errors only block generating, so a plain save doesn't show them.
-    if (generate && result.errors && result.errors.length) box.appendChild(alertBox('danger', result.errors));
-    if (result.warnings && result.warnings.length) box.appendChild(alertBox('warning', result.warnings));
+    // Problems the review step already lists aren't repeated: that list is
+    // highlighted instead. Errors only block generating (the layout is still
+    // saved), so a plain save doesn't show them.
+    const shown = new Set(step === STEPS.length - 1 ? localErrors() : []);
+    const errors = result.errors || [];
+    const newErrors = generate ? errors.filter(e => !shown.has(e)) : [];
+    const warnings = (result.warnings || []).filter(w => !shown.has(w));
+    const flash = errors.some(e => shown.has(e));
+    if (newErrors.length) box.appendChild(alertBox('danger', newErrors));
+    if (warnings.length) box.appendChild(alertBox('warning', warnings));
     if (result.redirect) {
       window.location = result.redirect;
       return;
     }
     if (result.message) box.appendChild(alertBox(result.ok ? 'success' : 'danger', [result.message]));
-    if (result.saved && !generate) box.appendChild(alertBox('success', ['Saved.']));
     render();
+    // After render(): it rebuilds the review list, which would drop the pulse.
+    if (flash) highlightReview();
   }
 
   window.addEventListener('beforeunload', (evt) => {
@@ -644,4 +834,5 @@
   });
 
   render();
+  introduceStep();
 })();

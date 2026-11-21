@@ -19,7 +19,7 @@ from the_gatehouse.views import admin_required
 
 from .models import Post, TTSJsonUpload, post_model_for_component
 from .services.tts_inspect import inspect_tts_json
-from .services.tts_map import (BOARD_SCALE, MapGeometry, apply_builder_counts, check_builder, highest_number,
+from .services.tts_map import (BOARD_SCALE, STAGES, MapGeometry, visited_stages, apply_builder_counts, check_builder, highest_number,
                                number_tile_radius_px,
                                pieces, TRACK_CELLS, TRACK_ROW_GAP, TRACK_STEP, TRACK_X0)
 from .services.tts_store import (clear_tts_json, forge_linked, generate_tts_json,
@@ -267,10 +267,15 @@ def map_builder(request, slug):
         state = _clean_state(state)
         post.tts_builder = state
         type(post).objects.filter(pk=post.pk).update(tts_builder=state)
-        changes = apply_builder_counts(post, state)
-        errors, warnings = check_builder(post, state)
-        result = {'ok': True, 'saved': True, 'changes': changes, 'errors': errors, 'warnings': warnings}
-        if payload.get('generate'):
+        # A save only updates the Map's counts for stages the builder has
+        # reached; generating is final, so it updates them all.
+        generate = bool(payload.get('generate'))
+        stages = None if generate else visited_stages(state)
+        changes = apply_builder_counts(post, state, stages)
+        errors, warnings = check_builder(post, state, stages)
+        result = {'ok': True, 'saved': True, 'changes': changes, 'errors': errors, 'warnings': warnings,
+                  'counted': sorted(stages if stages is not None else STAGES)}
+        if generate:
             if errors:
                 result['ok'] = False
             else:
@@ -286,7 +291,7 @@ def map_builder(request, slug):
         width, height = post.board_image.width, post.board_image.height
         geometry = MapGeometry(width, height)
         state = post.tts_builder or geometry.defaults()
-        errors, warnings = check_builder(post, state)
+        errors, warnings = check_builder(post, state, visited_stages(state))
         grid = pieces()['item_grid']
         ratio = width / height
         context.update({
@@ -370,6 +375,9 @@ def _clean_state(state):
         clearings.append(entry)
     clean['clearings'] = clearings
     clean['forests'] = [p for p in (_point(f) for f in state.get('forests') or []) if p]
+    clean['visited'] = sorted({v for v in state.get('visited') or [] if v in STAGES})
+    if isinstance(state.get('fixed'), bool):
+        clean['fixed'] = state['fixed']
     clean['buildings'] = [{'at': p, 'ruin': bool(b.get('ruin'))}
                           for b in state.get('buildings') or [] if isinstance(b, dict)
                           for p in [_point(b.get('at'))] if p]

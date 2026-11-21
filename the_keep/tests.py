@@ -1184,10 +1184,10 @@ class MapBuilderTests(TestCase):
         errors, warnings = check_builder(self.map, state)
         self.assertEqual(len(errors), 2)
         # Counts that differ from the post are warnings only.
-        self.assertTrue(any('3 clearings' in w and 'says 12' in w for w in warnings))
+        self.assertTrue(any('3 clearings' in w and 'currently has 12' in w for w in warnings))
         self.map.fixed_clearings = True
         errors, _ = check_builder(self.map, self._state())
-        self.assertTrue(any('suit' in e for e in errors))
+        self.assertIn('This Map has fixed clearings: choose a suit for each clearing before generating.', errors)
 
     def test_counts_update_the_post(self):
         from the_keep.models import Map
@@ -1222,7 +1222,7 @@ class MapBuilderTests(TestCase):
         self.client.force_login(self.designer_user)
         manage = reverse('manage-tts-json', kwargs={'slug': self.map.slug})
         page = self.client.get(manage).content.decode()
-        self.assertIn('Open map builder', page)
+        self.assertIn('Open Map Builder', page)
         self.assertNotIn('name="tts_file"', page)
         for action in ('upload', 'remove', 'recheck'):
             self.assertEqual(self.client.post(manage, {'action': action}).status_code, 403)
@@ -1261,3 +1261,61 @@ class MapBuilderTests(TestCase):
         # The marker's spot (0, 0) is inside, with the bump (more room) above it.
         self.assertTrue(x < 0 < x + w and y < 0 < y + h)
         self.assertGreater(-y, y + h)
+
+    def test_saving_only_updates_counts_for_stages_reached(self):
+        from the_keep.models import Map
+        Map.objects.filter(pk=self.map.pk).update(forests=6, building_slots=22)
+        self.client.force_login(self.designer_user)
+        # Clearings reached; Buildings & Ruins and Forests not yet (nothing marked there).
+        state = self._state(clearings=3, forests=0, buildings=0, ruins=0)
+        state['visited'] = ['clearings']
+        result = self.client.post(self._builder_url(), json.dumps({'state': state}),
+                                  content_type='application/json').json()
+        stored = Map.objects.get(pk=self.map.pk)
+        self.assertEqual((stored.clearings, stored.forests, stored.building_slots, stored.ruins), (3, 6, 22, 4))
+        self.assertEqual(result['counted'], ['clearings'])
+        self.assertEqual(stored.tts_builder['visited'], ['clearings'])
+        # No "Saving updates the Map to 0" warning for a stage not reached.
+        self.assertFalse(any('forests' in w for w in result['warnings']))
+
+        # Reaching Forests (still none marked) does write its count.
+        state['visited'] = ['clearings', 'forests', 'not-a-stage']
+        self.client.post(self._builder_url(), json.dumps({'state': state}), content_type='application/json')
+        stored = Map.objects.get(pk=self.map.pk)
+        self.assertEqual((stored.forests, stored.building_slots), (0, 22))
+        self.assertEqual(stored.tts_builder['visited'], ['clearings', 'forests'])
+
+    def test_switching_to_fixed_clearings_saves_to_the_map(self):
+        from the_keep.models import Map
+        from the_keep.tts_views import _clean_state
+        self.client.force_login(self.designer_user)
+        state = self._state()
+        state['fixed'] = True
+        # Not saved to the Map before the Clearings step is reached.
+        self.client.post(self._builder_url(), json.dumps({'state': state}), content_type='application/json')
+        self.assertFalse(Map.objects.get(pk=self.map.pk).fixed_clearings)
+        # Saved once it is.
+        state['visited'] = ['clearings']
+        result = self.client.post(self._builder_url(), json.dumps({'state': state}),
+                                  content_type='application/json').json()
+        self.assertTrue(Map.objects.get(pk=self.map.pk).fixed_clearings)
+        self.assertIn('fixed clearings No → Yes', result['changes'])
+
+        # Generating is blocked until every clearing has a suit; then the markers are fixed.
+        result = self.client.post(self._builder_url(), json.dumps({'state': state, 'generate': True}),
+                                  content_type='application/json').json()
+        self.assertFalse(result['ok'])
+        state = self._state(fixed_suits=['fox', 'bird', 'mouse'])
+        state['fixed'] = True
+        result = self.client.post(self._builder_url(), json.dumps({'state': state, 'generate': True}),
+                                  content_type='application/json').json()
+        self.assertTrue(result['generated'], result)
+        stored = Map.objects.get(pk=self.map.pk)
+        markers = [o for o in stored.tts_json['ObjectStates'] if any(t.startswith('Suit: ') for t in o.get('Tags') or [])]
+        self.assertTrue(all('Clearing Marker' not in m['Tags'] for m in markers))
+
+        # The Map is the source of truth for the page, even over an older saved layout.
+        Map.objects.filter(pk=self.map.pk).update(fixed_clearings=False)
+        self.assertFalse(self.client.get(self._builder_url()).context['config']['fixed'])
+        self.assertTrue(_clean_state({'fixed': True})['fixed'])
+        self.assertNotIn('fixed', _clean_state({'fixed': 'yes'}))

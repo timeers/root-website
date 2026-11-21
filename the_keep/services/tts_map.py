@@ -32,12 +32,15 @@ BOARD_SCALE = 12.9794          # every official board
 HALF_WIDTH = 2.0               # local units from the board's centre to its image's left/right edge
 SNAP_Y = 0.05
 
-# VP track: 31 cells (scores 0-30) in 3 rows, at the official x positions.
+# VP track: 31 cells (scores 0-30) in 3 rows, centred on the board. The
+# spacing matches the track PRINTED on the six official board images
+# (0.1228-0.1240 local units per cell, measured); the RTT mod's own snaps sit
+# about 2.5% tighter (0.1202), within the Box Score's tolerance either way.
 TRACK_CELLS = 31
-TRACK_X0 = -1.803
-TRACK_STEP = 0.12017
+TRACK_STEP = 0.1232
+TRACK_X0 = -TRACK_STEP * (TRACK_CELLS - 1) / 2
 TRACK_ROW_GAP = 0.112
-DEFAULT_TRACK_Z = 1.64         # the Summer map's middle row (local z)
+DEFAULT_TRACK_Z = 1.668        # centre of the track printed on the official boards (local z)
 DEFAULT_ITEMS = (1.078, -1.673)   # the Summer map's top-left item slot (local x, z)
 
 # A clearing's number tile is a round tile at scale 1.0; it sits just outside
@@ -140,9 +143,14 @@ def number_tile_radius_px(geometry):
 
 # ── Checks and counts ───────────────────────────────────────────────────────
 
-def check_builder(map_post, state):
+# The builder's stages whose counts go to the Map, and the Map fields each sets.
+STAGES = ('clearings', 'buildings', 'forests')
+
+
+def check_builder(map_post, state, stages=None):
     """(errors, warnings) for a builder layout. Errors block generating; count
-    differences from the post are only warnings (saving updates the post)."""
+    differences from the post are only warnings (saving updates the post), and
+    only for `stages` reached (all when None)."""
     errors, warnings = [], []
     state = state or {}
     clearings = state.get('clearings') or []
@@ -154,39 +162,59 @@ def check_builder(map_post, state):
     if numbers != list(range(1, len(clearings) + 1)):
         errors.append("Clearing numbers must run from 1 with no gaps or repeats.")
     if getattr(map_post, 'fixed_clearings', False) and any(c.get('suit') not in SUITS for c in clearings):
-        errors.append("This map has fixed clearings: choose a suit for every clearing.")
+        errors.append("This Map has fixed clearings: choose a suit for each clearing before generating.")
     highest = highest_number()
     if clearings and len(clearings) > highest:
         warnings.append(f"Only numbers 1-{highest} have tiles: clearings above "
                         f"{highest} get no number tile.")
-    for label, field, count in _counts(state):
+    for stage, label, field, count in _counts(state):
+        if stages is not None and stage not in stages:
+            continue
         current = getattr(map_post, field, None)
         if current is not None and current != count:
-            warnings.append(f"You marked {count} {label}; the post says {current}. "
-                            f"Saving updates the post to {count}.")
+            warnings.append(f"You marked {count} {label}; the Map currently has {current}. "
+                            f"Saving updates the Map to {count}.")
     return errors, warnings
 
 
 def _counts(state):
+    """(stage, label, Map field, count) for each count the builder sets."""
     buildings = state.get('buildings') or []
     return (
-        ('clearings', 'clearings', len(state.get('clearings') or [])),
-        ('forests', 'forests', len(state.get('forests') or [])),
-        ('building spaces', 'building_slots', len(buildings)),
-        ('ruins', 'ruins', sum(1 for b in buildings if b.get('ruin'))),
+        ('clearings', 'clearings', 'clearings', len(state.get('clearings') or [])),
+        ('forests', 'forests', 'forests', len(state.get('forests') or [])),
+        ('buildings', 'building spaces', 'building_slots', len(buildings)),
+        ('buildings', 'ruins', 'ruins', sum(1 for b in buildings if b.get('ruin'))),
     )
 
 
-def apply_builder_counts(map_post, state):
-    """Write the layout's counts to the post where they're new or changed.
-    Returns a list of "field old -> new" strings."""
+def visited_stages(state):
+    """The stages the builder has reached, as saved in the layout."""
+    return {s for s in (state or {}).get('visited') or [] if s in STAGES}
+
+
+def apply_builder_counts(map_post, state, stages=None):
+    """Write the layout's counts to the post where they're new or changed, for
+    the `stages` reached only (all when None): a stage not reached yet would
+    otherwise overwrite the Map's figure with 0. Returns a list of
+    "field old -> new" strings."""
     from ..models import Map
     changes, updates = [], {}
-    for _label, field, count in _counts(state or {}):
+    for stage, _label, field, count in _counts(state or {}):
+        if stages is not None and stage not in stages:
+            continue
         current = getattr(map_post, field, None)
         if current != count:
             updates[field] = count
             changes.append(f"{field.replace('_', ' ')} {current if current is not None else '-'} → {count}")
+    # Fixed or random suits, chosen on the Clearings step.
+    fixed = (state or {}).get('fixed')
+    if isinstance(fixed, bool) and (stages is None or 'clearings' in stages):
+        current = bool(getattr(map_post, 'fixed_clearings', False))
+        if fixed != current:
+            updates['fixed_clearings'] = fixed
+            yes_no = lambda v: 'Yes' if v else 'No'
+            changes.append(f"fixed clearings {yes_no(current)} → {yes_no(fixed)}")
     if updates:
         Map.objects.filter(pk=map_post.pk).update(**updates)
         for field, value in updates.items():
