@@ -28,9 +28,9 @@
     { heading: 'Clearings',
       hint: 'Click the middle of a clearing, then drag (or click) to where its suit marker goes. Drag the number tile around the circle. Select a clearing to re-number or delete it.' },
     { heading: 'Buildings & Ruins',
-      hint: 'Click each building space. Drag inside a square to move it and press X to remove it. Select a building and click the ruin tile to make it a ruin.' },
+      hint: 'Click each building space. Drag inside a square to move it and press x to remove it. Select a building and click the ruin tile to make it a ruin.' },
     { heading: 'Forests',
-      hint: 'Click the middle of each forest. Drag a dot to move it and press X to remove it. These are used for Relic placements.' },
+      hint: 'Click the middle of each forest. Drag a dot to move it and press x to remove it. These are used for Relic placements.' },
     { heading: 'Review', 
       hint: 'Check the counts, then save and generate the TTS JSON.' },
   ];
