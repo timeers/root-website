@@ -116,8 +116,12 @@
     }).catch(() => {});   // keep the round dots
   }
 
+  // Each step's own pieces are editable; the rest are dimmed. On the review
+  // step everything shows at full strength (it's how the map will load) but
+  // nothing is editable, so no move or grab cursors appear.
   function layer(active) {
-    return el('g', { opacity: active ? 1 : 0.35, 'pointer-events': active ? 'auto' : 'none' });
+    const review = step === STEPS.length - 1;
+    return el('g', { opacity: active || review ? 1 : 0.35, 'pointer-events': active ? 'auto' : 'none' });
   }
 
   function plus(g, x, y, size, colour, data) {
