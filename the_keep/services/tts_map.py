@@ -55,7 +55,8 @@ HEIGHT_TILE = 0.05
 HEIGHT_NUMBER = 0.03
 BOARD_Y = 1.0
 
-SUITS = ('fox', 'rabbit', 'mouse', 'bird')
+# 'city' is the Lost City: a clearing that counts as fox, rabbit and mouse.
+SUITS = ('fox', 'rabbit', 'mouse', 'bird', 'city')
 # GM note on ruins past the fourth, whose items the loader draws at spawn.
 RUIN_EXTRA_NOTE = 'rdb:ruin:extra'
 SHUFFLED_SUITS = ('fox', 'rabbit', 'mouse')
@@ -64,6 +65,22 @@ SHUFFLED_SUITS = ('fox', 'rabbit', 'mouse')
 @lru_cache(maxsize=1)
 def pieces():
     return json.loads(PIECES_PATH.read_text())
+
+
+@lru_cache(maxsize=1)
+def marker_templates():
+    """Suit marker templates by suit: the template file's (fox, rabbit, mouse,
+    bird), plus one for every other "<suit>_marker.png" in the assets folder
+    (e.g. city), built from the fox marker with that texture -- every marker
+    shares one mesh, only the texture differs."""
+    markers = dict(pieces()['markers'])
+    for path in ASSETS_DIR.glob('*_marker.png'):
+        suit = path.name[:-len('_marker.png')]
+        if suit not in markers:
+            marker = copy.deepcopy(markers['fox'])
+            marker['CustomMesh']['DiffuseURL'] = 'static:' + ASSETS_STATIC + path.name
+            markers[suit] = marker
+    return markers
 
 
 @lru_cache(maxsize=1)
@@ -309,7 +326,9 @@ def build_map_tts_json(map_post, state):
         snaps.append(_snap(mx, mz, rot - 180, tags=['Enclave']))
         tags = ['Map Object', f'Suit: {suit}'] if fixed else ['Clearing Marker', 'Map Object', f'Suit: {suit}']
         dx, dz = geometry.to_table(*clearing['marker'])
-        objects.append(_piece(templates['markers'][suit], dx, dz, HEIGHT_MARKER, tags, rot_y=rot))
+        # Never "City Marker" / "Lost City Marker": the coordinator's shuffleMaps
+        # has special handling for those that expects other pieces.
+        objects.append(_piece(marker_templates()[suit], dx, dz, HEIGHT_MARKER, tags, rot_y=rot))
 
         number = number_templates().get(clearing['number'])
         if number is not None:

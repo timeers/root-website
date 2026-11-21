@@ -19,7 +19,7 @@ from the_gatehouse.views import admin_required
 
 from .models import Post, TTSJsonUpload, post_model_for_component
 from .services.tts_inspect import inspect_tts_json
-from .services.tts_map import (BOARD_SCALE, STAGES, MapGeometry, visited_stages, apply_builder_counts, check_builder, highest_number,
+from .services.tts_map import (BOARD_SCALE, STAGES, SUITS, MapGeometry, visited_stages, apply_builder_counts, check_builder, highest_number,
                                number_tile_radius_px,
                                pieces, TRACK_CELLS, TRACK_ROW_GAP, TRACK_STEP, TRACK_X0)
 from .services.tts_store import (clear_tts_json, forge_linked, generate_tts_json,
@@ -314,8 +314,7 @@ def map_builder(request, slug):
                           'half_width': geometry.hx, 'half_height': geometry.hz},
                 'item_grid': grid,
                 'number_radius_px': number_tile_radius_px(geometry),
-                'suit_icons': {suit: static(f'images/tags/{suit.capitalize()}_Tag.png')
-                               for suit in ('fox', 'rabbit', 'mouse', 'bird')},
+                'suit_icons': {suit: static(f'images/tags/{suit.capitalize()}_Tag.png') for suit in SUITS},
                 # The suit marker's outline (tts/make_marker_svg.py); round dots without it.
                 'marker_svg': static(MARKER_SVG) if finders.find(MARKER_SVG) else None,
                 # The marker mesh's footprint (mesh units x its 1.3 scale), in pixels.
@@ -377,7 +376,7 @@ def _clean_state(state):
             entry['number_angle'] = float(c.get('number_angle'))
         except (TypeError, ValueError):
             pass
-        if c.get('suit') in ('fox', 'rabbit', 'mouse', 'bird'):
+        if c.get('suit') in SUITS:
             entry['suit'] = c['suit']
         clearings.append(entry)
     clean['clearings'] = clearings

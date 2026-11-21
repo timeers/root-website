@@ -645,9 +645,13 @@ In `rttBadgerRelics`, in the `else` branch:
 **Suit tags.** In `rttSuitOfJson`, before the final `return nil`:
 ```lua
   local tagged = string.match(j, '"Suit: (%a+)"')
-  if tagged ~= nil then return string.lower(tagged) end
+  -- "city" is a Lost City clearing (fox, rabbit and mouse at once): not a
+  -- single suit, so it isn't published.
+  if tagged ~= nil and string.lower(tagged) ~= "city" then return string.lower(tagged) end
 ```
 This also covers **bird clearings**, which the official markers can't express: `RTT_SUIT_TEX` has no bird texture. Maps built by the Root Database's map builder tag every marker `Suit: fox|rabbit|mouse|bird`. Until this fallback is in place, a bird marker spawns and works as a piece, but its suit isn't published.
+
+**Lost City clearings** are tagged `Suit: city`: one clearing that counts as fox, rabbit and mouse, like the mod's own Lost City Marker (which the coordinator also can't identify, as its texture isn't in `RTT_SUIT_TEX`). A single published suit can't express that, so the fallback skips `city`. If the coordinator later wants Lost City clearings, it can treat `Suit: city` as all three suits wherever it reads the published ones. These markers are never tagged `City Marker` or `Lost City Marker`, so `shuffleMaps`' Lost City handling (which expects its own tool pieces) never touches them.
 
 **Frog cards in accessory decks.** In `rttFrogCardsInDecks`, after the `dk.name` check, so frog cards in an outside deck's accessory decks aren't moved into the next deck:
 ```lua

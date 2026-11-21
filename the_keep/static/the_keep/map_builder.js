@@ -142,6 +142,17 @@
       fill: 'rgba(13,110,253,0.15)', stroke: '#0d6efd', 'stroke-width': STROKE, 'data-kind': 'track',
       style: 'cursor: ns-resize',
     }, g0);
+    // The track's grid: 31 square cells (the printed cells are square, one cell
+    // spacing on a side), each centred on a blue dot, to line up with the art.
+    const cellLeft = Math.min(...cols) - STEP_TRACK_PX / 2;
+    const cellTop = rows[1] - STEP_TRACK_PX / 2;
+    el('rect', { x: cellLeft, y: cellTop, width: STEP_TRACK_PX * cols.length, height: STEP_TRACK_PX,
+                 fill: 'none', stroke: '#0d6efd', 'stroke-width': STROKE * 1.5, 'pointer-events': 'none' }, g0);
+    for (let i = 1; i < cols.length; i++) {
+      const x = cellLeft + i * STEP_TRACK_PX;
+      el('line', { x1: x, y1: cellTop, x2: x, y2: cellTop + STEP_TRACK_PX, stroke: '#0d6efd',
+                   'stroke-width': STROKE, 'pointer-events': 'none' }, g0);
+    }
     // The middle row (on the printed numbers) in blue; the rows above and below in grey.
     rows.forEach((y, row) => {
       const fill = row === 1 ? '#0d6efd' : '#6c757d';
@@ -249,7 +260,7 @@
   }
 
   function suitColour(c) {
-    const colours = { fox: '#EC2121', rabbit: '#FFE400', mouse: '#F78B57', bird: '#44C3BC' };
+    const colours = { fox: '#EC2121', rabbit: '#FFE400', mouse: '#F78B57', bird: '#44C3BC', city: '#9C5A2E' };
     return (config.fixed && colours[c.suit]) || '#ffffff';
   }
 
@@ -347,7 +358,8 @@
     const suits = document.getElementById('mb-review-suits');
     suits.innerHTML = '';
     if (config.fixed) {
-      const tally = { fox: 0, rabbit: 0, mouse: 0, bird: 0 };
+      const tally = { fox: 0, rabbit: 0, mouse: 0, bird: 0, city: 0 };
+      const SUIT_NAMES = { fox: 'Fox', rabbit: 'Rabbit', mouse: 'Mouse', bird: 'Bird', city: 'Lost City' };
       let unset = 0;
       for (const cl of state.clearings) {
         if (tally[cl.suit] !== undefined) tally[cl.suit] += 1; else unset += 1;
@@ -356,7 +368,7 @@
         if (!n) continue;
         const chip = document.createElement('span');
         chip.className = 'mb-suit-chip';
-        chip.title = suit.charAt(0).toUpperCase() + suit.slice(1);
+        chip.title = SUIT_NAMES[suit];
         chip.innerHTML = `<img src="${config.suit_icons[suit]}" alt=""><span></span>`;
         chip.querySelector('span').textContent = `${chip.title} ${n}`;
         suits.appendChild(chip);

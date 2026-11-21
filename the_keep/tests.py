@@ -1243,7 +1243,7 @@ class MapBuilderTests(TestCase):
     def test_builder_config_has_suit_icons_and_marker_outline(self):
         self.client.force_login(self.designer_user)
         config = self.client.get(self._builder_url()).context['config']
-        self.assertEqual(set(config['suit_icons']), {'fox', 'rabbit', 'mouse', 'bird'})
+        self.assertEqual(set(config['suit_icons']), {'fox', 'rabbit', 'mouse', 'bird', 'city'})
         self.assertIn('images/tags/Bird_Tag.png', config['suit_icons']['bird'])
         self.assertIn('images/map_builder/clearing_marker.svg', config['marker_svg'])
         width, height = config['marker_px']
@@ -1353,3 +1353,26 @@ class MapBuilderTests(TestCase):
         config = self.client.get(self._builder_url()).context['config']
         self.assertFalse(config['show_intros'])
         self.assertIn('ClearingsRandom.png', config['random_icon'])
+
+    def test_lost_city_suit(self):
+        from the_keep.services.tts_map import build_map_tts_json, check_builder, marker_templates
+        from the_keep.tts_views import _clean_state
+        self.map.fixed_clearings = True
+        state = self._state(fixed_suits=['city', 'fox', 'bird'])
+        errors, _ = check_builder(self.map, state)
+        self.assertEqual(errors, [])
+        save = build_map_tts_json(self.map, state)
+        markers = [o for o in save['ObjectStates'] if any(t.startswith('Suit: ') for t in o.get('Tags') or [])]
+        city = next(m for m in markers if 'Suit: city' in m['Tags'])
+        self.assertEqual(city['Tags'], ['Map Object', 'Suit: city'])
+        self.assertIn('city_marker.png', city['CustomMesh']['DiffuseURL'])
+        # The mod's shuffleMaps acts on these tags (expecting its own pieces): never used.
+        for o in save['ObjectStates']:
+            self.assertFalse({'City Marker', 'Lost City Marker'} & set(o.get('Tags') or []))
+        # Built from the fox marker: same mesh, its own texture; bird kept.
+        templates = marker_templates()
+        self.assertEqual(templates['city']['CustomMesh']['MeshURL'], templates['fox']['CustomMesh']['MeshURL'])
+        self.assertIn('bird_marker.png', templates['bird']['CustomMesh']['DiffuseURL'])
+        self.assertEqual(_clean_state({'clearings': [{'centre': [0.5, 0.5], 'suit': 'city'}]})['clearings'][0]['suit'], 'city')
+        self.client.force_login(self.designer_user)
+        self.assertIn('City_Tag.png', self.client.get(self._builder_url()).context['config']['suit_icons']['city'])
