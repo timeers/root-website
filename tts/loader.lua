@@ -611,15 +611,28 @@ function placeMap(data, player)
   end
 
   pcall(function() coordinator.call("removeMapItems") end)
-  for _, o in ipairs(objects) do
-    spawnObjectJSON({
+  for i, o in ipairs(objects) do
+    local spec = {
       json = o.json,
       position = {MAP_CENTER.x + o.x - board.x, MAP_CENTER.y + o.y - board.y, MAP_CENTER.z + o.z - board.z},
-    })
+    }
+    if i == boardIndex then
+      -- Like the coordinator's own maps (rttHoldMapLocked): the board can't be
+      -- clicked, right-clicked or selected. "interactable" isn't saved in JSON,
+      -- so it's set once the board exists.
+      spec.callback_function = function(spawned)
+        pcall(function() spawned.setLock(true) end)
+        pcall(function() spawned.interactable = false end)
+      end
+    end
+    spawnObjectJSON(spec)
   end
   busy = true   -- ignore clicks while the map settles; this object is about to go
   Wait.time(function()
     if data.shuffle then pcall(function() coordinator.call("shuffleMaps") end) end
+    -- The coordinator's own lock-down for the map (finds the board by its
+    -- "RTT Map" tag), so it treats ours exactly like its maps.
+    pcall(function() coordinator.call("rttHoldMapLocked") end)
     pcall(function() coordinator.call("rttPlaceUnplacedVPs") end)
     pcall(function() coordinator.call("rttTellSheet") end)
     deleteThis()
