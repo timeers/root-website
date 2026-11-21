@@ -363,12 +363,25 @@
     btn.querySelector('span').textContent = saved ? btn.dataset.savedLabel : btn.dataset.label;
   }
 
+  // Remove a clearing and close the gap in the numbers. The selection and a
+  // clearing waiting for its marker refer to clearings by position, so they're
+  // moved along (or cleared if they were this one).
+  function removeClearing(index) {
+    const removed = state.clearings.splice(index, 1)[0];
+    if (!removed) return;
+    for (const c of state.clearings) if (c.number > removed.number) c.number -= 1;
+    if (pendingMarker === index) pendingMarker = null;
+    else if (pendingMarker !== null && pendingMarker > index) pendingMarker -= 1;
+    if (selected && selected.kind === 'clearing') {
+      if (selected.index === index) selected = null;
+      else if (selected.index > index) selected = { kind: 'clearing', index: selected.index - 1 };
+    }
+  }
+
   function deleteSelected() {
     if (!selected) return;
     if (selected.kind === 'clearing') {
-      const removed = state.clearings.splice(selected.index, 1)[0];
-      for (const c of state.clearings) if (c.number > removed.number) c.number -= 1;
-      if (pendingMarker === selected.index) pendingMarker = null;
+      removeClearing(selected.index);
     } else if (selected.kind === 'forest') {
       state.forests.splice(selected.index, 1);
     } else if (selected.kind === 'building') {
@@ -394,7 +407,32 @@
     return { kind: target.dataset.kind, index: Number(target.dataset.index) };
   }
 
+  // Only one finger edits: a second finger is the start of a pinch-zoom, so it's
+  // left to the browser and whatever the first finger began is undone.
+  const pressed = new Set();
+  let activePointer = null;
+
+  function abandonDrag() {
+    if (drag && drag.kind === 'new-marker' && !state.clearings[drag.index].marker) removeClearing(drag.index);
+    if (drag && drag.fromPending && state.clearings[drag.index]) {
+      // The marker had only just been placed by this press: wait for it again.
+      state.clearings[drag.index].marker = null;
+      pendingMarker = drag.index;
+    }
+    drag = null;
+    activePointer = null;
+    document.body.classList.remove('mb-dragging');
+    render();
+  }
+
   svg.addEventListener('pointerdown', (evt) => {
+    const second = !evt.isPrimary || pressed.size > 0;
+    pressed.add(evt.pointerId);
+    if (second) {
+      if (activePointer !== null) abandonDrag();
+      return;
+    }
+    activePointer = evt.pointerId;
     // Don't let a press on the board start a text selection or a native drag,
     // and keep the whole page unselectable until the drag ends.
     evt.preventDefault();
@@ -417,7 +455,7 @@
       if (pendingMarker !== null && !h) {
         state.clearings[pendingMarker].marker = norm(...p);
         setDefaultAngle(state.clearings[pendingMarker]);
-        drag = { kind: 'marker', index: pendingMarker };
+        drag = { kind: 'marker', index: pendingMarker, fromPending: true };
         pendingMarker = null;
         changed();
         return;
@@ -482,7 +520,7 @@
   }
 
   svg.addEventListener('pointermove', (evt) => {
-    if (!drag) return;
+    if (!drag || evt.pointerId !== activePointer) return;
     const p = pointer(evt);
     if (drag.kind === 'track') {
       state.track_y = Math.min(Math.max((p[1] - drag.offset) / H, 0), 1);
@@ -523,8 +561,19 @@
     drag = null;
     if (wasDragging) render();   // the edit pop-up hides while dragging
   }
-  svg.addEventListener('pointerup', endDrag);
-  svg.addEventListener('pointercancel', endDrag);
+  svg.addEventListener('pointerup', (evt) => {
+    pressed.delete(evt.pointerId);
+    if (evt.pointerId === activePointer) {
+      activePointer = null;
+      endDrag();
+    }
+  });
+  // The browser cancels a press when it takes the gesture over (a pinch-zoom):
+  // undo anything that press started.
+  svg.addEventListener('pointercancel', (evt) => {
+    pressed.delete(evt.pointerId);
+    if (evt.pointerId === activePointer) abandonDrag();
+  });
 
   document.addEventListener('keydown', (evt) => {
     if (cardOpen()) {
@@ -540,10 +589,7 @@
       deleteSelected();
     }
     if (evt.key === 'Escape') {
-      if (pendingMarker !== null) {
-        state.clearings.splice(pendingMarker, 1);
-        pendingMarker = null;
-      }
+      if (pendingMarker !== null) removeClearing(pendingMarker);
       selected = null;
       render();
     }
@@ -643,6 +689,8 @@
   // Shown on the Clearings step where the item track sits (unused there).
   const modePanel = document.getElementById('mb-suit-mode');
   let modeFolded = false;
+  let modeTouched = false;   // folded or unfolded by the user (or an outside press)
+  const COMPACT_BELOW = 160; // item track narrower than this on screen: compact panel
 
   function setFixed(fixed) {
     if (config.fixed === fixed) return;
@@ -661,7 +709,7 @@
     modePanel.querySelectorAll('.mb-mode-image img').forEach(img => {
       img.style.opacity = (img.dataset.mode === 'fixed') === fixed ? '1' : '0';
     });
-    modePanel.querySelectorAll('.mb-mode-switch button').forEach(btn => {
+    modePanel.querySelectorAll('.mb-mode-switch button, .mb-mode-icons button').forEach(btn => {
       btn.setAttribute('aria-pressed', (btn.dataset.mode === 'fixed') === fixed ? 'true' : 'false');
     });
     const fold = document.getElementById('mb-mode-fold');
@@ -675,7 +723,15 @@
     const gridLeft = (Math.min(...slots.map(s => s[0])) - half) * scale;
     const gridTop = (Math.min(...slots.map(s => s[1])) - half) * scale;
     const gridWidth = (Math.max(...slots.map(s => s[0])) - Math.min(...slots.map(s => s[0])) + 2 * half) * scale;
-    const width = Math.min(Math.max(gridWidth, 200), 300, area.width - 8);
+    // Small screens: start folded down to icons; unfold for the full card.
+    const compact = gridWidth < COMPACT_BELOW;
+    if (compact && !modeTouched) modeFolded = true;
+    modePanel.classList.toggle('compact', compact);
+    modePanel.classList.toggle('folded', modeFolded);
+    fold.setAttribute('aria-expanded', modeFolded ? 'false' : 'true');
+    const width = compact && modeFolded
+      ? Math.min(Math.max(gridWidth, 120), area.width - 8)
+      : Math.min(Math.max(gridWidth, 200), 300, area.width - 8);
     modePanel.style.width = `${width}px`;
     const left = Math.min(Math.max(gridLeft, 4), area.width - width - 4);
     const top = Math.min(Math.max(gridTop, 4), Math.max(area.height - modePanel.offsetHeight - 4, 4));
@@ -687,9 +743,13 @@
   modePanel.querySelectorAll('.mb-mode-switch button').forEach(btn => {
     btn.addEventListener('click', () => setFixed(btn.dataset.mode === 'fixed'));
   });
+  modePanel.querySelectorAll('.mb-mode-icons button').forEach(btn => {
+    btn.addEventListener('click', () => setFixed(btn.dataset.mode === 'fixed'));
+  });
   document.getElementById('mb-mode-image').addEventListener('click', () => setFixed(!config.fixed));
   document.getElementById('mb-mode-fold').addEventListener('click', () => {
     modeFolded = !modeFolded;
+    modeTouched = true;
     updateSuitMode();
   });
   window.addEventListener('resize', updateSuitMode);
@@ -699,6 +759,7 @@
     if (modeFolded || step !== STEP_CLEARINGS || modePanel.classList.contains('d-none')) return;
     if (modePanel.contains(evt.target) || evt.target.closest('#mb-step-card')) return;
     modeFolded = true;
+    modeTouched = true;
     updateSuitMode();
   }, true);
   window.addEventListener('scroll', updatePopover, { passive: true });
@@ -707,9 +768,7 @@
   function goTo(n) {
     step = Math.min(Math.max(n, 0), STEPS.length - 1);
     selected = null;
-    if (pendingMarker !== null && !state.clearings[pendingMarker].marker) {
-      state.clearings.splice(pendingMarker, 1);
-    }
+    if (pendingMarker !== null && !state.clearings[pendingMarker].marker) removeClearing(pendingMarker);
     pendingMarker = null;
     render();
     introduceStep();
@@ -750,7 +809,10 @@
 
   function openCard() {
     document.getElementById('mb-card-heading').textContent = STEPS[step].heading;
-    document.getElementById('mb-card-hint').textContent = STEPS[step].hint;
+    // On touch screens, mention that two fingers zoom (one finger edits).
+    const touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    document.getElementById('mb-card-hint').textContent =
+      STEPS[step].hint + (touch && step !== STEPS.length - 1 ? ' Pinch with two fingers to zoom in.' : '');
     cardReturn = document.activeElement;
     card.classList.add('show');
     card.setAttribute('aria-hidden', 'false');

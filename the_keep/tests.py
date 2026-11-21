@@ -1319,3 +1319,20 @@ class MapBuilderTests(TestCase):
         self.assertFalse(self.client.get(self._builder_url()).context['config']['fixed'])
         self.assertTrue(_clean_state({'fixed': True})['fixed'])
         self.assertNotIn('fixed', _clean_state({'fixed': 'yes'}))
+
+    def test_ruin_item_sides_are_cleared_with_the_map_and_extra_ruins_are_marked(self):
+        from the_keep.services.tts_map import build_map_tts_json, RUIN_EXTRA_NOTE
+        save = build_map_tts_json(self.map, self._state(buildings=9, ruins=9))
+        ruins = [o for o in save['ObjectStates'] if 'Ruin' in (o.get('Tags') or [])]
+        self.assertEqual(len(ruins), 9)
+        # Flipped to its item, a ruin is still a map piece (so a new map clears it).
+        for ruin in ruins:
+            self.assertTrue(ruin['States'])
+            for side in ruin['States'].values():
+                self.assertEqual(side['Tags'], ['Map Object'])
+        # Ruins 1-4 keep their own items; later ones are dealt by the loader at spawn.
+        firsts = [r['States']['2']['CustomImage']['ImageURL'] for r in ruins[:4]]
+        self.assertEqual(len(set(firsts)), 4)
+        self.assertTrue(all(r.get('GMNotes', '') != RUIN_EXTRA_NOTE for r in ruins[:4]))
+        self.assertTrue(all(r['GMNotes'] == RUIN_EXTRA_NOTE for r in ruins[4:]))
+        self.assertTrue(all(r['States']['2']['CustomImage']['ImageURL'] in firsts for r in ruins[4:]))

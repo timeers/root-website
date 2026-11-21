@@ -728,12 +728,55 @@ end
 
 -- The selected item replaces the library: spawn it where this object sits,
 -- then delete this object. Nothing is deleted if there was nothing to spawn.
+-- Ruins past the fourth (GM note "rdb:ruin:extra") get their item side drawn
+-- now, each time the map spawns, from the map's own four ruin items: a
+-- shuffled bag, refilled when empty, so each group of four extra ruins has no
+-- repeats. The first four ruins keep their items.
+local RUIN_EXTRA = "rdb:ruin:extra"
+
+function drawRuinItems(objects)
+  local extras, items, seen = {}, {}, {}
+  for _, o in ipairs(objects) do
+    if string.find(o.json, '"States"', 1, true) and string.find(o.json, '"Ruin"', 1, true) then
+      local ok, obj = pcall(function() return JSON.decode(o.json) end)
+      if ok and type(obj) == "table" and type(obj.States) == "table" then
+        local side = obj.States["2"]
+        local image = side and side.CustomImage and side.CustomImage.ImageURL
+        if image and not seen[image] then
+          seen[image] = true
+          table.insert(items, side)
+        end
+        if obj.GMNotes == RUIN_EXTRA then
+          table.insert(extras, {entry = o, obj = obj})
+        end
+      end
+    end
+  end
+  if #extras == 0 or #items < 2 then
+    return
+  end
+  local bag = {}
+  for _, extra in ipairs(extras) do
+    if #bag == 0 then
+      for i, item in ipairs(items) do bag[i] = item end
+    end
+    local side = table.remove(bag, math.random(#bag))
+    local copy = JSON.decode(JSON.encode(side))
+    copy.GUID = nil   -- TTS gives the new state its own GUID
+    extra.obj.States["2"] = copy
+    extra.entry.json = JSON.encode(extra.obj)
+  end
+end
+
 function spawnAll(data, player, panelTemplate)
   local objects = (data and data.objects) or {}
   if #objects == 0 then
     broadcastToColor("Nothing to spawn for " .. ((data and data.title) or "that item") .. ".",
       player.color, {1, 0.4, 0.4})
     return
+  end
+  if data.component == "Map" then
+    drawRuinItems(objects)
   end
   local origin = self.getPosition()
   local base = {

@@ -56,6 +56,8 @@ HEIGHT_NUMBER = 0.03
 BOARD_Y = 1.0
 
 SUITS = ('fox', 'rabbit', 'mouse', 'bird')
+# GM note on ruins past the fourth, whose items the loader draws at spawn.
+RUIN_EXTRA_NOTE = 'rdb:ruin:extra'
 SHUFFLED_SUITS = ('fox', 'rabbit', 'mouse')
 
 
@@ -324,7 +326,17 @@ def build_map_tts_json(map_post, state):
         if building.get('ruin'):
             dx, dz = geometry.to_table(*building['at'])
             template = ruin_templates[ruin_count % len(ruin_templates)]
-            objects.append(_piece(template, dx, dz, HEIGHT_TILE, ['Ruin', 'Map Object']))
+            ruin = _piece(template, dx, dz, HEIGHT_TILE, ['Ruin', 'Map Object'])
+            # The item side ("Press 2 for ITEM") must be cleared with the map
+            # too, so it's tagged as well -- but not "Ruin", which the
+            # coordinator's ruin shuffle and locking act on.
+            for item_side in (ruin.get('States') or {}).values():
+                item_side['Tags'] = ['Map Object']
+            # Ruins past the fourth: the loader deals their items when the map
+            # spawns (tts/loader.lua, drawRuinItems); this item is the default.
+            if ruin_count >= len(ruin_templates):
+                ruin['GMNotes'] = RUIN_EXTRA_NOTE
+            objects.append(ruin)
             ruin_count += 1
 
     slots = item_slots(geometry, state)
