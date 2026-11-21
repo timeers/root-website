@@ -59,7 +59,7 @@
         padding: 10px 12px 12px; text-align: center;
         box-shadow: 0 8px 24px rgba(0, 0, 0, .18), 0 1px 3px rgba(0, 0, 0, .12);
     }
-    .mb-mode-title { font-family: 'Luminari', serif; font-size: 1.05rem; margin: 0 18px 6px; }
+    .mb-mode-title { font-family: 'Luminari', serif; font-size: 1.05rem; line-height: 1.25; margin: 0 18px 6px; }
     .mb-mode-fold {
         position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border: 0; border-radius: 50%;
         background: none; color: #6c757d; display: inline-flex; align-items: center; justify-content: center; padding: 0;
@@ -106,6 +106,111 @@
         font-size: .85rem; color: #495057; transition: color .2s ease;
     }
     .mb-mode-switch button[aria-pressed="true"] { color: #fff; }
+
+    /* Review summary */
+    .mb-sum-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    @media (max-width: 575.98px) { .mb-sum-grid { grid-template-columns: repeat(2, 1fr); } }
+    .mb-sum-tile {
+        background: #fff; border: 1px solid #e9ecef; border-radius: 12px; padding: 12px 8px 10px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, .06); text-align: center;
+        display: flex; flex-direction: column; align-items: center; gap: 2px;
+    }
+    /* Hover shows a border and shadow only: moving the tile (e.g. translateY)
+       animates through fractional pixels and makes the thin-stroked icons wobble. */
+    button.mb-sum-tile {
+        width: 100%; font: inherit; cursor: pointer;
+        transition: box-shadow .15s ease, border-color .15s ease;
+    }
+    button.mb-sum-tile:hover, button.mb-sum-tile:focus-visible {
+        border-color: var(--bs-primary, #0d6efd);
+        box-shadow: 0 6px 16px rgba(0, 0, 0, .12); outline: none;
+    }
+    .mb-sum-icon { height: 26px; display: flex; align-items: center; justify-content: center; }
+    .mb-sum-count { font-size: 1.6rem; font-weight: 700; line-height: 1.1; color: #212529; }
+    .mb-sum-label { font-size: .8rem; color: #6c757d; }
+    .mb-sum-pill {
+        margin-top: 4px; font-size: .7rem; padding: 1px 8px; border-radius: 999px;
+        background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; cursor: help;
+    }
+    .mb-sum-suits { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
+    .mb-suit-chip {
+        display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px;
+        background: #fff; border: 1px solid #dee2e6; border-radius: 999px; font-size: .85rem; color: #212529;
+    }
+    .mb-suit-chip img { width: 22px; height: 22px; }
+    .mb-suit-chip-unset { padding-left: 10px; background: #f8f9fa; color: #6c757d; border-color: #ffc107; }
+    .mb-suit-note { display: inline-flex; align-items: center; gap: 8px; font-size: .85rem; color: #6c757d; }
+    .mb-suit-note img { width: 28px; height: 25px; object-fit: contain; }
+
+    /* Review step: pieces are clicked (to edit them), not dragged. */
+    #mb-board.mb-review [data-kind] { cursor: pointer !important; }
+
+    /* Count card (over the item track) and clearings pill (on the VP track) */
+    /* Count card: built like the Clearing Distribution card (#mb-suit-mode). */
+    #mb-count-card {
+        position: absolute; z-index: 4; background: #fff; border-radius: 12px; padding: 8px 12px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, .18), 0 1px 3px rgba(0, 0, 0, .12);
+        transition: width .25s ease;
+    }
+    .mb-count-body-inner { display: flex; flex-direction: column; gap: 6px; }
+    /* Corner chevron, as on the Clearing Distribution card. */
+    .mb-count-fold {
+        position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border: 0; border-radius: 50%;
+        background: none; color: #6c757d; display: inline-flex; align-items: center; justify-content: center;
+        padding: 0; z-index: 1;
+    }
+    .mb-count-fold:hover { background: #f1f3f5; }
+    .mb-count-fold i { transition: transform .2s ease; }
+    #mb-count-card.folded .mb-count-fold i { transform: rotate(180deg); }
+    /* Same padding and chevron spot in both states, so nothing jumps while the
+       sections animate. The chevron is centred on the 30px badge row. */
+    #mb-count-card.compact { padding: 6px 32px 6px 8px; }
+    #mb-count-card.compact .mb-count-fold { top: 12px; }
+    /* The rows slide open and shut (a grid row animating 1fr <-> 0fr). */
+    /* The badge row and the rows cross-fade: each slides open and shut (a grid
+       row animating 1fr <-> 0fr) at the same time, so the height changes smoothly. */
+    #mb-count-card.compact .mb-count-brief,
+    #mb-count-card.compact .mb-count-body {
+        display: grid; grid-template-rows: 1fr; opacity: 1;
+        transition: grid-template-rows .3s cubic-bezier(.4, 0, .2, 1), opacity .2s ease;
+    }
+    #mb-count-card.compact .mb-count-badges,
+    #mb-count-card.compact .mb-count-body-inner { min-height: 0; overflow: hidden; }
+    #mb-count-card.compact.folded .mb-count-body,
+    #mb-count-card.compact:not(.folded) .mb-count-brief { grid-template-rows: 0fr; opacity: 0; }
+    /* Folded: each count drawn inside its piece's icon. */
+    /* 3px padding: the badges' amber ring and outlines draw just outside them,
+       and the row clips its overflow so it can collapse. */
+    .mb-count-badges { display: flex; align-items: center; gap: 8px; width: max-content; padding: 3px; }
+    .mb-count-badge {
+        width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+        font-weight: 700; font-size: 14px; line-height: 1; border-radius: 6px;
+    }
+    .mb-badge-building { background: #fff; color: #212529; border: 1.5px solid #333; }
+    .mb-badge-ruin { background: #dc3545; color: #fff; border: 1.5px solid #333; }
+    .mb-badge-forest { background: #198754; color: #fff; border-radius: 50%; border: 3px solid #fff;
+                       box-shadow: 0 0 0 1px rgba(0, 0, 0, .15); }
+    .mb-count-badge.off { box-shadow: 0 0 0 2px #ffc107; }
+    /* Icon, count and label are centred on one line. The count and label are
+       different sizes, so each gets line-height 1: their boxes then hug the
+       letters and centring the boxes centres the text itself. */
+    .mb-count-row { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+    .mb-count-row .mb-count-figure, .mb-count-row .mb-count-label { line-height: 1; }
+    .mb-count-icon { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; }
+    .mb-count-figure { font-weight: 700; color: #212529; }
+    .mb-count-figure.off { color: #997404; }
+    /* Nudged down half a pixel so its middle lines up with the bold count beside it. */
+    .mb-count-label { font-size: .85rem; color: #6c757d; position: relative; top: .5px; }
+    /* Bordered, with a strong shadow: it sits on the VP track, which is white too. */
+    #mb-clearing-count {
+        position: absolute; z-index: 4; background: #fff; border-radius: 999px; padding: 0 12px;
+        border: 1px solid #adb5bd; box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+        display: flex; align-items: center; line-height: 1; white-space: nowrap;
+    }
+    #mb-clearing-count .mb-count-row { gap: 6px; }
+    #mb-clearing-count .mb-count-icon { min-width: 0; }
+    #mb-clearing-count svg { height: var(--mb-pill-icon, 14px); width: auto; }
+    #mb-clearing-count .mb-count-label { font-size: inherit; }
 
     /* Dragging pieces must never select text on the page. */
     .mb-no-select, .mb-no-select * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
@@ -157,6 +262,12 @@
     }
     #mb-progress button.active .mb-step-num { background: rgba(255, 255, 255, .25); }
     @media (max-width: 767.98px) { #mb-progress .mb-step-name { display: none; } }
+    /* Medium widths: the long names don't fit their fifth of the bar, so use short ones. */
+    #mb-progress .mb-name-short { display: none; }
+    @media (min-width: 768px) and (max-width: 991.98px) {
+        #mb-progress .mb-name-full { display: none; }
+        #mb-progress .mb-name-short { display: inline; }
+    }
 
     /* Title row */
     .mb-title-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
@@ -193,7 +304,7 @@
 
     {% if not has_image %}
     <div class="alert alert-warning">
-        {% trans 'This map has no board image yet. Add one to the map, then come back to lay it out.' %}
+        {% trans "This map has no board image yet. Come back to build the layout once it's added." %}
     </div>
     {% else %}
 
@@ -207,9 +318,9 @@
     <!-- Progress: a full track with a highlight that slides to the current step -->
     <div id="mb-progress" class="mb-3" role="list">
         <div id="mb-progress-thumb" aria-hidden="true"></div>
-        <button type="button" role="listitem" data-step="0"><span class="mb-step-num">1</span><span class="mb-step-name">{% trans 'VP &amp; Item Tracks' %}</span></button>
+        <button type="button" role="listitem" data-step="0"><span class="mb-step-num">1</span><span class="mb-step-name"><span class="mb-name-full">{% trans 'VP &amp; Item Tracks' %}</span><span class="mb-name-short">{% trans 'Tracks' %}</span></span></button>
         <button type="button" role="listitem" data-step="1"><span class="mb-step-num">2</span><span class="mb-step-name">{% trans 'Clearings' %}</span></button>
-        <button type="button" role="listitem" data-step="2"><span class="mb-step-num">3</span><span class="mb-step-name">{% trans 'Buildings &amp; Ruins' %}</span></button>
+        <button type="button" role="listitem" data-step="2"><span class="mb-step-num">3</span><span class="mb-step-name"><span class="mb-name-full">{% trans 'Buildings &amp; Ruins' %}</span><span class="mb-name-short">{% trans 'Buildings' %}</span></span></button>
         <button type="button" role="listitem" data-step="3"><span class="mb-step-num">4</span><span class="mb-step-name">{% trans 'Forests' %}</span></button>
         <button type="button" role="listitem" data-step="4"><span class="mb-step-num">5</span><span class="mb-step-name">{% trans 'Review' %}</span></button>
     </div>
@@ -225,7 +336,7 @@
                 </button>
             </h3>
         </div>
-        <div class="mb-title-side d-flex flex-wrap gap-1 justify-content-end" id="mb-counter"></div>
+        <div class="mb-title-side"></div>
     </div>
 
     <!-- Board -->
@@ -238,7 +349,8 @@
         <div id="mb-suit-mode" class="d-none" role="group" aria-label="{% trans 'Clearing suits' %}">
             <button type="button" class="mb-mode-fold" id="mb-mode-fold" aria-expanded="true"
                     aria-label="{% trans 'Fold' %}" title="{% trans 'Fold' %}"><i class="bi bi-chevron-up"></i></button>
-            <div class="mb-mode-title" id="mb-mode-title">{% trans 'Clearing Distribution' %}</div>
+            <div class="mb-mode-title" id="mb-mode-title" data-full="{% trans 'Clearing Distribution' %}"
+                 data-short="{% trans 'Distribution' %}">{% trans 'Clearing Distribution' %}</div>
             <!-- Small screens, folded: just the two choices as icons. -->
             <div class="mb-mode-icons">
                 <button type="button" data-mode="random" title="{% trans 'Random suits' %}" aria-label="{% trans 'Random suits' %}" aria-pressed="false">
@@ -261,6 +373,10 @@
                 <button type="button" data-mode="fixed" aria-pressed="false">{% trans 'Fixed' %}</button>
             </div>
         </div>
+
+        <!-- Counts for the step: a card over the item track, or a pill on the VP track -->
+        <div id="mb-count-card" class="d-none" aria-live="polite"></div>
+        <div id="mb-clearing-count" class="d-none" aria-live="polite"></div>
 
         <!-- Edit pop-up for the selected clearing, forest or building -->
         <div id="mb-popover" role="dialog" aria-label="{% trans 'Edit' %}">
@@ -292,8 +408,9 @@
     <!-- Review -->
     <div class="card mb-3 d-none" id="mb-review">
         <div class="card-body">
-            <p class="text-muted small mb-2">{% trans "This is how your map will load. Go back to a step to change anything." %}</p>
-            <ul class="mb-2" id="mb-review-counts"></ul>
+            <p class="text-muted small text-center mb-2">{% trans "This is how your map will load. Click any piece on the map, or a tile below, to edit it." %}</p>
+            <div class="mb-sum-grid mb-3" id="mb-review-counts"></div>
+            <div class="mb-sum-suits mb-3" id="mb-review-suits"></div>
             <div id="mb-review-problems"></div>
         </div>
     </div>

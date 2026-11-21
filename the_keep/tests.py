@@ -1336,3 +1336,20 @@ class MapBuilderTests(TestCase):
         self.assertTrue(all(r.get('GMNotes', '') != RUIN_EXTRA_NOTE for r in ruins[:4]))
         self.assertTrue(all(r['GMNotes'] == RUIN_EXTRA_NOTE for r in ruins[4:]))
         self.assertTrue(all(r['States']['2']['CustomImage']['ImageURL'] in firsts for r in ruins[4:]))
+
+    def test_step_cards_open_by_themselves_only_until_the_first_finished_map(self):
+        from the_gatehouse.models import Profile
+        self.client.force_login(self.designer_user)
+        self.assertTrue(self.client.get(self._builder_url()).context['config']['show_intros'])
+        # A plain save doesn't count as finishing a map.
+        state = self._state()
+        self.client.post(self._builder_url(), json.dumps({'state': state}), content_type='application/json')
+        self.assertFalse(Profile.objects.get(pk=self.designer_user.profile.pk).map_builder_onboard)
+        # Completing one does.
+        result = self.client.post(self._builder_url(), json.dumps({'state': state, 'generate': True}),
+                                  content_type='application/json').json()
+        self.assertTrue(result['generated'], result)
+        self.assertTrue(Profile.objects.get(pk=self.designer_user.profile.pk).map_builder_onboard)
+        config = self.client.get(self._builder_url()).context['config']
+        self.assertFalse(config['show_intros'])
+        self.assertIn('ClearingsRandom.png', config['random_icon'])

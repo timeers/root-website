@@ -187,7 +187,7 @@ def _counts(state):
     return (
         ('clearings', 'clearings', 'clearings', len(state.get('clearings') or [])),
         ('forests', 'forests', 'forests', len(state.get('forests') or [])),
-        ('buildings', 'building spaces', 'building_slots', len(buildings)),
+        ('buildings', 'building slots', 'building_slots', len(buildings)),
         ('buildings', 'ruins', 'ruins', sum(1 for b in buildings if b.get('ruin'))),
     )
 
