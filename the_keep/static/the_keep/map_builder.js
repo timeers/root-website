@@ -28,9 +28,9 @@
     { heading: 'Clearings',
       hint: 'Click the middle of a clearing, then drag (or click) to where its suit marker goes. Drag the number tile around the circle. Select a clearing to re-number or delete it.' },
     { heading: 'Buildings & Ruins',
-      hint: 'Click each building space. Drag inside a square to move it and press X to remove it. Select a building and click the ruin tile to make it a ruin.' },
+      hint: 'Click each building slot. Drag inside a square to move it and press x to remove it. Select a building and click the ruin tile to make it a ruin.' },
     { heading: 'Forests',
-      hint: 'Click the middle of each forest. Drag a dot to move it and press X to remove it. These are used for Relic placements.' },
+      hint: 'Click the middle of each forest. Drag a dot to move it and press x to remove it. These are used for Relic placements.' },
     { heading: 'Review', 
       hint: 'Check the counts, then save and generate the TTS JSON.' },
   ];
@@ -116,8 +116,14 @@
     }).catch(() => {});   // keep the round dots
   }
 
+  // Each step's own pieces are editable; the rest are dimmed. On the review
+  // step everything shows at full strength (it's how the map will load) but
+  // nothing is editable, so no move or grab cursors appear.
   function layer(active) {
-    return el('g', { opacity: active ? 1 : 0.35, 'pointer-events': active ? 'auto' : 'none' });
+    // On the review step every piece shows at full strength and can be
+    // clicked to jump to its step (nothing is dragged there).
+    const review = step === STEPS.length - 1;
+    return el('g', { opacity: active || review ? 1 : 0.35, 'pointer-events': active || review ? 'auto' : 'none' });
   }
 
   function plus(g, x, y, size, colour, data) {
@@ -144,8 +150,9 @@
     const slots = itemSlots();
     const size = ITEM.step_x * PPL * 0.85;
     const xs = slots.map(s => s[0]), ys = slots.map(s => s[1]);
-    // On the Clearings step the fixed/random panel sits over the item grid instead.
-    if (step !== STEP_CLEARINGS) {
+    // On the Clearings, Buildings & Ruins and Forests steps a card sits over
+    // the item grid instead.
+    if (![STEP_CLEARINGS, STEP_BUILDINGS, STEP_FORESTS].includes(step)) {
     el('rect', {
       x: Math.min(...xs) - size * 0.65, y: Math.min(...ys) - size * 0.65,
       width: Math.max(...xs) - Math.min(...xs) + size * 1.3, height: Math.max(...ys) - Math.min(...ys) + size * 1.3,
@@ -267,46 +274,107 @@
     document.getElementById('mb-progress-thumb').style.transform = `translateX(${step * 100}%)`;
     document.getElementById('mb-heading').textContent = STEPS[step].heading;
 
-    // One badge per count on this step; amber when it differs from the Map.
-    const COUNTERS = { [STEP_CLEARINGS]: [['clearings']], [STEP_BUILDINGS]: [['buildings', 'Buildings'], ['ruins', 'Ruins']],
-                       [STEP_FORESTS]: [['forests']] };
-    const counter = document.getElementById('mb-counter');
-    counter.innerHTML = '';
-    for (const [key, label] of COUNTERS[step] || []) {
-      const n = counts()[key], expected = config.expected[key];
-      const known = expected !== null && expected !== undefined;
-      const badge = document.createElement('span');
-      badge.className = 'badge fs-6 ' + (!known || n === expected ? 'bg-secondary' : 'bg-warning text-dark');
-      badge.textContent = (known ? `${n} / ${expected}` : `${n}`) + (label ? ` ${label}` : '');
-      badge.title = known && n !== expected ? `Currently ${expected}. Saving updates the Map to ${n}.` : '';
-      counter.appendChild(badge);
-    }
-
     updatePopover();
     updateSuitMode();
+    updateCountCards();
 
     document.getElementById('mb-back').disabled = step === 0;
     document.getElementById('mb-next').classList.toggle('d-none', step === STEPS.length - 1);
     document.getElementById('mb-generate').classList.toggle('d-none', step !== STEPS.length - 1);
     document.getElementById('mb-review').classList.toggle('d-none', step !== STEPS.length - 1);
+    board.classList.toggle('mb-review', step === STEPS.length - 1);
     if (step === STEPS.length - 1) renderReview();
+  }
+
+  // Review summary: a tile per piece, drawn like the board draws it, plus how
+  // the clearing suits are handled.
+  function iconSvg(kind) {
+    if (kind === 'clearing') {
+      if (markerSymbol) {
+        // Inset in a slightly larger box: the outline's stroke sits half outside
+        // the shape and would otherwise be cut off at the edges.
+        return '<svg width="40" height="22" viewBox="0 0 40 22" overflow="visible" aria-hidden="true">'
+          + '<use href="#mb-marker" x="3" y="3" width="34" height="17" style="color:#fff;--mb-marker-stroke:#231f20"></use></svg>';
+      }
+      return '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">'
+        + '<circle cx="9" cy="9" r="7" fill="#fff" stroke="#231f20" stroke-width="1.5"/></svg>';
+    }
+    if (kind === 'forest') {
+      return '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">'
+        + '<circle cx="11" cy="11" r="8" fill="#198754" stroke="#fff" stroke-width="3"/>'
+        + '<circle cx="11" cy="11" r="9.5" fill="none" stroke="rgba(0,0,0,.15)" stroke-width="1"/></svg>';
+    }
+    const ruin = kind === 'ruin';
+    return '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">'
+      + `<rect x="2" y="2" width="20" height="20" rx="4" fill="${ruin ? '#dc3545' : '#fff'}" stroke="#333" stroke-width="1.5"/>`
+      + (ruin
+        ? '<text x="12" y="12.5" fill="#fff" font-size="13" font-weight="700" text-anchor="middle" dominant-baseline="central">R</text>'
+        : '<path d="M12 7v10M7 12h10" stroke="#333" stroke-width="2" stroke-linecap="round"/>')
+      + '</svg>';
   }
 
   function renderReview() {
     const c = counts();
-    const rows = [['Clearings', c.clearings, config.expected.clearings], ['Forests', c.forests, config.expected.forests],
-                  ['Building spaces', c.buildings, config.expected.buildings], ['Ruins', c.ruins, config.expected.ruins]];
-    const list = document.getElementById('mb-review-counts');
-    list.innerHTML = '';
-    for (const [label, n, expected] of rows) {
-      const li = document.createElement('li');
-      li.textContent = `${label}: ${n}`;
+    // Each tile opens the step where that piece is edited.
+    const tiles = [
+      ['clearing', 'Clearings', c.clearings, config.expected.clearings, STEP_CLEARINGS],
+      ['building', 'Building Slots', c.buildings, config.expected.buildings, STEP_BUILDINGS],
+      ['ruin', 'Ruins', c.ruins, config.expected.ruins, STEP_BUILDINGS],
+      ['forest', 'Forests', c.forests, config.expected.forests, STEP_FORESTS],
+    ];
+    const grid = document.getElementById('mb-review-counts');
+    grid.innerHTML = '';
+    for (const [kind, label, n, expected, editStep] of tiles) {
+      const tile = document.createElement('button');
+      tile.type = 'button';
+      tile.className = 'mb-sum-tile';
+      tile.setAttribute('aria-label', `${label}: ${n}. Edit ${label.toLowerCase()}`);
+      tile.addEventListener('click', () => goTo(editStep));
+      tile.innerHTML = `<div class="mb-sum-icon">${iconSvg(kind)}</div>`
+        + `<div class="mb-sum-count">${n}</div><div class="mb-sum-label"></div>`;
+      tile.querySelector('.mb-sum-label').textContent = label;
       if (expected !== null && expected !== undefined && expected !== n) {
-        li.textContent += ` (the post says ${expected}; saving updates it to ${n})`;
-        li.className = 'text-warning-emphasis';
+        const pill = document.createElement('span');
+        pill.className = 'mb-sum-pill';
+        pill.textContent = `${expected} → ${n}`;
+        pill.title = `The Map currently has ${expected}. Completing the map updates it to ${n}.`;
+        tile.appendChild(pill);
       }
-      list.appendChild(li);
+      grid.appendChild(tile);
     }
+
+    // How the clearing suits are handled.
+    const suits = document.getElementById('mb-review-suits');
+    suits.innerHTML = '';
+    if (config.fixed) {
+      const tally = { fox: 0, rabbit: 0, mouse: 0, bird: 0 };
+      let unset = 0;
+      for (const cl of state.clearings) {
+        if (tally[cl.suit] !== undefined) tally[cl.suit] += 1; else unset += 1;
+      }
+      for (const [suit, n] of Object.entries(tally)) {
+        if (!n) continue;
+        const chip = document.createElement('span');
+        chip.className = 'mb-suit-chip';
+        chip.title = suit.charAt(0).toUpperCase() + suit.slice(1);
+        chip.innerHTML = `<img src="${config.suit_icons[suit]}" alt=""><span></span>`;
+        chip.querySelector('span').textContent = `${chip.title} ${n}`;
+        suits.appendChild(chip);
+      }
+      if (unset) {
+        const chip = document.createElement('span');
+        chip.className = 'mb-suit-chip mb-suit-chip-unset';
+        chip.textContent = `No suit ${unset}`;
+        suits.appendChild(chip);
+      }
+    } else {
+      const note = document.createElement('span');
+      note.className = 'mb-suit-note';
+      note.innerHTML = `<img src="${config.random_icon}" alt=""><span></span>`;
+      note.querySelector('span').textContent = 'Random suits: shuffled each time the map loads.';
+      suits.appendChild(note);
+    }
+
     const problems = document.getElementById('mb-review-problems');
     problems.innerHTML = '';
     const local = localErrors();
@@ -363,12 +431,25 @@
     btn.querySelector('span').textContent = saved ? btn.dataset.savedLabel : btn.dataset.label;
   }
 
+  // Remove a clearing and close the gap in the numbers. The selection and a
+  // clearing waiting for its marker refer to clearings by position, so they're
+  // moved along (or cleared if they were this one).
+  function removeClearing(index) {
+    const removed = state.clearings.splice(index, 1)[0];
+    if (!removed) return;
+    for (const c of state.clearings) if (c.number > removed.number) c.number -= 1;
+    if (pendingMarker === index) pendingMarker = null;
+    else if (pendingMarker !== null && pendingMarker > index) pendingMarker -= 1;
+    if (selected && selected.kind === 'clearing') {
+      if (selected.index === index) selected = null;
+      else if (selected.index > index) selected = { kind: 'clearing', index: selected.index - 1 };
+    }
+  }
+
   function deleteSelected() {
     if (!selected) return;
     if (selected.kind === 'clearing') {
-      const removed = state.clearings.splice(selected.index, 1)[0];
-      for (const c of state.clearings) if (c.number > removed.number) c.number -= 1;
-      if (pendingMarker === selected.index) pendingMarker = null;
+      removeClearing(selected.index);
     } else if (selected.kind === 'forest') {
       state.forests.splice(selected.index, 1);
     } else if (selected.kind === 'building') {
@@ -394,7 +475,32 @@
     return { kind: target.dataset.kind, index: Number(target.dataset.index) };
   }
 
+  // Only one finger edits: a second finger is the start of a pinch-zoom, so it's
+  // left to the browser and whatever the first finger began is undone.
+  const pressed = new Set();
+  let activePointer = null;
+
+  function abandonDrag() {
+    if (drag && drag.kind === 'new-marker' && !state.clearings[drag.index].marker) removeClearing(drag.index);
+    if (drag && drag.fromPending && state.clearings[drag.index]) {
+      // The marker had only just been placed by this press: wait for it again.
+      state.clearings[drag.index].marker = null;
+      pendingMarker = drag.index;
+    }
+    drag = null;
+    activePointer = null;
+    document.body.classList.remove('mb-dragging');
+    render();
+  }
+
   svg.addEventListener('pointerdown', (evt) => {
+    const second = !evt.isPrimary || pressed.size > 0;
+    pressed.add(evt.pointerId);
+    if (second) {
+      if (activePointer !== null) abandonDrag();
+      return;
+    }
+    activePointer = evt.pointerId;
     // Don't let a press on the board start a text selection or a native drag,
     // and keep the whole page unselectable until the drag ends.
     evt.preventDefault();
@@ -403,6 +509,12 @@
     const p = pointer(evt);
     const h = hit(evt);
     svg.setPointerCapture(evt.pointerId);
+
+    // Review: clicking a piece opens its step with it selected for editing.
+    if (step === STEPS.length - 1) {
+      if (h) editFromReview(h);
+      return;
+    }
 
     if (step === STEP_TRACK && h) {
       if (h.kind === 'track') drag = { kind: 'track', offset: p[1] - state.track_y * H };
@@ -417,7 +529,7 @@
       if (pendingMarker !== null && !h) {
         state.clearings[pendingMarker].marker = norm(...p);
         setDefaultAngle(state.clearings[pendingMarker]);
-        drag = { kind: 'marker', index: pendingMarker };
+        drag = { kind: 'marker', index: pendingMarker, fromPending: true };
         pendingMarker = null;
         changed();
         return;
@@ -475,6 +587,23 @@
     }
   });
 
+  // From the review: go to the piece's step and select it (its edit pop-up opens).
+  function editFromReview(h) {
+    const target = {
+      track: [STEP_TRACK, null], items: [STEP_TRACK, null],
+      centre: [STEP_CLEARINGS, 'clearing'], marker: [STEP_CLEARINGS, 'clearing'], number: [STEP_CLEARINGS, 'clearing'],
+      building: [STEP_BUILDINGS, 'building'], forest: [STEP_FORESTS, 'forest'],
+    }[h.kind];
+    if (!target) return;
+    activePointer = null;
+    document.body.classList.remove('mb-dragging');
+    goTo(target[0]);
+    if (target[1] && Number.isInteger(h.index)) {
+      selected = { kind: target[1], index: h.index };
+      render();
+    }
+  }
+
   function setDefaultAngle(c) {
     // The number tile starts opposite the marker.
     const centre = px(c.centre), m = px(c.marker);
@@ -482,7 +611,7 @@
   }
 
   svg.addEventListener('pointermove', (evt) => {
-    if (!drag) return;
+    if (!drag || evt.pointerId !== activePointer) return;
     const p = pointer(evt);
     if (drag.kind === 'track') {
       state.track_y = Math.min(Math.max((p[1] - drag.offset) / H, 0), 1);
@@ -523,8 +652,19 @@
     drag = null;
     if (wasDragging) render();   // the edit pop-up hides while dragging
   }
-  svg.addEventListener('pointerup', endDrag);
-  svg.addEventListener('pointercancel', endDrag);
+  svg.addEventListener('pointerup', (evt) => {
+    pressed.delete(evt.pointerId);
+    if (evt.pointerId === activePointer) {
+      activePointer = null;
+      endDrag();
+    }
+  });
+  // The browser cancels a press when it takes the gesture over (a pinch-zoom):
+  // undo anything that press started.
+  svg.addEventListener('pointercancel', (evt) => {
+    pressed.delete(evt.pointerId);
+    if (evt.pointerId === activePointer) abandonDrag();
+  });
 
   document.addEventListener('keydown', (evt) => {
     if (cardOpen()) {
@@ -540,10 +680,7 @@
       deleteSelected();
     }
     if (evt.key === 'Escape') {
-      if (pendingMarker !== null) {
-        state.clearings.splice(pendingMarker, 1);
-        pendingMarker = null;
-      }
+      if (pendingMarker !== null) removeClearing(pendingMarker);
       selected = null;
       render();
     }
@@ -643,6 +780,8 @@
   // Shown on the Clearings step where the item track sits (unused there).
   const modePanel = document.getElementById('mb-suit-mode');
   let modeFolded = false;
+  let modeTouched = false;   // folded or unfolded by the user (or an outside press)
+  const COMPACT_BELOW = 160; // item track narrower than this on screen: compact panel
 
   function setFixed(fixed) {
     if (config.fixed === fixed) return;
@@ -661,44 +800,215 @@
     modePanel.querySelectorAll('.mb-mode-image img').forEach(img => {
       img.style.opacity = (img.dataset.mode === 'fixed') === fixed ? '1' : '0';
     });
-    modePanel.querySelectorAll('.mb-mode-switch button').forEach(btn => {
+    modePanel.querySelectorAll('.mb-mode-switch button, .mb-mode-icons button').forEach(btn => {
       btn.setAttribute('aria-pressed', (btn.dataset.mode === 'fixed') === fixed ? 'true' : 'false');
     });
     const fold = document.getElementById('mb-mode-fold');
     fold.setAttribute('aria-expanded', modeFolded ? 'false' : 'true');
 
-    // Anchor at the item grid's top-left, in board pixels; keep it inside the board.
+    const { width: gridWidth, area } = itemTrackBox();
+    // Small screens: start folded down to icons; unfold for the full card.
+    const compact = gridWidth < COMPACT_BELOW;
+    if (compact && !modeTouched) modeFolded = true;
+    modePanel.classList.toggle('compact', compact);
+    modePanel.classList.toggle('folded', modeFolded);
+    fold.setAttribute('aria-expanded', modeFolded ? 'false' : 'true');
+    const width = compact && modeFolded
+      ? Math.min(Math.max(gridWidth, 120), area.width - 8)
+      : Math.min(Math.max(gridWidth, 200), 300, area.width - 8);
+    modePanel.style.width = `${width}px`;
+    // Folded, the card should stay within the item track, so a title that would
+    // wrap falls back to the short one. Expanded (taller anyway) it's always full.
+    const title = document.getElementById('mb-mode-title');
+    title.textContent = title.dataset.full;
+    if (modeFolded) {
+      const lineHeight = parseFloat(getComputedStyle(title).lineHeight) || title.offsetHeight;
+      if (title.offsetHeight > lineHeight * 1.5) title.textContent = title.dataset.short;
+    }
+    placeOnItemTrack(modePanel, width);
+  }
+
+  // The item grid's box on screen (board pixels): where the step cards sit.
+  function itemTrackBox() {
     const slots = itemSlots();
     const half = ITEM.step_x * PPL * 0.5;
     const area = board.getBoundingClientRect();
     const scale = area.width / W;
-    const gridLeft = (Math.min(...slots.map(s => s[0])) - half) * scale;
-    const gridTop = (Math.min(...slots.map(s => s[1])) - half) * scale;
-    const gridWidth = (Math.max(...slots.map(s => s[0])) - Math.min(...slots.map(s => s[0])) + 2 * half) * scale;
-    const width = Math.min(Math.max(gridWidth, 200), 300, area.width - 8);
-    modePanel.style.width = `${width}px`;
-    const left = Math.min(Math.max(gridLeft, 4), area.width - width - 4);
-    const top = Math.min(Math.max(gridTop, 4), Math.max(area.height - modePanel.offsetHeight - 4, 4));
-    modePanel.style.left = `${left}px`;
-    modePanel.style.top = `${top}px`;
+    const xs = slots.map(s => s[0]), ys = slots.map(s => s[1]);
+    return {
+      area, scale,
+      left: (Math.min(...xs) - half) * scale,
+      top: (Math.min(...ys) - half) * scale,
+      width: (Math.max(...xs) - Math.min(...xs) + 2 * half) * scale,
+    };
   }
+
+  // Anchor a card at the item grid's top-left, kept inside the board.
+  // width: a pixel width, or null to fit the card's content.
+  function placeOnItemTrack(card, width) {
+    const box = itemTrackBox();
+    card.style.width = width === null ? 'auto' : `${width}px`;
+    if (width === null) width = card.offsetWidth;
+    const left = Math.min(Math.max(box.left, 4), box.area.width - width - 4);
+    const top = Math.min(Math.max(box.top, 4), Math.max(box.area.height - card.offsetHeight - 4, 4));
+    card.style.left = `${left}px`;
+    card.style.top = `${top}px`;
+  }
+
+  // ── Count cards ───────────────────────────────────────────────────────────
+  // Buildings & Ruins and Forests: a card over the item track. Clearings: a
+  // slim pill centred on the VP track (the item track holds Clearing Distribution).
+  const countCard = document.getElementById('mb-count-card');
+  let countExpanded = false;   // small screens: the count card's full rows shown
+  const clearingPill = document.getElementById('mb-clearing-count');
+  const COUNT_ROWS = {
+    [STEP_CLEARINGS]: [['clearing', 'clearings', 'Clearings']],
+    // An optional 4th entry is a shorter label for when the full one doesn't fit.
+    [STEP_BUILDINGS]: [['building', 'buildings', 'Building Slots', 'Buildings'], ['ruin', 'ruins', 'Ruins']],
+    [STEP_FORESTS]: [['forest', 'forests', 'Forests']],
+  };
+
+  // compact: no labels. brief: just the current number (no "/ expected").
+  function countRowsHtml(rows, compact, brief = false, short = false) {
+    const c = counts();
+    return rows.map(([icon, key, fullLabel, shortLabel]) => {
+      const label = short && shortLabel ? shortLabel : fullLabel;
+      const n = c[key], expected = config.expected[key];
+      const known = expected !== null && expected !== undefined;
+      const off = known && n !== expected ? ' off' : '';
+      const figure = known && !brief ? `${n} / ${expected}` : `${n}`;
+      return `<div class="mb-count-row"><span class="mb-count-icon">${iconSvg(icon)}</span>`
+        + `<span class="mb-count-figure${off}">${figure}</span>`
+        + (compact ? '' : `<span class="mb-count-label">${label}</span>`) + '</div>';
+    }).join('');
+  }
+
+  // Buildings & Ruins / Forests card, built like the Clearing Distribution
+  // card: on small screens it folds to a row of badges (each count drawn inside
+  // its piece's icon) with a corner chevron that slides open the full rows
+  // ("12 / 22 Building Slots"); larger screens always show the full rows.
+  // Built once per step and screen size and then updated in place, so the
+  // fold animates.
+  let countCardKey = null;
+
+  function countBadgesHtml(rows) {
+    const c = counts();
+    return rows.map(([icon, key, label]) => {
+      const n = c[key], expected = config.expected[key];
+      const off = expected !== null && expected !== undefined && n !== expected ? ' off' : '';
+      return `<span class="mb-count-badge mb-badge-${icon}${off}" title="${label}">${n}</span>`;
+    }).join('');
+  }
+
+  function updateCountCard(rows, box, compact) {
+    const key = `${step}|${compact}`;
+    if (key !== countCardKey) {
+      countCardKey = key;
+      countCard.classList.toggle('compact', compact);
+      countCard.innerHTML =
+        (compact ? '<button type="button" class="mb-count-fold" aria-label="Show details" aria-expanded="false">'
+          + '<i class="bi bi-chevron-up"></i></button>'
+          + '<div class="mb-count-brief"><div class="mb-count-badges"></div></div>' : '')
+        + '<div class="mb-count-body"><div class="mb-count-body-inner"></div></div>';
+    }
+    const inner = countCard.querySelector('.mb-count-body-inner');
+    inner.innerHTML = countRowsHtml(rows, false);
+    if (!compact) {
+      countCard.classList.remove('folded');
+      placeOnItemTrack(countCard, Math.min(Math.max(box.width, 150), 240, box.area.width - 8));
+      // Just above small screens the card is narrow: use the short labels
+      // ("Buildings") when the full ones don't fit on their line.
+      if (inner.scrollWidth > inner.clientWidth) inner.innerHTML = countRowsHtml(rows, false, false, true);
+      return;
+    }
+    const folded = !countExpanded;
+    countCard.classList.toggle('folded', folded);
+    countCard.querySelector('.mb-count-badges').innerHTML = countBadgesHtml(rows);
+    const fold = countCard.querySelector('.mb-count-fold');
+    fold.setAttribute('aria-expanded', folded ? 'false' : 'true');
+    fold.setAttribute('aria-label', folded ? 'Show details' : 'Hide details');
+    // Folded: as wide as the badges plus the chevron. Expanded: room for the rows.
+    // Padding is the same in both states (8px left, 32px right for the chevron).
+    const width = folded
+      ? countCard.querySelector('.mb-count-badges').scrollWidth + 8 + 32
+      : Math.max(countCard.querySelector('.mb-count-body-inner').scrollWidth + 8 + 32, 180);
+    placeOnItemTrack(countCard, Math.min(width, box.area.width - 8));
+  }
+
+  function updateCountCards() {
+    const box = itemTrackBox();
+    const compact = box.width < COMPACT_BELOW;
+
+    // Buildings & Ruins / Forests card.
+    const rows = step === STEP_CLEARINGS ? null : COUNT_ROWS[step];
+    countCard.classList.toggle('d-none', !rows);
+    if (rows) updateCountCard(rows, box, compact);
+
+    // Clearings pill, centred on the VP track and kept between its grey rows.
+    const onClearings = step === STEP_CLEARINGS;
+    clearingPill.classList.toggle('d-none', !onClearings);
+    if (onClearings) {
+      const cols = trackColumns();
+      const gap = config.track.row_gap * PPL * box.scale;
+      const height = Math.min(Math.max(gap * 1.8, 24), 40);
+      clearingPill.style.height = `${height}px`;
+      clearingPill.style.fontSize = `${Math.min(Math.max(height * 0.45, 12), 17)}px`;
+      clearingPill.style.setProperty('--mb-pill-icon', `${Math.round(Math.min(Math.max(height * 0.45, 12), 18))}px`);
+      // The VP track spans nearly the whole board, so the full text fits even on
+      // small screens; drop the label only if the pill would be wider than the track.
+      clearingPill.innerHTML = countRowsHtml(COUNT_ROWS[STEP_CLEARINGS], false);
+      const trackWidth = (Math.max(...cols) - Math.min(...cols)) * box.scale;
+      if (clearingPill.offsetWidth > trackWidth) {
+        clearingPill.innerHTML = countRowsHtml(COUNT_ROWS[STEP_CLEARINGS], true);
+      }
+      const cx = (Math.min(...cols) + Math.max(...cols)) / 2 * box.scale;
+      const cy = state.track_y * H * box.scale;
+      const w = clearingPill.offsetWidth;
+      const left = Math.min(Math.max(cx - w / 2, 4), box.area.width - w - 4);
+      clearingPill.style.left = `${left}px`;
+      clearingPill.style.top = `${cy - height / 2}px`;
+    }
+  }
+
+  countCard.addEventListener('pointerdown', (evt) => evt.stopPropagation());
+  countCard.addEventListener('click', (evt) => {
+    if (!evt.target.closest('.mb-count-fold')) return;
+    countExpanded = !countExpanded;
+    updateCountCards();
+  });
+  // Like Clearing Distribution: a press anywhere outside an expanded card
+  // (except on a step card) folds it again.
+  document.addEventListener('pointerdown', (evt) => {
+    if (!countExpanded || countCard.contains(evt.target) || evt.target.closest('#mb-step-card')) return;
+    countExpanded = false;
+    updateCountCards();
+  }, true);
+  clearingPill.addEventListener('pointerdown', (evt) => evt.stopPropagation());
+  window.addEventListener('resize', updateCountCards);
 
   modePanel.addEventListener('pointerdown', (evt) => evt.stopPropagation());
   modePanel.querySelectorAll('.mb-mode-switch button').forEach(btn => {
     btn.addEventListener('click', () => setFixed(btn.dataset.mode === 'fixed'));
   });
+  modePanel.querySelectorAll('.mb-mode-icons button').forEach(btn => {
+    btn.addEventListener('click', () => setFixed(btn.dataset.mode === 'fixed'));
+  });
   document.getElementById('mb-mode-image').addEventListener('click', () => setFixed(!config.fixed));
   document.getElementById('mb-mode-fold').addEventListener('click', () => {
     modeFolded = !modeFolded;
+    modeTouched = true;
     updateSuitMode();
   });
   window.addEventListener('resize', updateSuitMode);
+  // Luminari may load after the first layout; re-check the title then.
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(updateSuitMode);
   // The panel opens unfolded, then folds on the first press anywhere outside it
   // (except on a step card), once you start working.
   document.addEventListener('pointerdown', (evt) => {
     if (modeFolded || step !== STEP_CLEARINGS || modePanel.classList.contains('d-none')) return;
     if (modePanel.contains(evt.target) || evt.target.closest('#mb-step-card')) return;
     modeFolded = true;
+    modeTouched = true;
     updateSuitMode();
   }, true);
   window.addEventListener('scroll', updatePopover, { passive: true });
@@ -707,9 +1017,7 @@
   function goTo(n) {
     step = Math.min(Math.max(n, 0), STEPS.length - 1);
     selected = null;
-    if (pendingMarker !== null && !state.clearings[pendingMarker].marker) {
-      state.clearings.splice(pendingMarker, 1);
-    }
+    if (pendingMarker !== null && !state.clearings[pendingMarker].marker) removeClearing(pendingMarker);
     pendingMarker = null;
     render();
     introduceStep();
@@ -739,7 +1047,9 @@
       visited.add(STAGE_OF_STEP[step]);
       state.visited = Array.from(visited).sort();
     }
-    if (introduced.has(step)) return;
+    // Cards open by themselves only until the user's first finished map; the
+    // info button beside the title always shows them.
+    if (!config.show_intros || introduced.has(step)) return;
     introduced.add(step);
     openCard();
   }
@@ -750,7 +1060,10 @@
 
   function openCard() {
     document.getElementById('mb-card-heading').textContent = STEPS[step].heading;
-    document.getElementById('mb-card-hint').textContent = STEPS[step].hint;
+    // On touch screens, mention that two fingers zoom (one finger edits).
+    const touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    document.getElementById('mb-card-hint').textContent =
+      STEPS[step].hint + (touch && step !== STEPS.length - 1 ? ' Pinch with two fingers to zoom in.' : '');
     cardReturn = document.activeElement;
     card.classList.add('show');
     card.setAttribute('aria-hidden', 'false');
@@ -798,8 +1111,9 @@
       dirty = false;
       showSaved(true);
     }
+    // No message for a plain save: the Save button already reads "Saved", and the
+    // counters show the Map's new figures.
     if (result.changes && result.changes.length) {
-      box.appendChild(alertBox('info', ['Updated the post: ' + result.changes.join(', ') + '.']));
       // Only the stages the server counted now match the Map.
       const KEYS = { clearings: ['clearings'], buildings: ['buildings', 'ruins'], forests: ['forests'] };
       for (const stage of result.counted || []) {

@@ -572,6 +572,9 @@ class Profile(models.Model):
     designer_onboard = models.BooleanField(default=False)
     admin_onboard = models.BooleanField(default=False)
     forge_onboard = models.BooleanField(default=False)
+    # Set once the user has completed their first map in the map builder; until
+    # then each builder step opens with its explanatory card.
+    map_builder_onboard = models.BooleanField(default=False)
     trusted_tournament_host = models.BooleanField(default=False)
     admin_nominated = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='nominated_by')
     admin_dismiss = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='dismissed_by')

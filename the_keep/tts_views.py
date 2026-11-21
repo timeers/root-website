@@ -281,6 +281,10 @@ def map_builder(request, slug):
             else:
                 ok, message = generate_tts_json(post, profile=request.user.profile)
                 result.update(ok=ok, generated=ok, message=message)
+                if ok and not request.user.profile.map_builder_onboard:
+                    # Their first finished map: the step cards stop opening by themselves.
+                    type(request.user.profile).objects.filter(pk=request.user.profile.pk).update(
+                        map_builder_onboard=True)
                 if ok:
                     messages.success(request, "Generated the map's TTS JSON.")
                     result['redirect'] = reverse_manage(post)
@@ -318,6 +322,9 @@ def map_builder(request, slug):
                 'marker_px': [3.164 * 1.3 / BOARD_SCALE * geometry.px_per_local,
                               1.575 * 1.3 / BOARD_SCALE * geometry.px_per_local],
                 'save_url': request.path,
+                # Step cards open by themselves until the user's first finished map.
+                'show_intros': not request.user.profile.map_builder_onboard,
+                'random_icon': static('images/ClearingsRandom.png'),
                 'manage_url': reverse_manage(post),
             },
             'ratio_warning': not (1.0 <= ratio <= 1.2),

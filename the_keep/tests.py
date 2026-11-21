@@ -1319,3 +1319,37 @@ class MapBuilderTests(TestCase):
         self.assertFalse(self.client.get(self._builder_url()).context['config']['fixed'])
         self.assertTrue(_clean_state({'fixed': True})['fixed'])
         self.assertNotIn('fixed', _clean_state({'fixed': 'yes'}))
+
+    def test_ruin_item_sides_are_cleared_with_the_map_and_extra_ruins_are_marked(self):
+        from the_keep.services.tts_map import build_map_tts_json, RUIN_EXTRA_NOTE
+        save = build_map_tts_json(self.map, self._state(buildings=9, ruins=9))
+        ruins = [o for o in save['ObjectStates'] if 'Ruin' in (o.get('Tags') or [])]
+        self.assertEqual(len(ruins), 9)
+        # Flipped to its item, a ruin is still a map piece (so a new map clears it).
+        for ruin in ruins:
+            self.assertTrue(ruin['States'])
+            for side in ruin['States'].values():
+                self.assertEqual(side['Tags'], ['Map Object'])
+        # Ruins 1-4 keep their own items; later ones are dealt by the loader at spawn.
+        firsts = [r['States']['2']['CustomImage']['ImageURL'] for r in ruins[:4]]
+        self.assertEqual(len(set(firsts)), 4)
+        self.assertTrue(all(r.get('GMNotes', '') != RUIN_EXTRA_NOTE for r in ruins[:4]))
+        self.assertTrue(all(r['GMNotes'] == RUIN_EXTRA_NOTE for r in ruins[4:]))
+        self.assertTrue(all(r['States']['2']['CustomImage']['ImageURL'] in firsts for r in ruins[4:]))
+
+    def test_step_cards_open_by_themselves_only_until_the_first_finished_map(self):
+        from the_gatehouse.models import Profile
+        self.client.force_login(self.designer_user)
+        self.assertTrue(self.client.get(self._builder_url()).context['config']['show_intros'])
+        # A plain save doesn't count as finishing a map.
+        state = self._state()
+        self.client.post(self._builder_url(), json.dumps({'state': state}), content_type='application/json')
+        self.assertFalse(Profile.objects.get(pk=self.designer_user.profile.pk).map_builder_onboard)
+        # Completing one does.
+        result = self.client.post(self._builder_url(), json.dumps({'state': state, 'generate': True}),
+                                  content_type='application/json').json()
+        self.assertTrue(result['generated'], result)
+        self.assertTrue(Profile.objects.get(pk=self.designer_user.profile.pk).map_builder_onboard)
+        config = self.client.get(self._builder_url()).context['config']
+        self.assertFalse(config['show_intros'])
+        self.assertIn('ClearingsRandom.png', config['random_icon'])

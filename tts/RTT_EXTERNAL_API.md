@@ -469,7 +469,9 @@ RTT_EXTERNAL = RTT_EXTERNAL or { landmarks = {}, hirelings = {}, layouts = {} }
 --   objects = { { json = "<object JSON>", x =, y =, z =, board = true|nil }, ... },
 -- }
 -- Each object's x/y/z is its offset from the board; the board sits at the
--- table centre at the same height built-in boards use (move_to.y + 11.46).
+-- table centre at the same height built-in boards use: move_to.y + 11.46, and
+-- every built-in board's move_to.y is 0.15. The board is locked, so any lower
+-- and it sits inside the table.
 function rttPlaceExternalMap(params)
   if type(params) ~= "table" or type(params.objects) ~= "table" or #params.objects == 0 then
     return { ok = false, reason = "No map objects given." }
@@ -484,7 +486,7 @@ function rttPlaceExternalMap(params)
     local json = o.json
     specs[#specs + 1] = {
       json = json,
-      position = { o.x or 0, (o.y or 0) + 11.46, o.z or 0 },
+      position = { o.x or 0, (o.y or 0) + 11.61, o.z or 0 },
       callback_function = function(spawned_object)
         rttMapPieceCallback(spawned_object, isBoard, name, fivep)
         if type(json) == "string" and string.find(json, "Clearing Marker", 1, true) then

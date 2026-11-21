@@ -29,18 +29,20 @@ ASSETS_DIR = Path(settings.BASE_DIR) / 'the_keep' / 'static' / 'images' / 'tts' 
 ASSETS_STATIC = 'images/tts/assets/'
 
 BOARD_SCALE = 12.9794          # every official board
-HALF_WIDTH = 2.0               # local units from the board's centre to its image's left/right edge
+# Local units from the board's centre to its image's left/right edge. Fitted on
+# all six official boards (their VP track snaps against the track printed on
+# their art): 1.947-1.963, mean 1.957. An error here grows towards the edges.
+HALF_WIDTH = 1.957
 SNAP_Y = 0.05
 
-# VP track: 31 cells (scores 0-30) in 3 rows, centred on the board. The
-# spacing matches the track PRINTED on the six official board images
-# (0.1228-0.1240 local units per cell, measured); the RTT mod's own snaps sit
-# about 2.5% tighter (0.1202), within the Box Score's tolerance either way.
+# VP track: 31 cells (scores 0-30) in 3 rows, centred on the board, at the
+# spacing of the official boards' snaps (0.1202-0.1209), which sit on the track
+# printed on their art.
 TRACK_CELLS = 31
-TRACK_STEP = 0.1232
+TRACK_STEP = 0.1205
 TRACK_X0 = -TRACK_STEP * (TRACK_CELLS - 1) / 2
 TRACK_ROW_GAP = 0.112
-DEFAULT_TRACK_Z = 1.668        # centre of the track printed on the official boards (local z)
+DEFAULT_TRACK_Z = 1.632        # centre of the track printed on the official boards (local z)
 DEFAULT_ITEMS = (1.078, -1.673)   # the Summer map's top-left item slot (local x, z)
 
 # A clearing's number tile is a round tile at scale 1.0; it sits just outside
@@ -54,6 +56,8 @@ HEIGHT_NUMBER = 0.03
 BOARD_Y = 1.0
 
 SUITS = ('fox', 'rabbit', 'mouse', 'bird')
+# GM note on ruins past the fourth, whose items the loader draws at spawn.
+RUIN_EXTRA_NOTE = 'rdb:ruin:extra'
 SHUFFLED_SUITS = ('fox', 'rabbit', 'mouse')
 
 
@@ -90,7 +94,7 @@ class MapGeometry:
     """Image (u, v in 0-1) <-> board-local (x, z) <-> table offsets.
 
     Image left is local +x and image top is local -z (the board lies rotated
-    180 degrees); a board image spans 2.0 local units either side of centre
+    180 degrees); a board image spans HALF_WIDTH local units either side of centre
     across its width. Table offsets are from the board's centre, along the
     table's axes, for the board at its 180-degree rotation."""
 
@@ -183,7 +187,7 @@ def _counts(state):
     return (
         ('clearings', 'clearings', 'clearings', len(state.get('clearings') or [])),
         ('forests', 'forests', 'forests', len(state.get('forests') or [])),
-        ('buildings', 'building spaces', 'building_slots', len(buildings)),
+        ('buildings', 'building slots', 'building_slots', len(buildings)),
         ('buildings', 'ruins', 'ruins', sum(1 for b in buildings if b.get('ruin'))),
     )
 
@@ -322,7 +326,17 @@ def build_map_tts_json(map_post, state):
         if building.get('ruin'):
             dx, dz = geometry.to_table(*building['at'])
             template = ruin_templates[ruin_count % len(ruin_templates)]
-            objects.append(_piece(template, dx, dz, HEIGHT_TILE, ['Ruin', 'Map Object']))
+            ruin = _piece(template, dx, dz, HEIGHT_TILE, ['Ruin', 'Map Object'])
+            # The item side ("Press 2 for ITEM") must be cleared with the map
+            # too, so it's tagged as well -- but not "Ruin", which the
+            # coordinator's ruin shuffle and locking act on.
+            for item_side in (ruin.get('States') or {}).values():
+                item_side['Tags'] = ['Map Object']
+            # Ruins past the fourth: the loader deals their items when the map
+            # spawns (tts/loader.lua, drawRuinItems); this item is the default.
+            if ruin_count >= len(ruin_templates):
+                ruin['GMNotes'] = RUIN_EXTRA_NOTE
+            objects.append(ruin)
             ruin_count += 1
 
     slots = item_slots(geometry, state)

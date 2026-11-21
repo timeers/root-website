@@ -41,7 +41,8 @@ RTT_COORD_GUID = "bab7e1"
 VP_PANEL_OFFSET = {x = 3, z = -5}       -- panel position relative to its VP marker; tune in game
 
 -- Maps and decks on the RTT table go where the coordinator puts its own.
-MAP_CENTER = {x = 0, y = 11.46, z = 0}   -- table centre at makeMap's board height (move_to.y + 11.46)
+MAP_CENTER = {x = 0, y = 11.61, z = 0}   -- where makeMap puts a board: move_to.y (0.15 for every board) + 11.46;
+                                         -- the board is locked, so any lower and it sits inside the table
 MAP_SETTLE_SECONDS = 2.5                -- let a map spawn before shuffling / placing VP tokens
 DECK_HOLDER_GUID = "aa1464"             -- the RTT deck holder
 DECK_DRAW_SLOT = {0.957, 0.178, 0.222}  -- its draw slot, in holder-local coordinates
@@ -151,6 +152,22 @@ local function buildXml()
 </Panel>
 <!-- Close button, as on the TTS Faction Board, in the margin at the top right. -->
 ]] .. closeButton .. [[
+<!-- Asks before replacing the table's map or deck, like the RTT buttons do. -->
+<Panel id="confirm" active="false" position="0 0 -22" width="]] .. PANEL_W .. [[" height="]] .. PANEL_H .. [["
+       scale="0.25 0.25 1" color="#000000AA">
+  <Panel width="520" height="230" color="#2B2118" outline="#C8A86B" outlineSize="3 3">
+    <VerticalLayout padding="24" spacing="14" childForceExpandHeight="false">
+      <Text id="confirmTitle" fontSize="26" fontStyle="Bold" preferredHeight="36"
+            alignment="MiddleCenter">This will reset the map.</Text>
+      <Text id="confirmText" fontSize="17" preferredHeight="48" alignment="MiddleCenter"></Text>
+      <HorizontalLayout spacing="16" preferredHeight="48" childForceExpandWidth="true">
+        ]] .. buttonXml("confirmCancel", "Cancel", "onConfirmCancel", 'fontSize="18"') .. [[
+        ]] .. buttonXml("confirmGo", "Replace", "onConfirmGo",
+          'fontSize="18" fontStyle="Bold" color="#bd2608" textColor="#FFFFFF"') .. [[
+      </HorizontalLayout>
+    </VerticalLayout>
+  </Panel>
+</Panel>
 ]]
 end
 
@@ -382,6 +399,24 @@ function onRefreshClick(player, mouseButton, id)
   fetchCatalog()
 end
 
+-- A map or deck the table already has, which loading this entry would replace
+-- (only on the RTT table: elsewhere new items spawn beside the old ones).
+-- Mirrors the coordinator's own checks (rttMapWouldChange / rttDeckOnTable).
+local function wouldReplace(entry)
+  if entry.component ~= "Map" and entry.component ~= "Deck" then
+    return nil
+  end
+  if not getObjectFromGUID(RTT_COORD_GUID) then
+    return nil
+  end
+  local tag = (entry.component == "Map") and "Map Object" or "Deck Object"
+  local found = false
+  pcall(function() found = #(getObjectsWithTag(tag) or {}) > 0 end)
+  return found and string.lower(entry.component) or nil
+end
+
+pendingConfirm = nil   -- {entry, player} waiting on the confirm panel
+
 function onRowClick(player, mouseButton, id)
   local entry = rowItems[tonumber(string.sub(id, 4))]   -- strip "row"
   if not entry then
@@ -390,8 +425,39 @@ function onRowClick(player, mouseButton, id)
   if busy then
     return    -- still loading the last selection; ignore extra clicks
   end
+  local what = wouldReplace(entry)
+  if what then
+    pendingConfirm = {entry = entry, player = player}
+    whenUiReady(function()
+      self.UI.setValue("confirmTitle", "This will reset the " .. what .. ".")
+      self.UI.setValue("confirmText", "The table's current " .. what .. " and its pieces will be replaced by " ..
+        (entry.title or "this " .. what) .. ".")
+      self.UI.setAttribute("confirm", "active", "true")
+    end)
+    return
+  end
+  loadEntry(entry, player)
+end
+
+function onConfirmGo(player, mouseButton, id)
+  local pending = pendingConfirm
+  pendingConfirm = nil
+  self.UI.setAttribute("confirm", "active", "false")
+  if pending and not busy then
+    loadEntry(pending.entry, pending.player)
+  end
+end
+
+function onConfirmCancel(player, mouseButton, id)
+  pendingConfirm = nil
+  self.UI.setAttribute("confirm", "active", "false")
+end
+
+function loadEntry(entry, player)
+  -- Archive entries have a slug, Workshop drafts an id (not the open tab: it
+  -- may have changed while the confirm panel was up).
   local url
-  if section == "keep" then
+  if entry.slug then
     url = BASE_URL .. "/api/tts/keep/" .. entry.slug .. "/"
   else
     url = BASE_URL .. "/api/tts/forge/" .. tostring(entry.id) .. "/"
@@ -662,12 +728,55 @@ end
 
 -- The selected item replaces the library: spawn it where this object sits,
 -- then delete this object. Nothing is deleted if there was nothing to spawn.
+-- Ruins past the fourth (GM note "rdb:ruin:extra") get their item side drawn
+-- now, each time the map spawns, from the map's own four ruin items: a
+-- shuffled bag, refilled when empty, so each group of four extra ruins has no
+-- repeats. The first four ruins keep their items.
+local RUIN_EXTRA = "rdb:ruin:extra"
+
+function drawRuinItems(objects)
+  local extras, items, seen = {}, {}, {}
+  for _, o in ipairs(objects) do
+    if string.find(o.json, '"States"', 1, true) and string.find(o.json, '"Ruin"', 1, true) then
+      local ok, obj = pcall(function() return JSON.decode(o.json) end)
+      if ok and type(obj) == "table" and type(obj.States) == "table" then
+        local side = obj.States["2"]
+        local image = side and side.CustomImage and side.CustomImage.ImageURL
+        if image and not seen[image] then
+          seen[image] = true
+          table.insert(items, side)
+        end
+        if obj.GMNotes == RUIN_EXTRA then
+          table.insert(extras, {entry = o, obj = obj})
+        end
+      end
+    end
+  end
+  if #extras == 0 or #items < 2 then
+    return
+  end
+  local bag = {}
+  for _, extra in ipairs(extras) do
+    if #bag == 0 then
+      for i, item in ipairs(items) do bag[i] = item end
+    end
+    local side = table.remove(bag, math.random(#bag))
+    local copy = JSON.decode(JSON.encode(side))
+    copy.GUID = nil   -- TTS gives the new state its own GUID
+    extra.obj.States["2"] = copy
+    extra.entry.json = JSON.encode(extra.obj)
+  end
+end
+
 function spawnAll(data, player, panelTemplate)
   local objects = (data and data.objects) or {}
   if #objects == 0 then
     broadcastToColor("Nothing to spawn for " .. ((data and data.title) or "that item") .. ".",
       player.color, {1, 0.4, 0.4})
     return
+  end
+  if data.component == "Map" then
+    drawRuinItems(objects)
   end
   local origin = self.getPosition()
   local base = {
