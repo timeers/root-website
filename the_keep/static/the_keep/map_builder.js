@@ -480,8 +480,19 @@
   const pressed = new Set();
   let activePointer = null;
 
+  // A press that turns into a pinch-zoom undoes whatever it created -- even if
+  // the fingers moved first (which sets a new clearing's marker, or drags a new
+  // forest or building).
   function abandonDrag() {
-    if (drag && drag.kind === 'new-marker' && !state.clearings[drag.index].marker) removeClearing(drag.index);
+    if (drag && drag.kind === 'new-marker') removeClearing(drag.index);
+    if (drag && drag.created && drag.kind === 'forest') {
+      state.forests.splice(drag.index, 1);
+      selected = null;
+    }
+    if (drag && drag.created && drag.kind === 'building') {
+      state.buildings.splice(drag.index, 1);
+      selected = null;
+    }
     if (drag && drag.fromPending && state.clearings[drag.index]) {
       // The marker had only just been placed by this press: wait for it again.
       state.clearings[drag.index].marker = null;
@@ -565,7 +576,7 @@
       // Place it and keep it under the pointer, so press-and-drag places and moves it.
       state.forests.push(norm(...p));
       selected = { kind: 'forest', index: state.forests.length - 1 };
-      drag = { kind: 'forest', index: selected.index };
+      drag = { kind: 'forest', index: selected.index, created: true };
       changed();
       return;
     }
@@ -581,7 +592,7 @@
       // Place it and keep it under the pointer, so press-and-drag places and moves it.
       state.buildings.push({ at: norm(...p), ruin: false });
       selected = { kind: 'building', index: state.buildings.length - 1 };
-      drag = { kind: 'building', index: selected.index, offset: [0, 0] };
+      drag = { kind: 'building', index: selected.index, offset: [0, 0], created: true };
       changed();
       return;
     }
@@ -684,6 +695,17 @@
       selected = null;
       render();
     }
+  });
+
+  // A press outside the board deselects, like Escape (a clearing still waiting
+  // for its marker is cancelled). Presses on the board select or place pieces
+  // themselves; step cards are left alone.
+  document.addEventListener('pointerdown', (evt) => {
+    if (selected === null && pendingMarker === null) return;
+    if (evt.target.closest('#mb-board') || evt.target.closest('#mb-step-card')) return;
+    if (pendingMarker !== null) removeClearing(pendingMarker);
+    selected = null;
+    render();
   });
 
   // ── Edit pop-up ──────────────────────────────────────────────────────────
@@ -806,7 +828,9 @@
     const fold = document.getElementById('mb-mode-fold');
     fold.setAttribute('aria-expanded', modeFolded ? 'false' : 'true');
 
-    const { width: gridWidth, area } = itemTrackBox();
+    const trackBox = itemTrackBox();
+    const { width: gridWidth, area } = trackBox;
+    setCompactSizes(trackBox);
     // Small screens: start folded down to icons; unfold for the full card.
     const compact = gridWidth < COMPACT_BELOW;
     if (compact && !modeTouched) modeFolded = true;
@@ -840,7 +864,20 @@
       left: (Math.min(...xs) - half) * scale,
       top: (Math.min(...ys) - half) * scale,
       width: (Math.max(...xs) - Math.min(...xs) + 2 * half) * scale,
+      height: (Math.max(...ys) - Math.min(...ys) + 2 * half) * scale,
     };
+  }
+
+  // Small screens: the folded cards' badges, icons and chevrons are sized from
+  // the item track's height, so the cards stay about as tall as the track.
+  // Sets --mb-c (badge / icon size) and --mb-f (chevron size) on the board;
+  // returns the chevron size for width sums.
+  function setCompactSizes(box) {
+    const c = Math.round(Math.min(Math.max(box.height - 14, 16), 30));
+    const f = Math.min(24, c);
+    board.style.setProperty('--mb-c', `${c}px`);
+    board.style.setProperty('--mb-f', `${f}px`);
+    return f;
   }
 
   // Anchor a card at the item grid's top-left, kept inside the board.
@@ -928,10 +965,11 @@
     fold.setAttribute('aria-expanded', folded ? 'false' : 'true');
     fold.setAttribute('aria-label', folded ? 'Show details' : 'Hide details');
     // Folded: as wide as the badges plus the chevron. Expanded: room for the rows.
-    // Padding is the same in both states (8px left, 32px right for the chevron).
+    // Padding is the same in both states: 6px left, the chevron plus 8px right.
+    const f = setCompactSizes(box);
     const width = folded
-      ? countCard.querySelector('.mb-count-badges').scrollWidth + 8 + 32
-      : Math.max(countCard.querySelector('.mb-count-body-inner').scrollWidth + 8 + 32, 180);
+      ? countCard.querySelector('.mb-count-badges').scrollWidth + 6 + f + 8
+      : Math.max(countCard.querySelector('.mb-count-body-inner').scrollWidth + 6 + f + 8, 180);
     placeOnItemTrack(countCard, Math.min(width, box.area.width - 8));
   }
 
