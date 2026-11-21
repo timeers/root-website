@@ -131,6 +131,23 @@ def fingerprint_setup_card(card):
     })
 
 
+# Bump when the map's print layout changes (tts_map.print_layout, the map
+# engine), so stored map previews and cached PDFs are rebuilt.
+MAP_RENDER_VERSION = 4
+
+
+def fingerprint_map(forged_map):
+    """Everything a Forge map's printed image depends on: its art, the layout
+    and whether its clearings have fixed suits."""
+    return _digest({
+        'render': MAP_RENDER_VERSION,
+        'art': forged_map.art.name if forged_map.art else '',
+        'art_version': forged_map.art_version,
+        'state': forged_map.tts_builder or {},
+        'fixed': bool(forged_map.fixed_clearings),
+    })
+
+
 def fingerprint_components_sheet(faction):
     card = getattr(faction, 'setup_card', None)
     pieces = []

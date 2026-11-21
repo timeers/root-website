@@ -80,6 +80,20 @@ def relationship_marker_upload_path(instance, filename):
     )
 
 
+def map_art_upload_path(instance, filename):
+    return upload_path(
+        slug_parts=[instance.faction.slug, 'map'],
+        filename='art.webp',
+    )
+
+
+def map_preview_upload_path(instance, filename):
+    return upload_path(
+        slug_parts=[instance.faction.slug, 'map'],
+        filename='front.webp',
+    )
+
+
 def card_preview_upload_path(instance, filename):
     return upload_path(
         slug_parts=[instance.faction.slug, 'card'],

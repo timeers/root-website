@@ -234,7 +234,11 @@ def _no_content_message(faction):
 
 def _forbid_if_not_faction(request, forged):
     """Faction-only flows (sheet/back, submit/link/sync to a keep Faction, TTS
-    Library) are limited to Faction and Clockwork drafts."""
+    Library) are limited to Faction and Clockwork drafts. Map drafts go back to
+    their own page."""
+    if forged.is_map:
+        messages.error(request, "That isn't available for maps.")
+        return redirect('forge-map-detail', pk=forged.pk)
     if not forged.is_faction:
         messages.error(request, "That isn't available for this type of draft.")
         return redirect('forge-faction-detail', pk=forged.pk)
@@ -278,7 +282,8 @@ def forge_home(request):
     if request.user.is_authenticated:
         profile = getattr(request.user, 'profile', None)
         if profile is not None:
-            has_factions = ForgedFaction.objects.filter(designer=profile).exists()
+            has_factions = ForgedFaction.objects.filter(
+                designer=profile, component__in=ForgedFaction.FACTION_COMPONENTS).exists()
 
         send_discord_message_task.delay(f'[{request.user}]({build_absolute_uri(request, request.user.profile.get_absolute_url())}) ({request.user.profile.group}) viewed The Forge')
 
@@ -307,9 +312,10 @@ def forge_how_to(request):
 def forgedfaction_list(request):
     profile = getattr(request.user, 'profile', None)
     if profile:
+        # Factions and Clockwork only: Map drafts are listed at forge/map/.
         factions = (
             ForgedFaction.objects
-            .filter(designer=profile)
+            .filter(designer=profile, component__in=ForgedFaction.FACTION_COMPONENTS)
             .select_related('faction_sheet', 'faction_back', 'setup_card')
             .order_by('-last_updated')
         )
@@ -322,6 +328,7 @@ def forgedfaction_list(request):
 def forgedfaction_admin_list(request):
     factions = (
         ForgedFaction.objects
+        .filter(component__in=ForgedFaction.FACTION_COMPONENTS)
         .select_related('designer', 'faction_sheet', 'faction_back', 'setup_card')
         .order_by('-last_updated')
     )
@@ -369,6 +376,8 @@ def forgedfaction_detail(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if not user_can_view_forge(request, faction):
         return redirect('forge-home')
+    if faction.is_map:
+        return redirect('forge-map-detail', pk=faction.pk)
     try:
         sheet = faction.faction_sheet
     except FactionSheet.DoesNotExist:
@@ -504,6 +513,8 @@ def forgedfaction_edit(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
+    if (resp := _forbid_if_not_faction(request, faction)):
+        return resp
     if request.method == 'POST':
         form = ForgedFactionForm(request.POST, request.FILES, instance=faction)
         if form.is_valid():
@@ -521,6 +532,8 @@ def forgedfaction_edit(request, pk):
 def forgedfaction_markers_edit(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if (resp := _forbid_if_not_faction(request, faction)):
         return resp
     if request.method == 'POST':
         form = FactionMarkersForm(request.POST, request.FILES, instance=faction)
@@ -573,6 +586,8 @@ def forgedfaction_markers_delete(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
+    if (resp := _forbid_if_not_faction(request, faction)):
+        return resp
     update_fields = []
     if faction.vp_marker:
         faction.vp_marker.delete(save=False)
@@ -611,8 +626,9 @@ def forgedfaction_delete(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
+    is_map = faction.is_map
     faction.delete()
-    return redirect('forge-faction-list')
+    return redirect('forge-map-list' if is_map else 'forge-faction-list')
 
 
 @forge_onboard_required
@@ -626,6 +642,8 @@ def forgedfaction_duplicate(request, pk):
     """
     source = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, source)):
+        return resp
+    if (resp := _forbid_if_not_faction(request, source)):
         return resp
     from .tasks import duplicate_forged_faction_task
     result = duplicate_forged_faction_task.delay(source.pk)
@@ -1174,6 +1192,8 @@ def forgedfaction_cardboard_edit(request, pk):
     the back-side layout fields."""
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if (resp := _forbid_if_not_faction(request, faction)):
         return resp
     cardboard_types = ('B', 'T')
     if request.method == 'POST':
@@ -2591,6 +2611,8 @@ def forgedfaction_pdf(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
+    if (resp := _forbid_if_not_faction(request, faction)):
+        return resp
     from io import BytesIO
     from pypdf import PdfWriter, PdfReader
     from .pdf_engine import (
@@ -2699,6 +2721,8 @@ def forgedfaction_components_pdf(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
+    if (resp := _forbid_if_not_faction(request, faction)):
+        return resp
     from io import BytesIO
     from .pdf_engine import SetupCardLayoutEngine, ComponentsSheetLayoutEngine
     from .pdf_cache import (
@@ -2754,6 +2778,8 @@ def forgedfaction_cards_pdf(request, pk):
     ForgedCard across every ForgedDeckGroup attached to a card-type Piece."""
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if (resp := _forbid_if_not_faction(request, faction)):
         return resp
     from io import BytesIO
     from .pdf_engine import ForgedCardsLayoutEngine
@@ -3076,6 +3102,8 @@ def forgedfaction_tts(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
+    if (resp := _forbid_if_not_faction(request, faction)):
+        return resp
 
     save_file, error, (sheet, back, card) = _build_forged_tts_save(request, faction)
     if save_file is None:
@@ -3143,6 +3171,8 @@ def forgedfaction_tts_withdraw(request, pk):
     """Withdraw a pending submission, or remove an approved faction from the library."""
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if (resp := _forbid_if_not_faction(request, faction)):
         return resp
 
     was_approved = faction.tts_status == TTSStatus.APPROVED

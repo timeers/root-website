@@ -700,7 +700,8 @@ class ForgeComponentTests(TestCase):
         self.assertEqual(ForgedCard.objects.filter(group__piece__faction=copy).count(), 1)
 
     def test_non_faction_drafts_are_kept_out_of_faction_flows(self):
-        draft = self._draft('Map', name='Map Draft')
+        # A Deck draft: Map drafts have their own pages (ForgedMapTests).
+        draft = self._draft('Deck', name='Deck Draft')
         self.client.force_login(self.user)
         detail = reverse('forge-faction-detail', args=[draft.pk])
         for name in ('forge-faction-submit', 'forge-faction-sync'):
@@ -883,3 +884,237 @@ class ForgeTTSNamingTests(TestCase):
         self.assertFalse(TTSForgedFactionDecree(forged, request=SiteURLRequest()).to_dict()['Tooltip'])
         keep = KeepFaction.objects.create(title='Fox Folk', animal='Fox', designer=designer, component='Faction')
         self.assertFalse(TTSBoard(keep, request=SiteURLRequest()).to_dict()['Tooltip'])
+
+
+# ── Forge maps (forge/map/) ─────────────────────────────────────────────────
+
+from io import BytesIO
+
+from the_keep.services.tts_map import FORGE_FRAME, OFFICIAL_RATIO, MapGeometry, print_layout
+from .models import ForgedMap
+from .pdf_cache import fingerprint_map
+
+
+def _image_upload(width, height, name='art.png', fmt='PNG'):
+    from PIL import Image
+    buf = BytesIO()
+    Image.new('RGB', (width, height), (120, 160, 90)).save(buf, format=fmt)
+    return SimpleUploadedFile(name, buf.getvalue(), content_type=f'image/{fmt.lower()}')
+
+
+def _fixed_layout(**extra):
+    state = {
+        'track_y': 0.95, 'items': [0.22, 0.04], 'logo': [0.8, 0.07], 'fixed': True,
+        'clearings': [
+            {'centre': [0.3, 0.4], 'marker': [0.3, 0.48], 'number': 1, 'suit': 'fox'},
+            {'centre': [0.6, 0.5], 'marker': [0.68, 0.5], 'number': 2, 'suit': 'city'},
+        ],
+        'forests': [[0.45, 0.45]],
+        'buildings': [{'at': [0.33, 0.4], 'ruin': False}, {'at': [0.62, 0.48], 'ruin': True}],
+    }
+    state.update(extra)
+    return state
+
+
+@override_settings(MEDIA_ROOT=_TTS_MEDIA, SITE_URL='https://example.test')
+class ForgedMapTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+
+        Language.objects.get_or_create(code='en', defaults={'name': 'English'})
+        self.user = User.objects.create_user(username='cartographer', password='pw')
+        self.designer = Profile.objects.get(user=self.user)
+        Profile.objects.filter(pk=self.designer.pk).update(group='D', player_onboard=True, forge_onboard=True)
+        self.client.force_login(self.user)
+
+    def _create(self, name='Highlands'):
+        response = self.client.post(reverse('forge-map-create'))
+        draft = ForgedFaction.objects.get(component='Map', faction_name='Untitled Map')
+        self.assertRedirects(response, reverse('forge-map-builder', args=[draft.pk]), fetch_redirect_response=False)
+        ForgedFaction.objects.filter(pk=draft.pk).update(faction_name=name)
+        draft.refresh_from_db()
+        return draft
+
+    def _upload(self, draft, width=1090, height=1000):
+        return self.client.post(reverse('forge-map-art', args=[draft.pk]), {'art': _image_upload(width, height)})
+
+    def _save(self, draft, state, generate=False, **extra):
+        return self.client.post(reverse('forge-map-builder', args=[draft.pk]),
+                                json.dumps({'state': state, 'generate': generate, **extra}),
+                                content_type='application/json')
+
+    def test_faction_pages_leave_maps_out(self):
+        draft = self._create()
+        ForgedFaction.objects.create(designer=self.designer, faction_name='Otters', component='Faction')
+        content = self.client.get(reverse('forge-faction-list')).content.decode()
+        self.assertIn('Otters', content)
+        self.assertNotIn('Highlands', content)
+        self.assertIn('Highlands', self.client.get(reverse('forge-map-list')).content.decode())
+        detail = reverse('forge-map-detail', args=[draft.pk])
+        for name in ('forge-faction-detail', 'forge-faction-edit', 'forge-faction-tts'):
+            with self.subTest(name=name):
+                self.assertRedirects(self.client.get(reverse(name, args=[draft.pk])), detail,
+                                     fetch_redirect_response=False)
+        # Deleting a map goes back to the maps.
+        response = self.client.post(reverse('forge-faction-delete', args=[draft.pk]))
+        self.assertRedirects(response, reverse('forge-map-list'), fetch_redirect_response=False)
+
+    def test_new_map_opens_the_builder_on_its_upload_step(self):
+        draft = self._create()
+        self.assertEqual(draft.component, 'Map')
+        self.assertEqual(draft.forged_map.tts_builder['logo'], [0.8, 0.07])
+        config = self.client.get(reverse('forge-map-builder', args=[draft.pk])).context['config']
+        self.assertTrue(config['upload_step'])
+        self.assertIsNone(config['image'])
+        self.assertEqual((config['width'], config['height']), FORGE_FRAME)
+        self.assertEqual(set(config['print']), {'vp', 'items', 'logo'})
+        self.assertEqual(config['step_text']['upload']['link']['url'], reverse('map-create'))
+        self.assertIn("AI-generated", config['step_text']['upload']['hint'])
+        self.assertEqual(config['expected'], {'clearings': None, 'forests': None, 'buildings': None, 'ruins': None})
+
+    def test_new_map_is_untitled_and_named_on_the_art_step(self):
+        # A visit never creates a map; New Map posts.
+        self.assertRedirects(self.client.get(reverse('forge-map-create')), reverse('forge-map-list'),
+                             fetch_redirect_response=False)
+        self.assertFalse(ForgedFaction.objects.filter(component='Map').exists())
+        self.client.post(reverse('forge-map-create'))
+        draft = ForgedFaction.objects.get(component='Map')
+        self.assertEqual(draft.faction_name, 'Untitled Map')
+        config = self.client.get(reverse('forge-map-builder', args=[draft.pk])).context['config']
+        self.assertEqual(config['map_name'], 'Untitled Map')
+
+        ForgedFaction.objects.filter(pk=draft.pk).update(tts_json={'ObjectStates': [{'Name': 'Custom_Token'}]})
+        result = self._save(draft, _fixed_layout(), name='  Highlands  ').json()
+        self.assertEqual(result['name'], 'Highlands')
+        draft.refresh_from_db()
+        self.assertEqual(draft.faction_name, 'Highlands')
+        self.assertIsNone(draft.tts_json)   # it carried the old name: rebuilt on the next Complete
+
+        result = self._save(draft, _fixed_layout(), name='   ').json()
+        self.assertEqual(result['name'], 'Highlands')
+        self.assertIn('Your map needs a name: kept "Highlands".', result['warnings'])
+
+    def test_art_is_cropped_to_the_official_shape(self):
+        draft = self._create()
+        result = self._upload(draft, 2000, 1000).json()
+        self.assertTrue(result['ok'])
+        self.assertTrue(result['cropped'])
+        self.assertAlmostEqual(result['width'] / result['height'], OFFICIAL_RATIO, places=2)
+        self.assertEqual(result['height'], 1000)   # cropped, not stretched
+        forged_map = ForgedMap.objects.get(faction=draft)
+        self.assertTrue(forged_map.art_cropped)
+        self.assertTrue(forged_map.art.name.endswith('map/art.webp'))
+        first = fingerprint_map(forged_map)
+
+        result = self._upload(draft, 1090, 1000).json()
+        self.assertFalse(result['cropped'])
+        forged_map.refresh_from_db()
+        self.assertEqual(forged_map.art_version, 2)
+        self.assertFalse(forged_map.art_cropped)
+        self.assertNotEqual(fingerprint_map(forged_map), first)
+
+    def test_art_upload_refuses_other_files_and_other_people(self):
+        draft = self._create()
+        bad = SimpleUploadedFile('art.png', b'not an image', content_type='image/png')
+        response = self.client.post(reverse('forge-map-art', args=[draft.pk]), {'art': bad})
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(response.json()['ok'])
+        other = User.objects.create_user(username='someone', password='pw')
+        Profile.objects.filter(user=other).update(group='D', player_onboard=True, forge_onboard=True)
+        self.client.force_login(other)
+        self.assertEqual(self._upload(draft).status_code, 403)
+
+    def test_save_keeps_the_logo_and_the_suit_setting(self):
+        draft = self._create()
+        response = self._save(draft, _fixed_layout(logo=[0.5, 0.5], extra='dropped'))
+        self.assertTrue(response.json()['saved'])
+        forged_map = ForgedMap.objects.get(faction=draft)
+        self.assertEqual(forged_map.tts_builder['logo'], [0.5, 0.5])
+        self.assertNotIn('extra', forged_map.tts_builder)
+        self.assertTrue(forged_map.fixed_clearings)
+
+    def test_complete_needs_art_and_a_finished_layout(self):
+        draft = self._create()
+        result = self._save(draft, _fixed_layout(), generate=True).json()
+        self.assertFalse(result['ok'])
+        self.assertIn("Upload your map's art first.", result['errors'])
+        self._upload(draft)
+        layout = _fixed_layout()
+        del layout['clearings'][0]['suit']
+        result = self._save(draft, layout, generate=True).json()
+        self.assertFalse(result['ok'])
+        self.assertFalse(ForgedMap.objects.get(faction=draft).image_preview)
+
+    def test_complete_generates_the_map_image_and_tts_json(self):
+        draft = self._create()
+        self._upload(draft)
+        result = self._save(draft, _fixed_layout(), generate=True).json()
+        self.assertTrue(result['ok'], result)
+        self.assertEqual(result['redirect'], reverse('forge-map-detail', args=[draft.pk]))
+        forged_map = ForgedMap.objects.get(faction=draft)
+        self.assertTrue(forged_map.image_preview.name.endswith('map/front.webp'))
+        self.assertFalse(forged_map.preview_stale)
+        self.assertAlmostEqual(forged_map.image_preview.width / forged_map.image_preview.height, OFFICIAL_RATIO, places=2)
+        draft.refresh_from_db()
+        board = draft.tts_json['ObjectStates'][0]
+        self.assertIn('map/front.webp', board['CustomImage']['ImageURL'])
+        self.assertEqual(board['Nickname'], 'Highlands')
+        markers = [o for o in draft.tts_json['ObjectStates'] if 'Suit: city' in (o.get('Tags') or [])]
+        self.assertEqual(len(markers), 1)
+        self.assertEqual(len(draft.tts_json['BoardLayout']['clearings']), 2)
+        self.assertTrue(Profile.objects.get(pk=self.designer.pk).map_builder_onboard)
+
+        # The map page: the name, the generated image and the read-only layout.
+        response = self.client.get(reverse('forge-map-detail', args=[draft.pk]))
+        content = response.content.decode()
+        self.assertIn('Highlands', content)
+        self.assertIn(forged_map.image_preview.url, content)
+        self.assertTrue(response.context['config']['readonly'])
+        self.assertIn(reverse('forge-map-builder', args=[draft.pk]), content)
+        for name in ('forge-map-pdf', 'forge-map-webp', 'forge-map-tts'):
+            self.assertIn(reverse(name, args=[draft.pk]), content)
+        self.assertNotIn('Layers as PDF', content)
+
+    def test_downloads_are_for_the_designer(self):
+        draft = self._create()
+        self._upload(draft)
+        self._save(draft, _fixed_layout())
+        pdf = self.client.get(reverse('forge-map-pdf', args=[draft.pk]))
+        self.assertEqual(pdf.status_code, 200)
+        self.assertEqual(pdf['Content-Type'], 'application/pdf')
+        webp = self.client.get(reverse('forge-map-webp', args=[draft.pk]))
+        self.assertEqual(webp.status_code, 200)
+        self.assertEqual(webp['Content-Type'], 'image/webp')
+        tts = self.client.get(reverse('forge-map-tts', args=[draft.pk]))
+        self.assertEqual(tts.status_code, 200)
+        self.assertIn('ObjectStates', json.loads(b''.join(tts.streaming_content) if tts.streaming else tts.content))
+
+        other = User.objects.create_user(username='someone', password='pw')
+        Profile.objects.filter(user=other).update(group='D', player_onboard=True, forge_onboard=True)
+        self.client.force_login(other)
+        for name in ('forge-map-pdf', 'forge-map-webp', 'forge-map-tts'):
+            with self.subTest(name=name):
+                self.assertRedirects(self.client.get(reverse(name, args=[draft.pk])), reverse('forge-home'),
+                                     fetch_redirect_response=False)
+
+    def test_print_layout_turns_lines_to_the_marker_and_keeps_icons_upright(self):
+        geometry = MapGeometry(*FORGE_FRAME)
+        layout = print_layout(geometry, _fixed_layout())
+        below, right = layout['suits']
+        self.assertAlmostEqual(below['angle'], 90)    # marker straight below: the art's own position
+        self.assertAlmostEqual(right['angle'], 0)     # marker to the right: 3 o'clock
+        self.assertEqual([b['ruin'] for b in layout['buildings']], [False, True])
+        self.assertEqual(print_layout(geometry, _fixed_layout(fixed=False))['suits'], [])
+
+        from .map_pdf_engine import MapLayoutEngine
+        canvas = mock.MagicMock()
+        engine = MapLayoutEngine(mock.MagicMock())
+        with mock.patch('the_forge.map_pdf_engine.renderPDF.draw'):
+            engine._draw_suit(canvas, right)
+        # The line is turned (90 - 0: from 6 o'clock to 3 o'clock); the icon isn't.
+        canvas.rotate.assert_called_once_with(90)
+        # Only the line is scaled to the clearing: the icon keeps its own size.
+        canvas.scale.assert_called_once()

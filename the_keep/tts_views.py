@@ -6,8 +6,6 @@ import json
 from datetime import timedelta
 
 from django.contrib import messages
-from django.contrib.staticfiles import finders
-from django.templatetags.static import static
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpResponse, JsonResponse
@@ -19,15 +17,13 @@ from the_gatehouse.views import admin_required
 
 from .models import Post, TTSJsonUpload, post_model_for_component
 from .services.tts_inspect import inspect_tts_json
-from .services.tts_map import (BOARD_SCALE, STAGES, SUITS, MapGeometry, visited_stages, apply_builder_counts, check_builder, highest_number,
-                               number_tile_radius_px,
-                               pieces, TRACK_CELLS, TRACK_ROW_GAP, TRACK_STEP, TRACK_X0)
+from .services.tts_map import (STAGES, MapGeometry, visited_stages, apply_builder_counts, builder_config,
+                               check_builder, clean_builder_state)
 from .services.tts_store import (clear_tts_json, forge_linked, generate_tts_json,
                                  generate_unavailable_reason, recheck_tts_info, store_tts_json)
 from .utils import user_can_edit, validate_tts_save
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
-MARKER_SVG = 'images/map_builder/clearing_marker.svg'
 # Above this the page shows the start of the JSON and points to Download.
 MAX_DISPLAY_CHARS = 1024 * 1024
 PENDING_UPLOAD_LIFETIME = timedelta(days=1)
@@ -296,36 +292,17 @@ def map_builder(request, slug):
         geometry = MapGeometry(width, height)
         state = post.tts_builder or geometry.defaults()
         errors, warnings = check_builder(post, state, visited_stages(state))
-        grid = pieces()['item_grid']
         ratio = width / height
         context.update({
-            'config': {
-                'image': post.board_image.url,
-                'width': width,
-                'height': height,
-                'state': state,
-                'fixed': bool(post.fixed_clearings),
-                'expected': {'clearings': post.clearings, 'forests': post.forests,
-                             'buildings': post.building_slots, 'ruins': post.ruins},
-                'numbers': highest_number(),
-                # Geometry in pixels, so the editor draws pieces where TTS will put them.
-                'px_per_local': geometry.px_per_local,
-                'track': {'cells': TRACK_CELLS, 'x0': TRACK_X0, 'step': TRACK_STEP, 'row_gap': TRACK_ROW_GAP,
-                          'half_width': geometry.hx, 'half_height': geometry.hz},
-                'item_grid': grid,
-                'number_radius_px': number_tile_radius_px(geometry),
-                'suit_icons': {suit: static(f'images/tags/{suit.capitalize()}_Tag.png') for suit in SUITS},
-                # The suit marker's outline (tts/make_marker_svg.py); round dots without it.
-                'marker_svg': static(MARKER_SVG) if finders.find(MARKER_SVG) else None,
-                # The marker mesh's footprint (mesh units x its 1.3 scale), in pixels.
-                'marker_px': [3.164 * 1.3 / BOARD_SCALE * geometry.px_per_local,
-                              1.575 * 1.3 / BOARD_SCALE * geometry.px_per_local],
-                'save_url': request.path,
-                # Step cards open by themselves until the user's first finished map.
-                'show_intros': not request.user.profile.map_builder_onboard,
-                'random_icon': static('images/ClearingsRandom.png'),
-                'manage_url': reverse_manage(post),
-            },
+            'config': builder_config(
+                post.board_image.url, width, height, state,
+                fixed=post.fixed_clearings,
+                expected={'clearings': post.clearings, 'forests': post.forests,
+                          'buildings': post.building_slots, 'ruins': post.ruins},
+                save_url=request.path,
+                show_intros=not request.user.profile.map_builder_onboard,
+                manage_url=reverse_manage(post),
+            ),
             'ratio_warning': not (1.0 <= ratio <= 1.2),
             'errors': errors,
             'warnings': warnings,
@@ -338,53 +315,6 @@ def reverse_manage(post):
     return reverse('manage-tts-json', kwargs={'slug': post.slug})
 
 
-def _point(value):
-    """A [u, v] pair clamped to the image, or None."""
-    try:
-        u, v = float(value[0]), float(value[1])
-    except (TypeError, ValueError, IndexError):
-        return None
-    if u != u or v != v:   # NaN
-        return None
-    return [min(max(u, 0.0), 1.0), min(max(v, 0.0), 1.0)]
-
-
 def _clean_state(state):
-    """Keep only the builder's own keys, with numbers where numbers belong."""
-    state = state if isinstance(state, dict) else {}
-    clean = {'version': 1}
-    try:
-        clean['track_y'] = min(max(float(state.get('track_y')), 0.0), 1.0)
-    except (TypeError, ValueError):
-        pass
-    items = _point(state.get('items'))
-    if items:
-        clean['items'] = items
-    clearings = []
-    for c in state.get('clearings') or []:
-        if not isinstance(c, dict):
-            continue
-        centre = _point(c.get('centre'))
-        if centre is None:
-            continue
-        entry = {'centre': centre, 'marker': _point(c.get('marker'))}
-        try:
-            entry['number'] = int(c.get('number'))
-        except (TypeError, ValueError):
-            entry['number'] = None
-        try:
-            entry['number_angle'] = float(c.get('number_angle'))
-        except (TypeError, ValueError):
-            pass
-        if c.get('suit') in SUITS:
-            entry['suit'] = c['suit']
-        clearings.append(entry)
-    clean['clearings'] = clearings
-    clean['forests'] = [p for p in (_point(f) for f in state.get('forests') or []) if p]
-    clean['visited'] = sorted({v for v in state.get('visited') or [] if v in STAGES})
-    if isinstance(state.get('fixed'), bool):
-        clean['fixed'] = state['fixed']
-    clean['buildings'] = [{'at': p, 'ruin': bool(b.get('ruin'))}
-                          for b in state.get('buildings') or [] if isinstance(b, dict)
-                          for p in [_point(b.get('at'))] if p]
-    return clean
+    """The Keep's builder state (no Root logo: it isn't printed on a Keep map)."""
+    return clean_builder_state(state)

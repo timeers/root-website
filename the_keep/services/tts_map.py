@@ -162,6 +162,231 @@ def number_tile_radius_px(geometry):
     return NUMBER_TILE_RADIUS / BOARD_SCALE * geometry.px_per_local
 
 
+# ── The builder page (shared by the Keep and the Forge) ─────────────────────
+
+MARKER_SVG = 'images/map_builder/clearing_marker.svg'
+
+# The official boards' shape (about 1.09 wide to 1 tall). Forge maps are cropped
+# to it, and the Forge builder always works in this frame, whatever the art's
+# pixel size: the layout is stored in 0-1 image coordinates anyway.
+OFFICIAL_RATIO = 1.09
+RATIO_TOLERANCE = 0.005        # closer than this (relative) isn't cropped
+FORGE_FRAME = (2180, 2000)
+MAX_ART_WIDTH = 4096
+
+
+def _point(value):
+    """A [u, v] pair clamped to the image, or None."""
+    try:
+        u, v = float(value[0]), float(value[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+    if u != u or v != v:   # NaN
+        return None
+    return [min(max(u, 0.0), 1.0), min(max(v, 0.0), 1.0)]
+
+
+def clean_builder_state(state, *, logo=False):
+    """Keep only the builder's own keys, with numbers where numbers belong.
+    `logo`: keep the Root logo's position (Forge maps print it; the Keep's
+    don't)."""
+    state = state if isinstance(state, dict) else {}
+    clean = {'version': 1}
+    try:
+        clean['track_y'] = min(max(float(state.get('track_y')), 0.0), 1.0)
+    except (TypeError, ValueError):
+        pass
+    items = _point(state.get('items'))
+    if items:
+        clean['items'] = items
+    if logo:
+        at = _point(state.get('logo'))
+        if at:
+            clean['logo'] = at
+    clearings = []
+    for c in state.get('clearings') or []:
+        if not isinstance(c, dict):
+            continue
+        centre = _point(c.get('centre'))
+        if centre is None:
+            continue
+        entry = {'centre': centre, 'marker': _point(c.get('marker'))}
+        try:
+            entry['number'] = int(c.get('number'))
+        except (TypeError, ValueError):
+            entry['number'] = None
+        try:
+            entry['number_angle'] = float(c.get('number_angle'))
+        except (TypeError, ValueError):
+            pass
+        if c.get('suit') in SUITS:
+            entry['suit'] = c['suit']
+        clearings.append(entry)
+    clean['clearings'] = clearings
+    clean['forests'] = [p for p in (_point(f) for f in state.get('forests') or []) if p]
+    clean['visited'] = sorted({v for v in state.get('visited') or [] if v in STAGES})
+    if isinstance(state.get('fixed'), bool):
+        clean['fixed'] = state['fixed']
+    clean['buildings'] = [{'at': p, 'ruin': bool(b.get('ruin'))}
+                          for b in state.get('buildings') or [] if isinstance(b, dict)
+                          for p in [_point(b.get('at'))] if p]
+    return clean
+
+
+def builder_config(image_url, width, height, state, *, fixed, expected, save_url, show_intros, **extra):
+    """The map builder page's config (read by map_builder.js). `width` and
+    `height` are the frame the builder draws in: the board image's pixels on
+    the Keep, FORGE_FRAME in the Forge. `extra` goes in as is (the Forge's
+    upload step, print underlays, read-only view...)."""
+    from django.contrib.staticfiles import finders
+
+    geometry = MapGeometry(width, height)
+    config = {
+        'image': image_url,
+        'width': width,
+        'height': height,
+        'state': state,
+        'fixed': bool(fixed),
+        'expected': expected,
+        'numbers': highest_number(),
+        # Geometry in pixels, so the editor draws pieces where TTS will put them.
+        'px_per_local': geometry.px_per_local,
+        'track': {'cells': TRACK_CELLS, 'x0': TRACK_X0, 'step': TRACK_STEP, 'row_gap': TRACK_ROW_GAP,
+                  'half_width': geometry.hx, 'half_height': geometry.hz},
+        'item_grid': pieces()['item_grid'],
+        'building_size': BUILDING_SIZE,
+        'number_radius_px': number_tile_radius_px(geometry),
+        'suit_icons': {suit: static(f'images/tags/{suit.capitalize()}_Tag.png') for suit in SUITS},
+        # The suit marker's outline (tts/make_marker_svg.py); round dots without it.
+        'marker_svg': static(MARKER_SVG) if finders.find(MARKER_SVG) else None,
+        # The marker mesh's footprint (mesh units x its 1.3 scale), in pixels.
+        'marker_px': [3.164 * 1.3 / BOARD_SCALE * geometry.px_per_local,
+                      1.575 * 1.3 / BOARD_SCALE * geometry.px_per_local],
+        'save_url': save_url,
+        # Step cards open by themselves until the user's first finished map.
+        'show_intros': bool(show_intros),
+        'random_icon': static('images/ClearingsRandom.png'),
+    }
+    config.update(extra)
+    return config
+
+
+def crop_to_official(image):
+    """(image, cropped): a PIL image centre-cropped to the official boards'
+    shape (never stretched) and capped at MAX_ART_WIDTH wide."""
+    width, height = image.size
+    ratio = width / height
+    cropped = abs(ratio / OFFICIAL_RATIO - 1) > RATIO_TOLERANCE
+    if cropped:
+        if ratio > OFFICIAL_RATIO:
+            new_w = round(height * OFFICIAL_RATIO)
+            left = (width - new_w) // 2
+            image = image.crop((left, 0, left + new_w, height))
+        else:
+            new_h = round(width / OFFICIAL_RATIO)
+            top = (height - new_h) // 2
+            image = image.crop((0, top, width, top + new_h))
+    if image.width > MAX_ART_WIDTH:
+        from PIL import Image
+        image = image.resize((MAX_ART_WIDTH, round(MAX_ART_WIDTH * image.height / image.width)), Image.LANCZOS)
+    return image, cropped
+
+
+# ── Printed map art (Forge maps) ────────────────────────────────────────────
+# The pieces the PDF engine prints onto a Forge map's art, sized in board-local
+# units so the builder's underlays and the printed map match exactly.
+
+PRINT_STATIC = 'pdf/maps/'
+PRINT_DIR = Path(settings.BASE_DIR) / 'the_keep' / 'static' / 'pdf' / 'maps'
+# Building slots: the builder's squares and the printed building / ruin art.
+BUILDING_SIZE = 0.1
+# The Root logo's printed width; its height follows the art.
+LOGO_WIDTH = 0.9
+DEFAULT_LOGO = (0.8, 0.07)     # the logo's centre (u, v) on a new Forge map
+# root_map_items.png: 6 x 2 item boxes, 262 px apart across (its centre is the
+# middle of the boxes); scaled so they sit on the item grid's slots.
+ITEMS_ART_PITCH_PX = 262.0
+
+# The suit art (pdf/maps/suits/): root_map_<suit>_line.svg is an arc of the
+# clearing's circle at 6 o'clock; root_map_<suit>_icon.svg is drawn upright on
+# the marker spot. Measured from the line SVG's path (in its mm user units, y
+# down): the arc's centre and the radius of the middle of its coloured band.
+SUIT_LINE_CENTRE_MM = (13.91, -25.38)
+SUIT_LINE_RADIUS_MM = 29.27
+
+
+@lru_cache(maxsize=None)
+def _print_art_size(name):
+    from PIL import Image
+    with Image.open(PRINT_DIR / name) as image:
+        return image.size
+
+
+def print_art():
+    """The printed pieces' art and sizes in local units: {name: {url, path,
+    w, h}} for 'vp', 'items' and 'logo'."""
+    grid = pieces()['item_grid']
+    vp_w = TRACK_CELLS * TRACK_STEP   # the strip is the 31 cells, edge to edge
+    items_scale = grid['step_x'] / ITEMS_ART_PITCH_PX
+    sizes = {
+        'vp': ('root_map_vp.png', lambda w, h: (vp_w, vp_w * h / w)),
+        'items': ('root_map_items.png', lambda w, h: (w * items_scale, h * items_scale)),
+        'logo': ('root_map_logo.png', lambda w, h: (LOGO_WIDTH, LOGO_WIDTH * h / w)),
+    }
+    art = {}
+    for key, (name, size) in sizes.items():
+        w, h = size(*_print_art_size(name))
+        art[key] = {'url': static(PRINT_STATIC + name), 'path': str(PRINT_DIR / name), 'w': w, 'h': h}
+    return art
+
+
+def print_layout(geometry, state):
+    """Where everything printed on a Forge map goes, in the geometry's pixels
+    (x right, y down): boxes are (x, y, w, h) of the art's top-left corner and
+    size. Suits only on fixed-suit maps, for clearings with a marker and a suit;
+    each has the clearing's centre, its radius (centre to marker), the marker
+    spot and the marker's angle (degrees, measured on the image: 90 = straight
+    down, where the line art's arc already sits)."""
+    defaults = geometry.defaults()
+    ppl = geometry.px_per_local
+    art = print_art()
+
+    def box(name, cx, cy):
+        w, h = art[name]['w'] * ppl, art[name]['h'] * ppl
+        return (cx - w / 2, cy - h / 2, w, h)
+
+    track_y = state.get('track_y', defaults['track_y'])
+    layout = {'vp': box('vp', geometry.to_image(0, 0)[0] * geometry.width, track_y * geometry.height)}
+    grid = pieces()['item_grid']
+    x0, z0 = geometry.to_local(*(state.get('items') or defaults['items']))
+    middle = geometry.to_pixels(*geometry.to_image(x0 - (grid['cols'] - 1) / 2 * grid['step_x'],
+                                                   z0 + (grid['rows'] - 1) / 2 * grid['step_z']))
+    layout['items'] = box('items', *middle)
+    layout['logo'] = box('logo', *geometry.to_pixels(*(state.get('logo') or DEFAULT_LOGO)))
+
+    size = BUILDING_SIZE * ppl
+    layout['buildings'] = []
+    for building in state.get('buildings') or []:
+        bx, by = geometry.to_pixels(*building['at'])
+        layout['buildings'].append({'box': (bx - size / 2, by - size / 2, size, size), 'ruin': bool(building.get('ruin'))})
+
+    layout['suits'] = []
+    if state.get('fixed'):
+        for clearing in state.get('clearings') or []:
+            if not clearing.get('marker') or clearing.get('suit') not in SUITS:
+                continue
+            cx, cy = geometry.to_pixels(*clearing['centre'])
+            mx, my = geometry.to_pixels(*clearing['marker'])
+            radius = math.hypot(mx - cx, my - cy)
+            if radius <= 0:
+                continue
+            layout['suits'].append({
+                'suit': clearing['suit'], 'centre': (cx, cy), 'marker': (mx, my), 'radius': radius,
+                'angle': math.degrees(math.atan2(my - cy, mx - cx)),
+            })
+    return layout
+
+
 # ── Checks and counts ───────────────────────────────────────────────────────
 
 # The builder's stages whose counts go to the Map, and the Map fields each sets.

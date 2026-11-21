@@ -22,6 +22,8 @@ from .services.upload_paths import (
     forged_deck_back_upload_path,
     forged_deck_sheet_upload_path,
     forged_card_upload_path,
+    map_art_upload_path,
+    map_preview_upload_path,
 )
 
 
@@ -227,6 +229,11 @@ class ForgedFaction(models.Model):
     @property
     def is_clockwork(self):
         return self.component == Post.ComponentChoices.CLOCKWORK
+
+    @property
+    def is_map(self):
+        """Map drafts are built in the map builder (forge/map/, ForgedMap)."""
+        return self.component == Post.ComponentChoices.MAP
 
     @property
     def published_keep_post(self):
@@ -1290,6 +1297,48 @@ class ForgedCard(models.Model):
         if self.tags:
             parts.append(' '.join(self.tags))
         return '\n'.join(parts).strip()
+
+
+class ForgedMap(models.Model):
+    """A Map draft built from scratch in the Forge's map builder: the map's art,
+    the builder's layout, and the generated map (the art with the VP track,
+    items, logo, buildings, ruins and fixed clearing suits printed on it).
+
+    Shaped like a keep Map where the shared map code reads one (title,
+    fixed_clearings, board_image: see the_keep/services/tts_map.py), so the
+    TTS JSON is built exactly as for a keep Map."""
+    faction = models.OneToOneField(ForgedFaction, on_delete=models.CASCADE, related_name='forged_map')
+    # The uploaded art, centre-cropped to the official maps' shape.
+    art = models.ImageField(upload_to=map_art_upload_path, blank=True, null=True)
+    art_cropped = models.BooleanField(default=False)
+    # Bumped on each upload: the art's file name never changes.
+    art_version = models.PositiveIntegerField(default=0)
+    # The builder's layout, as the keep's Map.tts_builder, plus the logo's spot.
+    tts_builder = models.JSONField(default=dict, blank=True)
+    fixed_clearings = models.BooleanField(default=False)
+
+    image_preview = models.ImageField(upload_to=map_preview_upload_path, blank=True, null=True)
+    preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    preview_version = models.PositiveIntegerField(default=0)
+    last_updated = models.DateTimeField(auto_now=True)
+    last_generated = models.DateTimeField(blank=True, null=True)
+
+    def __str__(self):
+        return f'{self.faction.faction_name} Map'
+
+    @property
+    def title(self):
+        return self.faction.faction_name
+
+    @property
+    def board_image(self):
+        """What TTS shows: the generated map, not the bare art."""
+        return self.image_preview
+
+    @property
+    def preview_stale(self):
+        from .pdf_cache import fingerprint_map
+        return not self.image_preview or self.preview_fingerprint != fingerprint_map(self)
 
 
 # ForgedFaction drafts every keep Post type (see ForgedFaction.component); the

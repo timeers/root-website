@@ -1248,7 +1248,7 @@ class MapBuilderTests(TestCase):
         self.assertIn('images/map_builder/clearing_marker.svg', config['marker_svg'])
         width, height = config['marker_px']
         self.assertAlmostEqual(width / height, 2.0, delta=0.05)
-        with mock.patch('the_keep.tts_views.finders.find', return_value=None):
+        with mock.patch('django.contrib.staticfiles.finders.find', return_value=None):
             self.assertIsNone(self.client.get(self._builder_url()).context['config']['marker_svg'])
 
     def test_marker_outline_svg(self):
@@ -1353,6 +1353,20 @@ class MapBuilderTests(TestCase):
         config = self.client.get(self._builder_url()).context['config']
         self.assertFalse(config['show_intros'])
         self.assertIn('ClearingsRandom.png', config['random_icon'])
+
+    def test_keep_builder_has_none_of_the_forge_extras(self):
+        from the_keep.services.tts_map import clean_builder_state
+        from the_keep.tts_views import _clean_state
+        self.client.force_login(self.designer_user)
+        response = self.client.get(self._builder_url())
+        config = response.context['config']
+        for key in ('upload_step', 'print', 'readonly', 'step_text', 'default_logo'):
+            self.assertNotIn(key, config)
+        self.assertEqual(config['building_size'], 0.1)
+        self.assertNotIn('id="mb-upload"', response.content.decode())
+        # The Root logo is only printed on Forge maps: a Keep layout drops it.
+        self.assertNotIn('logo', _clean_state({'logo': [0.5, 0.5]}))
+        self.assertEqual(clean_builder_state({'logo': [0.5, 0.5]}, logo=True)['logo'], [0.5, 0.5])
 
     def test_lost_city_suit(self):
         from the_keep.services.tts_map import build_map_tts_json, check_builder, marker_templates

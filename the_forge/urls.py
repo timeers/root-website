@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import map_views, views
 
 urlpatterns = [
     # Forge Home (public landing page)
@@ -39,6 +39,16 @@ urlpatterns = [
     path('forge/tts-library/<int:pk>/approve/', views.tts_library_approve, name='forge-tts-library-approve'),
     path('forge/tts-library/<int:pk>/reject/', views.tts_library_reject, name='forge-tts-library-reject'),
     path('forge/tts-library/<int:pk>/json/', views.tts_library_json, name='forge-tts-library-json'),
+
+    # Maps built from scratch in the map builder (no link from the Forge yet)
+    path('forge/map/', map_views.map_list, name='forge-map-list'),
+    path('forge/map/new/', map_views.map_create, name='forge-map-create'),
+    path('forge/map/<int:pk>/', map_views.map_detail, name='forge-map-detail'),
+    path('forge/map/<int:pk>/build/', map_views.map_builder, name='forge-map-builder'),
+    path('forge/map/<int:pk>/art/', map_views.map_art, name='forge-map-art'),
+    path('forge/map/<int:pk>/pdf/', map_views.map_pdf, name='forge-map-pdf'),
+    path('forge/map/<int:pk>/webp/', map_views.map_webp, name='forge-map-webp'),
+    path('forge/map/<int:pk>/tts/', map_views.map_tts, name='forge-map-tts'),
 
     # FactionSheet Front
     path('forge/faction/<int:faction_pk>/front/new/', views.factionsheet_create, name='forge-sheet-create'),

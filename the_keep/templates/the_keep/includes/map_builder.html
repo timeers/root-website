@@ -1,0 +1,165 @@
+{% load i18n static %}
+{% comment %}
+The map builder (the_keep/static/the_keep/map_builder.js, styles in
+map_builder.css), shared by the Keep's Map builder and the Forge's map builder
+and map page. Context: config (tts_map.builder_config), board_alt, and optionally
+generate_title. Load map_builder.css and map_builder.js on the page too.
+{% endcomment %}
+<div class="mb-builder{% if config.readonly %} mb-readonly{% endif %}">
+<!-- Progress: a full track with a highlight that slides to the current step -->
+<div id="mb-progress" class="mb-3" role="list">
+    <div id="mb-progress-thumb" aria-hidden="true"></div>
+</div>
+
+<!-- Title of the current step; the info button reopens its card -->
+<div class="mb-title-row mb-2">
+    <div class="mb-title-side"></div>
+    <div class="text-center">
+        <h3 class="mb-0 d-inline-flex align-items-center gap-2" id="mb-title">
+            <span id="mb-heading"></span>
+            <button type="button" class="mb-info" id="mb-info" aria-label="{% trans 'Show step help' %}" title="{% trans 'Show step help' %}">
+                <i class="bi bi-info-circle"></i>
+            </button>
+        </h3>
+    </div>
+    <div class="mb-title-side"></div>
+</div>
+
+<!-- Board -->
+<div class="position-relative border rounded mb-3" id="mb-board" style="touch-action: pinch-zoom; user-select: none;">
+    <img src="{% if config.image %}{{ config.image }}{% else %}data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=={% endif %}"
+         alt="{{ board_alt }}" class="w-100 d-block" id="mb-image" draggable="false"
+         style="aspect-ratio: {{ config.width }} / {{ config.height }};">
+    <svg id="mb-svg" class="position-absolute top-0 start-0 w-100 h-100"
+         viewBox="0 0 {{ config.width }} {{ config.height }}" preserveAspectRatio="none"></svg>
+
+    {% if config.upload_step %}
+    <!-- Forge, first step: the map's name (top third) and its art (bottom two
+         thirds: click the dashed area or drop a file on it) -->
+    <div id="mb-art-step" class="d-none">
+        <div class="mb-art-name">
+            <input type="text" id="mb-name" maxlength="50" autocomplete="off" spellcheck="false"
+                   value="{{ config.map_name }}" placeholder="{% trans 'Name your map' %}"
+                   aria-label="{% trans 'Map name' %}">
+        </div>
+        <div class="mb-art-drop">
+            <button type="button" id="mb-upload">
+                <span class="mb-upload-icon"><i class="bi bi-cloud-arrow-up"></i></span>
+                <span class="mb-upload-title" data-upload="{% trans "Upload Art" %}"
+                      data-replace="{% trans "Replace Art" %}">{% trans "Upload Art" %}</span>
+                <span class="mb-upload-note">{% trans "Click or drop an image here (PNG, JPG or WebP)." %}</span>
+            </button>
+        </div>
+    </div>
+    <input type="file" id="mb-upload-input" accept="image/png,image/jpeg,image/webp" class="d-none">
+    <!-- Upload progress and problems, popping up over the map -->
+    <div id="mb-art-status" role="status" aria-live="polite">
+        <span class="mb-art-status-icon" aria-hidden="true"></span>
+        <span class="mb-art-status-text"></span>
+        <button type="button" class="mb-art-status-close" aria-label="{% trans 'Close' %}">&times;</button>
+    </div>
+    {% endif %}
+    <div id="mb-crop-notice" class="d-none">{% trans "This image was cropped to fit the standard map aspect ratio." %}</div>
+
+    <!-- Clearings step: fixed or random suits, shown where the item track sits -->
+    <div id="mb-suit-mode" class="d-none" role="group" aria-label="{% trans 'Clearing suits' %}">
+        <button type="button" class="mb-mode-fold" id="mb-mode-fold" aria-expanded="true"
+                aria-label="{% trans 'Fold' %}" title="{% trans 'Fold' %}"><i class="bi bi-chevron-up"></i></button>
+        <div class="mb-mode-title" id="mb-mode-title" data-full="{% trans 'Clearing Distribution' %}"
+             data-short="{% trans 'Distribution' %}">{% trans 'Clearing Distribution' %}</div>
+        <!-- Small screens, folded: just the two choices as icons. -->
+        <div class="mb-mode-icons">
+            <button type="button" data-mode="random" title="{% trans 'Random suits' %}" aria-label="{% trans 'Random suits' %}" aria-pressed="false">
+                <img src="{% static 'images/ClearingsRandom.png' %}" alt="">
+            </button>
+            <button type="button" data-mode="fixed" title="{% trans 'Fixed suits' %}" aria-label="{% trans 'Fixed suits' %}" aria-pressed="false">
+                <img src="{% static 'images/ClearingsFixed.png' %}" alt="">
+            </button>
+        </div>
+        <div class="mb-mode-body"><div class="mb-mode-body-inner">
+            <button type="button" class="mb-mode-image" id="mb-mode-image" title="{% trans 'Switch' %}">
+                <img src="{% static 'images/ClearingsFixed.png' %}" alt="" data-mode="fixed">
+                <img src="{% static 'images/ClearingsRandom.png' %}" alt="" data-mode="random">
+            </button>
+            <p class="mb-mode-text">{% trans "Choosing fixed clearing suits will always load in the layout you select. Random clearing suits will shuffle on load, giving you a different layout each game." %}</p>
+        </div></div>
+        <div class="mb-mode-switch">
+            <span class="mb-mode-thumb" aria-hidden="true"></span>
+            <button type="button" data-mode="random" aria-pressed="false">{% trans 'Random' %}</button>
+            <button type="button" data-mode="fixed" aria-pressed="false">{% trans 'Fixed' %}</button>
+        </div>
+    </div>
+
+    <!-- Counts for the step: a card over the item track, or a pill on the VP track -->
+    <div id="mb-count-card" class="d-none" aria-live="polite"></div>
+    <div id="mb-clearing-count" class="d-none" aria-live="polite"></div>
+
+    <!-- Edit pop-up for the selected clearing, forest or building -->
+    <div id="mb-popover" role="dialog" aria-label="{% trans 'Edit' %}">
+        <div id="mb-pop-prompt" class="mb-pop-prompt d-none">{% trans "Now click and drag to place this clearing's suit marker." %}</div>
+        <div class="mb-pop-row">
+            <div id="mb-pop-clearing" class="mb-pop-stepper">
+                <button type="button" id="mb-pop-minus" aria-label="{% trans 'Lower number' %}"><i class="bi bi-dash"></i></button>
+                <span id="mb-pop-number" title="{% trans 'Clearing number' %}"></span>
+                <button type="button" id="mb-pop-plus" aria-label="{% trans 'Higher number' %}"><i class="bi bi-plus"></i></button>
+            </div>
+            <div id="mb-pop-suits" class="mb-pop-suits">
+                <button type="button" data-suit="fox" title="{% trans 'Fox' %}" aria-label="{% trans 'Fox' %}" aria-pressed="false"><img alt=""></button>
+                <button type="button" data-suit="rabbit" title="{% trans 'Rabbit' %}" aria-label="{% trans 'Rabbit' %}" aria-pressed="false"><img alt=""></button>
+                <button type="button" data-suit="mouse" title="{% trans 'Mouse' %}" aria-label="{% trans 'Mouse' %}" aria-pressed="false"><img alt=""></button>
+                <button type="button" data-suit="bird" title="{% trans 'Bird' %}" aria-label="{% trans 'Bird' %}" aria-pressed="false"><img alt=""></button>
+                <button type="button" data-suit="city" title="{% trans 'Lost City' %}" aria-label="{% trans 'Lost City' %}" aria-pressed="false"><img alt=""></button>
+            </div>
+            <button type="button" id="mb-pop-ruin" class="mb-pop-ruin d-none" title="{% trans 'Ruin' %}"
+                    aria-label="{% trans 'Ruin' %}" aria-pressed="false"
+                    style="background-image: url('{% static 'images/tts/assets/ruin.png' %}');"></button>
+            <button type="button" id="mb-pop-delete" class="mb-pop-delete" title="{% trans 'Delete' %}" aria-label="{% trans 'Delete' %}">
+                <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+                    <path d="M2 2 L10 10 M10 2 L2 10" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Review -->
+<div class="card mb-3 d-none" id="mb-review">
+    <div class="card-body">
+        <p class="text-muted small text-center mb-2">{% trans "This is how your map will load. Click an element on the map, or a tile below, to edit." %}</p>
+        <div class="mb-sum-grid mb-3" id="mb-review-counts"></div>
+        <div class="mb-sum-suits mb-3" id="mb-review-suits"></div>
+        <div id="mb-review-problems"></div>
+    </div>
+</div>
+
+<div id="mb-messages"></div>
+
+<div class="mb-actions d-flex flex-wrap justify-content-between gap-2">
+    <button type="button" class="btn btn-outline-secondary text-nowrap" id="mb-back">
+        <i class="bi bi-arrow-left me-1"></i>{% trans 'Back' %}
+    </button>
+    <div class="d-flex gap-2 ms-auto">
+        <button type="button" class="btn btn-outline-primary text-nowrap" id="mb-save"
+                data-label="{% trans 'Save Progress' %}" data-saved-label="{% trans 'Saved' %}">
+            <i class="bi bi-floppy-fill me-1"></i><span>{% trans 'Save Progress' %}</span>
+        </button>
+        <button type="button" class="btn btn-primary text-nowrap" id="mb-next">
+            {% trans 'Next' %}<i class="bi bi-arrow-right ms-1"></i>
+        </button>
+        <button type="button" class="btn btn-success text-nowrap d-none" id="mb-generate"
+                title="{{ generate_title|default:_('Save and generate the TTS JSON') }}">
+            <i class="bi bi-filetype-json me-1"></i>{% trans 'Complete' %}
+        </button>
+    </div>
+</div>
+<!-- Card introducing each step -->
+<div id="mb-step-card" class="mb-card-backdrop" aria-hidden="true">
+    <div class="mb-card" role="dialog" aria-modal="true" aria-labelledby="mb-card-heading">
+        <h3 id="mb-card-heading"></h3>
+        <p id="mb-card-hint"></p>
+        <button type="button" class="btn btn-primary px-4" id="mb-card-ok">{% trans 'Ok' %}</button>
+    </div>
+</div>
+{{ config|json_script:"map-builder-config" }}
+{% csrf_token %}
+</div>
