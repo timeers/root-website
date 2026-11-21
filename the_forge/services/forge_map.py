@@ -11,8 +11,6 @@ from the_keep.services.tts_map import (DEFAULT_LOGO, FORGE_FRAME, OFFICIAL_RATIO
 from the_keep.utils import validate_tts_save
 
 MAX_ART_BYTES = 25 * 1024 * 1024
-# A new map's name, until the designer names it on the builder's Art step.
-DEFAULT_MAP_NAME = 'Untitled Map'
 ART_QUALITY = 92
 
 
@@ -54,24 +52,36 @@ def art_url(forged_map):
 def map_builder_config(forged_map, *, profile, readonly=False):
     """The shared builder's config for a Forge map: drawn in the official
     maps' frame (FORGE_FRAME), with the upload step, the printed art under the
-    pieces, and no Map post counts to compare with."""
-    state = forged_map.tts_builder or default_state()
+    pieces, and no Map post counts to compare with.
+
+    forged_map=None is a new map: nothing exists until the Art step's Next
+    sends its name and art to create_url (the builder then carries on with the
+    created map's URLs)."""
+    if forged_map is None:
+        state, image, fixed, cropped, name = default_state(), None, False, False, ''
+        save_url = upload_url = None
+    else:
+        state = forged_map.tts_builder or default_state()
+        image, fixed, cropped = art_url(forged_map), forged_map.fixed_clearings, forged_map.art_cropped
+        name = forged_map.faction.faction_name
+        save_url = reverse('forge-map-builder', kwargs={'pk': forged_map.faction_id})
+        upload_url = reverse('forge-map-art', kwargs={'pk': forged_map.faction_id})
     return builder_config(
-        art_url(forged_map), *FORGE_FRAME, state,
-        fixed=forged_map.fixed_clearings,
+        image, *FORGE_FRAME, state,
+        fixed=fixed,
         expected={'clearings': None, 'forests': None, 'buildings': None, 'ruins': None},
-        save_url=reverse('forge-map-builder', kwargs={'pk': forged_map.faction_id}),
+        save_url=save_url,
         show_intros=not getattr(profile, 'map_builder_onboard', True),
         upload_step=not readonly,
-        upload_url=reverse('forge-map-art', kwargs={'pk': forged_map.faction_id}),
-        art_cropped=forged_map.art_cropped,
+        upload_url=upload_url,
+        create_url=reverse('forge-map-create') if forged_map is None else None,
+        art_cropped=cropped,
         official_ratio=OFFICIAL_RATIO,
         ratio_tolerance=RATIO_TOLERANCE,
         print={key: {'url': art['url'], 'w': art['w'], 'h': art['h']} for key, art in print_art().items()},
         default_logo=list(DEFAULT_LOGO),
         step_text=step_text(),
-        map_name=forged_map.faction.faction_name,
-        default_name=DEFAULT_MAP_NAME,
+        map_name=name,
         readonly=readonly,
     )
 
@@ -143,3 +153,35 @@ def store_map_tts(forged_map):
     faction.tts_json_generated = timezone.now()
     ForgedFaction.objects.filter(pk=faction.pk).update(tts_json=save, tts_json_generated=faction.tts_json_generated)
     return True, []
+
+
+def refresh_map_snapshot(faction):
+    """Bring a Map draft's image and TTS JSON up to date, for the TTS Library
+    (the admin reviews this JSON, and the loader serves it once approved).
+    Returns an error message, or None."""
+    from the_forge.models import ForgedMap
+    from the_forge.render_guard import RenderBusy, render_slot
+
+    forged_map = ForgedMap.objects.filter(faction=faction).first()
+    if forged_map is None or not forged_map.art:
+        return "Upload the map's art and complete the map first."
+    forged_map.faction = faction
+    try:
+        with render_slot():
+            refresh_map_image(forged_map)
+    except RenderBusy:
+        return "The map generator is busy. Try again in a moment."
+    ok, errors = store_map_tts(forged_map)
+    return None if ok else "Finish the map in the builder first: " + ' '.join(errors)
+
+
+def map_library_state(faction, forged_map):
+    """The TTS Library card's state for a Map draft (see _tts_library_card.html):
+    a map can be submitted once it's been completed (it has a generated image)."""
+    from the_forge.models import ForgedFaction
+    status = ForgedFaction.TTSStatus
+    if faction.tts_status in (status.SUBMITTED, status.APPROVED):
+        return faction.tts_status
+    if not (forged_map.image_preview and faction.tts_json):
+        return 'not_ready'
+    return 'rejected' if faction.tts_status == status.REJECTED else 'can_submit'

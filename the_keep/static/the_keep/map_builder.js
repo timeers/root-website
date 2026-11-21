@@ -44,8 +44,8 @@
       hint: 'Check the count of each element, then click "Complete" to generate the final JSON.' },
   ];
   if (config.upload_step) {
-    STEPS.unshift({ key: 'upload', heading: 'Map Art', name: 'Map Art', short: 'Art',
-                    hint: 'Upload your map\'s art, then drag the Root logo to where it should be printed.' });
+    STEPS.unshift({ key: 'upload', heading: 'Map Name & Art', name: 'Start', short: 'Start',
+                    hint: 'Choose a name for your map and upload your art.' });
   }
   for (const s of STEPS) Object.assign(s, (config.step_text || {})[s.key] || {});
 
@@ -186,7 +186,7 @@
     drawPrinted();
     // Track and items.
     const g0 = layer(step === STEP_TRACK);
-    // The Forge's Map Art step is just the art and the logo.
+    // The Forge's Start step is just the art and the name.
     if (step === STEP_UPLOAD) g0.setAttribute('display', 'none');
     const rows = trackRows(), cols = trackColumns();
     const band = el('rect', {
@@ -337,7 +337,7 @@
       btn.classList.toggle('active', n === step);
       btn.classList.toggle('done', n < step);
       // The Forge's later steps wait for the map's art.
-      btn.disabled = n > STEP_UPLOAD && STEP_UPLOAD >= 0 && !hasArt();
+      btn.disabled = n > STEP_UPLOAD && artStepLocked();
       if (n === step) btn.setAttribute('aria-current', 'step'); else btn.removeAttribute('aria-current');
     });
     document.getElementById('mb-progress-thumb').style.transform = `translateX(${step * 100}%)`;
@@ -350,7 +350,11 @@
 
     document.getElementById('mb-back').disabled = step === 0;
     document.getElementById('mb-next').classList.toggle('d-none', step === STEP_REVIEW);
-    document.getElementById('mb-next').disabled = step === STEP_UPLOAD && !hasArt();
+    const next = document.getElementById('mb-next');
+    next.disabled = step === STEP_UPLOAD && !artStepDone();
+    next.title = next.disabled ? artStepMissing() : '';
+    // A new map can't be saved until it's created (its name and art, then Next).
+    document.getElementById('mb-save').disabled = isNew() && !artStepDone();
     document.getElementById('mb-generate').classList.toggle('d-none', step !== STEP_REVIEW);
     document.getElementById('mb-review').classList.toggle('d-none', step !== STEP_REVIEW || !!config.readonly);
     board.classList.toggle('mb-review', step === STEP_REVIEW && !config.readonly);
@@ -1189,10 +1193,37 @@
     return !config.upload_step || !!config.image;
   }
 
+  // A new Forge map isn't created until the Art step's Next (or Save) sends
+  // its name and art (createMap); until then there's nothing to save to.
+  function isNew() {
+    return !!config.create_url && !config.save_url;
+  }
+
+  function hasName() {
+    return !nameInput || nameInput.value.trim() !== '';
+  }
+
+  // The Art step is done with a name and art; a new map must also be created
+  // (by Next) before the later steps open.
+  function artStepDone() {
+    return hasArt() && hasName();
+  }
+
+  function artStepLocked() {
+    return STEP_UPLOAD >= 0 && (!artStepDone() || isNew());
+  }
+
+  function artStepMissing() {
+    if (!hasName() && !hasArt()) return 'Name your map and upload its art first.';
+    return hasName() ? "Upload your map's art first." : 'Name your map first.';
+  }
+
   function updateUpload() {
     document.getElementById('mb-crop-notice').classList.toggle('d-none', !config.art_cropped || !hasArt());
     if (!artStep) return;
     artStep.classList.toggle('d-none', step !== STEP_UPLOAD || !!config.readonly);
+    // The art is there but the name isn't: show what's left.
+    nameInput.classList.toggle('mb-missing', hasArt() && !hasName());
     uploadButton.classList.toggle('mb-has-art', hasArt());
     const title = uploadButton.querySelector('.mb-upload-title');
     title.textContent = hasArt() ? title.dataset.replace : title.dataset.upload;
@@ -1234,7 +1265,66 @@
     config.image = url;
     pendingArt = file;
     render();
-    uploadArt();
+    // A new map has nowhere to upload to yet: the file goes with createMap.
+    if (!isNew()) uploadArt();
+  }
+
+  let creating = null;        // createMap in progress (a Promise of success)
+
+  // Create a new map from the Art step's name and art. The page then carries
+  // on as that map's builder (its URL too), on the same layout.
+  function createMap() {
+    if (!isNew()) return Promise.resolve(true);
+    if (creating) return creating;
+    creating = (async () => {
+      artStatus('info', 'Creating your map…');
+      let response = null, result = {};
+      try {
+        const body = new FormData();
+        body.append('name', nameInput.value.trim());
+        if (pendingArt) body.append('art', pendingArt);
+        body.append('state', JSON.stringify(state));
+        response = await fetch(config.create_url, { method: 'POST', headers: { 'X-CSRFToken': csrfToken() }, body });
+        result = await response.json();
+      } catch (err) {
+        response = null;
+      }
+      if (response && response.ok && result.ok) {
+        pendingArt = null;
+        previousArt = null;
+        Object.assign(config, { save_url: result.save_url, upload_url: result.upload_url, create_url: null,
+                                image: result.image, art_cropped: !!result.cropped });
+        nameInput.value = result.name;
+        history.replaceState(null, '', result.builder_url);
+        const heading = document.getElementById('mb-page-title');
+        if (heading) heading.textContent = result.name;
+        const back = document.getElementById('mb-back-link');
+        if (back) {
+          back.href = result.detail_url;
+          back.querySelector('span').textContent = 'Back to Map';
+        }
+        artStatus(null);
+        render();
+        return true;
+      }
+      if (response && response.status === 400) {
+        artStatus('danger', result.error || "Your map couldn't be created.");
+        if (result.field === 'art') {
+          // The file itself was refused: pick another.
+          pendingArt = null;
+          previousArt = null;
+          config.image = null;
+          config.art_cropped = false;
+          document.getElementById('mb-image').src = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+        }
+        render();
+        return false;
+      }
+      artStatus('danger', "Couldn't create your map — check your connection and click Next again.");
+      return false;
+    })();
+    creating.finally(() => { creating = null; });
+    return creating;
   }
 
   function uploadArt() {
@@ -1296,10 +1386,7 @@
     nameInput.addEventListener('input', () => {
       dirty = true;
       showSaved(false);
-    });
-    // A new map's "Untitled Map" is selected on focus, so typing replaces it.
-    nameInput.addEventListener('focus', () => {
-      if (nameInput.value === config.default_name) nameInput.select();
+      updatePanel();   // Next waits for a name
     });
     nameInput.addEventListener('keydown', (evt) => {
       if (evt.key === 'Enter') nameInput.blur();
@@ -1328,7 +1415,7 @@
   // ── Steps and saving ──────────────────────────────────────────────────────
   function goTo(n) {
     n = Math.min(Math.max(n, 0), STEP_REVIEW);
-    if (n > STEP_UPLOAD && STEP_UPLOAD >= 0 && !hasArt()) n = STEP_UPLOAD;   // art first
+    if (n > STEP_UPLOAD && artStepLocked()) n = STEP_UPLOAD;   // name and art first
     step = n;
     selected = null;
     if (pendingMarker !== null && !state.clearings[pendingMarker].marker) removeClearing(pendingMarker);
@@ -1427,7 +1514,11 @@
   });
   document.getElementById('mb-info').addEventListener('click', openCard);
   document.getElementById('mb-back').addEventListener('click', () => goTo(step - 1));
-  document.getElementById('mb-next').addEventListener('click', () => goTo(step + 1));
+  document.getElementById('mb-next').addEventListener('click', async () => {
+    // A new map is created from its name and art when it leaves the Art step.
+    if (step === STEP_UPLOAD && isNew() && !(await createMap())) return;
+    goTo(step + 1);
+  });
   document.getElementById('mb-save').addEventListener('click', () => save(false));
   document.getElementById('mb-generate').addEventListener('click', () => save(true));
 
@@ -1439,6 +1530,8 @@
   async function save(generate) {
     const box = document.getElementById('mb-messages');
     box.innerHTML = '';
+    // A new map is created first (Save is only enabled once it has a name and art).
+    if (isNew() && !(await createMap())) return;
     // Art picked but not stored yet (the upload failed): send it again first.
     // Generating needs it on the server; a plain save goes ahead anyway.
     if (pendingArt && !(await uploadArt()) && generate) {
@@ -1496,7 +1589,7 @@
   }
 
   window.addEventListener('beforeunload', (evt) => {
-    if (dirty || pendingArt) {
+    if (dirty || pendingArt || (isNew() && (hasArt() || hasName()))) {
       evt.preventDefault();
       evt.returnValue = '';
     }
@@ -1505,7 +1598,7 @@
   render();
   // A new map starts in its name field; focused before the step card opens,
   // which gives focus back to it when it closes.
-  if (nameInput && step === STEP_UPLOAD && nameInput.value === config.default_name) {
+  if (nameInput && step === STEP_UPLOAD && !hasName()) {
     nameInput.focus({ preventScroll: true });
   }
   introduceStep();

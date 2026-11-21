@@ -893,6 +893,7 @@ from io import BytesIO
 from the_keep.services.tts_map import FORGE_FRAME, OFFICIAL_RATIO, MapGeometry, print_layout
 from .models import ForgedMap
 from .pdf_cache import fingerprint_map
+from .services.forge_map import default_state as default_map_state
 
 
 def _image_upload(width, height, name='art.png', fmt='PNG'):
@@ -931,11 +932,11 @@ class ForgedMapTests(TestCase):
         self.client.force_login(self.user)
 
     def _create(self, name='Highlands'):
-        response = self.client.post(reverse('forge-map-create'))
-        draft = ForgedFaction.objects.get(component='Map', faction_name='Untitled Map')
-        self.assertRedirects(response, reverse('forge-map-builder', args=[draft.pk]), fetch_redirect_response=False)
-        ForgedFaction.objects.filter(pk=draft.pk).update(faction_name=name)
-        draft.refresh_from_db()
+        result = self.client.post(reverse('forge-map-create'),
+                                  {'name': name, 'art': _image_upload(1090, 1000)}).json()
+        self.assertTrue(result['ok'], result)
+        draft = ForgedFaction.objects.get(pk=result['pk'])
+        self.assertEqual(result['builder_url'], reverse('forge-map-builder', args=[draft.pk]))
         return draft
 
     def _upload(self, draft, width=1090, height=1000):
@@ -968,34 +969,61 @@ class ForgedMapTests(TestCase):
         self.assertEqual(draft.forged_map.tts_builder['logo'], [0.8, 0.07])
         config = self.client.get(reverse('forge-map-builder', args=[draft.pk])).context['config']
         self.assertTrue(config['upload_step'])
-        self.assertIsNone(config['image'])
+        self.assertIn('map/art.webp', config['image'])
+        self.assertIsNone(config['create_url'])
         self.assertEqual((config['width'], config['height']), FORGE_FRAME)
         self.assertEqual(set(config['print']), {'vp', 'items', 'logo'})
         self.assertEqual(config['step_text']['upload']['link']['url'], reverse('map-create'))
         self.assertIn("AI-generated", config['step_text']['upload']['hint'])
         self.assertEqual(config['expected'], {'clearings': None, 'forests': None, 'buildings': None, 'ruins': None})
 
-    def test_new_map_is_untitled_and_named_on_the_art_step(self):
-        # A visit never creates a map; New Map posts.
-        self.assertRedirects(self.client.get(reverse('forge-map-create')), reverse('forge-map-list'),
-                             fetch_redirect_response=False)
+    def test_new_map_is_created_from_its_name_and_art(self):
+        # A visit opens the builder with nothing created.
+        response = self.client.get(reverse('forge-map-create'))
+        self.assertEqual(response.status_code, 200)
+        config = response.context['config']
+        self.assertEqual(config['create_url'], reverse('forge-map-create'))
+        self.assertIsNone(config['save_url'])
+        self.assertEqual(config['map_name'], '')
+        self.assertIsNone(config['image'])
+        self.assertIn('New Map', response.content.decode())
         self.assertFalse(ForgedFaction.objects.filter(component='Map').exists())
-        self.client.post(reverse('forge-map-create'))
-        draft = ForgedFaction.objects.get(component='Map')
-        self.assertEqual(draft.faction_name, 'Untitled Map')
-        config = self.client.get(reverse('forge-map-builder', args=[draft.pk])).context['config']
-        self.assertEqual(config['map_name'], 'Untitled Map')
 
-        ForgedFaction.objects.filter(pk=draft.pk).update(tts_json={'ObjectStates': [{'Name': 'Custom_Token'}]})
-        result = self._save(draft, _fixed_layout(), name='  Highlands  ').json()
-        self.assertEqual(result['name'], 'Highlands')
-        draft.refresh_from_db()
-        self.assertEqual(draft.faction_name, 'Highlands')
-        self.assertIsNone(draft.tts_json)   # it carried the old name: rebuilt on the next Complete
+        # Next sends the name and art: the slug (its media folder) comes from the name.
+        state = {**default_map_state(), 'logo': [0.3, 0.1]}
+        result = self.client.post(reverse('forge-map-create'), {
+            'name': '  Highlands  ', 'art': _image_upload(2000, 1000), 'state': json.dumps(state),
+        }).json()
+        self.assertTrue(result['ok'])
+        self.assertTrue(result['cropped'])
+        draft = ForgedFaction.objects.get(pk=result['pk'])
+        self.assertEqual((draft.faction_name, draft.slug, draft.component), ('Highlands', 'highlands', 'Map'))
+        self.assertEqual(draft.forged_map.art.name, 'forge/factions/highlands/map/art.webp')
+        self.assertEqual(draft.forged_map.tts_builder['logo'], [0.3, 0.1])
+        self.assertEqual(self.client.get(reverse('forge-map-builder', args=[draft.pk])).context['config']['map_name'],
+                         'Highlands')
 
+        # Renaming later keeps the folder; a blank name keeps the old one.
+        result = self._save(draft, _fixed_layout(), name='Lowlands').json()
+        self.assertEqual(result['name'], 'Lowlands')
         result = self._save(draft, _fixed_layout(), name='   ').json()
-        self.assertEqual(result['name'], 'Highlands')
-        self.assertIn('Your map needs a name: kept "Highlands".', result['warnings'])
+        self.assertEqual(result['name'], 'Lowlands')
+        self.assertIn('Your map needs a name: kept "Lowlands".', result['warnings'])
+        draft.refresh_from_db()
+        self.assertEqual(draft.slug, 'highlands')
+
+    def test_new_map_needs_a_name_and_usable_art(self):
+        url = reverse('forge-map-create')
+        response = self.client.post(url, {'name': '  ', 'art': _image_upload(1090, 1000)})
+        self.assertEqual((response.status_code, response.json()['field']), (400, 'name'))
+        response = self.client.post(url, {'name': 'Highlands'})
+        self.assertEqual((response.status_code, response.json()['field']), (400, 'art'))
+        bad = SimpleUploadedFile('art.png', b'not an image', content_type='image/png')
+        response = self.client.post(url, {'name': 'Highlands', 'art': bad})
+        self.assertEqual((response.status_code, response.json()['field']), (400, 'art'))
+        # Nothing half-made is left behind.
+        self.assertFalse(ForgedFaction.objects.filter(component='Map').exists())
+        self.assertFalse(ForgedMap.objects.exists())
 
     def test_art_is_cropped_to_the_official_shape(self):
         draft = self._create()
@@ -1012,7 +1040,7 @@ class ForgedMapTests(TestCase):
         result = self._upload(draft, 1090, 1000).json()
         self.assertFalse(result['cropped'])
         forged_map.refresh_from_db()
-        self.assertEqual(forged_map.art_version, 2)
+        self.assertEqual(forged_map.art_version, 3)   # created with art, then two uploads
         self.assertFalse(forged_map.art_cropped)
         self.assertNotEqual(fingerprint_map(forged_map), first)
 
@@ -1038,6 +1066,7 @@ class ForgedMapTests(TestCase):
 
     def test_complete_needs_art_and_a_finished_layout(self):
         draft = self._create()
+        ForgedMap.objects.filter(faction=draft).update(art=None)   # e.g. a map made before art was required
         result = self._save(draft, _fixed_layout(), generate=True).json()
         self.assertFalse(result['ok'])
         self.assertIn("Upload your map's art first.", result['errors'])
@@ -1118,3 +1147,51 @@ class ForgedMapTests(TestCase):
         canvas.rotate.assert_called_once_with(90)
         # Only the line is scaled to the clearing: the icon keeps its own size.
         canvas.scale.assert_called_once()
+
+    def test_renaming_a_completed_map_renames_its_tts_json(self):
+        draft = self._create()
+        self._upload(draft)
+        self._save(draft, _fixed_layout(), generate=True)
+        self._save(draft, _fixed_layout(), name='Lowlands')
+        draft.refresh_from_db()
+        board = draft.tts_json['ObjectStates'][0]
+        self.assertEqual(board['Nickname'], 'Lowlands')
+        self.assertIn('RTT Map: Lowlands', board['Tags'])
+
+    def test_tts_library_card_submit_and_withdraw(self):
+        draft = self._create()
+        detail = reverse('forge-map-detail', args=[draft.pk])
+        response = self.client.get(detail)
+        self.assertEqual(response.context['tts_state'], 'not_ready')
+        self.assertIn('Complete the map in the map builder before submitting', response.content.decode())
+
+        self._upload(draft)
+        self._save(draft, _fixed_layout(), generate=True)
+        response = self.client.get(detail)
+        self.assertEqual(response.context['tts_state'], 'can_submit')
+        self.assertIn(reverse('forge-faction-tts-submit', args=[draft.pk]), response.content.decode())
+
+        with mock.patch('the_forge.views.send_rich_discord_message_task.delay'):
+            response = self.client.post(reverse('forge-faction-tts-submit', args=[draft.pk]))
+        self.assertRedirects(response, detail, fetch_redirect_response=False)
+        draft.refresh_from_db()
+        self.assertEqual(draft.tts_status, ForgedFaction.TTSStatus.SUBMITTED)
+        self.assertIn('ObjectStates', draft.tts_json)
+
+        response = self.client.post(reverse('forge-faction-tts-withdraw', args=[draft.pk]))
+        self.assertRedirects(response, detail, fetch_redirect_response=False)
+        draft.refresh_from_db()
+        self.assertEqual(draft.tts_status, ForgedFaction.TTSStatus.NOT_SUBMITTED)
+
+    def test_approved_map_is_served_to_the_loader_as_a_map(self):
+        draft = self._create()
+        self._upload(draft)
+        self._save(draft, _fixed_layout(fixed=False), generate=True)
+        ForgedFaction.objects.filter(pk=draft.pk).update(tts_status=ForgedFaction.TTSStatus.APPROVED)
+        from the_keep.api_views import TTSForgeDetailView
+        from rest_framework.test import APIRequestFactory
+        request = APIRequestFactory().get('/')
+        data = TTSForgeDetailView.as_view()(request, pk=draft.pk).data
+        self.assertEqual(data['component'], 'Map')
+        self.assertEqual(data['map_board'], 1)
+        self.assertTrue(data['shuffle'])   # random suits: the coordinator shuffles its markers

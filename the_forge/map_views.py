@@ -7,6 +7,7 @@ forge/map/."""
 import json
 
 from django.contrib import messages
+from django.db import transaction
 from django.contrib.auth.decorators import login_required
 from django.http import FileResponse, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -18,8 +19,8 @@ from the_keep.models import Post
 from the_keep.services.tts_map import check_builder, clean_builder_state
 
 from .models import ForgedFaction, ForgedMap
-from .services.forge_map import (DEFAULT_MAP_NAME, ArtRejected, default_state, map_builder_config, refresh_map_image, save_art,
-                                 store_map_tts)
+from .services.forge_map import (ArtRejected, default_state, map_builder_config,
+                                 map_library_state, refresh_map_image, save_art, store_map_tts)
 from .views import _forbid_if_not_editor, user_can_edit_forge, user_can_view_forge
 
 
@@ -44,16 +45,53 @@ def map_list(request):
     return render(request, 'the_forge/map_list.html', {'maps': maps})
 
 
+class _NotCreated(Exception):
+    pass
+
+
 @forge_onboard_required
 def map_create(request):
-    """New Map: an "Untitled Map", named on the builder's first step. POST
-    only, so a visit never creates one."""
+    """New Map. A visit opens the builder on its Art step with nothing created
+    yet; the step's Next posts the map's name and art here, and only then are
+    the draft and its map made (so its slug, and with it its media folder,
+    comes from its real name)."""
     if request.method != 'POST':
-        return redirect('forge-map-list')
-    faction = ForgedFaction.objects.create(designer=request.user.profile, faction_name=DEFAULT_MAP_NAME,
-                                           component=Post.ComponentChoices.MAP)
-    ForgedMap.objects.create(faction=faction, tts_builder=default_state())
-    return redirect('forge-map-builder', pk=faction.pk)
+        return render(request, 'the_forge/map_builder.html', {
+            'faction': None,
+            'config': map_builder_config(None, profile=request.user.profile),
+        })
+
+    name_field = ForgedFaction._meta.get_field('faction_name')
+    name = (request.POST.get('name') or '').strip()[:name_field.max_length]
+    if not name:
+        return JsonResponse({'ok': False, 'field': 'name', 'error': 'Name your map.'}, status=400)
+    upload = request.FILES.get('art')
+    if upload is None:
+        return JsonResponse({'ok': False, 'field': 'art', 'error': "Upload your map's art."}, status=400)
+    try:
+        state = clean_builder_state(json.loads(request.POST.get('state') or ''), logo=True)
+    except (ValueError, TypeError):
+        state = default_state()
+
+    try:
+        with transaction.atomic():
+            faction = ForgedFaction.objects.create(designer=request.user.profile, faction_name=name,
+                                                   component=Post.ComponentChoices.MAP)
+            forged_map = ForgedMap.objects.create(faction=faction, tts_builder=state)
+            try:
+                cropped = save_art(forged_map, upload)
+            except ArtRejected as err:
+                raise _NotCreated(str(err))
+    except _NotCreated as err:
+        return JsonResponse({'ok': False, 'field': 'art', 'error': str(err)}, status=400)
+    return JsonResponse({
+        'ok': True, 'pk': faction.pk, 'name': faction.faction_name,
+        'image': f'{forged_map.art.url}?v={forged_map.art_version}', 'cropped': cropped,
+        'save_url': reverse('forge-map-builder', kwargs={'pk': faction.pk}),
+        'upload_url': reverse('forge-map-art', kwargs={'pk': faction.pk}),
+        'builder_url': reverse('forge-map-builder', kwargs={'pk': faction.pk}),
+        'detail_url': reverse('forge-map-detail', kwargs={'pk': faction.pk}),
+    })
 
 
 @forge_onboard_required
@@ -66,6 +104,8 @@ def map_detail(request, pk):
         'forged_map': forged_map,
         'can_edit': user_can_edit_forge(request, faction),
         'stale': forged_map.preview_stale,
+        'tts_state': map_library_state(faction, forged_map),
+        'is_admin': bool(getattr(request.user.profile, 'admin', False)),
     }
     if forged_map.art:
         context['config'] = map_builder_config(forged_map, profile=request.user.profile, readonly=True)
@@ -98,13 +138,14 @@ def map_builder(request, pk):
             if not name:
                 warnings.append(f'Your map needs a name: kept "{faction.faction_name}".')
             elif name != faction.faction_name:
-                # The stored TTS JSON carries the name (the map image doesn't):
-                # it's rebuilt on the next Complete or download.
                 faction.faction_name = name
-                faction.tts_json = None
-                faction.tts_json_generated = None
-                ForgedFaction.objects.filter(pk=faction.pk).update(
-                    faction_name=name, tts_json=None, tts_json_generated=None)
+                ForgedFaction.objects.filter(pk=faction.pk).update(faction_name=name)
+                # The stored TTS JSON carries the name (the map image doesn't):
+                # rebuild it on the current image, so a map in the TTS Library
+                # stays listed under its new name. With a layout that doesn't
+                # pass the checks yet, the next Complete rebuilds it.
+                if faction.tts_json and forged_map.image_preview:
+                    store_map_tts(forged_map)
         # No Map post counts to update: the builder compares nothing.
         result = {'ok': True, 'saved': True, 'changes': [], 'errors': errors, 'warnings': warnings, 'counted': [],
                   'name': faction.faction_name}

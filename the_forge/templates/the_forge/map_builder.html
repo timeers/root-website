@@ -1,7 +1,7 @@
 {% extends 'the_keep/base.html' %}
 {% load static %}
 
-{% block title %}Map Builder - {{ faction.faction_name }} | {% endblock %}
+{% block title %}Map Builder - {{ faction.faction_name|default:'New Map' }} | {% endblock %}
 
 {% block styles %}
 <link rel="stylesheet" href="{% static 'the_keep/map_builder.css' %}">
@@ -10,13 +10,19 @@
 {% block content %}
 <div class="container py-4 mb-no-select">
     <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="mb-0 root-title"><i class="bi bi-map me-2"></i><span id="mb-page-title">{{ faction.faction_name }}</span> Map Builder</h2>
-        <a href="{% url 'forge-map-detail' pk=faction.pk %}" class="btn btn-outline-secondary">
-            <i class="bi bi-arrow-left me-1"></i>Back to Map
+        <h2 class="mb-0 root-title"><i class="bi bi-map me-2"></i><span id="mb-page-title">{{ faction.faction_name|default:'' }}</span> Map Builder</h2>
+        {% if faction %}
+        <a href="{% url 'forge-map-detail' pk=faction.pk %}" class="btn btn-outline-secondary" id="mb-back-link">
+            <i class="bi bi-arrow-left me-1"></i><span>Back to Map</span>
         </a>
+        {% else %}
+        <a href="{% url 'forge-map-list' %}" class="btn btn-outline-secondary" id="mb-back-link">
+            <i class="bi bi-arrow-left me-1"></i><span>Back to Maps</span>
+        </a>
+        {% endif %}
     </div>
 
-    {% include 'the_keep/includes/map_builder.html' with board_alt=faction.faction_name generate_title='Save and generate your map' %}
+    {% include 'the_keep/includes/map_builder.html' with board_alt=faction.faction_name|default:'New map' generate_title='Save and generate your map' %}
 </div>
 {% endblock %}
 

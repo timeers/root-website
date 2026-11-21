@@ -429,8 +429,14 @@ class TTSForgeDetailView(TTSLoaderView):
             .only('faction_name', 'component', 'tts_json'),
             pk=pk,
         )
+        # A Forge map's board and shuffle (keep posts store these in tts_info):
+        # a scan of the objects' tags, no rewriting.
+        info = None
+        if forged.component == 'Map':
+            from .services.tts_inspect import describe_tts_json
+            info = describe_tts_json(forged, forged.tts_json)
         return Response(_tts_objects_payload(forged.faction_name, forged.tts_json,
-                                             component=forged.component))
+                                             component=forged.component, tts_info=info))
 
 
 # ── TTS Library object: served straight from tts/loader.lua ─────────────────

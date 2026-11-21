@@ -38,8 +38,8 @@ generate_title. Load map_builder.css and map_builder.js on the page too.
          thirds: click the dashed area or drop a file on it) -->
     <div id="mb-art-step" class="d-none">
         <div class="mb-art-name">
-            <input type="text" id="mb-name" maxlength="50" autocomplete="off" spellcheck="false"
-                   value="{{ config.map_name }}" placeholder="{% trans 'Name your map' %}"
+            <input type="text" id="mb-name" maxlength="50" required autocomplete="off" spellcheck="false"
+                   value="{{ config.map_name }}" placeholder="{% trans 'Map Name' %}"
                    aria-label="{% trans 'Map name' %}">
         </div>
         <div class="mb-art-drop">

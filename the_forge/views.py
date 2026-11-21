@@ -245,6 +245,18 @@ def _forbid_if_not_faction(request, forged):
     return None
 
 
+def _forbid_if_not_in_library(request, forged):
+    """The TTS Library takes Faction and Clockwork drafts, and Forge maps."""
+    if forged.is_map:
+        return None
+    return _forbid_if_not_faction(request, forged)
+
+
+def _tts_library_detail(forged):
+    """The draft's own page (maps have theirs)."""
+    return redirect('forge-map-detail' if forged.is_map else 'forge-faction-detail', pk=forged.pk)
+
+
 def _forbid_if_no_setup_card(request, forged):
     """Only regular Factions have an Adset (setup) card; Clockwork doesn't."""
     if not forged.uses_setup_card:
@@ -3139,17 +3151,22 @@ def forgedfaction_tts_submit(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
-    if (resp := _forbid_if_not_faction(request, faction)):
+    if (resp := _forbid_if_not_in_library(request, faction)):
         return resp
+    noun = 'map' if faction.is_map else 'faction'
     if faction.tts_status not in (TTSStatus.NOT_SUBMITTED, TTSStatus.REJECTED):
-        messages.info(request, "This faction is already submitted to the TTS Library.")
-        return redirect('forge-faction-detail', pk=faction.pk)
+        messages.info(request, f"This {noun} is already submitted to the TTS Library.")
+        return _tts_library_detail(faction)
 
     # The admin reviews this snapshot, so build it now (same path as the export).
-    error = _store_forge_tts_snapshot(faction, refresh_previews=True)
+    if faction.is_map:
+        from .services.forge_map import refresh_map_snapshot
+        error = refresh_map_snapshot(faction)
+    else:
+        error = _store_forge_tts_snapshot(faction, refresh_previews=True)
     if error:
         messages.error(request, f"Couldn't submit to the TTS Library: {error}")
-        return redirect('forge-faction-detail', pk=faction.pk)
+        return _tts_library_detail(faction)
 
     updated = ForgedFaction.objects.filter(
         pk=faction.pk, tts_status__in=[TTSStatus.NOT_SUBMITTED, TTSStatus.REJECTED],
@@ -3162,7 +3179,7 @@ def forgedfaction_tts_submit(request, pk):
             url=f"{settings.SITE_URL}{reverse('forge-tts-library-pending')}",
         )
         messages.success(request, "Submitted to the TTS Library. An admin will review it soon.")
-    return redirect('forge-faction-detail', pk=faction.pk)
+    return _tts_library_detail(faction)
 
 
 @login_required
@@ -3172,7 +3189,7 @@ def forgedfaction_tts_withdraw(request, pk):
     faction = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
-    if (resp := _forbid_if_not_faction(request, faction)):
+    if (resp := _forbid_if_not_in_library(request, faction)):
         return resp
 
     was_approved = faction.tts_status == TTSStatus.APPROVED
@@ -3180,7 +3197,7 @@ def forgedfaction_tts_withdraw(request, pk):
         pk=faction.pk, tts_status__in=[TTSStatus.SUBMITTED, TTSStatus.APPROVED],
     ).update(tts_status=TTSStatus.NOT_SUBMITTED, tts_submitted_at=None)
     if not updated:
-        messages.info(request, "This faction isn't in the TTS Library.")
+        messages.info(request, f"This {'map' if faction.is_map else 'faction'} isn't in the TTS Library.")
     elif was_approved:
         send_discord_message_task.delay(
             f"Removed from TTS Library by its designer: {faction.faction_name} ({_forge_detail_url(faction)})",
@@ -3189,7 +3206,7 @@ def forgedfaction_tts_withdraw(request, pk):
         messages.success(request, "Removed from the TTS Library.")
     else:
         messages.success(request, "Submission withdrawn.")
-    return redirect('forge-faction-detail', pk=faction.pk)
+    return _tts_library_detail(faction)
 
 
 @admin_required
@@ -3209,7 +3226,7 @@ def tts_library_pending(request):
 def _redirect_after_review(request, faction):
     # Reviews can come from the pending queue or the faction page itself.
     if request.POST.get('next') == 'detail':
-        return redirect('forge-faction-detail', pk=faction.pk)
+        return _tts_library_detail(faction)
     return redirect('forge-tts-library-pending')
 
 

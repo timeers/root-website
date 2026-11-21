@@ -394,6 +394,9 @@ body.mb-dragging, body.mb-dragging * { -webkit-user-select: none !important; use
 .mb-readonly #mb-review, .mb-readonly #mb-messages, .mb-readonly #mb-art-status,
 .mb-readonly #mb-step-card, .mb-readonly #mb-art-step { display: none !important; }
 .mb-readonly #mb-board { margin-bottom: 0 !important; }
+/* Nothing on the read-only board can be moved: no move or grab cursors (the
+   pieces set theirs inline). */
+.mb-readonly #mb-board, .mb-readonly #mb-board * { cursor: default !important; }
 
 /* Item-track cards with no room below the grid grow upwards (placeOnItemTrack
    in map_builder.js): the chevron points up to unfold and down to fold. */
@@ -401,3 +404,6 @@ body.mb-dragging, body.mb-dragging * { -webkit-user-select: none !important; use
 #mb-count-card.mb-grow-up:not(.folded) .mb-count-fold i { transform: rotate(180deg); }
 #mb-suit-mode.mb-grow-up.folded .mb-mode-fold i,
 #mb-count-card.mb-grow-up.folded .mb-count-fold i { transform: none; }
+
+/* The Art step has the map's art but no name yet. */
+#mb-name.mb-missing { border-color: #dc3545; box-shadow: 0 8px 24px rgba(0, 0, 0, .15), 0 0 0 4px rgba(220, 53, 69, .25); }
