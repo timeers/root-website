@@ -1,0 +1,313 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n static %}
+
+{% block title %}{% trans 'Map Builder' %} - {{ object.title }}{% endblock %}
+
+{% block styles %}
+<style>
+    #mb-popover {
+        position: absolute; z-index: 5; top: 0; left: 0;
+        background: #fff; border-radius: 12px; padding: 6px 8px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, .18), 0 1px 3px rgba(0, 0, 0, .12);
+        opacity: 0; transform: translateY(4px) scale(.96); pointer-events: none;
+        transition: opacity .12s ease, transform .12s ease;
+    }
+    #mb-popover.show { opacity: 1; transform: none; pointer-events: auto; }
+    #mb-popover.below { transform-origin: top center; }
+    /* The arrow points at the selected element. */
+    #mb-popover::after {
+        content: ''; position: absolute; left: var(--mb-arrow-x, 50%); bottom: -6px;
+        width: 12px; height: 12px; margin-left: -6px; background: #fff;
+        transform: rotate(45deg); box-shadow: 3px 3px 4px rgba(0, 0, 0, .08);
+    }
+    #mb-popover.below::after { bottom: auto; top: -6px; box-shadow: -3px -3px 4px rgba(0, 0, 0, .06); }
+    .mb-pop-prompt {
+        position: relative; z-index: 1; max-width: 240px; margin: 2px 2px 6px;
+        font-size: .85rem; line-height: 1.3; color: #495057; text-align: center;
+    }
+    #mb-popover .mb-pop-row { display: flex; align-items: center; gap: 10px; position: relative; z-index: 1; }
+
+    .mb-pop-stepper { display: flex; align-items: center; gap: 2px; background: #f1f3f5; border-radius: 999px; padding: 2px; }
+    .mb-pop-stepper button {
+        width: 26px; height: 26px; border: 0; border-radius: 50%; background: #fff; color: #212529;
+        display: inline-flex; align-items: center; justify-content: center; line-height: 1;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+    }
+    .mb-pop-stepper button:disabled { opacity: .35; box-shadow: none; }
+    .mb-pop-stepper span { min-width: 2ch; text-align: center; font-weight: 700; color: #212529; }
+
+    .mb-pop-suits { display: flex; align-items: center; gap: 6px; }
+    .mb-pop-suits button { border: 0; background: none; padding: 0; line-height: 0; }
+    .mb-pop-suits img {
+        width: 30px; height: 30px; filter: grayscale(1); opacity: .55; transform: scale(1);
+        transition: filter .15s ease, opacity .15s ease, transform .15s ease;
+    }
+    .mb-pop-suits button:hover img { opacity: .8; }
+    .mb-pop-suits button.selected img { filter: none; opacity: 1; transform: scale(1.2); }
+
+    .mb-pop-delete {
+        width: 32px; height: 32px; border-radius: 50%; border: 2px solid #fff; background: #dc3545; color: #fff;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, .15); display: inline-flex; align-items: center; justify-content: center;
+        padding: 0; font-size: 14px; transition: background .12s ease;
+    }
+    .mb-pop-delete:hover, .mb-pop-delete:focus-visible { background: #bb2d3b; }
+    .mb-pop-delete svg { display: block; }
+
+    /* Fixed / random clearing suits panel */
+    #mb-suit-mode {
+        position: absolute; z-index: 4; width: 240px; background: #fff; border-radius: 12px;
+        padding: 10px 12px 12px; text-align: center;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, .18), 0 1px 3px rgba(0, 0, 0, .12);
+    }
+    .mb-mode-title { font-family: 'Luminari', serif; font-size: 1.05rem; margin: 0 18px 6px; }
+    .mb-mode-fold {
+        position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border: 0; border-radius: 50%;
+        background: none; color: #6c757d; display: inline-flex; align-items: center; justify-content: center; padding: 0;
+    }
+    .mb-mode-fold:hover { background: #f1f3f5; }
+    .mb-mode-fold i { transition: transform .2s ease; }
+    #mb-suit-mode.folded .mb-mode-fold i { transform: rotate(180deg); }
+    /* Folding shrinks the image and text to nothing (a grid row animating 1fr -> 0fr). */
+    .mb-mode-body {
+        display: grid; grid-template-rows: 1fr; opacity: 1;
+        transition: grid-template-rows .3s cubic-bezier(.4, 0, .2, 1), opacity .2s ease;
+    }
+    .mb-mode-body-inner { min-height: 0; overflow: hidden; }
+    #mb-suit-mode.folded .mb-mode-body { grid-template-rows: 0fr; opacity: 0; }
+    .mb-mode-image { position: relative; display: block; width: 72px; height: 64px; margin: 0 auto 6px; border: 0; background: none; padding: 0; }
+    .mb-mode-image img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transition: opacity .2s ease; }
+    .mb-mode-text { font-family: 'Baskerville', serif; font-size: .75rem; line-height: 1.3; color: #495057; margin: 0 0 8px; }
+    .mb-mode-switch {
+        position: relative; display: grid; grid-template-columns: 1fr 1fr; background: #e9ecef;
+        border-radius: 999px; padding: 3px; height: 32px;
+    }
+    .mb-mode-thumb {
+        position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px);
+        background: var(--bs-primary, #0d6efd); border-radius: 999px; transition: transform .3s cubic-bezier(.4, 0, .2, 1);
+    }
+    #mb-suit-mode.fixed .mb-mode-thumb { transform: translateX(100%); }
+    .mb-mode-switch button {
+        position: relative; z-index: 1; border: 0; background: none; border-radius: 999px;
+        font-size: .85rem; color: #495057; transition: color .2s ease;
+    }
+    .mb-mode-switch button[aria-pressed="true"] { color: #fff; }
+
+    /* Dragging pieces must never select text on the page. */
+    .mb-no-select, .mb-no-select * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+    .mb-no-select input, .mb-no-select textarea { -webkit-user-select: text; user-select: text; }
+    body.mb-dragging, body.mb-dragging * { -webkit-user-select: none !important; user-select: none !important; }
+
+    /* Ruin toggle: the ruin tile's art in a rounded square, greyscale with a
+       white border when off; in colour with a red border when on. */
+    .mb-pop-ruin {
+        width: 34px; height: 34px; border-radius: 9px; border: 2px solid #fff; padding: 0;
+        background: #e9ecef center / cover no-repeat;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, .15);
+        filter: grayscale(1); opacity: .7;
+        transition: filter .15s ease, opacity .15s ease, border-color .15s ease, transform .15s ease;
+    }
+    .mb-pop-ruin:hover { opacity: .9; }
+    .mb-pop-ruin.on { filter: none; opacity: 1; border-color: #dc3545; transform: scale(1.08); }
+
+    /* A problem already listed on the review step, flagged again on save. */
+    @keyframes mb-flash {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+        30% { box-shadow: 0 0 0 6px rgba(220, 53, 69, .45); }
+    }
+    .alert.mb-flash { animation: mb-flash .6s ease 2; }
+
+    /* Progress bar */
+    #mb-progress {
+        position: relative; display: grid; grid-template-columns: repeat(5, 1fr);
+        background: #e9ecef; border-radius: 999px; height: 40px; padding: 3px; overflow: hidden;
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, .08);
+    }
+    #mb-progress-thumb {
+        position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 5);
+        background: var(--bs-primary, #0d6efd); border-radius: 999px;
+        box-shadow: 0 2px 6px rgba(13, 110, 253, .35);
+        transition: transform .35s cubic-bezier(.4, 0, .2, 1);
+    }
+    #mb-progress button {
+        position: relative; z-index: 1; border: 0; background: none; border-radius: 999px;
+        display: flex; align-items: center; justify-content: center; gap: 6px;
+        color: #495057; font-size: .9rem; white-space: nowrap; transition: color .25s ease;
+    }
+    #mb-progress button.active { color: #fff; }
+    #mb-progress button.done:not(.active) { color: #198754; }
+    #mb-progress .mb-step-num {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 22px; height: 22px; border-radius: 50%; font-size: .75rem; font-weight: 700;
+        background: rgba(0, 0, 0, .08);
+    }
+    #mb-progress button.active .mb-step-num { background: rgba(255, 255, 255, .25); }
+    @media (max-width: 767.98px) { #mb-progress .mb-step-name { display: none; } }
+
+    /* Title row */
+    .mb-title-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
+    #mb-title { font-family: 'Luminari', serif; }
+    .mb-info { border: 0; background: none; padding: 0; color: #6c757d; font-size: 1.1rem; line-height: 1; }
+    .mb-info:hover, .mb-info:focus-visible { color: var(--bs-primary, #0d6efd); }
+
+    /* Step card */
+    .mb-card-backdrop {
+        position: fixed; inset: 0; z-index: 1055; display: flex; align-items: center; justify-content: center;
+        padding: 16px; background: rgba(0, 0, 0, .35); backdrop-filter: blur(2px);
+        opacity: 0; pointer-events: none; transition: opacity .18s ease;
+    }
+    .mb-card-backdrop.show { opacity: 1; pointer-events: auto; }
+    .mb-card {
+        max-width: 420px; width: 100%; background: #fff; border-radius: 16px; padding: 28px 28px 22px;
+        text-align: center; box-shadow: 0 16px 48px rgba(0, 0, 0, .25);
+        transform: translateY(8px) scale(.96); transition: transform .18s ease;
+    }
+    .mb-card-backdrop.show .mb-card { transform: none; }
+    .mb-card h3 { font-family: 'Luminari', serif; margin-bottom: .75rem; }
+    .mb-card p { font-family: 'Baskerville', serif; font-weight: normal; margin-bottom: 1.25rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-4 mb-no-select">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0 root-title"><i class="bi bi-map me-2"></i>{{ object.title }} {% trans 'Map Builder' %}</h2>
+        <a href="{% url 'manage-tts-json' object.slug %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>{% trans 'Back to TTS JSON' %}
+        </a>
+    </div>
+
+    {% if not has_image %}
+    <div class="alert alert-warning">
+        {% trans 'This map has no board image yet. Add one to the map, then come back to lay it out.' %}
+    </div>
+    {% else %}
+
+    {% if ratio_warning %}
+    <div class="alert alert-warning small">
+        <i class="bi bi-exclamation-triangle me-1"></i>
+        {% trans "This board image is a different shape from the official maps (about 1.09 wide to 1 tall). Pieces may land slightly off their printed spots in TTS; check the map in game." %}
+    </div>
+    {% endif %}
+
+    <!-- Progress: a full track with a highlight that slides to the current step -->
+    <div id="mb-progress" class="mb-3" role="list">
+        <div id="mb-progress-thumb" aria-hidden="true"></div>
+        <button type="button" role="listitem" data-step="0"><span class="mb-step-num">1</span><span class="mb-step-name">{% trans 'VP &amp; Item Tracks' %}</span></button>
+        <button type="button" role="listitem" data-step="1"><span class="mb-step-num">2</span><span class="mb-step-name">{% trans 'Clearings' %}</span></button>
+        <button type="button" role="listitem" data-step="2"><span class="mb-step-num">3</span><span class="mb-step-name">{% trans 'Buildings &amp; Ruins' %}</span></button>
+        <button type="button" role="listitem" data-step="3"><span class="mb-step-num">4</span><span class="mb-step-name">{% trans 'Forests' %}</span></button>
+        <button type="button" role="listitem" data-step="4"><span class="mb-step-num">5</span><span class="mb-step-name">{% trans 'Review' %}</span></button>
+    </div>
+
+    <!-- Title of the current step; the info button reopens its card -->
+    <div class="mb-title-row mb-2">
+        <div class="mb-title-side"></div>
+        <div class="text-center">
+            <h3 class="mb-0 d-inline-flex align-items-center gap-2" id="mb-title">
+                <span id="mb-heading"></span>
+                <button type="button" class="mb-info" id="mb-info" aria-label="{% trans 'Show step help' %}" title="{% trans 'Show step help' %}">
+                    <i class="bi bi-info-circle"></i>
+                </button>
+            </h3>
+        </div>
+        <div class="mb-title-side d-flex flex-wrap gap-1 justify-content-end" id="mb-counter"></div>
+    </div>
+
+    <!-- Board -->
+    <div class="position-relative border rounded mb-3" id="mb-board" style="touch-action: none; user-select: none;">
+        <img src="{{ config.image }}" alt="{{ object.title }}" class="w-100 d-block" id="mb-image" draggable="false">
+        <svg id="mb-svg" class="position-absolute top-0 start-0 w-100 h-100"
+             viewBox="0 0 {{ config.width }} {{ config.height }}" preserveAspectRatio="none"></svg>
+
+        <!-- Clearings step: fixed or random suits, shown where the item track sits -->
+        <div id="mb-suit-mode" class="d-none" role="group" aria-label="{% trans 'Clearing suits' %}">
+            <button type="button" class="mb-mode-fold" id="mb-mode-fold" aria-expanded="true"
+                    aria-label="{% trans 'Fold' %}" title="{% trans 'Fold' %}"><i class="bi bi-chevron-up"></i></button>
+            <div class="mb-mode-title" id="mb-mode-title">{% trans 'Clearing Distribution' %}</div>
+            <div class="mb-mode-body"><div class="mb-mode-body-inner">
+                <button type="button" class="mb-mode-image" id="mb-mode-image" title="{% trans 'Switch' %}">
+                    <img src="{% static 'images/ClearingsFixed.png' %}" alt="" data-mode="fixed">
+                    <img src="{% static 'images/ClearingsRandom.png' %}" alt="" data-mode="random">
+                </button>
+                <p class="mb-mode-text">{% trans "Choosing fixed clearing suits will always load in the layout you select. Random clearing suits will shuffle on load, giving you a different layout each game." %}</p>
+            </div></div>
+            <div class="mb-mode-switch">
+                <span class="mb-mode-thumb" aria-hidden="true"></span>
+                <button type="button" data-mode="random" aria-pressed="false">{% trans 'Random' %}</button>
+                <button type="button" data-mode="fixed" aria-pressed="false">{% trans 'Fixed' %}</button>
+            </div>
+        </div>
+
+        <!-- Edit pop-up for the selected clearing, forest or building -->
+        <div id="mb-popover" role="dialog" aria-label="{% trans 'Edit' %}">
+            <div id="mb-pop-prompt" class="mb-pop-prompt d-none">{% trans "Now click and drag to place this clearing's suit marker." %}</div>
+            <div class="mb-pop-row">
+                <div id="mb-pop-clearing" class="mb-pop-stepper">
+                    <button type="button" id="mb-pop-minus" aria-label="{% trans 'Lower number' %}"><i class="bi bi-dash"></i></button>
+                    <span id="mb-pop-number" title="{% trans 'Clearing number' %}"></span>
+                    <button type="button" id="mb-pop-plus" aria-label="{% trans 'Higher number' %}"><i class="bi bi-plus"></i></button>
+                </div>
+                <div id="mb-pop-suits" class="mb-pop-suits">
+                    <button type="button" data-suit="fox" title="{% trans 'Fox' %}" aria-label="{% trans 'Fox' %}" aria-pressed="false"><img alt=""></button>
+                    <button type="button" data-suit="rabbit" title="{% trans 'Rabbit' %}" aria-label="{% trans 'Rabbit' %}" aria-pressed="false"><img alt=""></button>
+                    <button type="button" data-suit="mouse" title="{% trans 'Mouse' %}" aria-label="{% trans 'Mouse' %}" aria-pressed="false"><img alt=""></button>
+                    <button type="button" data-suit="bird" title="{% trans 'Bird' %}" aria-label="{% trans 'Bird' %}" aria-pressed="false"><img alt=""></button>
+                </div>
+                <button type="button" id="mb-pop-ruin" class="mb-pop-ruin d-none" title="{% trans 'Ruin' %}"
+                        aria-label="{% trans 'Ruin' %}" aria-pressed="false"
+                        style="background-image: url('{% static 'images/tts/assets/ruin.png' %}');"></button>
+                <button type="button" id="mb-pop-delete" class="mb-pop-delete" title="{% trans 'Delete' %}" aria-label="{% trans 'Delete' %}">
+                    <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+                        <path d="M2 2 L10 10 M10 2 L2 10" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Review -->
+    <div class="card mb-3 d-none" id="mb-review">
+        <div class="card-body">
+            <ul class="mb-2" id="mb-review-counts"></ul>
+            <div id="mb-review-problems"></div>
+        </div>
+    </div>
+
+    <div id="mb-messages"></div>
+
+    <div class="d-flex flex-wrap justify-content-between gap-2">
+        <button type="button" class="btn btn-outline-secondary" id="mb-back">
+            <i class="bi bi-arrow-left me-1"></i>{% trans 'Back' %}
+        </button>
+        <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-primary" id="mb-save"
+                    data-label="{% trans 'Save Progress' %}" data-saved-label="{% trans 'Saved' %}">
+                <i class="bi bi-floppy-fill me-1"></i><span>{% trans 'Save Progress' %}</span>
+            </button>
+            <button type="button" class="btn btn-primary" id="mb-next">
+                {% trans 'Next' %}<i class="bi bi-arrow-right ms-1"></i>
+            </button>
+            <button type="button" class="btn btn-success d-none" id="mb-generate">
+                <i class="bi bi-filetype-json me-1"></i>{% trans 'Save JSON' %}
+            </button>
+        </div>
+    </div>
+    <!-- Card introducing each step -->
+    <div id="mb-step-card" class="mb-card-backdrop" aria-hidden="true">
+        <div class="mb-card" role="dialog" aria-modal="true" aria-labelledby="mb-card-heading">
+            <h3 id="mb-card-heading"></h3>
+            <p id="mb-card-hint"></p>
+            <button type="button" class="btn btn-primary px-4" id="mb-card-ok">{% trans 'Ok' %}</button>
+        </div>
+    </div>
+    {{ config|json_script:"map-builder-config" }}
+    {% csrf_token %}
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if has_image %}
+<script src="{% static 'the_keep/map_builder.js' %}"></script>
+{% endif %}
+{% endblock %}

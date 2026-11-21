@@ -366,7 +366,8 @@ end
 | Original part of `makeDeck` | Now in |
 |---|---|
 | Busy check, `clearInfo`, `rttFrogCardsInDecks`, `removeDeckItems` | `rttBeginDeck` |
-| Catalogue positions | `makeDeck` (unchanged) |
+| Catalogue piece list | `makeDeck` (unchanged) |
+| Catalogue position maths | `rttDeckCatalogPosition` (so outside decks can spawn the Refill and Dominance Track cards too) |
 | Per-piece callback: rotate −90°, tag `Deck Object`, shuffle | `rttDeckPieceCallback` (an empty loop that iterated every object and did nothing is dropped) |
 | Dragon God re-place, frog restore | `rttFinishDeck` |
 
@@ -375,11 +376,8 @@ end
 function makeDeck(player,value,id)
   local frogs = rttBeginDeck(player)
   if frogs == nil then return end
-  -- A built-in deck replaces any outside one in the seat record.
-  if RTT_EXTERNAL ~= nil then RTT_EXTERNAL.deck, RTT_EXTERNAL.deck_name = nil, nil end
   local my_rot = self.getRotation()
   local objects = {}
-  local scale = rttPlaceScale()
 
   if (ends_with(id,"2")) then
     allObjects = {EVERYTHING["Decks"]['Refill Card']['data'],EVERYTHING["Decks"][id]['data']}
@@ -389,22 +387,9 @@ function makeDeck(player,value,id)
 
   for _,n in ipairs(allObjects) do
     for _,v in ipairs(n) do
-      local vec = Vector(v.move_to) * scale
-      vec.y = vec.y - 0.1
-
-      vec = vec * Vector({15.5, 1, 15.5})
-
-      local newVec = Vector({0,1,0})
-      newVec.x = vec.z * -1
-      newVec.y = vec.y + 10.01
-      newVec.z = vec.x
-
-      local new_pos = newVec
-      new_pos.y = new_pos.y+10-8.5+0.05
-      new_pos.x = new_pos.x - 45 + 8.01
       spawnObjectJSON({
           json              = v.json,
-          position          = new_pos,
+          position          = rttDeckCatalogPosition(v.move_to),
           callback_function = rttDeckPieceCallback
       })
     end
@@ -433,6 +418,25 @@ function rttDeckPieceCallback(o)
   if o.name == "Deck" then
     o.shuffle()
   end
+end
+
+-- Where a deck catalogue piece spawns, moved unchanged from makeDeck.
+function rttDeckCatalogPosition(move_to)
+  local scale = rttPlaceScale()
+  local vec = Vector(move_to) * scale
+  vec.y = vec.y - 0.1
+
+  vec = vec * Vector({15.5, 1, 15.5})
+
+  local newVec = Vector({0,1,0})
+  newVec.x = vec.z * -1
+  newVec.y = vec.y + 10.01
+  newVec.z = vec.x
+
+  local new_pos = newVec
+  new_pos.y = new_pos.y+10-8.5+0.05
+  new_pos.x = new_pos.x - 45 + 8.01
+  return new_pos
 end
 
 -- Generic close of a deck spawn, moved unchanged from makeDeck.
@@ -501,9 +505,26 @@ function rttPlaceExternalMap(params)
   return { ok = true }
 end
 
--- Place an outside deck exactly like a built-in one: clear the old deck, put the
--- new one face down on the deck holder's draw slot, tag and shuffle it.
--- params = { name = "Deck name", slug = "deck-slug", objects = { "<object JSON>", ... } }
+-- Where an outside deck's accessory decks go: a row past the draw slot, in
+-- holder-local coordinates (tune in game).
+RTT_HOLDER_ACCESSORY      = { 1.9, 0.178, 0.222 }
+RTT_HOLDER_ACCESSORY_STEP = { 0.85, 0, 0 }
+
+-- Place an outside deck exactly like a built-in one: clear the old deck, spawn
+-- the Refill Card (and the Dominance Track Card when the deck has dominance
+-- cards) from the catalogue, then put the main deck face down on the deck
+-- holder's draw slot, tagged and shuffled. Accessory decks (extra decks the
+-- outside source ships with its main deck) go beside the holder: tagged
+-- "Deck Object" so the next deck clears them, but never shuffled.
+-- params = {
+--   name        = "Deck name",
+--   slug        = "deck-slug",
+--   dominance   = true,                       -- the deck has Dominance cards
+--   objects     = { "<object JSON>", ... },   -- the main deck
+--   accessories = { "<object JSON>", ... },   -- optional
+-- }
+-- The Box Score names the deck itself, from the "rdb:deck:<slug>" GM note on
+-- the main deck, so nothing is recorded here.
 function rttPlaceExternalDeck(params)
   if type(params) ~= "table" or type(params.objects) ~= "table" or #params.objects == 0 then
     return { ok = false, reason = "No deck objects given." }
@@ -512,6 +533,16 @@ function rttPlaceExternalDeck(params)
   if holder == nil then return { ok = false, reason = "No deck holder on this table." } end
   local frogs = rttBeginDeck(nil)
   if frogs == nil then return { ok = false, reason = "The deck is being placed." } end
+  local tokens = { EVERYTHING["Decks"]["Refill Card"]["data"] }
+  if params.dominance == true then
+    tokens[#tokens + 1] = EVERYTHING["Decks"]["Dominance Track Card"]["data"]
+  end
+  for _, n in ipairs(tokens) do
+    for _, v in ipairs(n) do
+      spawnObjectJSON({ json = v.json, position = rttDeckCatalogPosition(v.move_to),
+                        callback_function = rttDeckPieceCallback })
+    end
+  end
   local slot = holder.positionToWorld(RTT_HOLDER_DRAW)
   local ry = holder.getRotation().y
   for i, json in ipairs(params.objects) do
@@ -526,9 +557,25 @@ function rttPlaceExternalDeck(params)
       end,
     })
   end
+  for i, json in ipairs(params.accessories or {}) do
+    local at = holder.positionToWorld({
+      RTT_HOLDER_ACCESSORY[1] + (i - 1) * RTT_HOLDER_ACCESSORY_STEP[1],
+      RTT_HOLDER_ACCESSORY[2] + (i - 1) * RTT_HOLDER_ACCESSORY_STEP[2],
+      RTT_HOLDER_ACCESSORY[3] + (i - 1) * RTT_HOLDER_ACCESSORY_STEP[3],
+    })
+    spawnObjectJSON({
+      json = json,
+      position = { at.x, at.y + 0.5, at.z },
+      rotation = { 0, ry, 180 },
+      callback_function = function(o)
+        local tg = o.getTags()
+        local has = false
+        for _, t in ipairs(tg) do if t == "Deck Object" then has = true end end
+        if not has then table.insert(tg, "Deck Object"); o.setTags(tg) end
+      end,
+    })
+  end
   rttFinishDeck(frogs)
-  RTT_EXTERNAL.deck, RTT_EXTERNAL.deck_name = params.slug, params.name
-  rttPublishSeats()
   return { ok = true }
 end
 
@@ -598,12 +645,17 @@ In `rttBadgerRelics`, in the `else` branch:
   local tagged = string.match(j, '"Suit: (%a+)"')
   if tagged ~= nil then return string.lower(tagged) end
 ```
+This also covers **bird clearings**, which the official markers can't express: `RTT_SUIT_TEX` has no bird texture. Maps built by the Root Database's map builder tag every marker `Suit: fox|rabbit|mouse|bird`. Until this fallback is in place, a bird marker spawns and works as a piece, but its suit isn't published.
+
+**Frog cards in accessory decks.** In `rttFrogCardsInDecks`, after the `dk.name` check, so frog cards in an outside deck's accessory decks aren't moved into the next deck:
+```lua
+      if dk.hasTag("Deck Accessory") then return end
+```
 
 **Seat record.** In `rttSeatRecord`, before `return out`:
 ```lua
   if RTT_EXTERNAL ~= nil then
     out.map, out.map_name = RTT_EXTERNAL.map, RTT_EXTERNAL.map_name
-    out.deck, out.deck_name = RTT_EXTERNAL.deck, RTT_EXTERNAL.deck_name
     if #(RTT_EXTERNAL.landmarks or {}) > 0 then out.landmarks = RTT_EXTERNAL.landmarks end
     if #(RTT_EXTERNAL.hirelings or {}) > 0 then out.hirelings = RTT_EXTERNAL.hirelings end
   end
@@ -630,11 +682,10 @@ In `rttBadgerRelics`, in the `else` branch:
 
 **In `tournamentPayload`, after the `houserules` block** (the `lms` table already exists above it):
 ```lua
-  -- Outside map / deck / landmarks / hirelings recorded by the coordinator
+  -- Outside map / landmarks / hirelings recorded by the coordinator
   -- (RTT_EXTERNAL_API): sent as Root Database slugs.
   if seatRec ~= nil then
     if type(seatRec.map) == "string" and seatRec.map ~= "" then p.board_map = seatRec.map end
-    if type(seatRec.deck) == "string" and seatRec.deck ~= "" then p.deck = seatRec.deck end
     if type(seatRec.landmarks) == "table" and #seatRec.landmarks > 0 then
       for _, s in ipairs(seatRec.landmarks) do lms[#lms + 1] = s end
       p.landmarks = lms
@@ -645,10 +696,73 @@ In `rttBadgerRelics`, in the `else` branch:
 
 **In `rttSeatPush`, after `S.rttSeats = d`:**
 ```lua
-  -- Show an outside map / deck name when nothing was detected from the table.
+  -- Show an outside map name when nothing was detected from the table.
   if type(d.map_name) == "string" and d.map_name ~= "" and (S.meta.map or "") == "" then S.meta.map = d.map_name end
-  if type(d.deck_name) == "string" and d.deck_name ~= "" and (S.meta.deck or "") == "" then S.meta.deck = d.deck_name end
 ```
+
+**Outside decks name themselves.** The Box Score finds an outside deck on the table by itself, so this works with or without the coordinator's API, for a deck placed by hand, and after a save and reload. The Root Database puts `rdb:deck:<slug>` in the GM notes of an outside deck's main deck (never in its accessory decks).
+
+Replace `refreshDeck` with this. Official decks are found exactly as before and always win: an outside deck is used only when no official deck is on the table.
+```lua
+local function refreshDeck()
+  if S.deckAuto == false then return false end
+  local mapObj = TRACK and getObjectFromGUID(TRACK.guid) or nil
+  if mapObj == nil then return false end
+  local mp = mapObj.getPosition()
+  local best, bestD = nil, math.huge
+  -- Outside decks (the Root Database's) carry "rdb:deck:<slug>" in their GM
+  -- notes. One is used only when no official deck is on the table.
+  local rdb, rdbSlug, rdbD = nil, nil, math.huge
+  for _, o in ipairs(getAllObjects()) do
+    if o.type == "Deck" then
+      local q = 0
+      pcall(function() q = o.getQuantity() end)
+      if q >= 15 then
+        local op = o.getPosition()
+        local dx, dz = op.x - mp.x, op.z - mp.z
+        local d = dx * dx + dz * dz
+        local official = false
+        local ok, data = pcall(function() return o.getData() end)
+        if ok and data and data.CustomDeck then
+          for _, cd in pairs(data.CustomDeck) do
+            local name = DECK_BACKS[urlTail(cd.BackURL)]
+            if name then
+              official = true
+              if d < bestD then best, bestD = name, d end
+            end
+          end
+        end
+        if not official and d < rdbD then
+          local notes, name = "", ""
+          pcall(function() notes = o.getGMNotes() or "" end)
+          pcall(function() name = o.getName() or "" end)
+          local slugNote = notes:match("^rdb:deck:(.+)$")
+          if slugNote ~= nil and name ~= "" then rdb, rdbSlug, rdbD = name, slugNote, d end
+        end
+      end
+    end
+  end
+  local slugNow = nil
+  if best == nil and rdb ~= nil then best, slugNow = rdb, rdbSlug end
+  if best and (S.meta.deck ~= best or S.deckSlug ~= slugNow) then
+    S.meta.deck = best
+    S.deckSlug = slugNow
+    return true
+  end
+  return false
+end
+```
+
+In `tournamentPayload`, the `deck` line becomes:
+```lua
+    deck               = (S.deckSlug ~= nil and S.meta.deck ~= "") and S.deckSlug or deckSlug(S.meta.deck) or JNULL,
+```
+
+Clear the slug when the deck is picked by hand (in `uiRowBtn`, the `kind == "deck"` branch) and in `uiReset`, next to the existing `S.meta.deck` lines:
+```lua
+    S.deckSlug = nil
+```
+`onSave` saves `S` whole, so the slug is kept with the table.
 
 **How these are matched:** the Root Database importer already accepts `board_map`, `deck`, `landmarks`, `houserules` and `hirelings` as slugs and matches them to its posts. The payload is encoded with `JSON.encode`, so the new key is included automatically.
 
@@ -660,7 +774,7 @@ The library uses the API only when `getVar("RTT_EXTERNAL_API") >= 1`.
 |---|---|
 | Faction / Clockwork | `rttClaimExternalFaction`, then it spawns, then `rttExternalFactionPlaced` (or `rttReleaseExternalFaction` if the spawn fails) |
 | Map | `rttPlaceExternalMap{ name, slug, shuffle, layout, objects }`, where the objects are offsets from the board and the board entry has `board = true` |
-| Deck | `rttPlaceExternalDeck{ name, slug, objects }` |
+| Deck | `rttPlaceExternalDeck{ name, slug, dominance, objects, accessories }`; `objects` is the main deck, `accessories` any extra decks |
 | House rule (Tweak) | it spawns, then `rttAddHouseRule{ slug }` |
 | Landmark / Hireling | it spawns, then `rttExternalAssetAdded{ kind, slug }` |
 
@@ -671,6 +785,13 @@ The library uses the API only when `getVar("RTT_EXTERNAL_API") >= 1`.
 - **Map data:**
   - **Random set-up:** outside maps carry `Ruin`, `Dummy`, `Clearing Marker`, `Shuffleable` and so on as object tags, so `shuffleMaps` randomises them like base maps. Suit markers can be tagged `Suit: fox|rabbit|mouse|bird`.
   - **Layout:** clearing, forest and relic positions come as data (`layout`), mirroring `RTT_CLEARING_CENTRES` / `RTT_FOREST_UV` / `RTT_RELIC_POS`, with offsets from the board's centre in table axes.
+- **Deck data:** outside decks follow the official decks' conventions:
+  - Decks are saved as `"Deck"`, face down. Every deck and card is tagged `Deck Object`.
+  - Card Nickname is the card name; dominance cards are named exactly `Dominance`.
+  - Card Description holds only the suits. A card with two suits reads e.g. `Fox Mouse`. Such a card is fine everywhere except two exact checks: a two-suit Dominance card isn't recognised by `dominanceCardSuit`, and a `Frog Fox` card doesn't count as a frog card (`Description == "Frog"`).
+  - The main deck carries `rdb:deck:<slug>` in its GM notes. Extra decks are tagged `Deck Accessory`, sit beside the holder, and aren't shuffled.
+  - `RTT_HOLDER_ACCESSORY` / `RTT_HOLDER_ACCESSORY_STEP` are a first guess at free space beside the holder; please adjust them in game.
+  - Like official decks, the Box Score only names a deck of 15 or more cards, and only while it can see the map's score track.
 - **Score track:** the Box Score reads VP from a track it finds in a board's snap points (`findTrack`). An outside map's board needs those snap points for automatic VP scoring; it's recorded either way.
 - **`rttSpawnVPPanel`** refuses positions inside the map's footprint (`rttUnderMap`), so callers place the panel beside the board.
 - **Pre-existing, unchanged:** `rttSpawnVPPanel` writes `row` straight into its JSON with `gsub`, so a faction name containing `%` or `"` could break the panel.
@@ -682,4 +803,5 @@ The library uses the API only when `getVar("RTT_EXTERNAL_API") >= 1`.
 Spawn the Root Database Library object from https://www.therootdatabase.com/api/tts/loader/object.json and try these:
 - **A faction** from its Workshop tab, while seated.
 - **A map, a deck, a house rule, a landmark and a hireling** from its Library tab.
+- **Decks:** a deck with an accessory deck lands on the draw slot with the accessory beside the holder, the Refill and Dominance Track cards are there, and the Box Score shows the deck's name. Then an official deck replaces all of it and the Box Score switches to the official deck.
 - **The checklist:** run through the built-in checklist above.

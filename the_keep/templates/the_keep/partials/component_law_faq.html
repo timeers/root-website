@@ -36,7 +36,16 @@
         <div class="col-6 col-md d-flex justify-content-center align-items-center">
           <a href="{% url 'post-cards-router' language_code=language_code post_slug=object.slug %}"
              class="d-flex flex-column align-items-center text-center soft-clickable-segment">
-            <span><i class="bi bi-layers"></i> {% trans 'View Cards' %}</span>
+            <span><img src="{% static 'icons/blank_cards.svg' %}" alt="" aria-hidden="true" style="height: 1em; width: auto; vertical-align: -0.125em;"> {% trans 'View Cards' %}</span>
+          </a>
+        </div>
+      {% endif %}
+
+      {% if has_tts_json and user.profile.admin %}
+        <div class="col-6 col-md d-flex justify-content-center align-items-center">
+          <a href="{% url 'view-tts-json' slug=object.slug %}"
+             class="d-flex flex-column align-items-center text-center soft-clickable-segment">
+            <span><i class="bi bi-filetype-json"></i> {% trans 'View .json' %}</span>
           </a>
         </div>
       {% endif %}

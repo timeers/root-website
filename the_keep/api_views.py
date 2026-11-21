@@ -316,69 +316,33 @@ def _number(value):
         return 0.0
 
 
-# Tags the RTT coordinator's shuffleMaps acts on; a map carrying any of them
-# gets random set-up (ruins, suits, ...) when the loader asks for a shuffle.
-MAP_SHUFFLE_TAGS = {'Ruin', 'Dummy', 'Clearing Marker', 'Shuffleable', 'City Marker', 'Tool',
-                    'Clearing 1', 'Clearing 2', 'Clearing 3', 'Clearing 4', 'Clearing 5'}
-DECK_OBJECT_NAMES = {'Deck', 'DeckCustom', 'Card', 'CardCustom'}
-
-
-def _add_tags(obj, *tags):
-    """A copy of `obj` with `tags` merged into its Tags (no duplicates)."""
-    obj = dict(obj)
-    current = list(obj.get('Tags') or [])
-    for tag in tags:
-        if tag not in current:
-            current.append(tag)
-    obj['Tags'] = current
-    return obj
-
-
-def _without_tag(obj, tag):
-    obj = dict(obj)
-    obj['Tags'] = [t for t in (obj.get('Tags') or []) if t != tag]
-    return obj
-
-
-def _rtt_ready_objects(title, states, component, fixed_clearings=False):
-    """The objects as served, tagged so the RTT coordinator handles them like its
-    own map or deck. Returns (objects, map_board index or None). Only the served
-    copy is changed; the library deletes itself before spawn callbacks run, so
-    tags have to travel in the JSON."""
-    if component == 'Map' and states:
-        board = max(range(len(states)), key=lambda i: (len(states[i].get('AttachedSnapPoints') or []), -i))
-        out = []
-        for i, obj in enumerate(states):
-            if fixed_clearings:
-                obj = _without_tag(obj, 'Clearing Marker')   # fixed suits: never shuffled
-            obj = _add_tags(obj, 'Map Object')
-            if i == board:
-                obj = _add_tags(obj, 'RTT Map', f'RTT Map: {title}')
-            out.append(obj)
-        return out, board + 1
-    if component == 'Deck':
-        return [_add_tags(o, 'Deck Object') if o.get('Name') in DECK_OBJECT_NAMES else o
-                for o in states], None
-    return list(states), None
-
-
-def _tts_objects_payload(title, tts_json, component='', slug='', fixed_clearings=False):
+def _tts_objects_payload(title, tts_json, component='', slug='', tts_info=None):
     """Each object pre-encoded as a string so the Lua side hands it straight to
     spawnObjectJSON (MoonSharp's JSON is very slow on big deck blobs), with its
-    position pulled out here so Lua never decodes an object at all."""
-    states, map_board = _rtt_ready_objects(title, tts_json.get('ObjectStates', []), component,
-                                           fixed_clearings=fixed_clearings)
+    position pulled out here so Lua never decodes an object at all.
+
+    The JSON is served exactly as stored: it was built correctly by the site or
+    reviewed by an admin on upload. What the loader needs beyond it (deck roles,
+    map board, ...) was worked out when it was stored, in `tts_info`."""
+    states = tts_json.get('ObjectStates', [])
+    info = tts_info or {}
+    roles = info.get('deck_roles') if component == 'Deck' else None
+    if not isinstance(roles, list) or len(roles) != len(states):
+        roles = None
     objects = []
     vp_rows = []
     nicknames = [(o.get('Nickname') or '') for o in states]
-    for obj in states:
+    for i, obj in enumerate(states):
         transform = obj.get('Transform') or {}
         position = {
             'x': _number(transform.get('posX')),
             'y': _number(transform.get('posY')),
             'z': _number(transform.get('posZ')),
         }
-        objects.append({**position, 'json': json.dumps(obj)})
+        entry = {**position, 'json': json.dumps(obj)}
+        if roles is not None and roles[i]:
+            entry['deck_role'] = roles[i]
+        objects.append(entry)
         # A "<faction> VP" marker means this item is a playable faction; the
         # loader adds an RTT VP Panel for it when the RTT coordinator is present
         # (the panel matches its marker by exactly this name).
@@ -392,9 +356,12 @@ def _tts_objects_payload(title, tts_json, component='', slug='', fixed_clearings
             vp_rows.append({'row': row, **position, 'board': board})
     payload = {'title': title, 'component': component or '', 'slug': slug or '',
                'objects': objects, 'vp_rows': vp_rows}
+    if component == 'Deck' and 'dominance' in info:
+        payload['dominance'] = info['dominance']
     if component == 'Map':
-        payload['map_board'] = map_board
-        payload['shuffle'] = any(MAP_SHUFFLE_TAGS & set(o.get('Tags') or []) for o in states)
+        for key in ('map_board', 'shuffle'):
+            if key in info:
+                payload[key] = info[key]
         # Clearings / forests / relics as data, like the RTT coordinator's own
         # tables -- see tts/BOARD_LAYOUT.md.
         if isinstance(tts_json.get('BoardLayout'), dict):
@@ -446,14 +413,11 @@ class TTSKeepDetailView(TTSLoaderView):
     def get(self, request, slug):
         post = get_object_or_404(
             Post.objects.filter(tts_json__isnull=False, status__in=TTS_LISTED_STATUSES)
-            .only('title', 'slug', 'component', 'tts_json'),
+            .only('title', 'slug', 'component', 'tts_json', 'tts_info'),
             slug=slug,
         )
-        fixed_clearings = False
-        if post.component == Post.ComponentChoices.MAP:
-            fixed_clearings = Map.objects.filter(pk=post.pk).values_list('fixed_clearings', flat=True).first() or False
         return Response(_tts_objects_payload(post.title, post.tts_json, component=post.component,
-                                             slug=post.slug, fixed_clearings=fixed_clearings))
+                                             slug=post.slug, tts_info=post.tts_info))
 
 
 class TTSForgeDetailView(TTSLoaderView):

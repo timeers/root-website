@@ -15,10 +15,10 @@ from the_warroom.admin import CsvImportForm
 
 from .models import (Map, Deck, Landmark, Vagabond, Hireling, Faction, Expansion,
                      PostBookmark, Piece, Tweak, PNPAsset, PostTranslation, FAQ, LawGroup, Law, RulesFile,
-                     Card, CardDeck, DeckGroup, TTSAsset, Post,
+                     Card, CardDeck, DeckGroup, TTSAsset, TTSJsonUpload, Post,
                      )
-from .services.tts import build_tts_objects, wrap_tts_save, SiteURLRequest
-from .utils import validate_tts_save
+from django.utils.html import format_html
+from .services.tts_store import generate_tts_json as generate_post_tts_json
 from .forms import (FactionImportForm, MapImportForm, VagabondImportForm, DeckImportForm,
                    PieceImportForm, LandmarkImportForm, HirelingImportForm)
 
@@ -41,31 +41,43 @@ class TTSAssetInline(admin.StackedInline):
 
 @admin.action(description="Generate TTS JSON")
 def generate_tts_json(modeladmin, request, queryset):
-    """Build tts_json from the_keep's TTS builder. Factions linked to a forge
-    faction are skipped: their richer JSON comes from the forge sync page."""
-    from the_forge.models import ForgedFaction
-
+    """Build tts_json from the_keep's TTS builder (see services/tts_store.py).
+    Factions linked to a forge faction and maps are skipped."""
     generated, skipped = [], []
     for post in queryset:
-        if ForgedFaction.objects.filter(published_post_id=post.pk).exists():
-            skipped.append(f"{post.title} (update via forge sync)")
-            continue
-        save_file = wrap_tts_save(build_tts_objects(post, request=SiteURLRequest()), save_name=post.title)
-        # .update() below skips field validators, so validate explicitly.
-        try:
-            validate_tts_save(save_file)
-        except ValidationError:
-            skipped.append(f"{post.title} (nothing to export)")
-            continue
-        # Queryset update: tts_json lives on the Post table, and this avoids
-        # Post.save() side effects.
-        Post.objects.filter(pk=post.pk).update(tts_json=save_file)
-        generated.append(post.title)
+        ok, message = generate_post_tts_json(post, profile=request.user.profile)
+        if ok:
+            generated.append(post.title)
+        else:
+            skipped.append(f"{post.title} ({message})")
 
     if generated:
         modeladmin.message_user(request, f"Generated TTS JSON for {len(generated)}: {', '.join(generated)}")
     if skipped:
         modeladmin.message_user(request, f"Skipped {len(skipped)}: {', '.join(skipped)}", level=messages.WARNING)
+
+
+class TTSJsonAdminMixin:
+    """tts_json can't be edited here: it's generated or uploaded (and reviewed)
+    on the post's TTS JSON page, then served exactly as stored."""
+    def get_exclude(self, request, obj=None):
+        return tuple(super().get_exclude(request, obj) or ()) + ('tts_json', 'tts_info')
+
+    def get_readonly_fields(self, request, obj=None):
+        return tuple(super().get_readonly_fields(request, obj)) + ('tts_json_summary',)
+
+    @admin.display(description="TTS JSON")
+    def tts_json_summary(self, obj):
+        if obj is None or not obj.pk:
+            return "-"
+        link = format_html('<a href="{}">Manage TTS JSON</a>', reverse('manage-tts-json', args=[obj.slug]))
+        if not obj.tts_json:
+            return format_html('None. {}', link)
+        info = obj.tts_info or {}
+        source = info.get('source', 'unknown source').capitalize()
+        count = len(obj.tts_json.get('ObjectStates') or [])
+        return format_html('{}, {} object(s). {}', source, count, link)
+
 
 class FAQAdmin(admin.ModelAdmin):
     list_display = ('post__title', 'question', 'language')
@@ -122,7 +134,7 @@ class PNPAssetAdmin(admin.ModelAdmin):
     list_display = ('title', 'category', 'date_updated', 'shared_by__display_name', 'pinned')
     search_fields = ('title', 'description')
 
-class MapAdmin(admin.ModelAdmin):
+class MapAdmin(TTSJsonAdminMixin, admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status', 'clearings')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
@@ -235,7 +247,7 @@ class MapAdmin(admin.ModelAdmin):
         return render(request, 'admin/csv_upload.html', data)
 
 
-class DeckAdmin(admin.ModelAdmin):
+class DeckAdmin(TTSJsonAdminMixin, admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status', 'card_total')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
@@ -338,14 +350,14 @@ class DeckAdmin(admin.ModelAdmin):
         print(data)
         return render(request, 'admin/csv_upload.html', data)
 
-class TweakAdmin(admin.ModelAdmin):
+class TweakAdmin(TTSJsonAdminMixin, admin.ModelAdmin):
     list_display = ('title', 'designer', 'based_on', 'official', 'status')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
     inlines = [PieceInline, PostTranslationInline]
     actions = [generate_tts_json]
 
-class LandmarkAdmin(admin.ModelAdmin):
+class LandmarkAdmin(TTSJsonAdminMixin, admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
@@ -465,7 +477,7 @@ class LandmarkAdmin(admin.ModelAdmin):
 
 
 
-class HirelingAdmin(admin.ModelAdmin):
+class HirelingAdmin(TTSJsonAdminMixin, admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status', 'animal', 'other_side__title')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
@@ -594,7 +606,7 @@ class HirelingAdmin(admin.ModelAdmin):
 
 
 
-class PostAdmin(admin.ModelAdmin):
+class PostAdmin(TTSJsonAdminMixin, admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status')
     search_fields = ['title']
     raw_id_fields = ['designer']
@@ -604,7 +616,7 @@ class ExpansionAdmin(admin.ModelAdmin):
     search_fields = ['title']
     raw_id_fields = ['designer']
     
-class FactionAdmin(admin.ModelAdmin):
+class FactionAdmin(TTSJsonAdminMixin, admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status', 'type', 'reach', 'animal')
     search_fields = ['title']
     raw_id_fields = ['designer', 'artist']
@@ -1025,7 +1037,7 @@ class FactionAdmin(admin.ModelAdmin):
 
 
 
-class VagabondAdmin(admin.ModelAdmin):
+class VagabondAdmin(TTSJsonAdminMixin, admin.ModelAdmin):
     list_display = ('title', 'designer', 'official', 'status', 'animal')
     search_fields = ['title']
     raw_id_fields = ['designer']
@@ -1224,3 +1236,19 @@ admin.site.register(RulesFile, RulesFileAdmin)
 admin.site.register(Card, CardAdmin)
 admin.site.register(CardDeck, CardDeckAdmin)
 admin.site.register(DeckGroup, DeckGroupAdmin)
+
+
+@admin.register(TTSJsonUpload)
+class TTSJsonUploadAdmin(admin.ModelAdmin):
+    """Read-only record of uploads made on posts' TTS JSON pages."""
+    list_display = ('post', 'filename', 'uploaded_by', 'created_at', 'confirmed_at')
+    list_filter = ('confirmed_at',)
+    search_fields = ('post__title', 'filename')
+    exclude = ('tts_json',)
+    readonly_fields = ('post', 'filename', 'uploaded_by', 'created_at', 'confirmed_at', 'warnings')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

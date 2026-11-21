@@ -309,6 +309,28 @@
             </div>
         </div>
 
+        <!-- TTS JSON Card (admin only) -->
+        {% if is_admin %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">
+                        <i class="bi bi-filetype-json me-2"></i>{% trans 'TTS JSON' %}
+                    </h5>
+                    <p class="card-text text-muted">
+                        {% trans 'Generate or upload what the in-game TTS Library spawns for this post' %}
+                        <br><strong>{{ tts_status.label }}</strong>{% if tts_status.detail %} {{ tts_status.detail }}{% endif %}{% if tts_status.object_count %}, {{ tts_status.object_count }} {% trans 'object' %}{{ tts_status.object_count|pluralize }}{% endif %}
+                    </p>
+                </div>
+                <div class="card-footer bg-transparent">
+                    <a href="{% url 'manage-tts-json' object.slug %}" class="btn btn-primary w-100">
+                        <i class="bi bi-filetype-json me-1"></i>{% trans 'Manage TTS JSON' %}
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Delete Card (Danger Zone) -->
         {% if can_delete %}
         <div class="col-md-6">

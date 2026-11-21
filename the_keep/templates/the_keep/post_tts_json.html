@@ -1,0 +1,91 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+
+{% block title %}{% trans 'TTS JSON' %} - {{ object.title }}{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0 root-title"><i class="bi bi-filetype-json me-2"></i>{{ object.title }} {% trans 'TTS JSON' %}</h2>
+        <a href="{% url 'post-settings' object.slug %}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left me-1"></i>{% trans 'Back to Settings' %}
+        </a>
+    </div>
+
+    <p class="text-muted">
+        {% trans 'This JSON is what the RDB Library spawns in TTS.' %}
+    </p>
+
+    {% if object.tts_json %}
+    {% include 'the_keep/partials/tts_json_window.html' with manage=is_admin %}
+    {% endif %}
+
+    <div class="row g-4">
+        <!-- Generate -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title"><i class="bi bi-wrench-adjustable me-2"></i>{% trans 'Build JSON' %}</h5>
+                    <p class="card-text text-muted">
+                        {% if is_map %}
+                        {% trans "Lay out the map's VP and item tracks, clearings, forests and buildings on its board, then build the JSON from it." %}
+                        {% else %}
+                        {% trans "Build the JSON from this post's data (boards, cards and decks)." %}
+                        {% endif %}
+                        {% if object.tts_json %}{% trans 'This replaces the current JSON.' %}{% endif %}
+                    </p>
+                    {% if generate_reason %}
+                    <p class="card-text small text-warning-emphasis mb-0">
+                        <i class="bi bi-info-circle me-1"></i>{{ generate_reason }}
+                        {% if forged_faction %}
+                        <a href="{% url 'forge-faction-detail' pk=forged_faction.pk %}">{% trans 'Open the Forge draft' %}</a>
+                        {% endif %}
+                    </p>
+                    {% endif %}
+                </div>
+                <div class="card-footer bg-transparent d-flex flex-column gap-2">
+                    {% if is_map %}
+                    <a href="{% url 'map-builder' object.slug %}" class="btn btn-outline-primary w-100">
+                        <i class="bi bi-map me-1"></i>{% trans 'Open Map Builder' %}
+                    </a>
+                    {% endif %}
+                    {% if not is_map or not generate_reason %}
+                    <form method="post"
+                          {% if generate_confirm %}onsubmit="return confirm('{{ generate_confirm|escapejs }}');"{% endif %}>
+                        {% csrf_token %}
+                        <input type="hidden" name="action" value="generate">
+                        <button type="submit" class="btn btn-primary w-100" {% if generate_reason %}disabled{% endif %}>
+                            {% if object.tts_json %}<i class="bi bi-arrow-clockwise me-1"></i>{% trans 'Regenerate JSON' %}{% else %}<i class="bi bi-floppy-fill me-1"></i>{% trans 'Generate JSON' %}{% endif %}
+                        </button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Upload (admins only) -->
+        {% if is_admin %}
+        <div class="col-md-6">
+            <div class="card h-100">
+                <form method="post" enctype="multipart/form-data" class="d-flex flex-column h-100">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="upload">
+                    <div class="card-body">
+                        <h5 class="card-title"><i class="bi bi-upload me-2"></i>{% trans 'Upload JSON' %}</h5>
+                        <p class="card-text text-muted">
+                            {% blocktrans %}Upload a TTS save or Save Object file (up to {{ max_upload_mb }} MB). You'll review its scripts and external files before it's saved. It is then stored and served exactly as uploaded.{% endblocktrans %}
+                        </p>
+                        <input type="file" name="tts_file" accept=".json,application/json" class="form-control" required>
+                    </div>
+                    <div class="card-footer bg-transparent">
+                        <button type="submit" class="btn btn-outline-primary w-100">
+                            <i class="bi bi-search me-1"></i>{% trans 'Upload and Review' %}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -30,7 +30,7 @@ It says where a map's clearings, forests and relic spots are. It's **data, not T
   - `clearings`: nothing relies on the order today. **List them in the map's clearing-number order anyway**, so later features (clearing numbers, suits per clearing) can use it.
   - `forests` and `relics`: the order doesn't matter.
 
-**Validation** is `validate_board_layout` in `the_keep/utils.py`, called by `validate_tts_save` (the field validator on `Post.tts_json`). A malformed layout is rejected when an admin saves the post.
+**Validation** is `validate_board_layout` in `the_keep/utils.py`, called by `validate_tts_save`. A malformed layout is rejected when the file is uploaded.
 
 ## What each list is used for
 
@@ -46,11 +46,12 @@ These are used on the RTT table, when the coordinator offers `RTT_EXTERNAL_API`.
 
 ## How it flows
 
-1. **An admin pastes** the map's TTS JSON, including `BoardLayout`, into the Map post's `tts_json` in the Django admin.
-2. **`validate_tts_save`** checks the shape (`the_keep/utils.py`).
-3. **The keep detail API** (`TTSKeepDetailView` / `_tts_objects_payload` in `the_keep/api_views.py`) sends it unchanged as `layout`, for Map posts only.
-4. **The TTS loader** (`placeMap` in `tts/loader.lua`) passes `layout` to the coordinator's `rttPlaceExternalMap`.
-5. **The coordinator** stores it per map (`RTT_EXTERNAL.layouts[name]`), saved with the table. `rttExternalLayoutWorld(mapId, key)` turns each offset into a world position by adding the board's current position.
+1. **An admin uploads** the map's TTS JSON, including `BoardLayout`, on the post's TTS JSON page (settings hub → TTS JSON; `the_keep/tts_views.py`). `tts_json` can't be edited in the Django admin.
+2. **`validate_tts_save`** checks the shape (`the_keep/utils.py`). The admin then reviews the upload's warnings (scripts, files from untrusted hosts, missing Library tags; `inspect_tts_json` in `the_keep/services/tts_inspect.py`) and confirms it.
+3. **It's stored exactly as uploaded,** with the derived `Post.tts_info` (`map_board`, `shuffle`; `describe_tts_json`).
+4. **The keep detail API** (`TTSKeepDetailView` / `_tts_objects_payload` in `the_keep/api_views.py`) serves the JSON as stored, and sends `BoardLayout` unchanged as `layout`, for Map posts only.
+5. **The TTS loader** (`placeMap` in `tts/loader.lua`) passes `layout` to the coordinator's `rttPlaceExternalMap`.
+6. **The coordinator** stores it per map (`RTT_EXTERNAL.layouts[name]`), saved with the table. `rttExternalLayoutWorld(mapId, key)` turns each offset into a world position by adding the board's current position.
 
 ## Related tags (on objects, not in BoardLayout)
 
@@ -64,21 +65,29 @@ Randomised set-up comes from tags on the map's pieces, which the coordinator's `
 | `Shuffleable` | That deck is shuffled |
 | `Suit: fox` / `Suit: rabbit` / `Suit: mouse` / `Suit: bird` | Tells the coordinator a marker's suit (`rttSuitOfJson`), so the suits are published |
 
-If a Map post has `fixed_clearings` set, the site removes `Clearing Marker` from the copy it serves, so suits stay where the designer put them.
+**Tags travel in the JSON itself:** the site serves uploaded JSON exactly as stored and adds nothing. So a map's pieces need `Map Object` (so the RTT table clears them when the map is replaced) and the board needs `RTT Map`, before you export it from TTS. The upload review lists any that are missing.
 
-## Measuring a layout today (until an editor exists)
+**Fixed suits:** leave `Clearing Marker` off the suit markers. The site no longer changes the JSON for a Map post's `fixed_clearings` setting; the review warns when the setting is on but the JSON still has the tag.
 
-1. Spawn the map from the Library tab on a table, so the board lands at the table centre at its saved rotation.
-2. Note the board's position (right-click the board → Scripting, or the Gizmo tool).
-3. Drop a small object on each clearing, then read its position.
-4. Store `[object.x - board.x, object.z - board.z]`.
-5. Repeat for forests and relic spots.
+## The map builder
+
+Map posts get their layout from the **map builder** (post → TTS JSON → Open map builder; `the_keep/tts_views.py` `map_builder`, `the_keep/static/the_keep/map_builder.js`). Admins and the map's designer mark the VP track, item grid, clearings (centre, suit-marker spot, number tile), forests, building spaces and ruins on the board image. The layout is saved in `Map.tts_builder` (0–1 image coordinates), and `the_keep/services/tts_map.py` builds the TTS JSON from it, including `BoardLayout` (`clearings` in clearing-number order, and `forests`).
+
+**Measured from the RTT mod's six official maps** (constants in `MapGeometry` and `tts_map.py`):
+- **The board:** a `Custom_Token` at scale `12.9794`, rotated 180°. Its image spans **2.0 local units either side of centre across its width**, and `2.0·H/W` down its height.
+  - **Unverified:** every official image is about 1.09 : 1, so this rule is unconfirmed for other image shapes.
+  - **Axes:** image left is local +x and image top is local −z.
+  - **Table offsets:** `dx = −x·12.9794`, `dz = −z·12.9794`.
+- **The VP track:** 3 rows × 31 snaps, centred, 0.1232 apart (the spacing of the track printed on the official board images; the mod's own snaps are about 2.5% tighter), rows 0.112 apart. The RTT Box Score finds the track by looking for evenly spaced rows of 28–60 snaps.
+- **Items:** a 2 × 6 grid of snaps, 0.1421 × 0.1372 local units apart.
+- **Suit markers:**
+  - **Snaps:** each marker spot is a snap tagged `Enclave`, whose local rotY is the marker's rotY − 180.
+  - **Rotation:** a marker's world rotY is the direction from its clearing centre to the marker (`atan2(dx, dz)`).
+- **Clearing number tiles:** round tiles at scale 1.0 (about 1.0 table unit in radius), sitting just outside the clearing circle.
+
+The pieces (item tiles, ruin tiles, suit markers, number tiles) come from `tts/rtt_map_pieces.json`, with art in `the_keep/static/images/tts/assets/`. Refresh them with `tts/extract_rtt_map_pieces.py`.
 
 ## Notes for a future editor or Forge builder
-
 - **Keep the key name and convention**, so existing maps keep working, and validate with `validate_board_layout`.
-- **A visual editor** can show the board image and let you click to place points.
-  - To convert a click into an offset, use the board's TTS size: the board's world width and depth follow from its scale and the image's aspect ratio.
-  - Measure from the image centre.
-  - Flip the image's y axis to the table's z axis, accounting for the board's saved rotation. At the usual saved rotation of 180°, the image's top edge faces −z.
-- **If Forge Map drafts are built later,** the Forge can produce `BoardLayout` alongside the map's TTS objects, the same way faction drafts produce theirs.
+- **Reuse `tts_map.py`** (`MapGeometry`, `build_map_tts_json`) rather than re-deriving the geometry.
+- **If Forge Map drafts are built later,** they can store the same builder layout and generate their JSON the same way.
