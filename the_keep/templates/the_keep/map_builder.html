@@ -70,14 +70,17 @@
     #mb-suit-mode { transition: width .25s ease; }
 
     /* Compact (small screens): folded down to two icons and the chevron. */
-    .mb-mode-icons { display: none; align-items: center; gap: 10px; padding-right: 26px; justify-content: center; }
+    /* Compact sizes come from the item track's height (--mb-c / --mb-f, set by
+       setCompactSizes in map_builder.js) so the folded card fits the track. */
+    .mb-mode-icons { display: none; align-items: center; gap: 8px; padding-right: calc(var(--mb-f, 24px) + 2px); justify-content: center; }
     .mb-mode-icons button { border: 0; background: none; padding: 0; line-height: 0; }
     .mb-mode-icons img {
-        width: 34px; height: 30px; object-fit: contain; filter: grayscale(1); opacity: .55;
+        width: calc(var(--mb-c, 30px) * 1.13); height: var(--mb-c, 30px); object-fit: contain; filter: grayscale(1); opacity: .55;
         transition: filter .15s ease, opacity .15s ease, transform .15s ease;
     }
     .mb-mode-icons button[aria-pressed="true"] img { filter: none; opacity: 1; transform: scale(1.15); }
-    #mb-suit-mode.compact.folded { padding: 6px 8px; }
+    #mb-suit-mode.compact.folded { padding: 4px 6px; }
+    #mb-suit-mode.compact.folded .mb-mode-fold { width: var(--mb-f, 24px); height: var(--mb-f, 24px); right: 4px; }
     #mb-suit-mode.compact.folded .mb-mode-title,
     #mb-suit-mode.compact.folded .mb-mode-switch { display: none; }
     #mb-suit-mode.compact.folded .mb-mode-icons { display: flex; }
@@ -106,6 +109,13 @@
         font-size: .85rem; color: #495057; transition: color .2s ease;
     }
     .mb-mode-switch button[aria-pressed="true"] { color: #fff; }
+
+    /* Review summary card: rounded and softly shadowed, like the board's cards. */
+    #mb-review {
+        border-radius: 16px; border: 1px solid #e9ecef; overflow: hidden;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, .08), 0 1px 3px rgba(0, 0, 0, .06);
+    }
+    #mb-review .card-body { padding: 1.25rem; }
 
     /* Review summary */
     .mb-sum-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
@@ -164,8 +174,12 @@
     #mb-count-card.folded .mb-count-fold i { transform: rotate(180deg); }
     /* Same padding and chevron spot in both states, so nothing jumps while the
        sections animate. The chevron is centred on the 30px badge row. */
-    #mb-count-card.compact { padding: 6px 32px 6px 8px; }
-    #mb-count-card.compact .mb-count-fold { top: 12px; }
+    #mb-count-card.compact { padding: 4px calc(var(--mb-f, 24px) + 8px) 4px 6px; }
+    /* Centred on the badge row (4px padding + 3px row padding + half a badge). */
+    #mb-count-card.compact .mb-count-fold {
+        width: var(--mb-f, 24px); height: var(--mb-f, 24px); right: 4px;
+        top: calc(7px + (var(--mb-c, 30px) - var(--mb-f, 24px)) / 2);
+    }
     /* The rows slide open and shut (a grid row animating 1fr <-> 0fr). */
     /* The badge row and the rows cross-fade: each slides open and shut (a grid
        row animating 1fr <-> 0fr) at the same time, so the height changes smoothly. */
@@ -181,14 +195,14 @@
     /* Folded: each count drawn inside its piece's icon. */
     /* 3px padding: the badges' amber ring and outlines draw just outside them,
        and the row clips its overflow so it can collapse. */
-    .mb-count-badges { display: flex; align-items: center; gap: 8px; width: max-content; padding: 3px; }
+    .mb-count-badges { display: flex; align-items: center; gap: calc(var(--mb-c, 30px) * .25); width: max-content; padding: 3px; }
     .mb-count-badge {
-        width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
-        font-weight: 700; font-size: 14px; line-height: 1; border-radius: 6px;
+        width: var(--mb-c, 30px); height: var(--mb-c, 30px); display: inline-flex; align-items: center; justify-content: center;
+        font-weight: 700; font-size: calc(var(--mb-c, 30px) * .47); line-height: 1; border-radius: calc(var(--mb-c, 30px) * .2);
     }
     .mb-badge-building { background: #fff; color: #212529; border: 1.5px solid #333; }
     .mb-badge-ruin { background: #dc3545; color: #fff; border: 1.5px solid #333; }
-    .mb-badge-forest { background: #198754; color: #fff; border-radius: 50%; border: 3px solid #fff;
+    .mb-badge-forest { background: #198754; color: #fff; border-radius: 50%; border: calc(var(--mb-c, 30px) * .1) solid #fff;
                        box-shadow: 0 0 0 1px rgba(0, 0, 0, .15); }
     .mb-count-badge.off { box-shadow: 0 0 0 2px #ffc107; }
     /* Icon, count and label are centred on one line. The count and label are
@@ -408,7 +422,7 @@
     <!-- Review -->
     <div class="card mb-3 d-none" id="mb-review">
         <div class="card-body">
-            <p class="text-muted small text-center mb-2">{% trans "This is how your map will load. Click any piece on the map, or a tile below, to edit it." %}</p>
+            <p class="text-muted small text-center mb-2">{% trans "This is how your map will load. Click an element on the map, or a tile below, to edit." %}</p>
             <div class="mb-sum-grid mb-3" id="mb-review-counts"></div>
             <div class="mb-sum-suits mb-3" id="mb-review-suits"></div>
             <div id="mb-review-problems"></div>
