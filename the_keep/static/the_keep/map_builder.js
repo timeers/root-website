@@ -32,7 +32,7 @@
     { heading: 'Forests',
       hint: 'Click the middle of each forest. Drag a dot to move it and press x to remove it. These are used for Relic placements.' },
     { heading: 'Review', 
-      hint: 'Check the counts, then save and generate the TTS JSON.' },
+      hint: 'Check the count of each element, then click "Complete" to generate the final JSON.' },
   ];
 
   // Step numbers, in the order the steps appear (Review is the last).
@@ -699,10 +699,13 @@
 
   // A press outside the board deselects, like Escape (a clearing still waiting
   // for its marker is cancelled). Presses on the board select or place pieces
-  // themselves; step cards are left alone.
+  // themselves; step cards are left alone. Checked on the event's path, not its
+  // target: selecting a piece redraws the board at once, detaching the pressed
+  // element before the event gets here.
   document.addEventListener('pointerdown', (evt) => {
     if (selected === null && pendingMarker === null) return;
-    if (evt.target.closest('#mb-board') || evt.target.closest('#mb-step-card')) return;
+    const path = evt.composedPath();
+    if (path.includes(board) || path.includes(document.getElementById('mb-step-card'))) return;
     if (pendingMarker !== null) removeClearing(pendingMarker);
     selected = null;
     render();
