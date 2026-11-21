@@ -74,11 +74,11 @@ Randomised set-up comes from tags on the map's pieces, which the coordinator's `
 Map posts get their layout from the **map builder** (post → TTS JSON → Open map builder; `the_keep/tts_views.py` `map_builder`, `the_keep/static/the_keep/map_builder.js`). Admins and the map's designer mark the VP track, item grid, clearings (centre, suit-marker spot, number tile), forests, building spaces and ruins on the board image. The layout is saved in `Map.tts_builder` (0–1 image coordinates), and `the_keep/services/tts_map.py` builds the TTS JSON from it, including `BoardLayout` (`clearings` in clearing-number order, and `forests`).
 
 **Measured from the RTT mod's six official maps** (constants in `MapGeometry` and `tts_map.py`):
-- **The board:** a `Custom_Token` at scale `12.9794`, rotated 180°. Its image spans **2.0 local units either side of centre across its width**, and `2.0·H/W` down its height.
+- **The board:** a `Custom_Token` at scale `12.9794`, rotated 180°. Its image spans **1.957 local units either side of centre across its width** (fitted on all six official boards: 1.947–1.963), and `1.957·H/W` down its height.
   - **Unverified:** every official image is about 1.09 : 1, so this rule is unconfirmed for other image shapes.
   - **Axes:** image left is local +x and image top is local −z.
   - **Table offsets:** `dx = −x·12.9794`, `dz = −z·12.9794`.
-- **The VP track:** 3 rows × 31 snaps, centred, 0.1232 apart (the spacing of the track printed on the official board images; the mod's own snaps are about 2.5% tighter), rows 0.112 apart. The RTT Box Score finds the track by looking for evenly spaced rows of 28–60 snaps.
+- **The VP track:** 3 rows × 31 snaps, centred, 0.1205 apart (the official boards' own spacing, which sits on their printed track), rows 0.112 apart. The RTT Box Score finds the track by looking for evenly spaced rows of 28–60 snaps.
 - **Items:** a 2 × 6 grid of snaps, 0.1421 × 0.1372 local units apart.
 - **Suit markers:**
   - **Snaps:** each marker spot is a snap tagged `Enclave`, whose local rotY is the marker's rotY − 180.
