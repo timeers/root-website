@@ -72,7 +72,7 @@
     /* Compact (small screens): folded down to two icons and the chevron. */
     /* Compact sizes come from the item track's height (--mb-c / --mb-f, set by
        setCompactSizes in map_builder.js) so the folded card fits the track. */
-    .mb-mode-icons { display: none; align-items: center; gap: 8px; padding-right: calc(var(--mb-f, 24px) + 2px); justify-content: center; }
+    .mb-mode-icons { display: none; align-items: center; gap: 8px; padding-right: calc(var(--mb-f, 24px) + 2px); width: max-content; }
     .mb-mode-icons button { border: 0; background: none; padding: 0; line-height: 0; }
     .mb-mode-icons img {
         width: calc(var(--mb-c, 30px) * 1.13); height: var(--mb-c, 30px); object-fit: contain; filter: grayscale(1); opacity: .55;

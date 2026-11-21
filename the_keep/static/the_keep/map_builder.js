@@ -840,8 +840,11 @@
     modePanel.classList.toggle('compact', compact);
     modePanel.classList.toggle('folded', modeFolded);
     fold.setAttribute('aria-expanded', modeFolded ? 'false' : 'true');
+    // Folded on small screens: as wide as its content (the two icons, sized from
+    // the item track, plus the chevron) -- a fixed minimum left gaps around them.
+    const icons = modePanel.querySelector('.mb-mode-icons');
     const width = compact && modeFolded
-      ? Math.min(Math.max(gridWidth, 120), area.width - 8)
+      ? Math.min(icons.scrollWidth + 12, area.width - 8)
       : Math.min(Math.max(gridWidth, 200), 300, area.width - 8);
     modePanel.style.width = `${width}px`;
     // Folded, the card should stay within the item track, so a title that would
