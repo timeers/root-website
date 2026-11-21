@@ -174,7 +174,14 @@
     #mb-count-card.folded .mb-count-fold i { transform: rotate(180deg); }
     /* Same padding and chevron spot in both states, so nothing jumps while the
        sections animate. The chevron is centred on the 30px badge row. */
-    #mb-count-card.compact { padding: 4px calc(var(--mb-f, 24px) + 8px) 4px 6px; }
+    /* Never shorter than the folded card (4px + 3px + badge + 3px + 4px), with the
+       content centred: a one-row card (Forests) expanded is shorter than a badge,
+       which left the fixed chevron hanging off the bottom. */
+    #mb-count-card.compact {
+        padding: 4px calc(var(--mb-f, 24px) + 8px) 4px 6px;
+        min-height: calc(var(--mb-c, 30px) + 14px);
+        display: flex; flex-direction: column; justify-content: center;
+    }
     /* Centred on the badge row (4px padding + 3px row padding + half a badge). */
     #mb-count-card.compact .mb-count-fold {
         width: var(--mb-f, 24px); height: var(--mb-f, 24px); right: 4px;
@@ -195,7 +202,13 @@
     /* Folded: each count drawn inside its piece's icon. */
     /* 3px padding: the badges' amber ring and outlines draw just outside them,
        and the row clips its overflow so it can collapse. */
-    .mb-count-badges { display: flex; align-items: center; gap: calc(var(--mb-c, 30px) * .25); width: max-content; padding: 3px; }
+    .mb-count-badges {
+        display: flex; align-items: center; gap: calc(var(--mb-c, 30px) * .25); width: max-content; padding: 3px;
+        transition: padding .3s cubic-bezier(.4, 0, .2, 1);
+    }
+    /* Collapsed (expanded card), the row's padding would still take up 6px -- a
+       0fr row squeezes content, not padding -- and push the rows down. */
+    #mb-count-card.compact:not(.folded) .mb-count-badges { padding-top: 0; padding-bottom: 0; }
     .mb-count-badge {
         width: var(--mb-c, 30px); height: var(--mb-c, 30px); display: inline-flex; align-items: center; justify-content: center;
         font-weight: 700; font-size: calc(var(--mb-c, 30px) * .47); line-height: 1; border-radius: calc(var(--mb-c, 30px) * .2);
