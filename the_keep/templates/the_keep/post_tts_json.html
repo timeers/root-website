@@ -38,14 +38,19 @@
                     <p class="card-text small text-warning-emphasis mb-0">
                         <i class="bi bi-info-circle me-1"></i>{{ generate_reason }}
                         {% if forged_faction %}
-                        <a href="{% url 'forge-faction-detail' pk=forged_faction.pk %}">{% trans 'Open the Forge draft' %}</a>
+                        <a href="{{ forged_faction.forge_detail_url }}">{% trans 'Open the Forge draft' %}</a>
                         {% endif %}
                     </p>
                     {% endif %}
                 </div>
                 <div class="card-footer bg-transparent d-flex flex-column gap-2">
-                    {% if is_map %}
+                    {% if is_map and not forged_faction %}
                     <a href="{% url 'map-builder' object.slug %}" class="btn btn-outline-primary w-100">
+                        <i class="bi bi-map me-1"></i>{% trans 'Open Map Builder' %}
+                    </a>
+                    {% elif is_map and forged_faction.is_map and forged_faction.designer_id == request.user.profile.id %}
+                    {% comment %} Built in the Forge: its builder there (only its designer can edit the draft). {% endcomment %}
+                    <a href="{% url 'forge-map-builder' forged_faction.pk %}" class="btn btn-outline-primary w-100">
                         <i class="bi bi-map me-1"></i>{% trans 'Open Map Builder' %}
                     </a>
                     {% endif %}

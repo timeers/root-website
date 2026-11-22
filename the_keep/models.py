@@ -49,6 +49,7 @@ from .services.upload_paths import (
     translation_card_back_upload_path, translation_card_front_upload_path,
     translation_small_upload_path,
     piece_upload_path, tts_asset_upload_path,
+    piece_figure_mesh_upload_path, piece_figure_texture_upload_path,
 )
 
 
@@ -190,6 +191,13 @@ class StatusChoices(models.TextChoices):
     ABANDONED = '5', _('Abandoned')
     REJECTED = '8', _('Rejected')
     SUBMITTED = '9', _('Submitted')
+
+
+# The statuses the TTS Library lists a post at (Stable to Inactive).
+TTS_LIBRARY_STATUSES = (
+    StatusChoices.STABLE, StatusChoices.TESTING,
+    StatusChoices.DEVELOPMENT, StatusChoices.INACTIVE,
+)
 
 # def get_status_name_from_int(status_int):
 #     # Iterate through the choices to find the matching integer
@@ -2213,6 +2221,14 @@ class Piece(models.Model):
     back_image = models.ImageField(upload_to=piece_upload_path, null=True, blank=True)
     front_version = models.PositiveIntegerField(default=0)
     back_version = models.PositiveIntegerField(default=0)
+    # Warriors' Tabletop Simulator figure: generated from small_icon on
+    # Generate (figure_fingerprint), or copied from the linked Forge piece on
+    # sync (figure_source_fingerprint is the Forge figure's fingerprint then).
+    figure_mesh = models.FileField(upload_to=piece_figure_mesh_upload_path, null=True, blank=True)
+    figure_texture = models.ImageField(upload_to=piece_figure_texture_upload_path, null=True, blank=True)
+    figure_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    figure_source_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    figure_size = models.JSONField(null=True, blank=True)
 
     def __str__(self):
         return f'{self.name} ({self.type})'
@@ -2268,7 +2284,7 @@ class Piece(models.Model):
 
 
     def delete(self, *args, **kwargs):
-        for field_name in ('small_icon', 'back_image'):
+        for field_name in ('small_icon', 'back_image', 'figure_mesh', 'figure_texture'):
             image = getattr(self, field_name, None)
             if image and os.path.isfile(image.path):
                 os.remove(image.path)

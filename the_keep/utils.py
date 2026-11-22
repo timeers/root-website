@@ -366,7 +366,7 @@ def resize_image_in_place(image_field, max_size=None, quality=85):
         # WebP supports both RGB and RGBA
         if img.mode not in ("RGB", "RGBA"):
             # Use RGBA if image has transparency, otherwise RGB
-            if img.mode in ("LA", "P") and "transparency" in img.info:
+            if img.mode == "LA" or (img.mode == "P" and "transparency" in img.info) or img.mode == "PA":
                 img = img.convert("RGBA")
             else:
                 img = img.convert("RGB")

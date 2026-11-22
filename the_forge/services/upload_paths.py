@@ -80,6 +80,20 @@ def relationship_marker_upload_path(instance, filename):
     )
 
 
+def map_art_upload_path(instance, filename):
+    return upload_path(
+        slug_parts=[instance.faction.slug, 'map'],
+        filename='art.webp',
+    )
+
+
+def map_preview_upload_path(instance, filename):
+    return upload_path(
+        slug_parts=[instance.faction.slug, 'map'],
+        filename='front.webp',
+    )
+
+
 def card_preview_upload_path(instance, filename):
     return upload_path(
         slug_parts=[instance.faction.slug, 'card'],
@@ -131,6 +145,23 @@ def piece_front_upload_path(instance, filename):
 
 def piece_back_upload_path(instance, filename):
     return _piece_upload_path(instance, 'back')
+
+
+def _piece_figure_upload_path(instance, ext):
+    faction = _resolve_faction(instance)
+    return upload_path(
+        slug_parts=[faction.slug if faction else None, 'pieces', 'warriors'],
+        filename=f'{instance.pk}-figure',
+        force_ext=ext,
+    )
+
+
+def piece_figure_mesh_upload_path(instance, filename):
+    return _piece_figure_upload_path(instance, 'obj')
+
+
+def piece_figure_texture_upload_path(instance, filename):
+    return _piece_figure_upload_path(instance, 'png')
 
 
 def _deck_group_slug(group):

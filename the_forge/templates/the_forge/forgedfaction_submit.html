@@ -100,102 +100,7 @@
     </div>
   </div>
 
-  <div class="card p-3 mb-3">
-    <h5 class="root-title">Links</h5>
-    <p class="form-text mb-3">
-      A Woodland Warriors thread link is required. 
-      Head to the fan-content section of Woodland Warriors to create your own thread. 
-      Your thread should include the faction board as well as a description of the faciton and how to play them.
-      You can also add aditional links.
-    </p>
-
-    <div class="forge-link-row" data-link-key="ww">
-      <label class="form-label fw-semibold">{{ form.ww_link.label }} *</label>
-      {% comment %} forge-field-invalid on a bound error matches what
-      setFieldError() applies client-side, so a link rejected by the server looks
-      the same as one caught before submitting. {% endcomment %}
-      <div class="forge-link-input-group{% if form.ww_link.errors %} forge-field-invalid{% endif %}">
-        <span class="forge-link-icon">
-          <img src="{% static 'images/link_icons/WW.webp' %}" alt="Woodland Warriors">
-        </span>
-        {{ form.ww_link }}
-      </div>
-      {% if form.ww_link.errors %}
-        <div class="alert alert-danger py-2 px-3 mt-2 mb-0">{{ form.ww_link.errors|striptags }}</div>
-      {% endif %}
-    </div>
-
-    <div id="forge-more-links-toggle" class="mt-3" style="display: none;">
-      <button type="button" class="btn btn-outline-secondary btn-sm" id="forge-more-links-btn" aria-expanded="false" aria-controls="forge-more-links">
-        <i class="bi bi-plus-circle"></i> Add more links
-      </button>
-    </div>
-
-    {% if form.bgg_link or form.tts_link or form.wr_link or form.fr_link or form.pnp_link or form.stl_link %}
-      <div id="forge-more-links" class="mt-3" style="display: none;">
-        {% if form.bgg_link %}
-          <div class="forge-link-row" data-link-key="bgg">
-            <label class="form-label">{{ form.bgg_link.label }}</label>
-            <div class="forge-link-input-group">
-              <span class="forge-link-icon"><img src="{% static 'images/link_icons/BGG.webp' %}" alt="Board Game Geek"></span>
-              {{ form.bgg_link }}
-            </div>
-            {{ form.bgg_link.errors }}
-          </div>
-        {% endif %}
-        {% if form.tts_link %}
-          <div class="forge-link-row" data-link-key="tts">
-            <label class="form-label">{{ form.tts_link.label }}</label>
-            <div class="forge-link-input-group">
-              <span class="forge-link-icon"><img src="{% static 'images/link_icons/TTS.webp' %}" alt="Tabletop Simulator"></span>
-              {{ form.tts_link }}
-            </div>
-            {{ form.tts_link.errors }}
-          </div>
-        {% endif %}
-        {% if form.wr_link %}
-          <div class="forge-link-row" data-link-key="wr">
-            <label class="form-label">{{ form.wr_link.label }}</label>
-            <div class="forge-link-input-group">
-              <span class="forge-link-icon"><img src="{% static 'images/link_icons/WR.webp' %}" alt="Weird Root"></span>
-              {{ form.wr_link }}
-            </div>
-            {{ form.wr_link.errors }}
-          </div>
-        {% endif %}
-        {% if form.fr_link %}
-          <div class="forge-link-row" data-link-key="fr">
-            <label class="form-label">{{ form.fr_link.label }}</label>
-            <div class="forge-link-input-group">
-              <span class="forge-link-icon"><img src="{% static 'images/link_icons/FR.webp' %}" alt="French Root"></span>
-              {{ form.fr_link }}
-            </div>
-            {{ form.fr_link.errors }}
-          </div>
-        {% endif %}
-        {% if form.pnp_link %}
-          <div class="forge-link-row" data-link-key="pnp">
-            <label class="form-label">{{ form.pnp_link.label }}</label>
-            <div class="forge-link-input-group">
-              <span class="forge-link-icon"><img src="{% static 'images/link_icons/PNP.webp' %}" alt="Print & Play"></span>
-              {{ form.pnp_link }}
-            </div>
-            {{ form.pnp_link.errors }}
-          </div>
-        {% endif %}
-        {% if form.stl_link %}
-          <div class="forge-link-row" data-link-key="stl">
-            <label class="form-label">{{ form.stl_link.label }}</label>
-            <div class="forge-link-input-group">
-              <span class="forge-link-icon"><img src="{% static 'images/link_icons/STL.webp' %}" alt="STL Files"></span>
-              {{ form.stl_link }}
-            </div>
-            {{ form.stl_link.errors }}
-          </div>
-        {% endif %}
-      </div>
-    {% endif %}
-  </div>
+  {% include 'the_forge/partials/_submit_links.html' with subject='faction' thread_contents='the faction board as well as a description of the faction and how to play them' %}
 
   {# ----- Previews from the Forge draft ----- #}
   <div class="card p-3 mb-3">
@@ -242,62 +147,6 @@
 </form>
 
 <style>
-  .forge-link-row { margin-bottom: 1rem; }
-  .forge-link-row:last-child { margin-bottom: 0; }
-  .forge-link-input-group {
-    display: flex;
-    align-items: stretch;
-    border: 1px solid var(--bs-border-color, #ced4da);
-    border-radius: 0.5rem;
-    background-color: var(--bs-body-bg, #fff);
-    overflow: hidden;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  }
-  .forge-link-input-group:focus-within {
-    border-color: #86b7fe;
-    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.18);
-  }
-  /* Applied by setFieldError() and rendered server-side on a bound error, so an
-     invalid link is visible as a control and not only as a message. The focus
-     ring is overridden too -- otherwise clicking the bad field turns it blue
-     and hides the very thing being flagged. */
-  .forge-link-input-group.forge-field-invalid,
-  .forge-link-input-group.forge-field-invalid:focus-within {
-    border-color: var(--bs-danger, #dc3545);
-    box-shadow: 0 0 0 0.2rem rgba(220, 53, 69, 0.2);
-  }
-  .forge-link-input-group.forge-field-invalid .forge-link-icon {
-    border-right-color: var(--bs-danger, #dc3545);
-  }
-  .forge-link-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0 0.75rem;
-    background-color: rgba(0,0,0,0.03);
-    border-right: 1px solid var(--bs-border-color, #ced4da);
-    flex-shrink: 0;
-  }
-  .forge-link-icon img {
-    width: 28px;
-    height: 28px;
-    object-fit: contain;
-    display: block;
-  }
-  .forge-link-input-group input[type="text"],
-  .forge-link-input-group input[type="url"] {
-    flex: 1;
-    min-width: 0;
-    border: none !important;
-    background: transparent !important;
-    padding: 0.5rem 0.75rem;
-    outline: none;
-    box-shadow: none !important;
-    border-radius: 0 !important;
-    font-size: 0.95rem;
-  }
-  .forge-link-input-group input:focus { outline: none; box-shadow: none; }
-
   .forge-picture-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -547,125 +396,6 @@
 
 <script>
   (function () {
-    var wwInput = document.querySelector('[data-link-key="ww"] input');
-    var toggleWrap = document.getElementById('forge-more-links-toggle');
-    var btn = document.getElementById('forge-more-links-btn');
-    var box = document.getElementById('forge-more-links');
-    var guildId = "{{ ww_guild_id|escapejs }}";
-    var wrGuildId = "{{ wr_guild_id|escapejs }}";
-    var frGuildId = "{{ fr_guild_id|escapejs }}";
-
-    // Mirrors the server rule in the_keep.forms.discord_thread_guild_error --
-    // anchor the whole URL and compare the CAPTURED guild id, rather than
-    // searching for the prefix anywhere in the string. Keeping the two in step
-    // matters: a looser check here would let the form submit and then fail
-    // server-side, which is a worse experience than being told inline.
-    var DISCORD_THREAD_RE =
-      /^https:\/\/(?:discord\.com|discordapp\.com)\/channels\/(\d+)\/(\d+)(?:\/\d+)?\/?$/;
-
-    function isValidWwLink(value) {
-      if (!value || !guildId) return false;
-      var found = DISCORD_THREAD_RE.exec(value.trim());
-      return !!found && found[1] === String(guildId);
-    }
-
-    function isWellFormedUrl(value) {
-      try {
-        var u = new URL(value);
-        return u.protocol === 'http:' || u.protocol === 'https:';
-      } catch (e) {
-        return false;
-      }
-    }
-
-    // Each entry mirrors a server-side rule from the_keep/forms.py.
-    // `test(value)` returns null if OK or an error message string if not.
-    var OPTIONAL_LINK_RULES = {
-      bgg_link: {
-        test: function (v) {
-          if (v.indexOf('boardgamegeek.com/thread/') === -1) {
-            return 'Link must point to a BoardGameGeek thread.';
-          }
-          return null;
-        }
-      },
-      tts_link: {
-        test: function (v) {
-          if (v.indexOf('steamcommunity.com/sharedfiles/') === -1) {
-            return 'Link must point to a Steam Workshop shared file.';
-          }
-          return null;
-        }
-      },
-      wr_link: {
-        test: function (v) {
-          if (!wrGuildId || v.indexOf('discord.com/channels/' + wrGuildId) === -1) {
-            return 'Link must point to the Weird Root Discord server.';
-          }
-          return null;
-        }
-      },
-      fr_link: {
-        test: function (v) {
-          if (!frGuildId || v.indexOf('discord.com/channels/' + frGuildId) === -1) {
-            return 'Link must point to the French Root Discord server.';
-          }
-          return null;
-        }
-      },
-      pnp_link: {
-        test: function (v) {
-          if (v.indexOf('dropbox.com') === -1
-              && v.indexOf('drive.google.com') === -1
-              && v.indexOf('docs.google.com') === -1) {
-            return 'PNP link must be a Dropbox or Google Drive URL.';
-          }
-          return null;
-        }
-      },
-      stl_link: { test: function () { return null; } }
-    };
-
-    function updateToggleVisibility() {
-      if (!toggleWrap) return;
-      if (isValidWwLink(wwInput ? wwInput.value : '')) {
-        toggleWrap.style.display = '';
-      } else {
-        toggleWrap.style.display = 'none';
-        // Collapse the optional links if ww becomes invalid again.
-        if (box) {
-          box.style.display = 'none';
-          if (btn) btn.setAttribute('aria-expanded', 'false');
-        }
-      }
-    }
-
-    if (wwInput) {
-      wwInput.addEventListener('input', updateToggleVisibility);
-      wwInput.addEventListener('change', updateToggleVisibility);
-    }
-
-    if (btn && box) {
-      btn.addEventListener('click', function () {
-        var open = box.style.display !== 'none';
-        box.style.display = open ? 'none' : '';
-        btn.setAttribute('aria-expanded', open ? 'false' : 'true');
-      });
-    }
-
-    // Initial state — show toggle if ww_link already valid, and expand the
-    // optional section if any of its fields already have content/errors so
-    // server-side validation errors stay visible after a failed submit.
-    updateToggleVisibility();
-    if (box) {
-      var hasContent = box.querySelector('input[value]:not([value=""])')
-                    || box.querySelector('ul.errorlist');
-      if (hasContent && toggleWrap && toggleWrap.style.display !== 'none') {
-        box.style.display = '';
-        if (btn) btn.setAttribute('aria-expanded', 'true');
-      }
-    }
-
     // Character art: show the upload field only when "Upload my own" is picked.
     var uploadWrap = document.getElementById('forge-picture-upload');
     var pictureRadios = document.querySelectorAll('input[type="radio"][name="picture_source"]');
@@ -811,44 +541,6 @@
         }
       }
 
-      // ww_link — required, and must be a thread link in the WW guild. Two
-      // distinct messages, matching the server: "wrong shape" and "right shape,
-      // wrong server" need different fixes, so saying which is which saves a
-      // round of guessing.
-      var wwGroup = wwInput ? wwInput.closest('.forge-link-input-group') : null;
-      clearFieldError(wwGroup);
-      var wwValue = wwInput ? wwInput.value.trim() : '';
-      if (!wwValue) {
-        errors.push({ anchor: wwGroup, msg: 'Please add a Woodland Warriors link.', focus: wwInput });
-      } else if (!isValidWwLink(wwValue)) {
-        var parsed = DISCORD_THREAD_RE.exec(wwValue);
-        errors.push({
-          anchor: wwGroup,
-          msg: parsed
-            ? 'That thread is in a different Discord server. Please link a thread in Woodland Warriors.'
-            : 'That is not a Discord thread link. In Discord, right-click the thread and choose Copy Link.',
-          focus: wwInput,
-        });
-      }
-
-      // Optional links — only validated if the user filled them in.
-      Object.keys(OPTIONAL_LINK_RULES).forEach(function (linkName) {
-        var input = form.querySelector('input[name="' + linkName + '"]');
-        if (!input) return;
-        var group = input.closest('.forge-link-input-group');
-        clearFieldError(group);
-        var v = (input.value || '').trim();
-        if (!v) return;
-        if (!isWellFormedUrl(v)) {
-          errors.push({ anchor: group, msg: 'Please enter a valid URL.', focus: input });
-          return;
-        }
-        var ruleErr = OPTIONAL_LINK_RULES[linkName].test(v);
-        if (ruleErr) {
-          errors.push({ anchor: group, msg: ruleErr, focus: input });
-        }
-      });
-
       if (errors.length > 0) {
         e.preventDefault();
         errors.forEach(function (err) { setFieldError(err.anchor, err.msg); });
@@ -870,18 +562,12 @@
     }
     var animalEl = form.querySelector('input[name="animal"]');
     bindClearOnChange(animalEl, animalEl ? animalEl.closest('.forge-text-input-group') : null);
-    bindClearOnChange(wwInput, wwInput ? wwInput.closest('.forge-link-input-group') : null);
     if (fileInput) bindClearOnChange(fileInput, dropzone);
     form.querySelectorAll('.forge-color-grid input[type="radio"]').forEach(function (r) {
       bindClearOnChange(r, form.querySelector('.forge-color-grid'));
     });
     pictureRadios.forEach(function (r) {
       bindClearOnChange(r, form.querySelector('.forge-picture-grid'));
-    });
-    Object.keys(OPTIONAL_LINK_RULES).forEach(function (linkName) {
-      var input = form.querySelector('input[name="' + linkName + '"]');
-      if (!input) return;
-      bindClearOnChange(input, input.closest('.forge-link-input-group'));
     });
   })();
 </script>

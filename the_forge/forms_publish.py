@@ -19,6 +19,7 @@ from the_keep.models import (
     PostTranslation,
     TTSAsset,
 )
+from the_keep.services.tts_figures import FIGURE_VERSION
 from the_keep.utils import tts_json_hash
 
 from .models import (
@@ -236,75 +237,9 @@ def _values_equal(current, proposed, is_image):
     return current == proposed
 
 
-def build_diff(forged):
-    """Return a list of (field_name, label, current, proposed, is_image, in_sync)
-    tuples for whichever sync mode applies. Empty-source rows are omitted; rows
-    whose values already match are flagged ``in_sync=True`` so the template can
-    show them as "Up to date" without an Apply checkbox."""
-    rows = []
-    if forged.published_post_id:
-        faction = forged.published_keep_post
-        for field in FACTION_SYNC_FIELDS:
-            proposed = _proposed_for_faction(forged, field)
-            if proposed in (None, ''):
-                continue
-            current = getattr(faction, field, None)
-            is_image = field in IMAGE_FIELDS
-            if field in FACTION_IMAGE_VERSION_MAP:
-                source_attr, keep_version_attr = FACTION_IMAGE_VERSION_MAP[field]
-                forge_version = _forge_preview_version(forged, source_attr)
-                keep_version = getattr(faction, keep_version_attr, 0) or 0
-                # A missing keep image is never "in sync": Post.save() can bump
-                # the version on an empty field, so versions alone can lie.
-                in_sync = bool(current) and forge_version <= keep_version
-            elif field == 'small_icon':
-                # Comparing the keep faction's small_icon bytes against the
-                # forge faction_icon bytes doesn't work — the keep side
-                # reprocesses the icon at a smaller max-size, so the stored
-                # bytes diverge even when the source is unchanged. Instead,
-                # remember the forge icon's storage name at the time of the
-                # last push (submit or sync) and flag this field only if the
-                # name has changed since.
-                current_name = proposed.name if proposed else ''
-                in_sync = bool(current_name) and current_name == (forged.icon_synced_name or '')
-            else:
-                in_sync = _values_equal(current, proposed, is_image)
-            if field in ATTRIBUTE_FIELDS:
-                current_display = _wrap_attribute(current)
-                proposed_display = _wrap_attribute(proposed)
-            elif field == 'type':
-                current_display = _wrap_type(current)
-                proposed_display = _wrap_type(proposed)
-            else:
-                current_display = current
-                proposed_display = proposed
-            rows.append((
-                field, FACTION_FIELD_LABELS[field],
-                current_display, proposed_display, is_image, in_sync,
-            ))
-    elif forged.published_translation_id:
-        translation = forged.published_translation
-        for field in TRANSLATION_SYNC_FIELDS:
-            proposed = _proposed_for_translation(forged, field)
-            if not proposed:
-                continue
-            current = getattr(translation, field, None)
-            is_image = field in IMAGE_FIELDS
-            if field in TRANSLATION_IMAGE_VERSION_MAP:
-                # File paths between the forge preview and the translation
-                # copy never match; compare source preview_version against
-                # the version stamped on the translation at last sync.
-                source_attr, trans_version_attr = TRANSLATION_IMAGE_VERSION_MAP[field]
-                forge_version = _forge_preview_version(forged, source_attr)
-                trans_version = getattr(translation, trans_version_attr, 0) or 0
-                in_sync = bool(current) and forge_version <= trans_version
-            else:
-                in_sync = _values_equal(current, proposed, is_image)
-            rows.append((
-                field, TRANSLATION_FIELD_LABELS[field],
-                current, proposed, is_image, in_sync,
-            ))
-    return rows
+# build_diff and the sync form are generic now (publishing/diff.py); these
+# names stay importable from here.
+from .publishing.diff import ForgedFactionSyncForm, ForgedPostSyncForm, build_diff  # noqa: E402,F401
 
 
 PIECE_TYPE_ORDER = ('W', 'B', 'T', 'C', 'O')
@@ -562,8 +497,62 @@ def forge_tts_fingerprint(forged):
                     forged.relationship_marker.name if forged.relationship_marker else ''],
         'pieces': pieces,
         'decks': decks,
+        'figures': FIGURE_VERSION,
     }
     return _md5(json.dumps(inputs, sort_keys=True, default=str))
+
+
+# ── Warrior figures (the_keep/services/tts_figures.py) ──────────────────────
+# The keep copies the Forge's generated figure files rather than regenerating
+# them (it would trace its own re-encoded copy of the image). A copy is due
+# whenever the Forge figure changed since the last one, or the keep file is
+# missing, whatever the piece row says: a colour change, or warriors synced
+# before figures existed, leave that row in sync.
+
+def figure_pairs(forged, piece_plan=None):
+    """(forge piece, keep piece) for every matched warrior."""
+    plan = build_piece_plan(forged) if piece_plan is None else piece_plan
+    return [(e['forge_piece'], e['keep_piece']) for e in plan
+            if e['forge_piece'].type == 'W' and e['keep_piece'] is not None and e['keep_piece'].pk]
+
+
+def _stored(field_file):
+    try:
+        return bool(field_file and field_file.name and field_file.storage.exists(field_file.name))
+    except Exception:
+        return False
+
+
+def figure_stale(forge_piece, keep_piece):
+    if not (forge_piece.figure_fingerprint and _stored(forge_piece.figure_mesh)
+            and _stored(forge_piece.figure_texture)):
+        return False   # no Forge figure (an unusable image): nothing to copy
+    return (keep_piece.figure_source_fingerprint != forge_piece.figure_fingerprint
+            or not _stored(keep_piece.figure_mesh) or not _stored(keep_piece.figure_texture))
+
+
+def copy_figures(forged):
+    """Copy every stale Forge warrior figure to its keep piece (after the
+    piece rows are applied, so new keep pieces have their pk for the path)."""
+    for forge_piece, keep_piece in figure_pairs(forged):
+        if not figure_stale(forge_piece, keep_piece):
+            continue
+        keep_piece.figure_mesh.save('figure.obj', copy_image_field(forge_piece.figure_mesh), save=False)
+        keep_piece.figure_texture.save('figure.png', copy_image_field(forge_piece.figure_texture), save=False)
+        # figure_fingerprint stays empty: a later keep Generate (once unlinked)
+        # regenerates from the keep's own image.
+        KeepPiece.objects.filter(pk=keep_piece.pk).update(
+            figure_mesh=keep_piece.figure_mesh.name, figure_texture=keep_piece.figure_texture.name,
+            figure_size=forge_piece.figure_size, figure_fingerprint='',
+            figure_source_fingerprint=forge_piece.figure_fingerprint)
+
+
+def ensure_forge_figures(forged):
+    """Bring the Forge's warrior figures up to date (before the sync page
+    compares or copies them)."""
+    from the_keep.services.tts_figures import ensure_figure
+    for piece in forged.pieces.filter(type='W'):
+        ensure_figure(piece, forged.color)
 
 
 def build_tts_plan(forged, diff_rows, piece_plan, deck_plan, asset_plan):
@@ -581,6 +570,7 @@ def build_tts_plan(forged, diff_rows, piece_plan, deck_plan, asset_plan):
         + sum(1 for e in piece_plan if not e['in_sync'])
         + sum(1 for e in deck_plan if not e['in_sync'])
         + sum(1 for e in asset_plan if not e['in_sync'])
+        + sum(1 for fp_, kp in figure_pairs(forged, piece_plan) if figure_stale(fp_, kp))
     )
     keep_json = faction.tts_json
     json_matches = bool(keep_json) and tts_json_hash(keep_json) == forged.tts_synced_hash
@@ -738,12 +728,10 @@ class ForgedFactionSubmitForm(FactionCreateForm):
         if 'picture' in self.fields:
             self.fields['picture'].required = False
 
-        # ww_link is the only required link on this form. The "add more"
-        # links stay optional and start hidden in the template.
-        if 'ww_link' in self.fields:
-            self.fields['ww_link'].required = True
-        for fname in self.OPTIONAL_LINK_FIELDS:
-            if fname in self.fields and fname != 'ww_link':
+        # Every link is optional on its own: clean() requires a thread on one
+        # of Woodland Warriors, French Root or Board Game Geek.
+        for fname in ('ww_link',) + self.OPTIONAL_LINK_FIELDS:
+            if fname in self.fields:
                 self.fields[fname].required = False
 
         # Disable every field that isn't user-editable on this page. The
@@ -764,21 +752,12 @@ class ForgedFactionSubmitForm(FactionCreateForm):
         # is still important — but if there's a clash we surface it as a
         # non-field error pointing back at the draft, not a field error on
         # a disabled control.
-        from the_keep.models import Faction as KeepFaction, PostTranslation
+        from .publishing import publisher_for
         title = cleaned_data.get('title')
         if not title:
             return
         instance_id = self.instance.id if self.instance else None
-        clash = (
-            KeepFaction.objects.exclude(id=instance_id).filter(title__iexact=title).exists()
-            or PostTranslation.objects.exclude(post__id=instance_id).filter(
-                translated_title__iexact=title, post__component='Faction',
-            ).exists()
-            or PostTranslation.objects.exclude(post__id=instance_id).filter(
-                translated_title__iexact=title, post__component='Clockwork',
-            ).exists()
-        )
-        if clash:
+        if publisher_for(self.forged).title_taken(title, exclude_pk=instance_id):
             self.add_error(
                 None,
                 f'A Faction named "{title}" already exists. Rename your forge draft '
@@ -787,6 +766,8 @@ class ForgedFactionSubmitForm(FactionCreateForm):
 
     def clean(self):
         cleaned = super().clean()
+        from .publishing.base import require_thread_link
+        require_thread_link(self, cleaned)
         source = cleaned.get('picture_source')
         if source == self.PICTURE_UPLOAD:
             if not cleaned.get('picture'):
@@ -820,22 +801,26 @@ class ForgedFactionSubmitForm(FactionCreateForm):
 _copy_image_field = copy_image_field
 
 
-class ForgedFactionLinkForm(forms.Form):
-    """Choose an existing Faction or PostTranslation to link to, or start a
-    new translation of a cross-language Faction match."""
+class ForgedPostLinkForm(forms.Form):
+    """Choose an existing keep post or translation of the draft's kind to link
+    to, or start a new translation of one in another language. The candidates
+    come from the draft's Publisher (publishing/base.py)."""
 
     target = forms.ChoiceField(widget=forms.RadioSelect)
-    show_all_factions = forms.BooleanField(required=False, label='Show all my Factions')
+    show_all_factions = forms.BooleanField(required=False, label='Show all my posts')
 
-    PREFIX_FACTION = 'faction'
+    PREFIX_POST = 'post'
     PREFIX_TRANSLATION = 'translation'
     PREFIX_NEW_TRANSLATION = 'new_translation'
+    PREFIX_FACTION = PREFIX_POST   # the old name
 
     def __init__(self, *args, user=None, forged=None, show_all=False, **kwargs):
         if user is None or forged is None:
-            raise ValueError('ForgedFactionLinkForm requires user and forged kwargs')
+            raise ValueError('ForgedPostLinkForm requires user and forged kwargs')
+        from .publishing import publisher_for
         self.user = user
         self.forged = forged
+        self.publisher = publisher_for(forged)
         self.resolved = None
         self.resolved_mode = None
         # Populated alongside the radio choices so the template can render
@@ -843,6 +828,7 @@ class ForgedFactionLinkForm(forms.Form):
         self.target_options = []
 
         super().__init__(*args, **kwargs)
+        self.fields['show_all_factions'].label = f'Show all my {self.publisher.noun}s'
 
         # `show_all` is normally driven by the GET query string (the checkbox
         # auto-submits a GET to refresh the list). On POST, we still honour it
@@ -852,68 +838,40 @@ class ForgedFactionLinkForm(forms.Form):
             show_all = show_all or self.data.get('show_all_factions') in (
                 'on', 'true', '1', True,
             )
+        self.show_all = show_all
         choices, options = self._build_choices(show_all=show_all)
         self.fields['target'].choices = choices
         self.target_options = options
         # Keep the checkbox visually in sync with whichever source set show_all.
         self.fields['show_all_factions'].initial = show_all
 
+    def _querysets(self, show_all):
+        return self.publisher.link_querysets(self.forged, self.user.profile, show_all=show_all)
+
     def _build_choices(self, show_all=False):
-        profile = self.user.profile
         forged = self.forged
-
-        # Candidates match the draft's own type: a Clockwork draft only links
-        # to keep Clockworks, a Faction draft only to keep Factions.
-        faction_qs = Faction.objects.filter(
-            designer=profile,
-            component=forged.component,
-            source_forged_post__isnull=True,
-            language=forged.language,
-        )
-        if not show_all:
-            faction_qs = faction_qs.filter(title__iexact=forged.faction_name)
-
-        translation_qs = PostTranslation.objects.filter(
-            post__designer=profile,
-            source_forged_faction__isnull=True,
-            translated_title__iexact=forged.faction_name,
-            language=forged.language,
-            post__component=forged.component,
-        ).select_related('post', 'language')
-
-        # Cross-language candidates: any Faction the user designed in
-        # another language that doesn't already have a translation in the
-        # draft's language. The draft's name typically won't match (because
-        # it's the translated name), so we intentionally don't filter by
-        # title here — the user is starting a new translation.
-        cross_lang_factions = Faction.objects.filter(
-            designer=profile,
-            component=forged.component,
-        ).exclude(
-            language=forged.language,
-        ).exclude(
-            translations__language=forged.language,
-        )
+        noun = self.publisher.noun
+        posts, translations, cross_language = self._querysets(show_all)
 
         def _img_url(field):
             return field.url if field and field.name else ''
 
         choices = []
         options = []
-        for f in faction_qs:
-            value = f'{self.PREFIX_FACTION}:{f.pk}'
-            label = f'{f.title} (Faction)'
+        for post in posts:
+            value = f'{self.PREFIX_POST}:{post.pk}'
+            label = f'{post.title} ({noun})'
             choices.append((value, label))
             options.append({
                 'value': value,
                 'label': label,
-                'title': f.title,
-                'subtitle': 'Faction',
-                'picture_url': _img_url(f.picture),
-                'icon_url': _img_url(f.small_icon),
-                'kind': self.PREFIX_FACTION,
+                'title': post.title,
+                'subtitle': noun,
+                'picture_url': _img_url(post.picture),
+                'icon_url': _img_url(post.small_icon),
+                'kind': self.PREFIX_POST,
             })
-        for t in translation_qs:
+        for t in translations:
             lang_name = t.language.name if t.language else '?'
             value = f'{self.PREFIX_TRANSLATION}:{t.pk}'
             label = f'{t.translated_title} ({lang_name} translation of {t.post.title})'
@@ -928,17 +886,17 @@ class ForgedFactionLinkForm(forms.Form):
                 'kind': self.PREFIX_TRANSLATION,
             })
         forged_lang_name = forged.language.name if forged.language else '?'
-        for f in cross_lang_factions:
-            value = f'{self.PREFIX_NEW_TRANSLATION}:{f.pk}'
-            label = f'Publish {forged_lang_name} translation of {f.title}'
+        for post in cross_language:
+            value = f'{self.PREFIX_NEW_TRANSLATION}:{post.pk}'
+            label = f'Publish {forged_lang_name} translation of {post.title}'
             choices.append((value, label))
             options.append({
                 'value': value,
                 'label': label,
-                'title': f.title,
+                'title': post.title,
                 'subtitle': f'Start a new {forged_lang_name} translation',
-                'picture_url': _img_url(f.picture),
-                'icon_url': _img_url(f.small_icon),
+                'picture_url': _img_url(post.picture),
+                'icon_url': _img_url(post.small_icon),
                 'kind': self.PREFIX_NEW_TRANSLATION,
             })
         return choices, options
@@ -950,28 +908,18 @@ class ForgedFactionLinkForm(forms.Form):
             pk = int(pk_str)
         except ValueError:
             raise forms.ValidationError('Invalid selection.')
-        profile = self.user.profile
-        if prefix == self.PREFIX_FACTION:
-            obj = Faction.objects.filter(
-                pk=pk, designer=profile,
-                component=self.forged.component,
-                source_forged_post__isnull=True,
-                language=self.forged.language,
-            ).first()
+        # Re-checked against the same rules (all of the designer's posts, not
+        # just the name matches), so a stale page can't link anything else.
+        posts, translations, cross_language = self._querysets(show_all=True)
+        if prefix == self.PREFIX_POST:
+            obj = posts.filter(pk=pk).first()
         elif prefix == self.PREFIX_TRANSLATION:
             obj = PostTranslation.objects.filter(
-                pk=pk, post__designer=profile,
-                post__component=self.forged.component,
-                source_forged_faction__isnull=True,
-                language=self.forged.language,
+                pk=pk, post__designer=self.user.profile, post__component=self.forged.component,
+                source_forged_faction__isnull=True, language=self.forged.language,
             ).first()
         elif prefix == self.PREFIX_NEW_TRANSLATION:
-            obj = Faction.objects.filter(
-                pk=pk, designer=profile,
-                component=self.forged.component,
-            ).exclude(language=self.forged.language).exclude(
-                translations__language=self.forged.language,
-            ).first()
+            obj = cross_language.filter(pk=pk).first()
         else:
             raise forms.ValidationError('Unknown selection type.')
         if obj is None:
@@ -981,197 +929,59 @@ class ForgedFactionLinkForm(forms.Form):
         return value
 
 
-class ForgedFactionSyncForm(forms.Form):
-    """Per-field opt-in sync of forge values into the linked Faction or
-    PostTranslation. Constructor builds the diff rows; each row becomes a
-    BooleanField named ``sync_<field>``."""
+# The name the Faction code and tests have always used.
+ForgedFactionLinkForm = ForgedPostLinkForm
 
-    def __init__(self, *args, forged=None, **kwargs):
-        if forged is None:
-            raise ValueError('ForgedFactionSyncForm requires forged kwarg')
-        self.forged = forged
-        self.diff_rows = build_diff(forged)
-        self.piece_plan = build_piece_plan(forged)
-        self.deck_plan = build_deck_plan(forged, self.piece_plan)
-        self.tts_asset_plan = build_tts_asset_plan(forged)
-        self.tts_plan = build_tts_plan(
-            forged, self.diff_rows, self.piece_plan, self.deck_plan, self.tts_asset_plan,
-        )
-        super().__init__(*args, **kwargs)
-        for field_name, label, _current, _proposed, _is_image, in_sync in self.diff_rows:
-            if in_sync:
-                continue
-            self.fields[f'sync_{field_name}'] = forms.BooleanField(
-                required=False, initial=True, label=label,
+
+def apply_extra_plans(form, target):
+    """Apply the ticked piece, deck and TTS-asset rows of a sync form (Faction
+    only: other components have no such rows)."""
+    cleaned = form.cleaned_data
+    for entry in form.piece_plan:
+        if entry['in_sync'] or not cleaned.get(f'piece_{entry["forge_piece"].pk}'):
+            continue
+        forge_piece = entry['forge_piece']
+        if entry['action'] == 'create':
+            keep_piece = KeepPiece(
+                parent=target,
+                name=entry['resolved_name'],
+                type=forge_piece.type,
+                quantity=forge_piece.quantity,
+                description='',
+                suited=False,
             )
-        for entry in self.piece_plan:
-            if entry['in_sync']:
-                continue
-            self.fields[f'piece_{entry["forge_piece"].pk}'] = forms.BooleanField(
-                required=False, initial=True,
-                label=f"{entry['type_display']}: {entry['resolved_name']}",
-            )
-        for entry in self.deck_plan:
-            if entry['in_sync']:
-                continue
-            self.fields[f'deck_{entry["forge_piece"].pk}'] = forms.BooleanField(
-                required=False, initial=True, label=f"Deck: {entry['forge_group']}",
-            )
-        for entry in self.tts_asset_plan:
-            if entry['in_sync']:
-                continue
-            self.fields[f'ttsasset_{entry["role"]}'] = forms.BooleanField(
-                required=False, initial=True, label=entry['label'],
-            )
-        if self.tts_plan and not self.tts_plan['in_sync']:
-            self.fields['sync_tts_json'] = forms.BooleanField(
-                required=False, initial=True, label='Tabletop Simulator',
-            )
+            if forge_piece.small_icon:
+                keep_piece.small_icon = _copy_image_field(forge_piece.small_icon)
+                keep_piece.front_version = forge_piece.front_version or 0
+            if forge_piece.back_image:
+                keep_piece.back_image = _copy_image_field(forge_piece.back_image)
+                keep_piece.back_version = forge_piece.back_version or 0
+            keep_piece.save()
+        else:  # update
+            keep_piece = entry['keep_piece']
+            keep_piece.quantity = forge_piece.quantity
+            if entry['front_changed'] and forge_piece.small_icon:
+                keep_piece.small_icon = _copy_image_field(forge_piece.small_icon)
+                keep_piece.front_version = forge_piece.front_version or 0
+            if entry['back_changed'] and forge_piece.back_image:
+                keep_piece.back_image = _copy_image_field(forge_piece.back_image)
+                keep_piece.back_version = forge_piece.back_version or 0
+            keep_piece.save()
+        # build_deck_plan resolved keep pieces before this save; record the
+        # created/updated one so the deck pass below can attach to it.
+        entry['keep_piece'] = keep_piece
 
-    @property
-    def has_changes(self):
-        """True when any row on the sync page can be applied. The forge detail
-        page's "Updates Available" uses this too, so the two can't disagree."""
-        return (
-            any(not row[5] for row in self.diff_rows)
-            or any(not e['in_sync'] for e in self.piece_plan)
-            or any(not e['in_sync'] for e in self.deck_plan)
-            or any(not e['in_sync'] for e in self.tts_asset_plan)
-            or bool(self.tts_plan and not self.tts_plan['in_sync'])
-        )
+    keep_piece_by_forge_pk = {e['forge_piece'].pk: e['keep_piece'] for e in form.piece_plan}
+    for entry in form.deck_plan:
+        pk = entry['forge_piece'].pk
+        if entry['in_sync'] or not cleaned.get(f'deck_{pk}'):
+            continue
+        keep_piece = keep_piece_by_forge_pk.get(pk)
+        if keep_piece is None or keep_piece.pk is None:
+            continue
+        apply_deck_entry(entry, target, keep_piece)
 
-    @property
-    def tts_forced_field_names(self):
-        """Out-of-date rows the TTS conversion depends on. Empty means every
-        asset the keep TTS JSON references is already a current keep copy."""
-        names = [f'sync_{row[0]}' for row in self.diff_rows
-                 if row[0] in TTS_FORCED_FIELDS and not row[5]]
-        names += [f'piece_{e["forge_piece"].pk}' for e in self.piece_plan if not e['in_sync']]
-        names += [f'deck_{e["forge_piece"].pk}' for e in self.deck_plan if not e['in_sync']]
-        names += [f'ttsasset_{e["role"]}' for e in self.tts_asset_plan if not e['in_sync']]
-        return names
-
-    def clean(self):
-        cleaned = super().clean()
-        # The keep TTS JSON must only reference keep files, so syncing it
-        # applies every asset row it depends on (the template also locks them).
-        if cleaned.get('sync_tts_json'):
-            for name in self.tts_forced_field_names:
-                if name in self.fields:
-                    cleaned[name] = True
-        # A deck attaches to a keep piece, so a deck whose piece isn't on the
-        # keep yet also applies that piece's create row.
-        for entry in self.deck_plan:
-            pk = entry['forge_piece'].pk
-            if cleaned.get(f'deck_{pk}') and entry['keep_piece'] is None and f'piece_{pk}' in self.fields:
-                cleaned[f'piece_{pk}'] = True
-        return cleaned
-
-    @property
-    def mode(self):
-        if self.forged.published_post_id:
-            return 'faction'
-        if self.forged.published_translation_id:
-            return 'translation'
-        return None
-
-    def save(self):
-        if not self.is_valid():
-            raise ValueError('Form must be valid before save()')
-        if self.mode == 'faction':
-            target = self.forged.published_keep_post
-            proposed_fn = _proposed_for_faction
-        elif self.mode == 'translation':
-            target = self.forged.published_translation
-            proposed_fn = _proposed_for_translation
-        else:
-            return None
-
-        changed_fields = []
-        icon_synced = False
-        for field_name, _label, _current, _proposed, is_image, in_sync in self.diff_rows:
-            if in_sync:
-                continue
-            if not self.cleaned_data.get(f'sync_{field_name}'):
-                continue
-            proposed = proposed_fn(self.forged, field_name)
-            if is_image:
-                setattr(target, field_name, _copy_image_field(proposed))
-                if self.mode == 'faction' and field_name in FACTION_IMAGE_VERSION_MAP:
-                    source_attr, keep_version_attr = FACTION_IMAGE_VERSION_MAP[field_name]
-                    setattr(target, keep_version_attr,
-                            _forge_preview_version(self.forged, source_attr))
-                if self.mode == 'translation' and field_name in TRANSLATION_IMAGE_VERSION_MAP:
-                    source_attr, trans_version_attr = TRANSLATION_IMAGE_VERSION_MAP[field_name]
-                    setattr(target, trans_version_attr,
-                            _forge_preview_version(self.forged, source_attr))
-                if field_name == 'small_icon':
-                    icon_synced = True
-            else:
-                setattr(target, field_name, proposed)
-            changed_fields.append(field_name)
-
-        if changed_fields:
-            target.save()
-        if icon_synced and self.mode == 'faction':
-            # Remember which forge icon we just pushed so the next diff can
-            # distinguish "icon hasn't changed since sync" from "icon was
-            # replaced upstream".
-            self.forged.icon_synced_name = (
-                self.forged.faction_icon.name if self.forged.faction_icon else ''
-            )
-            self.forged.save(update_fields=['icon_synced_name'])
-
-        if self.mode == 'faction':
-            for entry in self.piece_plan:
-                if entry['in_sync']:
-                    continue
-                if not self.cleaned_data.get(f'piece_{entry["forge_piece"].pk}'):
-                    continue
-                forge_piece = entry['forge_piece']
-                if entry['action'] == 'create':
-                    keep_piece = KeepPiece(
-                        parent=target,
-                        name=entry['resolved_name'],
-                        type=forge_piece.type,
-                        quantity=forge_piece.quantity,
-                        description='',
-                        suited=False,
-                    )
-                    if forge_piece.small_icon:
-                        keep_piece.small_icon = _copy_image_field(forge_piece.small_icon)
-                        keep_piece.front_version = forge_piece.front_version or 0
-                    if forge_piece.back_image:
-                        keep_piece.back_image = _copy_image_field(forge_piece.back_image)
-                        keep_piece.back_version = forge_piece.back_version or 0
-                    keep_piece.save()
-                else:  # update
-                    keep_piece = entry['keep_piece']
-                    keep_piece.quantity = forge_piece.quantity
-                    if entry['front_changed'] and forge_piece.small_icon:
-                        keep_piece.small_icon = _copy_image_field(forge_piece.small_icon)
-                        keep_piece.front_version = forge_piece.front_version or 0
-                    if entry['back_changed'] and forge_piece.back_image:
-                        keep_piece.back_image = _copy_image_field(forge_piece.back_image)
-                        keep_piece.back_version = forge_piece.back_version or 0
-                    keep_piece.save()
-                # build_deck_plan resolved keep pieces before this save; record
-                # the created/updated one so the deck pass below can attach to it.
-                entry['keep_piece'] = keep_piece
-
-            keep_piece_by_forge_pk = {e['forge_piece'].pk: e['keep_piece'] for e in self.piece_plan}
-            for entry in self.deck_plan:
-                pk = entry['forge_piece'].pk
-                if entry['in_sync'] or not self.cleaned_data.get(f'deck_{pk}'):
-                    continue
-                keep_piece = keep_piece_by_forge_pk.get(pk)
-                if keep_piece is None or keep_piece.pk is None:
-                    continue
-                apply_deck_entry(entry, target, keep_piece)
-
-            for entry in self.tts_asset_plan:
-                if entry['in_sync'] or not self.cleaned_data.get(f'ttsasset_{entry["role"]}'):
-                    continue
-                apply_tts_asset_entry(entry, target)
-
-        return target
+    for entry in form.tts_asset_plan:
+        if entry['in_sync'] or not cleaned.get(f'ttsasset_{entry["role"]}'):
+            continue
+        apply_tts_asset_entry(entry, target)

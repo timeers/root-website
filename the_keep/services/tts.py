@@ -64,6 +64,16 @@ class SiteURLRequest:
 def generate_tts_guid():
     return "".join(random.choices("0123456789abcdef", k=6))
 
+
+def _guids(obj):
+    """Give an object (and everything inside it: bag contents, states) fresh GUIDs."""
+    obj['GUID'] = generate_tts_guid()
+    for child in obj.get('ContainedObjects') or []:
+        _guids(child)
+    for child in (obj.get('States') or {}).values():
+        _guids(child)
+    return obj
+
 def tts_image_url(image, request=None):
     """
     Return the URL for TTS, prepended with {verifycache}.
@@ -492,6 +502,7 @@ def build_tts_objects(post, request=None):
 
     if post.component in ["Faction", "Clockwork"]:
         objects.append(TTSBoard(post, request=request).to_dict())
+        objects.extend(build_warrior_objects(post, request=request))
 
     if post.component == "Faction":
         adset_card = TTSSingleCardDeck(post.card_image, static("images/ADSET.png"), deck_id=next_deck_id, request=request, card_name="Adset Card")
@@ -513,6 +524,26 @@ def build_tts_objects(post, request=None):
     objects.extend(decks)
 
     return objects
+
+
+def post_tts_colour(post):
+    """A post's colour for its TTS figures: its hex colour, else its RGB, else white."""
+    if post.color:
+        return post.color
+    rgb = (post.color_r, post.color_g, post.color_b)
+    if all(c is not None for c in rgb):
+        return tuple(rgb)
+    return None
+
+
+def build_warrior_objects(post, request=None):
+    """The post's warrior pieces as supplies (or loose figures) in the row
+    above its board (tts_supply). The keep export has no decree or markers."""
+    from .tts_figures import warrior_groups
+    from .tts_supply import LOOSE_SPACING, RowLayout, layout_groups
+    pieces = post.pieces.filter(type='W').order_by('pk')
+    groups = warrior_groups(pieces, post_tts_colour(post), post.title or 'Faction', request=request)
+    return layout_groups(groups, RowLayout(), loose_spacing=LOOSE_SPACING, request=request)
 
 
 # Space between a Deck post's accessory decks, so TTS doesn't merge them.

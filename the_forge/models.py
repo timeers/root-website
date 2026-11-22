@@ -19,9 +19,13 @@ from .services.upload_paths import (
     relationship_marker_upload_path,
     piece_front_upload_path,
     piece_back_upload_path,
+    piece_figure_mesh_upload_path,
+    piece_figure_texture_upload_path,
     forged_deck_back_upload_path,
     forged_deck_sheet_upload_path,
     forged_card_upload_path,
+    map_art_upload_path,
+    map_preview_upload_path,
 )
 
 
@@ -227,6 +231,42 @@ class ForgedFaction(models.Model):
     @property
     def is_clockwork(self):
         return self.component == Post.ComponentChoices.CLOCKWORK
+
+    @classmethod
+    def tts_library_queryset(cls):
+        """The drafts the TTS Library lists in its Forge section: approved, with
+        JSON, and not linked to a keep post (or a translation of one) that the
+        Library lists itself (statuses Stable to Inactive), so nothing is listed
+        twice. A linked post that's Submitted, Rejected or Abandoned isn't
+        listed, so its Forge draft still is."""
+        from the_keep.models import TTS_LIBRARY_STATUSES
+        return cls.objects.filter(tts_status=cls.TTSStatus.APPROVED, tts_json__isnull=False).exclude(
+            published_post__status__in=TTS_LIBRARY_STATUSES).exclude(
+            published_translation__post__status__in=TTS_LIBRARY_STATUSES)
+
+    @property
+    def library_listed_via(self):
+        """The linked keep post the Library lists instead of this draft, or None."""
+        from the_keep.models import TTS_LIBRARY_STATUSES
+        if self.published_post_id:
+            post = self.published_keep_post
+        elif self.published_translation_id:
+            post = self.published_translation.post
+        else:
+            return None
+        return post if post and post.status in TTS_LIBRARY_STATUSES else None
+
+    @property
+    def forge_detail_url(self):
+        """The draft's own Forge page (maps have theirs)."""
+        from django.urls import reverse
+        name = 'forge-map-detail' if self.is_map else 'forge-faction-detail'
+        return reverse(name, kwargs={'pk': self.pk})
+
+    @property
+    def is_map(self):
+        """Map drafts are built in the map builder (forge/map/, ForgedMap)."""
+        return self.component == Post.ComponentChoices.MAP
 
     @property
     def published_keep_post(self):
@@ -1000,6 +1040,12 @@ class Piece(models.Model):
     back_image = models.ImageField(upload_to=piece_back_upload_path, null=True, blank=True)
     front_version = models.PositiveIntegerField(default=0)
     back_version = models.PositiveIntegerField(default=0)
+    # Warriors' Tabletop Simulator figure, generated from small_icon on export
+    # (the_keep/services/tts_figures.py ensure_figure).
+    figure_mesh = models.FileField(upload_to=piece_figure_mesh_upload_path, null=True, blank=True)
+    figure_texture = models.ImageField(upload_to=piece_figure_texture_upload_path, null=True, blank=True)
+    figure_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    figure_size = models.JSONField(null=True, blank=True)
 
     def save(self, *args, **kwargs):
         if self.pk:
@@ -1009,6 +1055,9 @@ class Piece(models.Model):
                 old = None
             if old is not None:
                 type_changed = old.type != self.type
+                if type_changed and old.type == self.TypeChoices.WARRIOR:
+                    from the_keep.services.tts_figures import clear_figure
+                    clear_figure(self)
                 for field_name, version_attr in (
                     ('small_icon', 'front_version'),
                     ('back_image', 'back_version'),
@@ -1290,6 +1339,52 @@ class ForgedCard(models.Model):
         if self.tags:
             parts.append(' '.join(self.tags))
         return '\n'.join(parts).strip()
+
+
+class ForgedMap(models.Model):
+    """A Map draft built from scratch in the Forge's map builder: the map's art,
+    the builder's layout, and the generated map (the art with the VP track,
+    items, logo, buildings, ruins and fixed clearing suits printed on it).
+
+    Shaped like a keep Map where the shared map code reads one (title,
+    fixed_clearings, board_image: see the_keep/services/tts_map.py), so the
+    TTS JSON is built exactly as for a keep Map."""
+    faction = models.OneToOneField(ForgedFaction, on_delete=models.CASCADE, related_name='forged_map')
+    # The uploaded art, centre-cropped to the official maps' shape.
+    art = models.ImageField(upload_to=map_art_upload_path, blank=True, null=True)
+    art_cropped = models.BooleanField(default=False)
+    # Bumped on each upload: the art's file name never changes.
+    art_version = models.PositiveIntegerField(default=0)
+    # The builder's layout, as the keep's Map.tts_builder, plus the logo's spot.
+    tts_builder = models.JSONField(default=dict, blank=True)
+    fixed_clearings = models.BooleanField(default=False)
+    # The layout image_preview was rendered from (set together by
+    # refresh_map_image). Publishing to the keep uses this pair, never the live
+    # tts_builder, so a half-edited layout is never published.
+    rendered_builder = models.JSONField(null=True, blank=True)
+
+    image_preview = models.ImageField(upload_to=map_preview_upload_path, blank=True, null=True)
+    preview_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    preview_version = models.PositiveIntegerField(default=0)
+    last_updated = models.DateTimeField(auto_now=True)
+    last_generated = models.DateTimeField(blank=True, null=True)
+
+    def __str__(self):
+        return f'{self.faction.faction_name} Map'
+
+    @property
+    def title(self):
+        return self.faction.faction_name
+
+    @property
+    def board_image(self):
+        """What TTS shows: the generated map, not the bare art."""
+        return self.image_preview
+
+    @property
+    def preview_stale(self):
+        from .pdf_cache import fingerprint_map
+        return not self.image_preview or self.preview_fingerprint != fingerprint_map(self)
 
 
 # ForgedFaction drafts every keep Post type (see ForgedFaction.component); the

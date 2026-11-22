@@ -182,6 +182,21 @@ def piece_upload_path(instance, filename):
         force_ext='webp'
     )
 
+def _piece_figure_upload_path(instance, ext):
+    # Pinned per piece (the TTS figure is regenerated in place), so it can't
+    # use piece_upload_path's random names.
+    return upload_path(
+        slug_parts=["posts", instance.parent.slug, 'warriors'],
+        filename=f'{instance.pk}-figure',
+        force_ext=ext,
+    )
+
+def piece_figure_mesh_upload_path(instance, filename):
+    return _piece_figure_upload_path(instance, 'obj')
+
+def piece_figure_texture_upload_path(instance, filename):
+    return _piece_figure_upload_path(instance, 'png')
+
 def avatar_upload_path(instance, filename):
     return upload_path(
         slug_parts=["users", instance.slug],

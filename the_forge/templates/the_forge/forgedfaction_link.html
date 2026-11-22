@@ -3,12 +3,12 @@
 
 {% block content %}
 <div class="my-2">
-  <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i> Back</a>
+  <a href="{{ detail_url }}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i> Back</a>
 </div>
 
 <div class="mb-3">
-  <h2 class="root-title m-0">Link "{{ faction.faction_name }}" to an existing {% if faction.is_clockwork %}Clockwork {% endif %}Faction</h2>
-  <p class="text-muted mb-0">Linking does not change the existing Faction. After linking, use Sync to push selected forge values across. Each existing Faction can only be linked to one ForgedFaction at a time.</p>
+  <h2 class="root-title m-0">Link "{{ faction.faction_name }}" to an existing {% if faction.is_clockwork %}Clockwork {% endif %}{{ publisher.noun }}</h2>
+  <p class="text-muted mb-0">Linking does not change the existing {{ publisher.noun }}. After linking, use Sync to push selected forge values across. Each existing {{ publisher.noun }} can only be linked to one Forge draft at a time.</p>
 </div>
 
 <form method="post">
@@ -46,19 +46,19 @@
       </div>
       {{ form.target.errors }}
     {% else %}
-      <p class="text-muted mb-0">No matching Factions or translations found for this draft.</p>
+      <p class="text-muted mb-0">No matching {{ publisher.noun }}s or translations found for this draft.</p>
     {% endif %}
 
     <div class="form-check mt-3">
       <input type="checkbox" class="form-check-input" id="forge-show-all-factions"
              {% if show_all %}checked{% endif %}
              onchange="window.location.search = this.checked ? '?show_all=1' : '';">
-      <label class="form-check-label" for="forge-show-all-factions">Show all my Factions</label>
+      <label class="form-check-label" for="forge-show-all-factions">Show all my {{ publisher.noun }}s</label>
     </div>
   </div>
 
   <div class="d-flex justify-content-end gap-2 mb-5">
-    <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-secondary">Cancel</a>
+    <a href="{{ detail_url }}" class="btn btn-secondary">Cancel</a>
     {% if form.target_options %}
       <button type="submit" class="btn btn-primary"><i class="icon-mask icon-link me-1"></i>Link</button>
     {% endif %}

@@ -1,0 +1,422 @@
+/* The map builder (map_builder.js), shared by the Keep's Map builder and the
+   Forge's map builder: the_keep/includes/map_builder.html. */
+#mb-popover {
+    position: absolute; z-index: 5; top: 0; left: 0;
+    background: #fff; border-radius: 12px; padding: 6px 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .18), 0 1px 3px rgba(0, 0, 0, .12);
+    opacity: 0; transform: translateY(4px) scale(.96); pointer-events: none;
+    transition: opacity .12s ease, transform .12s ease;
+}
+#mb-popover.show { opacity: 1; transform: none; pointer-events: auto; }
+#mb-popover.below { transform-origin: top center; }
+/* The arrow points at the selected element. */
+#mb-popover::after {
+    content: ''; position: absolute; left: var(--mb-arrow-x, 50%); bottom: -6px;
+    width: 12px; height: 12px; margin-left: -6px; background: #fff;
+    transform: rotate(45deg); box-shadow: 3px 3px 4px rgba(0, 0, 0, .08);
+}
+#mb-popover.below::after { bottom: auto; top: -6px; box-shadow: -3px -3px 4px rgba(0, 0, 0, .06); }
+.mb-pop-prompt {
+    position: relative; z-index: 1; max-width: 240px; margin: 2px 2px 6px;
+    font-size: .85rem; line-height: 1.3; color: #495057; text-align: center;
+}
+#mb-popover .mb-pop-row { display: flex; align-items: center; gap: 10px; position: relative; z-index: 1; }
+
+.mb-pop-stepper { display: flex; align-items: center; gap: 2px; background: #f1f3f5; border-radius: 999px; padding: 2px; }
+.mb-pop-stepper button {
+    width: 26px; height: 26px; border: 0; border-radius: 50%; background: #fff; color: #212529;
+    display: inline-flex; align-items: center; justify-content: center; line-height: 1;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+}
+.mb-pop-stepper button:disabled { opacity: .35; box-shadow: none; }
+.mb-pop-stepper span { min-width: 2ch; text-align: center; font-weight: 700; color: #212529; }
+
+.mb-pop-suits { display: flex; align-items: center; gap: 6px; }
+.mb-pop-suits button { border: 0; background: none; padding: 0; line-height: 0; }
+.mb-pop-suits img {
+    width: 30px; height: 30px; filter: grayscale(1); opacity: .55; transform: scale(1);
+    transition: filter .15s ease, opacity .15s ease, transform .15s ease;
+}
+.mb-pop-suits button:hover img { opacity: .8; }
+.mb-pop-suits button.selected img { filter: none; opacity: 1; transform: scale(1.2); }
+
+.mb-pop-delete {
+    width: 32px; height: 32px; border-radius: 50%; border: 2px solid #fff; background: #dc3545; color: #fff;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .15); display: inline-flex; align-items: center; justify-content: center;
+    padding: 0; font-size: 14px; transition: background .12s ease;
+}
+.mb-pop-delete:hover, .mb-pop-delete:focus-visible { background: #bb2d3b; }
+.mb-pop-delete svg { display: block; }
+
+/* Fixed / random clearing suits panel */
+#mb-suit-mode {
+    position: absolute; z-index: 4; width: 240px; background: #fff; border-radius: 12px;
+    padding: 10px 12px 12px; text-align: center;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .18), 0 1px 3px rgba(0, 0, 0, .12);
+}
+.mb-mode-title { font-family: 'Luminari', serif; font-size: 1.05rem; line-height: 1.25; margin: 0 18px 6px; }
+.mb-mode-fold {
+    position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border: 0; border-radius: 50%;
+    background: none; color: #6c757d; display: inline-flex; align-items: center; justify-content: center; padding: 0;
+}
+.mb-mode-fold:hover { background: #f1f3f5; }
+.mb-mode-fold i { transition: transform .2s ease; }
+#mb-suit-mode.folded .mb-mode-fold i { transform: rotate(180deg); }
+#mb-suit-mode { transition: width .25s ease; }
+
+/* Compact (small screens): folded down to two icons and the chevron. */
+/* Compact sizes come from the item track's height (--mb-c / --mb-f, set by
+   setCompactSizes in map_builder.js) so the folded card fits the track. */
+.mb-mode-icons { display: none; align-items: center; gap: 8px; padding-right: calc(var(--mb-f, 24px) + 2px); width: max-content; }
+.mb-mode-icons button { border: 0; background: none; padding: 0; line-height: 0; }
+.mb-mode-icons img {
+    width: calc(var(--mb-c, 30px) * 1.13); height: var(--mb-c, 30px); object-fit: contain; filter: grayscale(1); opacity: .55;
+    transition: filter .15s ease, opacity .15s ease, transform .15s ease;
+}
+.mb-mode-icons button[aria-pressed="true"] img { filter: none; opacity: 1; transform: scale(1.15); }
+#mb-suit-mode.compact.folded { padding: 4px 6px; }
+#mb-suit-mode.compact.folded .mb-mode-fold { width: var(--mb-f, 24px); height: var(--mb-f, 24px); right: 4px; }
+#mb-suit-mode.compact.folded .mb-mode-title,
+#mb-suit-mode.compact.folded .mb-mode-switch { display: none; }
+#mb-suit-mode.compact.folded .mb-mode-icons { display: flex; }
+#mb-suit-mode.compact.folded .mb-mode-fold { top: 50%; transform: translateY(-50%); }
+/* Folding shrinks the image and text to nothing (a grid row animating 1fr -> 0fr). */
+.mb-mode-body {
+    display: grid; grid-template-rows: 1fr; opacity: 1;
+    transition: grid-template-rows .3s cubic-bezier(.4, 0, .2, 1), opacity .2s ease;
+}
+.mb-mode-body-inner { min-height: 0; overflow: hidden; }
+#mb-suit-mode.folded .mb-mode-body { grid-template-rows: 0fr; opacity: 0; }
+.mb-mode-image { position: relative; display: block; width: 72px; height: 64px; margin: 0 auto 6px; border: 0; background: none; padding: 0; }
+.mb-mode-image img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; transition: opacity .2s ease; }
+.mb-mode-text { font-family: 'Baskerville', serif; font-size: .75rem; line-height: 1.3; color: #495057; margin: 0 0 8px; }
+.mb-mode-switch {
+    position: relative; display: grid; grid-template-columns: 1fr 1fr; background: #e9ecef;
+    border-radius: 999px; padding: 3px; height: 32px;
+}
+.mb-mode-thumb {
+    position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc(50% - 3px);
+    background: var(--bs-primary, #0d6efd); border-radius: 999px; transition: transform .3s cubic-bezier(.4, 0, .2, 1);
+}
+#mb-suit-mode.fixed .mb-mode-thumb { transform: translateX(100%); }
+.mb-mode-switch button {
+    position: relative; z-index: 1; border: 0; background: none; border-radius: 999px;
+    font-size: .85rem; color: #495057; transition: color .2s ease;
+}
+.mb-mode-switch button[aria-pressed="true"] { color: #fff; }
+
+/* Review summary card: rounded and softly shadowed, like the board's cards. */
+#mb-review {
+    border-radius: 16px; border: 1px solid #e9ecef; overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .08), 0 1px 3px rgba(0, 0, 0, .06);
+}
+#mb-review .card-body { padding: 1.25rem; }
+
+/* Review summary */
+.mb-sum-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+@media (max-width: 575.98px) { .mb-sum-grid { grid-template-columns: repeat(2, 1fr); } }
+.mb-sum-tile {
+    background: #fff; border: 1px solid #e9ecef; border-radius: 12px; padding: 12px 8px 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .06); text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+/* Hover shows a border and shadow only: moving the tile (e.g. translateY)
+   animates through fractional pixels and makes the thin-stroked icons wobble. */
+button.mb-sum-tile {
+    width: 100%; font: inherit; cursor: pointer;
+    transition: box-shadow .15s ease, border-color .15s ease;
+}
+button.mb-sum-tile:hover, button.mb-sum-tile:focus-visible {
+    border-color: var(--bs-primary, #0d6efd);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, .12); outline: none;
+}
+.mb-sum-icon { height: 26px; display: flex; align-items: center; justify-content: center; }
+.mb-sum-count { font-size: 1.6rem; font-weight: 700; line-height: 1.1; color: #212529; }
+.mb-sum-label { font-size: .8rem; color: #6c757d; }
+.mb-sum-pill {
+    margin-top: 4px; font-size: .7rem; padding: 1px 8px; border-radius: 999px;
+    background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; cursor: help;
+}
+.mb-sum-suits { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
+.mb-suit-chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px;
+    background: #fff; border: 1px solid #dee2e6; border-radius: 999px; font-size: .85rem; color: #212529;
+}
+.mb-suit-chip img { width: 22px; height: 22px; }
+.mb-suit-chip-unset { padding-left: 10px; background: #f8f9fa; color: #6c757d; border-color: #ffc107; }
+.mb-suit-note { display: inline-flex; align-items: center; gap: 8px; font-size: .85rem; color: #6c757d; }
+.mb-suit-note img { width: 28px; height: 25px; object-fit: contain; }
+
+/* Review step: pieces are clicked (to edit them), not dragged. */
+#mb-board.mb-review [data-kind] { cursor: pointer !important; }
+
+/* Count card (over the item track) and clearings pill (on the VP track) */
+/* Count card: built like the Clearing Distribution card (#mb-suit-mode). */
+#mb-count-card {
+    position: absolute; z-index: 4; background: #fff; border-radius: 12px; padding: 8px 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .18), 0 1px 3px rgba(0, 0, 0, .12);
+    transition: width .25s ease;
+}
+.mb-count-body-inner { display: flex; flex-direction: column; gap: 6px; }
+/* Corner chevron, as on the Clearing Distribution card. */
+.mb-count-fold {
+    position: absolute; top: 6px; right: 6px; width: 24px; height: 24px; border: 0; border-radius: 50%;
+    background: none; color: #6c757d; display: inline-flex; align-items: center; justify-content: center;
+    padding: 0; z-index: 1;
+}
+.mb-count-fold:hover { background: #f1f3f5; }
+.mb-count-fold i { transition: transform .2s ease; }
+#mb-count-card.folded .mb-count-fold i { transform: rotate(180deg); }
+/* Same padding and chevron spot in both states, so nothing jumps while the
+   sections animate. The chevron is centred on the 30px badge row. */
+/* Never shorter than the folded card (4px + 3px + badge + 3px + 4px), with the
+   content centred: a one-row card (Forests) expanded is shorter than a badge,
+   which left the fixed chevron hanging off the bottom. */
+#mb-count-card.compact {
+    padding: 4px calc(var(--mb-f, 24px) + 8px) 4px 6px;
+    min-height: calc(var(--mb-c, 30px) + 14px);
+    display: flex; flex-direction: column; justify-content: center;
+}
+/* Centred on the badge row (4px padding + 3px row padding + half a badge). */
+#mb-count-card.compact .mb-count-fold {
+    width: var(--mb-f, 24px); height: var(--mb-f, 24px); right: 4px;
+    top: calc(7px + (var(--mb-c, 30px) - var(--mb-f, 24px)) / 2);
+}
+/* The rows slide open and shut (a grid row animating 1fr <-> 0fr). */
+/* The badge row and the rows cross-fade: each slides open and shut (a grid
+   row animating 1fr <-> 0fr) at the same time, so the height changes smoothly. */
+#mb-count-card.compact .mb-count-brief,
+#mb-count-card.compact .mb-count-body {
+    display: grid; grid-template-rows: 1fr; opacity: 1;
+    transition: grid-template-rows .3s cubic-bezier(.4, 0, .2, 1), opacity .2s ease;
+}
+#mb-count-card.compact .mb-count-badges,
+#mb-count-card.compact .mb-count-body-inner { min-height: 0; overflow: hidden; }
+#mb-count-card.compact.folded .mb-count-body,
+#mb-count-card.compact:not(.folded) .mb-count-brief { grid-template-rows: 0fr; opacity: 0; }
+/* Folded: each count drawn inside its piece's icon. */
+/* 3px padding: the badges' amber ring and outlines draw just outside them,
+   and the row clips its overflow so it can collapse. */
+.mb-count-badges {
+    display: flex; align-items: center; gap: calc(var(--mb-c, 30px) * .25); width: max-content; padding: 3px;
+    transition: padding .3s cubic-bezier(.4, 0, .2, 1);
+}
+/* Collapsed (expanded card), the row's padding would still take up 6px -- a
+   0fr row squeezes content, not padding -- and push the rows down. */
+#mb-count-card.compact:not(.folded) .mb-count-badges { padding-top: 0; padding-bottom: 0; }
+.mb-count-badge {
+    width: var(--mb-c, 30px); height: var(--mb-c, 30px); display: inline-flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: calc(var(--mb-c, 30px) * .47); line-height: 1; border-radius: calc(var(--mb-c, 30px) * .2);
+}
+.mb-badge-building { background: #fff; color: #212529; border: 1.5px solid #333; }
+.mb-badge-ruin { background: #dc3545; color: #fff; border: 1.5px solid #333; }
+.mb-badge-forest { background: #198754; color: #fff; border-radius: 50%; border: calc(var(--mb-c, 30px) * .1) solid #fff;
+                   box-shadow: 0 0 0 1px rgba(0, 0, 0, .15); }
+.mb-count-badge.off { box-shadow: 0 0 0 2px #ffc107; }
+/* Icon, count and label are centred on one line. The count and label are
+   different sizes, so each gets line-height 1: their boxes then hug the
+   letters and centring the boxes centres the text itself. */
+.mb-count-row { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.mb-count-row .mb-count-figure, .mb-count-row .mb-count-label { line-height: 1; }
+.mb-count-icon { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; }
+.mb-count-figure { font-weight: 700; color: #212529; }
+.mb-count-figure.off { color: #997404; }
+/* Nudged down half a pixel so its middle lines up with the bold count beside it. */
+.mb-count-label { font-size: .85rem; color: #6c757d; position: relative; top: .5px; }
+/* Bordered, with a strong shadow: it sits on the VP track, which is white too. */
+#mb-clearing-count {
+    position: absolute; z-index: 4; background: #fff; border-radius: 999px; padding: 0 12px;
+    border: 1px solid #adb5bd; box-shadow: 0 4px 14px rgba(0, 0, 0, .35);
+    display: flex; align-items: center; line-height: 1; white-space: nowrap;
+}
+#mb-clearing-count .mb-count-row { gap: 6px; }
+#mb-clearing-count .mb-count-icon { min-width: 0; }
+#mb-clearing-count svg { height: var(--mb-pill-icon, 14px); width: auto; }
+#mb-clearing-count .mb-count-label { font-size: inherit; }
+
+/* Dragging pieces must never select text on the page. */
+.mb-no-select, .mb-no-select * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.mb-no-select input, .mb-no-select textarea { -webkit-user-select: text; user-select: text; }
+body.mb-dragging, body.mb-dragging * { -webkit-user-select: none !important; user-select: none !important; }
+
+/* Ruin toggle: the ruin tile's art in a rounded square, greyscale with a
+   white border when off; in colour with a red border when on. */
+.mb-pop-ruin {
+    width: 34px; height: 34px; border-radius: 9px; border: 2px solid #fff; padding: 0;
+    background: #e9ecef center / cover no-repeat;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, .15);
+    filter: grayscale(1); opacity: .7;
+    transition: filter .15s ease, opacity .15s ease, border-color .15s ease, transform .15s ease;
+}
+.mb-pop-ruin:hover { opacity: .9; }
+.mb-pop-ruin.on { filter: none; opacity: 1; border-color: #dc3545; transform: scale(1.08); }
+
+/* A problem already listed on the review step, flagged again on save. */
+@keyframes mb-flash {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(220, 53, 69, 0); }
+    30% { box-shadow: 0 0 0 6px rgba(220, 53, 69, .45); }
+}
+.alert.mb-flash { animation: mb-flash .6s ease 2; }
+
+/* Progress bar */
+#mb-progress {
+    position: relative; display: grid; grid-template-columns: repeat(var(--mb-steps, 5), 1fr);
+    background: #e9ecef; border-radius: 999px; height: 40px; padding: 3px; overflow: hidden;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, .08);
+}
+#mb-progress-thumb {
+    position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / var(--mb-steps, 5));
+    background: var(--bs-primary, #0d6efd); border-radius: 999px;
+    box-shadow: 0 2px 6px rgba(13, 110, 253, .35);
+    transition: transform .35s cubic-bezier(.4, 0, .2, 1);
+}
+#mb-progress button {
+    position: relative; z-index: 1; border: 0; background: none; border-radius: 999px;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    color: #495057; font-size: .9rem; white-space: nowrap; transition: color .25s ease;
+}
+#mb-progress button.active { color: #fff; }
+#mb-progress button.done:not(.active) { color: #198754; }
+#mb-progress .mb-step-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 50%; font-size: .75rem; font-weight: 700;
+    background: rgba(0, 0, 0, .08);
+}
+#mb-progress button.active .mb-step-num { background: rgba(255, 255, 255, .25); }
+@media (max-width: 767.98px) { #mb-progress .mb-step-name { display: none; } }
+/* Medium widths: the long names don't fit their share of the bar, so use short ones. */
+#mb-progress .mb-name-short { display: none; }
+@media (min-width: 768px) and (max-width: 991.98px) {
+    #mb-progress .mb-name-full { display: none; }
+    #mb-progress .mb-name-short { display: inline; }
+}
+
+/* Title row */
+.mb-title-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
+#mb-title { font-family: 'Luminari', serif; }
+.mb-info { border: 0; background: none; padding: 0; color: #6c757d; font-size: 1.1rem; line-height: 1; }
+.mb-info:hover, .mb-info:focus-visible { color: var(--bs-primary, #0d6efd); }
+
+/* Step card */
+.mb-card-backdrop {
+    position: fixed; inset: 0; z-index: 1055; display: flex; align-items: center; justify-content: center;
+    padding: 16px; background: rgba(0, 0, 0, .35); backdrop-filter: blur(2px);
+    opacity: 0; pointer-events: none; transition: opacity .18s ease;
+}
+.mb-card-backdrop.show { opacity: 1; pointer-events: auto; }
+.mb-card {
+    max-width: 420px; width: 100%; background: #fff; border-radius: 16px; padding: 28px 28px 22px;
+    text-align: center; box-shadow: 0 16px 48px rgba(0, 0, 0, .25);
+    transform: translateY(8px) scale(.96); transition: transform .18s ease;
+}
+.mb-card-backdrop.show .mb-card { transform: none; }
+.mb-card h3 { font-family: 'Luminari', serif; margin-bottom: .75rem; }
+.mb-card p { font-family: 'Baskerville', serif; font-weight: normal; margin-bottom: 1.25rem; }
+
+/* Board image: drawn at the builder's frame shape. With no art yet (the
+   Forge's first step) it's a grey rectangle; art of another shape is shown
+   centre-cropped, as the server crops it. */
+#mb-image { object-fit: cover; background: #dee2e6; }
+
+/* Forge, first step: the map's name in the top third, and the art's upload
+   area (dashed, click or drop a file) in the bottom two thirds. */
+#mb-art-step {
+    position: absolute; inset: 0; z-index: 3; display: grid; grid-template-rows: 1fr 2fr;
+    padding: 4%;
+}
+.mb-art-name { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+/* The map's language, a small pill under the name. */
+#mb-language {
+    padding: .25em 2em .25em 1em; border: 1px solid rgba(0, 0, 0, .08); border-radius: 999px;
+    font-size: .9rem; color: #343a40; background-color: rgba(255, 255, 255, .9);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, .12); cursor: pointer;
+}
+#mb-language:disabled { cursor: default; opacity: .85; }
+/* Linked to a keep post: the name and language are the post's, shown locked. */
+#mb-name[readonly] { background: rgba(233, 236, 239, .92); color: #495057; cursor: default; }
+.mb-name-locked {
+    max-width: min(80%, 520px); padding: 3px 12px; border-radius: 999px; font-size: .8rem; text-align: center;
+    background: rgba(255, 255, 255, .9); color: #495057; box-shadow: 0 4px 12px rgba(0, 0, 0, .12);
+}
+#mb-name {
+    width: min(80%, 520px); padding: .45em 1.1em; border: 1px solid rgba(0, 0, 0, .08); border-radius: 999px;
+    font-family: 'Luminari', serif; font-size: clamp(1.1rem, 3.2vw, 2rem); text-align: center; color: #212529;
+    background: rgba(255, 255, 255, .9); box-shadow: 0 8px 24px rgba(0, 0, 0, .15), 0 1px 3px rgba(0, 0, 0, .1);
+    outline: none; transition: box-shadow .15s ease, border-color .15s ease;
+    -webkit-user-select: text; user-select: text;
+}
+#mb-name::placeholder { color: #adb5bd; }
+#mb-name:focus { border-color: var(--bs-primary, #0d6efd); box-shadow: 0 8px 24px rgba(0, 0, 0, .15), 0 0 0 4px rgba(13, 110, 253, .25); }
+.mb-art-drop { display: flex; min-height: 0; }
+#mb-upload {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
+    padding: 16px; text-align: center; color: #6c757d; background: rgba(255, 255, 255, .25);
+    border: 3px dashed rgba(73, 80, 87, .45); border-radius: 24px;
+    transition: border-color .15s ease, background-color .15s ease;
+}
+#mb-upload:hover, #mb-upload:focus-visible, #mb-upload.mb-drop {
+    border-color: var(--bs-primary, #0d6efd); background: rgba(13, 110, 253, .08); outline: none;
+}
+/* Over the art, the area is lighter so its text stays readable. */
+#mb-upload.mb-has-art { background: rgba(255, 255, 255, .72); border-color: rgba(255, 255, 255, .95); color: #495057; }
+#mb-upload.mb-has-art:hover, #mb-upload.mb-has-art:focus-visible, #mb-upload.mb-has-art.mb-drop {
+    background: rgba(255, 255, 255, .85); border-color: var(--bs-primary, #0d6efd);
+}
+#mb-upload .mb-upload-icon {
+    width: 84px; height: 84px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+    background: rgba(255, 255, 255, .9); font-size: 2.3rem; color: var(--bs-primary, #0d6efd);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .12); transition: transform .15s ease;
+}
+#mb-upload:hover .mb-upload-icon, #mb-upload.mb-drop .mb-upload-icon { transform: scale(1.06); }
+#mb-upload .mb-upload-title { font-family: 'Luminari', serif; font-size: 1.25rem; color: #343a40; }
+#mb-upload .mb-upload-note { font-size: .85rem; }
+@media (max-width: 575.98px) {
+    #mb-upload { gap: 4px; padding: 8px; border-width: 2px; border-radius: 14px; }
+    #mb-upload .mb-upload-icon { width: 44px; height: 44px; font-size: 1.3rem; }
+    #mb-upload .mb-upload-title { font-size: 1rem; }
+    #mb-upload .mb-upload-note { display: none; }
+}
+
+/* Upload progress and problems: a pop-up at the top of the map, so nothing
+   below the map moves. */
+#mb-art-status {
+    position: absolute; z-index: 6; top: 12px; left: 50%; max-width: calc(100% - 24px);
+    display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px;
+    background: #fff; color: #212529; border: 1px solid #dee2e6; font-size: .85rem; white-space: nowrap;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .2);
+    opacity: 0; transform: translate(-50%, -6px); pointer-events: none;
+    transition: opacity .2s ease, transform .2s ease;
+}
+#mb-art-status.show { opacity: 1; transform: translate(-50%, 0); }
+#mb-art-status .mb-art-status-text { overflow: hidden; text-overflow: ellipsis; }
+#mb-art-status.warning { background: #fff3cd; color: #664d03; border-color: #ffe69c; }
+#mb-art-status.danger { background: #f8d7da; color: #58151c; border-color: #f1aeb5; white-space: normal; border-radius: 14px; }
+.mb-art-status-close { display: none; border: 0; background: none; padding: 0 0 0 4px; font-size: 1.2rem; line-height: 1; color: inherit; }
+#mb-art-status.danger.show .mb-art-status-close { display: inline; pointer-events: auto; }
+
+/* The art was cropped to the official shape. */
+#mb-crop-notice {
+    position: absolute; z-index: 4; left: 50%; bottom: 10px; transform: translateX(-50%);
+    max-width: calc(100% - 16px); padding: 4px 12px; border-radius: 999px; pointer-events: none;
+    background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; font-size: .8rem; text-align: center;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, .2);
+}
+
+/* Read-only view (Forge map page): just the board. */
+.mb-readonly #mb-progress, .mb-readonly .mb-title-row, .mb-readonly .mb-actions,
+.mb-readonly #mb-review, .mb-readonly #mb-messages, .mb-readonly #mb-art-status,
+.mb-readonly #mb-step-card, .mb-readonly #mb-art-step { display: none !important; }
+.mb-readonly #mb-board { margin-bottom: 0 !important; }
+/* Nothing on the read-only board can be moved: no move or grab cursors (the
+   pieces set theirs inline). */
+.mb-readonly #mb-board, .mb-readonly #mb-board * { cursor: default !important; }
+
+/* Item-track cards with no room below the grid grow upwards (placeOnItemTrack
+   in map_builder.js): the chevron points up to unfold and down to fold. */
+#mb-suit-mode.mb-grow-up:not(.folded) .mb-mode-fold i,
+#mb-count-card.mb-grow-up:not(.folded) .mb-count-fold i { transform: rotate(180deg); }
+#mb-suit-mode.mb-grow-up.folded .mb-mode-fold i,
+#mb-count-card.mb-grow-up.folded .mb-count-fold i { transform: none; }
+
+/* The Art step has the map's art but no name yet. */
+#mb-name.mb-missing { border-color: #dc3545; box-shadow: 0 8px 24px rgba(0, 0, 0, .15), 0 0 0 4px rgba(220, 53, 69, .25); }

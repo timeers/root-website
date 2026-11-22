@@ -83,7 +83,7 @@ def _make_delete_handler(field_max_dims):
     return handler
 
 
-PREVIEW_MODELS = ('FactionSheet', 'FactionBack', 'SetupCard')
+PREVIEW_MODELS = ('FactionSheet', 'FactionBack', 'SetupCard', 'ForgedMap')
 
 
 def _delete_image_preview(sender, instance, **kwargs):
@@ -93,6 +93,27 @@ def _delete_image_preview(sender, instance, **kwargs):
             field.delete(save=False)
         except Exception:
             pass
+
+
+def _delete_map_art(sender, instance, **kwargs):
+    """A ForgedMap's art: not in IMAGE_FIELDS_CONFIG, so it's never shrunk to
+    a board-sized image, but still deleted with the map."""
+    if instance.art and instance.art.name:
+        try:
+            instance.art.delete(save=False)
+        except Exception:
+            pass
+
+
+def _delete_piece_figure(sender, instance, **kwargs):
+    """A warrior's generated TTS figure files go with the piece."""
+    for name in ('figure_mesh', 'figure_texture'):
+        f = getattr(instance, name, None)
+        if f and f.name:
+            try:
+                f.delete(save=False)
+            except Exception:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +315,7 @@ TIMESTAMP_BUBBLES = {
     'FactionSheet':    _bubble_sheet_back_card,
     'FactionBack':     _bubble_sheet_back_card,
     'SetupCard':       _bubble_sheet_back_card,
+    'ForgedMap':       _bubble_sheet_back_card,
     'CharacterImage':  _bubble_sheet_child,
     'FactionAbility':  _bubble_sheet_child,
     'ContentBox':      _bubble_sheet_child,
@@ -339,6 +361,9 @@ def _connect():
         Model = apps.get_model('the_forge', model_name)
         post_save.connect(handler, sender=Model)
         post_delete.connect(handler, sender=Model)
+
+    post_delete.connect(_delete_map_art, sender=apps.get_model('the_forge', 'ForgedMap'))
+    post_delete.connect(_delete_piece_figure, sender=apps.get_model('the_forge', 'Piece'))
 
     ForgedFaction = apps.get_model('the_forge', 'ForgedFaction')
     pre_save.connect(_forged_faction_pre_save, sender=ForgedFaction)

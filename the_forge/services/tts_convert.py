@@ -48,6 +48,9 @@ def build_url_map(forged, faction, site_request):
         forge_piece = entry['forge_piece']
         pairs.append((forge_piece.small_icon, keep_piece.small_icon))
         pairs.append((forge_piece.back_image, keep_piece.back_image))
+        if forge_piece.type == 'W':
+            pairs.append((forge_piece.figure_mesh, keep_piece.figure_mesh))
+            pairs.append((forge_piece.figure_texture, keep_piece.figure_texture))
 
     keep_assets = {a.role: a for a in faction.tts_assets.all()}
     for role, _label, forge_image, _fingerprint in forge_tts_asset_sources(forged):

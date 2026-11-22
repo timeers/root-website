@@ -460,7 +460,7 @@ class GenerateTTSJsonActionTests(TestCase):
         self.assertIsNone(Post.objects.get(pk=linked.pk).tts_json)
         self.assertIsNone(Post.objects.get(pk=tweak.pk).tts_json)
         message = self.modeladmin.message_user.call_args_list[-1].args[1]
-        self.assertIn('Forge sync page', message)
+        self.assertIn('Sync in the Forge', message)
         self.assertIn('Nothing to generate', message)
 
 
@@ -928,7 +928,7 @@ class PostTTSJsonPageTests(TestCase):
                                          component='Faction')
         ForgedFaction.objects.create(designer=self.admin_user.profile, faction_name='Fox Folk', published_post=faction)
         page = self.client.get(reverse('manage-tts-json', kwargs={'slug': faction.slug})).content.decode()
-        self.assertIn('Forge sync page', page)
+        self.assertIn('Sync in the Forge', page)
 
     def test_generate_keeps_json_when_nothing_to_build(self):
         from the_keep.services.tts_store import store_tts_json
@@ -1243,12 +1243,12 @@ class MapBuilderTests(TestCase):
     def test_builder_config_has_suit_icons_and_marker_outline(self):
         self.client.force_login(self.designer_user)
         config = self.client.get(self._builder_url()).context['config']
-        self.assertEqual(set(config['suit_icons']), {'fox', 'rabbit', 'mouse', 'bird'})
+        self.assertEqual(set(config['suit_icons']), {'fox', 'rabbit', 'mouse', 'bird', 'city'})
         self.assertIn('images/tags/Bird_Tag.png', config['suit_icons']['bird'])
         self.assertIn('images/map_builder/clearing_marker.svg', config['marker_svg'])
         width, height = config['marker_px']
         self.assertAlmostEqual(width / height, 2.0, delta=0.05)
-        with mock.patch('the_keep.tts_views.finders.find', return_value=None):
+        with mock.patch('django.contrib.staticfiles.finders.find', return_value=None):
             self.assertIsNone(self.client.get(self._builder_url()).context['config']['marker_svg'])
 
     def test_marker_outline_svg(self):
@@ -1353,3 +1353,298 @@ class MapBuilderTests(TestCase):
         config = self.client.get(self._builder_url()).context['config']
         self.assertFalse(config['show_intros'])
         self.assertIn('ClearingsRandom.png', config['random_icon'])
+
+    def test_keep_builder_has_none_of_the_forge_extras(self):
+        from the_keep.services.tts_map import clean_builder_state
+        from the_keep.tts_views import _clean_state
+        self.client.force_login(self.designer_user)
+        response = self.client.get(self._builder_url())
+        config = response.context['config']
+        for key in ('upload_step', 'print', 'readonly', 'step_text', 'default_logo'):
+            self.assertNotIn(key, config)
+        self.assertEqual(config['building_size'], 0.1)
+        self.assertNotIn('id="mb-upload"', response.content.decode())
+        # The Root logo is only printed on Forge maps: a Keep layout drops it.
+        self.assertNotIn('logo', _clean_state({'logo': [0.5, 0.5]}))
+        self.assertEqual(clean_builder_state({'logo': [0.5, 0.5]}, logo=True)['logo'], [0.5, 0.5])
+
+    def test_lost_city_suit(self):
+        from the_keep.services.tts_map import build_map_tts_json, check_builder, marker_templates
+        from the_keep.tts_views import _clean_state
+        self.map.fixed_clearings = True
+        state = self._state(fixed_suits=['city', 'fox', 'bird'])
+        errors, _ = check_builder(self.map, state)
+        self.assertEqual(errors, [])
+        save = build_map_tts_json(self.map, state)
+        markers = [o for o in save['ObjectStates'] if any(t.startswith('Suit: ') for t in o.get('Tags') or [])]
+        city = next(m for m in markers if 'Suit: city' in m['Tags'])
+        self.assertEqual(city['Tags'], ['Map Object', 'Suit: city'])
+        self.assertIn('city_marker.png', city['CustomMesh']['DiffuseURL'])
+        # The mod's shuffleMaps acts on these tags (expecting its own pieces): never used.
+        for o in save['ObjectStates']:
+            self.assertFalse({'City Marker', 'Lost City Marker'} & set(o.get('Tags') or []))
+        # Built from the fox marker: same mesh, its own texture; bird kept.
+        templates = marker_templates()
+        self.assertEqual(templates['city']['CustomMesh']['MeshURL'], templates['fox']['CustomMesh']['MeshURL'])
+        self.assertIn('bird_marker.png', templates['bird']['CustomMesh']['DiffuseURL'])
+        self.assertEqual(_clean_state({'clearings': [{'centre': [0.5, 0.5], 'suit': 'city'}]})['clearings'][0]['suit'], 'city')
+        self.client.force_login(self.designer_user)
+        self.assertIn('City_Tag.png', self.client.get(self._builder_url()).context['config']['suit_icons']['city'])
+
+
+# ── TTS warrior figures and supplies (tts_figures.py, tts_supply.py) ────────
+
+import io as _io
+
+from PIL import ImageDraw
+
+from the_keep.services import tts_figures, tts_supply
+from the_keep.services.tts import LOCK_ON_REST_LUA
+
+
+def _meeple(size=(200, 260), colour=(200, 90, 30, 255)):
+    """A meeple-ish RGBA image: a body with two ears, transparent around it."""
+    w, h = size
+    im = Image.new('RGBA', size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    d.rectangle([w * 0.15, h * 0.35, w * 0.85, h - 1], fill=colour)
+    d.polygon([(w * 0.15, h * 0.35), (w * 0.3, 0), (w * 0.45, h * 0.35)], fill=colour)
+    d.polygon([(w * 0.55, h * 0.35), (w * 0.7, 0), (w * 0.85, h * 0.35)], fill=colour)
+    return im
+
+
+def _meeple_bytes(**kwargs):
+    out = _io.BytesIO()
+    _meeple(**kwargs).save(out, format='PNG')
+    return out.getvalue()
+
+
+def _poly_area(points):
+    return abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(points, points[1:] + points[:1]))) / 2
+
+
+def _parse_obj(text):
+    v = [tuple(map(float, l.split()[1:])) for l in text.splitlines() if l.startswith('v ')]
+    vt = [tuple(map(float, l.split()[1:])) for l in text.splitlines() if l.startswith('vt ')]
+    faces = [[tuple(int(x) for x in p.split('/')) for p in l.split()[1:]]
+             for l in text.splitlines() if l.startswith('f ')]
+    return v, vt, faces
+
+
+def _normal(v, face):
+    a, b, c = (v[i - 1] for i, _t in face[:3])
+    u = [b[i] - a[i] for i in range(3)]
+    w = [c[i] - a[i] for i in range(3)]
+    return (u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0])
+
+
+def _figure_template(size=(1.15, 0.56, 1.55)):
+    obj = tts_figures.figure_object('mesh.obj', 'tex.png', nickname='Cat Warrior')
+    return obj, size
+
+
+class TTSFigureTests(TestCase):
+    def test_shape_size_and_triangles(self):
+        im = _meeple()
+        shape = tts_figures.build_shape(im)
+        self.assertGreater(len(shape.outline), 3)
+        area = _poly_area(shape.outline)
+        tri_area = sum(_poly_area([shape.outline[i] for i in t]) for t in shape.triangles)
+        self.assertAlmostEqual(tri_area, area, delta=area * 0.001)
+        self.assertEqual(shape.height, tts_figures.FIGURE_HEIGHT)
+        self.assertEqual(shape.depth, tts_figures.FIGURE_DEPTH)
+        # The opaque shape is 0.7 x 1.0 of the image: width follows its aspect.
+        self.assertAlmostEqual(shape.width, 1.55 * (0.7 * 200) / 259, delta=0.03)
+
+    def test_obj_indexes_winding_and_side_uv(self):
+        shape = tts_figures.build_shape(_meeple())
+        v, vt, faces = _parse_obj(tts_figures.figure_obj(shape))
+        for face in faces:
+            for vi, ti in face:
+                self.assertTrue(1 <= vi <= len(v) and 1 <= ti <= len(vt))
+        n = len(shape.outline)
+        caps = [f for f in faces if len(f) == 3]
+        front = [_normal(v, f)[2] for f in caps if all(i <= n for i, _ in f)]
+        back = [_normal(v, f)[2] for f in caps if all(i > n for i, _ in f)]
+        self.assertTrue(front and all(z > 0 for z in front))
+        self.assertTrue(back and all(z < 0 for z in back))
+        side_uv = len(vt)
+        self.assertEqual(vt[side_uv - 1], tts_figures.SIDE_UV)
+        for face in faces:
+            if len(face) == 4:
+                self.assertTrue(all(t == side_uv for _v, t in face))
+        # Base on the ground, centred across.
+        self.assertAlmostEqual(min(p[1] for p in v), 0.0, places=4)
+        xs = [p[0] for p in v]
+        self.assertAlmostEqual(max(xs) + min(xs), 0.0, places=3)
+
+    def test_texture_colour_area(self):
+        texture = tts_figures.art_texture(_meeple(), '#3366cc')
+        self.assertEqual(texture.size, (1024, 1024))
+        self.assertEqual(texture.getpixel((1023, 1023)), (0x33, 0x66, 0xcc))
+        self.assertEqual(texture.getpixel((int(0.75 * 1024), int(0.75 * 1024))), (0x33, 0x66, 0xcc))
+
+    def test_bad_images_raise(self):
+        with self.assertRaises(tts_figures.FigureError):
+            tts_figures.build_shape(Image.new('RGBA', (50, 50), (0, 0, 0, 0)))
+        with self.assertRaises(tts_figures.FigureError):
+            tts_figures.build_shape(Image.new('RGB', (50, 50), (255, 0, 0)))
+
+    def test_nicknames_end_in_warrior(self):
+        self.assertEqual(tts_figures.warrior_nickname('Cat', 'Marquise'), 'Cat Warrior')
+        self.assertEqual(tts_figures.warrior_nickname('Cat Warrior', 'Marquise'), 'Cat Warrior')
+        self.assertEqual(tts_figures.warrior_nickname('Cat Warriors', 'Marquise'), 'Cat Warrior')
+        self.assertEqual(tts_figures.warrior_nickname('Warriors', 'Marquise'), 'Marquise Warrior')
+        self.assertEqual(tts_figures.warrior_nickname('', 'Marquise'), 'Marquise Warrior')
+
+
+@override_settings(SITE_URL='https://example.test')
+class TTSSupplyTests(TestCase):
+    def test_model_supply(self):
+        template, _size = _figure_template()
+        bag = tts_supply.make_supply(template, 7, nickname='Marquise Supply')
+        self.assertEqual(bag['Name'], 'Custom_Model_Bag')
+        self.assertEqual(bag['CustomMesh']['MeshURL'], template['CustomMesh']['MeshURL'])
+        self.assertEqual(bag['CustomMesh']['TypeIndex'], 6)
+        self.assertEqual(bag['Bag'], {'Order': 0})
+        self.assertEqual(bag['LuaScript'], LOCK_ON_REST_LUA)
+        self.assertFalse(bag['Locked'])
+        t = bag['Transform']
+        self.assertEqual((t['rotX'], t['rotY'], t['rotZ']), (270.0, 180.0, 0.0))
+        self.assertAlmostEqual(t['scaleX'], 2.34 * 1.73, places=4)
+        self.assertAlmostEqual(t['scaleZ'], 2.93 * 1.73, places=4)
+        self.assertEqual(len(bag['ContainedObjects']), 7)
+        guids = {o['GUID'] for o in bag['ContainedObjects']} | {bag['GUID']}
+        self.assertEqual(len(guids), 8)
+        for o in bag['ContainedObjects']:
+            self.assertEqual(o['Nickname'], 'Cat Warrior')
+            self.assertEqual((o['Transform']['scaleX'], o['Transform']['scaleZ']), (2.34, 2.93))
+
+    def test_round_and_square_supplies(self):
+        tile = {'Name': 'Custom_Tile', 'Nickname': 'Wood', 'Transform': {'scaleX': 0.7, 'scaleY': 1.0, 'scaleZ': 0.7},
+                'CustomImage': {'CustomTile': {'Type': 2}}}
+        self.assertEqual(tts_supply.supply_shape_for(tile), 'round')
+        self.assertEqual(tts_supply.supply_shape_for({'Name': 'Custom_Tile', 'CustomImage': {'CustomTile': {'Type': 3}}}),
+                         'square')
+        for shape in ('round', 'square'):
+            bag = tts_supply.make_supply(tile, 8, nickname='Wood Supply', shape=shape, texture_url='tex.png')
+            self.assertEqual(bag['Name'], 'Custom_Model_Bag')
+            self.assertIn(f'/images/tts/assets/supply_{shape}.obj', bag['CustomMesh']['MeshURL'])
+            self.assertTrue(bag['CustomMesh']['MeshURL'].startswith('{verifycache}https://example.test/'))
+            self.assertEqual(bag['CustomMesh']['DiffuseURL'], 'tex.png')
+            self.assertEqual(bag['LuaScript'], LOCK_ON_REST_LUA)
+            self.assertEqual(len(bag['ContainedObjects']), 8)
+            self.assertEqual(bag['ContainedObjects'][0]['Transform']['scaleX'], 0.7)
+        with self.assertRaises(ValueError):
+            tts_supply.make_supply(tile, 8, nickname='Wood Supply', shape='round')
+
+    def test_static_meshes(self):
+        from django.contrib.staticfiles import finders
+        for shape in ('round', 'square'):
+            path = finders.find(tts_supply.ASSETS_STATIC + tts_supply.STATIC_SUPPLY_MESHES[shape])
+            self.assertIsNotNone(path)
+            with open(path) as handle:
+                v, vt, faces = _parse_obj(handle.read())
+            xs = [p[0] * tts_supply.STATIC_SUPPLY_SCALE for p in v]
+            ys = [p[1] * tts_supply.STATIC_SUPPLY_SCALE for p in v]
+            self.assertAlmostEqual(max(xs) - min(xs), tts_supply.STATIC_SUPPLY_SIZE, places=2)
+            self.assertAlmostEqual(max(ys) - min(ys), tts_supply.STATIC_SUPPLY_HEIGHT, places=2)
+            for face in faces:
+                for _v, t in face:
+                    u, w = vt[t - 1]
+                    if len(face) == 4:
+                        self.assertEqual((u, w), tts_figures.SIDE_UV)
+                    else:   # caps: the art quarter (top-left of the image)
+                        self.assertTrue(0 <= u <= 0.5 and 0.5 <= w <= 1)
+
+    def test_row_layout(self):
+        row = tts_supply.RowLayout(start_x=0.0, z=0.0, gap=0.5)
+        self.assertEqual(row.end, 0.0)
+        self.assertEqual(row.place(2.0, 1.0), (0.0, 0.0))
+        self.assertEqual(row.end, 1.5)
+        self.assertEqual(row.place(1.0, 1.0), (2.0, 0.0))
+        self.assertEqual(row.place(1.0, 1.0, min_x=10.0), (10.0, 0.0))
+        blocked = tts_supply.RowLayout(start_x=0.0, z=0.0, gap=0.5, obstacles=[(-5, 3, -2, 2)])
+        x, _z = blocked.place(2.0, 1.0)
+        self.assertEqual(x, 3.5 + 1.0)
+        # Only clipping an obstacle's north edge: moved north, not right.
+        clipped = tts_supply.RowLayout(start_x=0.0, z=0.0, gap=0.5, obstacles=[(-5, 5, -9, -0.3)])
+        x, z = clipped.place(2.0, 1.0)
+        self.assertEqual(x, 0.0)
+        self.assertAlmostEqual(z - 0.5, -0.3 + 0.05)
+
+    def test_few_warriors_stand_in_a_row(self):
+        template, size = _figure_template()
+        row = tts_supply.RowLayout()
+        objs = tts_supply.layout_groups([tts_supply.SupplyGroup(template, 3, 'Marquise Supply', size=size)],
+                                        row, loose_spacing=tts_supply.LOOSE_SPACING)
+        self.assertEqual(len(objs), 3)
+        self.assertTrue(all(o['Name'] == 'Custom_Model' for o in objs))
+        xs = [o['Transform']['posX'] for o in objs]
+        self.assertAlmostEqual(sum(xs) / 3, tts_supply.ROW_START_X, places=4)
+        self.assertAlmostEqual(xs[1] - xs[0], tts_supply.LOOSE_SPACING, places=4)
+        self.assertTrue(all(o['Transform']['posZ'] == tts_supply.ROW_Z for o in objs))
+
+    def test_supply_is_centred_on_its_slot(self):
+        template, size = _figure_template()
+        row = tts_supply.RowLayout()
+        groups = [tts_supply.SupplyGroup(template, 7, 'A Supply', size=size),
+                  tts_supply.SupplyGroup(template, 6, 'B Supply', size=size)]
+        bag, second = tts_supply.layout_groups(groups, row)
+        self.assertEqual(bag['Name'], 'Custom_Model_Bag')
+        self.assertEqual(len(bag['ContainedObjects']), 7)
+        self.assertEqual(bag['ColorDiffuse'], {'r': 1.0, 'g': 1.0, 'b': 1.0})
+        t = bag['Transform']
+        self.assertAlmostEqual(t['posX'], tts_supply.ROW_START_X)
+        # Lying down its base (the mesh origin) is the south end: the footprint
+        # runs posZ .. posZ + height x 1.73, centred on the row.
+        length = size[2] * tts_supply.SUPPLY_SCALE
+        self.assertAlmostEqual(t['posZ'] + length / 2, tts_supply.ROW_Z)
+        # The second slot is to the right, without overlap.
+        (a0, a1, *_), (b0, b1, *_) = row.placed
+        self.assertGreater(second['Transform']['posX'], t['posX'])
+        self.assertGreaterEqual(b0, a1)
+
+
+_FIGURE_MEDIA = tempfile.mkdtemp(prefix='keep-figure-test-')
+
+
+@override_settings(MEDIA_ROOT=_FIGURE_MEDIA, SITE_URL='https://example.test')
+class KeepWarriorExportTests(TestCase):
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(_FIGURE_MEDIA, ignore_errors=True)
+        super().tearDownClass()
+
+    def setUp(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from the_keep.models import Faction as KeepFaction, Language, Piece as KeepPiece
+        Language.objects.get_or_create(code='en', defaults={'name': 'English'})
+        designer = Profile.objects.create(discord='keepwarriors')
+        self.post = KeepFaction.objects.create(title='Cats', animal='Cat', designer=designer,
+                                               component='Faction', color='#d2691e')
+        self.piece = KeepPiece.objects.create(
+            parent=self.post, name='Warriors', type='W', quantity=25,
+            small_icon=SimpleUploadedFile('w.png', _meeple_bytes(size=(600, 780)), content_type='image/png'))
+
+    def test_warrior_icon_kept_at_400_with_alpha(self):
+        self.piece.refresh_from_db()
+        with Image.open(self.piece.small_icon.path) as im:
+            self.assertEqual(max(im.size), 400)
+            self.assertIn('A', im.getbands())
+            self.assertEqual(im.getpixel((0, 0))[3], 0)
+
+    def test_generate_includes_the_supply(self):
+        from the_keep.services.tts import build_tts_objects
+        objects = build_tts_objects(self.post)
+        bags = [o for o in objects if o['Name'] == 'Custom_Model_Bag']
+        self.assertEqual(len(bags), 1)
+        self.assertEqual(bags[0]['Nickname'], 'Cats Supply')
+        self.assertEqual(len(bags[0]['ContainedObjects']), 25)
+        self.assertEqual(bags[0]['ContainedObjects'][0]['Nickname'], 'Cats Warrior')
+        self.assertTrue(bags[0]['CustomMesh']['MeshURL'].endswith('-figure.obj'))
+        self.piece.refresh_from_db()
+        self.assertTrue(os.path.exists(self.piece.figure_mesh.path))
+        self.assertTrue(self.piece.figure_mesh.name.startswith('uploads/posts/cats/warriors/'))
+        with Image.open(self.piece.figure_texture.path) as tex:
+            self.assertEqual(tex.getpixel((1000, 1000)), (0xd2, 0x69, 0x1e))

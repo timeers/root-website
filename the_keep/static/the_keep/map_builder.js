@@ -2,6 +2,13 @@
 // buildings on its board image. The layout is kept in 0-1 image coordinates
 // (u right, v down) and saved to the server, which builds the TTS JSON from it
 // (the_keep/services/tts_map.py). Geometry here mirrors MapGeometry there.
+//
+// Shared by the Keep (a Map post's board image) and the Forge (a map built
+// from scratch), switched by config flags that are off on the Keep:
+//   upload_step  a first step to upload the map's art and place the Root logo
+//   print        art printed on the map (VP track, items, logo), drawn under
+//                the pieces so the layout is built around it
+//   readonly     just the board, as on the review step, with no editing
 (function () {
   'use strict';
 
@@ -12,7 +19,7 @@
   const PPL = config.px_per_local;              // pixels per local unit
   const STEP_TRACK_PX = config.track.step * PPL;
   const ITEM = config.item_grid;
-  const BUILDING_PX = 0.1 * PPL;                // building square size (local 0.1)
+  const BUILDING_PX = config.building_size * PPL;   // building square size
   const DOT_PX = Math.max(W, H) / 120;
   const STROKE = Math.max(W, H) / 600;
 
@@ -22,23 +29,34 @@
   state.buildings = state.buildings || [];
   state.fixed = !!config.fixed;   // the Map's setting; saved back with the layout
 
+  // name: the progress bar's label (short: at medium widths, when the name is
+  // long). config.step_text can replace any step's text, keyed by step key.
   const STEPS = [
-    { heading: 'VP and Item Tracks',
+    { key: 'track', heading: 'VP and Item Tracks', name: 'VP & Item Tracks', short: 'Tracks',
       hint: 'Drag the item grid onto the printed item spaces. Drag the VP track up or down so the blue dots align with the printed 0-30 track.' },
-    { heading: 'Clearings',
+    { key: 'clearings', heading: 'Clearings', name: 'Clearings',
       hint: 'Click the middle of a clearing, then drag (or click) to where its suit marker goes. Drag the number tile around the circle. Select a clearing to re-number or delete it.' },
-    { heading: 'Buildings & Ruins',
+    { key: 'buildings', heading: 'Buildings & Ruins', name: 'Buildings & Ruins', short: 'Buildings',
       hint: 'Click each building slot. Drag inside a square to move it and press x to remove it. Select a building and click the ruin tile to make it a ruin.' },
-    { heading: 'Forests',
+    { key: 'forests', heading: 'Forests', name: 'Forests',
       hint: 'Click the middle of each forest. Drag a dot to move it and press x to remove it. These are used for Relic placements.' },
-    { heading: 'Review', 
+    { key: 'review', heading: 'Review', name: 'Review',
       hint: 'Check the count of each element, then click "Complete" to generate the final JSON.' },
   ];
+  if (config.upload_step) {
+    STEPS.unshift({ key: 'upload', heading: 'Map Name & Art', name: 'Start', short: 'Start',
+                    hint: 'Choose a name for your map and upload your art.' });
+  }
+  for (const s of STEPS) Object.assign(s, (config.step_text || {})[s.key] || {});
 
-  // Step numbers, in the order the steps appear (Review is the last).
-  const STEP_TRACK = 0, STEP_CLEARINGS = 1, STEP_BUILDINGS = 2, STEP_FORESTS = 3;
+  // Step numbers, in the order the steps appear (Review is the last; there's
+  // no upload step on the Keep, so STEP_UPLOAD is -1 there).
+  const stepOf = (key) => STEPS.findIndex(s => s.key === key);
+  const STEP_UPLOAD = stepOf('upload'), STEP_TRACK = stepOf('track'), STEP_CLEARINGS = stepOf('clearings'),
+        STEP_BUILDINGS = stepOf('buildings'), STEP_FORESTS = stepOf('forests'), STEP_REVIEW = STEPS.length - 1;
+  const PRINT = config.print || null;   // the Forge's printed art (see print_art in tts_map.py)
 
-  let step = 0;
+  let step = config.readonly ? STEP_REVIEW : 0;
   let selected = null;        // {kind: 'clearing'|'forest'|'building', index}
   let drag = null;
   let pendingMarker = null;   // clearing index waiting for a marker click
@@ -82,6 +100,10 @@
     return slots;
   }
 
+  function logoAt() {
+    return state.logo || config.default_logo;
+  }
+
   function numberTile(c) {
     const centre = px(c.centre);
     const r = c.marker ? dist(centre, px(c.marker)) : 0;
@@ -116,14 +138,23 @@
     }).catch(() => {});   // keep the round dots
   }
 
-  // Each step's own pieces are editable; the rest are dimmed. On the review
-  // step everything shows at full strength (it's how the map will load) but
-  // nothing is editable, so no move or grab cursors appear.
-  function layer(active) {
-    // On the review step every piece shows at full strength and can be
-    // clicked to jump to its step (nothing is dragged there).
-    const review = step === STEPS.length - 1;
-    return el('g', { opacity: active || review ? 1 : 0.35, 'pointer-events': active || review ? 'auto' : 'none' });
+  // A step's pieces appear from that step on: never before it (they'd be in
+  // the way of what's being placed now), dimmed on the steps after it, and at
+  // full strength on the review (the last step), which shows the whole map.
+  // Step numbers follow STEPS, so a step added or moved keeps the rule; a step
+  // this builder doesn't have (-1) is never shown.
+  function shownFrom(own) {
+    return own >= 0 && step >= own;
+  }
+
+  // The group for a step's pieces: full strength and editable on their own
+  // step, clickable on the review (to jump to their step; nothing is dragged
+  // there), dimmed and inert in between, absent before their step.
+  function layer(own) {
+    const active = step === own || step === STEP_REVIEW;
+    const g = el('g', { opacity: active ? 1 : 0.35, 'pointer-events': active ? 'auto' : 'none' });
+    if (!shownFrom(own)) g.setAttribute('display', 'none');
+    return g;
   }
 
   function plus(g, x, y, size, colour, data) {
@@ -131,10 +162,39 @@
     el('line', { x1: x, y1: y - size, x2: x, y2: y + size, stroke: colour, 'stroke-width': STROKE * 1.5, ...data }, g);
   }
 
+  // The Forge's printed art, under the pieces: the VP track, the items and the
+  // Root logo. It belongs to the Tracks step (shownFrom), but it's part of the
+  // map, so it's never dimmed like the pieces' layers.
+  function drawPrinted() {
+    if (!PRINT || !shownFrom(STEP_TRACK)) return;
+    const under = el('g', { 'pointer-events': 'none' });
+    const image = (art, cx, cy, parent, data) => {
+      const w = art.w * PPL, h = art.h * PPL;
+      return el('image', { href: art.url, x: cx - w / 2, y: cy - h / 2, width: w, height: h,
+                           preserveAspectRatio: 'none', ...data }, parent);
+    };
+    image(PRINT.vp, imageU(0) * W, state.track_y * H, under);
+    const slots = itemSlots();
+    const xs = slots.map(s => s[0]), ys = slots.map(s => s[1]);
+    image(PRINT.items, (Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2, under);
+    // The logo can be picked up on the Tracks step, and clicked on the review.
+    const onLogo = step === STEP_TRACK || step === STEP_REVIEW;
+    const g = el('g', { 'pointer-events': onLogo && !config.readonly ? 'auto' : 'none' });
+    const [lx, ly] = px(logoAt());
+    const logo = image(PRINT.logo, lx, ly, g, { 'data-kind': 'logo', style: 'cursor: move' });
+    if (step === STEP_TRACK) {
+      const w = Number(logo.getAttribute('width')), h = Number(logo.getAttribute('height'));
+      el('rect', { x: lx - w / 2, y: ly - h / 2, width: w, height: h, fill: 'none', stroke: '#0d6efd',
+                   'stroke-width': STROKE * 1.5, 'stroke-dasharray': `${STROKE * 5} ${STROKE * 4}`,
+                   'pointer-events': 'none' }, g);
+    }
+  }
+
   function render() {
     content.innerHTML = '';
-    // Track and items (step 0).
-    const g0 = layer(step === STEP_TRACK);
+    drawPrinted();
+    // Track and items.
+    const g0 = layer(STEP_TRACK);
     const rows = trackRows(), cols = trackColumns();
     const band = el('rect', {
       x: Math.min(...cols) - STEP_TRACK_PX, y: rows[0] - STEP_TRACK_PX * 0.6,
@@ -142,8 +202,22 @@
       fill: 'rgba(13,110,253,0.15)', stroke: '#0d6efd', 'stroke-width': STROKE, 'data-kind': 'track',
       style: 'cursor: ns-resize',
     }, g0);
-    // The middle row (on the printed numbers) in blue; the rows above and below in grey.
+    // The track's grid: 31 square cells (the printed cells are square, one cell
+    // spacing on a side), each centred on a blue dot, to line up with the art.
+    const cellLeft = Math.min(...cols) - STEP_TRACK_PX / 2;
+    const cellTop = rows[1] - STEP_TRACK_PX / 2;
+    el('rect', { x: cellLeft, y: cellTop, width: STEP_TRACK_PX * cols.length, height: STEP_TRACK_PX,
+                 fill: 'none', stroke: '#0d6efd', 'stroke-width': STROKE * 1.5, 'pointer-events': 'none' }, g0);
+    for (let i = 1; i < cols.length; i++) {
+      const x = cellLeft + i * STEP_TRACK_PX;
+      el('line', { x1: x, y1: cellTop, x2: x, y2: cellTop + STEP_TRACK_PX, stroke: '#0d6efd',
+                   'stroke-width': STROKE, 'pointer-events': 'none' }, g0);
+    }
+    // The middle row (on the printed numbers) in blue; the rows above and below
+    // in grey. Not the blue ones in the Forge: the printed track drawn under
+    // them is already where it'll be, and the dots would hide its numbers.
     rows.forEach((y, row) => {
+      if (row === 1 && PRINT) return;
       const fill = row === 1 ? '#0d6efd' : '#6c757d';
       for (const x of cols) el('circle', { cx: x, cy: y, r: STEP_TRACK_PX * 0.18, fill, 'pointer-events': 'none' }, g0);
     });
@@ -165,7 +239,7 @@
     }
 
     // Clearings (step 1).
-    const g1 = layer(step === STEP_CLEARINGS);
+    const g1 = layer(STEP_CLEARINGS);
     state.clearings.forEach((c, i) => {
       // One group per clearing, so the edit pop-up can measure the whole clearing.
       const g = el('g', { 'data-clearing': i }, g1);
@@ -193,7 +267,7 @@
     });
 
     // Forests (step 2).
-    const g2 = layer(step === STEP_FORESTS);
+    const g2 = layer(STEP_FORESTS);
     state.forests.forEach((f, i) => {
       const p = px(f);
       const isSel = selected && selected.kind === 'forest' && selected.index === i;
@@ -202,7 +276,7 @@
     });
 
     // Buildings and ruins (steps 3 and 4).
-    const g3 = layer(step === STEP_BUILDINGS);
+    const g3 = layer(STEP_BUILDINGS);
     state.buildings.forEach((b, i) => {
       const p = px(b.at);
       const isSel = selected && selected.kind === 'building' && selected.index === i;
@@ -249,7 +323,7 @@
   }
 
   function suitColour(c) {
-    const colours = { fox: '#EC2121', rabbit: '#FFE400', mouse: '#F78B57', bird: '#44C3BC' };
+    const colours = { fox: '#EC2121', rabbit: '#FFE400', mouse: '#F78B57', bird: '#44C3BC', city: '#9C5A2E' };
     return (config.fixed && colours[c.suit]) || '#ffffff';
   }
 
@@ -269,6 +343,8 @@
       const n = Number(btn.dataset.step);
       btn.classList.toggle('active', n === step);
       btn.classList.toggle('done', n < step);
+      // The Forge's later steps wait for the map's art.
+      btn.disabled = n > STEP_UPLOAD && artStepLocked();
       if (n === step) btn.setAttribute('aria-current', 'step'); else btn.removeAttribute('aria-current');
     });
     document.getElementById('mb-progress-thumb').style.transform = `translateX(${step * 100}%)`;
@@ -277,13 +353,19 @@
     updatePopover();
     updateSuitMode();
     updateCountCards();
+    updateUpload();
 
     document.getElementById('mb-back').disabled = step === 0;
-    document.getElementById('mb-next').classList.toggle('d-none', step === STEPS.length - 1);
-    document.getElementById('mb-generate').classList.toggle('d-none', step !== STEPS.length - 1);
-    document.getElementById('mb-review').classList.toggle('d-none', step !== STEPS.length - 1);
-    board.classList.toggle('mb-review', step === STEPS.length - 1);
-    if (step === STEPS.length - 1) renderReview();
+    document.getElementById('mb-next').classList.toggle('d-none', step === STEP_REVIEW);
+    const next = document.getElementById('mb-next');
+    next.disabled = step === STEP_UPLOAD && !artStepDone();
+    next.title = next.disabled ? artStepMissing() : '';
+    // A new map can't be saved until it's created (its name and art, then Next).
+    document.getElementById('mb-save').disabled = isNew() && !artStepDone();
+    document.getElementById('mb-generate').classList.toggle('d-none', step !== STEP_REVIEW);
+    document.getElementById('mb-review').classList.toggle('d-none', step !== STEP_REVIEW || !!config.readonly);
+    board.classList.toggle('mb-review', step === STEP_REVIEW && !config.readonly);
+    if (step === STEP_REVIEW && !config.readonly) renderReview();
   }
 
   // Review summary: a tile per piece, drawn like the board draws it, plus how
@@ -347,7 +429,8 @@
     const suits = document.getElementById('mb-review-suits');
     suits.innerHTML = '';
     if (config.fixed) {
-      const tally = { fox: 0, rabbit: 0, mouse: 0, bird: 0 };
+      const tally = { fox: 0, rabbit: 0, mouse: 0, bird: 0, city: 0 };
+      const SUIT_NAMES = { fox: 'Fox', rabbit: 'Rabbit', mouse: 'Mouse', bird: 'Bird', city: 'Lost City' };
       let unset = 0;
       for (const cl of state.clearings) {
         if (tally[cl.suit] !== undefined) tally[cl.suit] += 1; else unset += 1;
@@ -356,7 +439,7 @@
         if (!n) continue;
         const chip = document.createElement('span');
         chip.className = 'mb-suit-chip';
-        chip.title = suit.charAt(0).toUpperCase() + suit.slice(1);
+        chip.title = SUIT_NAMES[suit];
         chip.innerHTML = `<img src="${config.suit_icons[suit]}" alt=""><span></span>`;
         chip.querySelector('span').textContent = `${chip.title} ${n}`;
         suits.appendChild(chip);
@@ -384,6 +467,11 @@
   function localErrors() {
     const errors = [];
     if (!state.clearings.length) errors.push('Mark at least one clearing.');
+    // Same wording as check_builder(require_buildings=True): the Forge prints them.
+    if (config.require_buildings) {
+      if (!state.buildings.length) errors.push('Mark at least one building slot.');
+      if (!state.buildings.some(b => b.ruin)) errors.push('Mark at least one ruin.');
+    }
     if (state.clearings.some(c => !c.marker)) errors.push('Every clearing needs its suit-marker spot.');
     // Same wording as check_builder in tts_map.py, so a server copy can be matched to it.
     if (config.fixed && state.clearings.some(c => !c.suit)) errors.push('This Map has fixed clearings: choose a suit for each clearing before generating.');
@@ -511,6 +599,7 @@
       if (activePointer !== null) abandonDrag();
       return;
     }
+    if (config.readonly) return;
     activePointer = evt.pointerId;
     // Don't let a press on the board start a text selection or a native drag,
     // and keep the whole page unselectable until the drag ends.
@@ -522,12 +611,16 @@
     svg.setPointerCapture(evt.pointerId);
 
     // Review: clicking a piece opens its step with it selected for editing.
-    if (step === STEPS.length - 1) {
+    if (step === STEP_REVIEW) {
       if (h) editFromReview(h);
       return;
     }
 
     if (step === STEP_TRACK && h) {
+      if (h.kind === 'logo') {
+        const [x0, y0] = px(logoAt());
+        drag = { kind: 'logo', offset: [p[0] - x0, p[1] - y0] };
+      }
       if (h.kind === 'track') drag = { kind: 'track', offset: p[1] - state.track_y * H };
       if (h.kind === 'items') {
         const [x0, y0] = px(state.items);
@@ -601,11 +694,11 @@
   // From the review: go to the piece's step and select it (its edit pop-up opens).
   function editFromReview(h) {
     const target = {
-      track: [STEP_TRACK, null], items: [STEP_TRACK, null],
+      track: [STEP_TRACK, null], items: [STEP_TRACK, null], logo: [STEP_TRACK, null],
       centre: [STEP_CLEARINGS, 'clearing'], marker: [STEP_CLEARINGS, 'clearing'], number: [STEP_CLEARINGS, 'clearing'],
       building: [STEP_BUILDINGS, 'building'], forest: [STEP_FORESTS, 'forest'],
     }[h.kind];
-    if (!target) return;
+    if (!target || target[0] < 0) return;
     activePointer = null;
     document.body.classList.remove('mb-dragging');
     goTo(target[0]);
@@ -628,6 +721,8 @@
       state.track_y = Math.min(Math.max((p[1] - drag.offset) / H, 0), 1);
     } else if (drag.kind === 'items') {
       state.items = norm(p[0] - drag.offset[0], p[1] - drag.offset[1]);
+    } else if (drag.kind === 'logo') {
+      state.logo = norm(p[0] - drag.offset[0], p[1] - drag.offset[1]);
     } else if (drag.kind === 'new-marker') {
       if (dist(p, drag.start) < DOT_PX) return;
       const c = state.clearings[drag.index];
@@ -855,7 +950,7 @@
       const lineHeight = parseFloat(getComputedStyle(title).lineHeight) || title.offsetHeight;
       if (title.offsetHeight > lineHeight * 1.5) title.textContent = title.dataset.short;
     }
-    placeOnItemTrack(modePanel, width);
+    placeOnItemTrack(modePanel, width, Math.min(Math.max(gridWidth, 200), 300, area.width - 8));
   }
 
   // The item grid's box on screen (board pixels): where the step cards sit.
@@ -886,16 +981,50 @@
     return f;
   }
 
-  // Anchor a card at the item grid's top-left, kept inside the board.
+  // Anchor a card at the item grid's top-left, kept inside the board. A card
+  // that wouldn't fit below the grid once unfolded (the grid near the board's
+  // bottom) is anchored at the grid's bottom instead and grows upwards; its
+  // chevron turns to match (mb-grow-up, map_builder.css).
   // width: a pixel width, or null to fit the card's content.
-  function placeOnItemTrack(card, width) {
+  // openWidth: the card's width once unfolded, if different.
+  function placeOnItemTrack(card, width, openWidth = width) {
     const box = itemTrackBox();
     card.style.width = width === null ? 'auto' : `${width}px`;
     if (width === null) width = card.offsetWidth;
     const left = Math.min(Math.max(box.left, 4), box.area.width - width - 4);
-    const top = Math.min(Math.max(box.top, 4), Math.max(box.area.height - card.offsetHeight - 4, 4));
     card.style.left = `${left}px`;
-    card.style.top = `${top}px`;
+    const up = box.top + openHeight(card, openWidth === null ? width : openWidth) > box.area.height - 4;
+    card.classList.toggle('mb-grow-up', up);
+    if (up) {
+      card.style.top = 'auto';
+      card.style.bottom = `${Math.max(box.area.height - (box.top + box.height), 4)}px`;
+    } else {
+      card.style.bottom = 'auto';
+      card.style.top = `${Math.min(Math.max(box.top, 4), Math.max(box.area.height - card.offsetHeight - 4, 4))}px`;
+    }
+  }
+
+  // A card's height once unfolded, measured on a hidden copy: a new element
+  // starts in its final state (no transition), and folded small-screen cards
+  // hide parts of themselves entirely, so the real card can't be measured.
+  // Cached: cards are placed on every render, drags included.
+  const openHeights = new Map();
+  function openHeight(card, width) {
+    const key = `${step}|${width}|${card.classList.contains('compact')}`;
+    if (openHeights.get(card) && openHeights.get(card).key === key) return openHeights.get(card).height;
+    const copy = card.cloneNode(true);
+    copy.classList.remove('folded', 'd-none');
+    // The copy keeps its own id (the cards are styled by id) for the moment
+    // it's on the page; its children's ids are dropped.
+    copy.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+    copy.querySelectorAll('[data-full]').forEach(node => { node.textContent = node.dataset.full; });
+    Object.assign(copy.style, { visibility: 'hidden', width: `${width}px`, left: '0', top: '0', bottom: 'auto' });
+    copy.setAttribute('aria-hidden', 'true');
+    board.appendChild(copy);
+    const height = copy.offsetHeight;
+    copy.remove();
+    openHeights.set(card, { key, height });
+    return height;
   }
 
   // ── Count cards ───────────────────────────────────────────────────────────
@@ -973,10 +1102,12 @@
     // Folded: as wide as the badges plus the chevron. Expanded: room for the rows.
     // Padding is the same in both states: 6px left, the chevron plus 8px right.
     const f = setCompactSizes(box);
+    const openWidth = Math.min(Math.max(countCard.querySelector('.mb-count-body-inner').scrollWidth + 6 + f + 8, 180),
+                               box.area.width - 8);
     const width = folded
-      ? countCard.querySelector('.mb-count-badges').scrollWidth + 6 + f + 8
-      : Math.max(countCard.querySelector('.mb-count-body-inner').scrollWidth + 6 + f + 8, 180);
-    placeOnItemTrack(countCard, Math.min(width, box.area.width - 8));
+      ? Math.min(countCard.querySelector('.mb-count-badges').scrollWidth + 6 + f + 8, box.area.width - 8)
+      : openWidth;
+    placeOnItemTrack(countCard, width, openWidth);
   }
 
   function updateCountCards() {
@@ -1057,19 +1188,294 @@
   }, true);
   window.addEventListener('scroll', updatePopover, { passive: true });
 
+  // ── Map art (the Forge's upload step) ─────────────────────────────────────
+  // The art shows as soon as it's picked and uploads straight away, on its own:
+  // a failed upload keeps the file and tries again (before the next save, and
+  // every few seconds), so it never has to be picked twice.
+  const artStep = document.getElementById('mb-art-step');
+  const uploadButton = document.getElementById('mb-upload');
+  const uploadInput = document.getElementById('mb-upload-input');
+  const nameInput = document.getElementById('mb-name');
+  const languageInput = document.getElementById('mb-language');
+
+  // The Start step's name and language go with every save, unless the map is
+  // linked to a keep post (then they're the post's and locked).
+  function startStepFields(payload) {
+    if (nameInput && !config.name_locked) {
+      payload.name = nameInput.value;
+      if (languageInput) payload.language = languageInput.value;
+    }
+    return payload;
+  }
+  let pendingArt = null;      // a picked File not stored on the server yet
+  let uploading = null;       // the upload in progress (a Promise of success)
+  let retryTimer = null;
+  let previousArt = null;     // the stored art, to go back to if a file is refused
+
+  function hasArt() {
+    return !config.upload_step || !!config.image;
+  }
+
+  // A new Forge map isn't created until the Art step's Next (or Save) sends
+  // its name and art (createMap); until then there's nothing to save to.
+  function isNew() {
+    return !!config.create_url && !config.save_url;
+  }
+
+  function hasName() {
+    return !nameInput || nameInput.value.trim() !== '';
+  }
+
+  // The Art step is done with a name and art; a new map must also be created
+  // (by Next) before the later steps open.
+  function artStepDone() {
+    return hasArt() && hasName();
+  }
+
+  function artStepLocked() {
+    return STEP_UPLOAD >= 0 && (!artStepDone() || isNew());
+  }
+
+  function artStepMissing() {
+    if (!hasName() && !hasArt()) return 'Name your map and upload its art first.';
+    return hasName() ? "Upload your map's art first." : 'Name your map first.';
+  }
+
+  function updateUpload() {
+    document.getElementById('mb-crop-notice').classList.toggle('d-none', !config.art_cropped || !hasArt());
+    if (!artStep) return;
+    artStep.classList.toggle('d-none', step !== STEP_UPLOAD || !!config.readonly);
+    // The art is there but the name isn't: show what's left.
+    nameInput.classList.toggle('mb-missing', hasArt() && !hasName());
+    uploadButton.classList.toggle('mb-has-art', hasArt());
+    const title = uploadButton.querySelector('.mb-upload-title');
+    title.textContent = hasArt() ? title.dataset.replace : title.dataset.upload;
+  }
+
+  // Upload progress and problems pop up over the map (kind: 'info', 'warning'
+  // or 'danger'; null hides it), so nothing below the map moves.
+  const STATUS_ICONS = { info: '<span class="spinner-border spinner-border-sm"></span>',
+                         warning: '<i class="bi bi-arrow-repeat"></i>', danger: '<i class="bi bi-exclamation-triangle"></i>' };
+  function artStatus(kind, text) {
+    const status = document.getElementById('mb-art-status');
+    if (!status) return;
+    if (!kind) {
+      status.classList.remove('show');
+      return;
+    }
+    status.className = `${kind} show`;
+    status.querySelector('.mb-art-status-icon').innerHTML = STATUS_ICONS[kind] || '';
+    status.querySelector('.mb-art-status-text').textContent = text;
+  }
+
+  function pickArt(file) {
+    if (!file) return;
+    if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
+      artStatus('danger', 'Choose a PNG, JPG or WebP image.');
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    const probe = new Image();
+    probe.onload = () => {
+      // Cropped by the server the same way (centre, never stretched).
+      const ratio = probe.naturalWidth / probe.naturalHeight;
+      config.art_cropped = Math.abs(ratio / config.official_ratio - 1) > config.ratio_tolerance;
+      render();
+    };
+    probe.src = url;
+    previousArt = previousArt || { image: config.image, cropped: config.art_cropped };
+    document.getElementById('mb-image').src = url;
+    config.image = url;
+    pendingArt = file;
+    render();
+    // A new map has nowhere to upload to yet: the file goes with createMap.
+    if (!isNew()) uploadArt();
+  }
+
+  let creating = null;        // createMap in progress (a Promise of success)
+
+  // Create a new map from the Art step's name and art. The page then carries
+  // on as that map's builder (its URL too), on the same layout.
+  function createMap() {
+    if (!isNew()) return Promise.resolve(true);
+    if (creating) return creating;
+    creating = (async () => {
+      artStatus('info', 'Creating your map…');
+      let response = null, result = {};
+      try {
+        const body = new FormData();
+        body.append('name', nameInput.value.trim());
+        if (languageInput) body.append('language', languageInput.value);
+        if (pendingArt) body.append('art', pendingArt);
+        body.append('state', JSON.stringify(state));
+        response = await fetch(config.create_url, { method: 'POST', headers: { 'X-CSRFToken': csrfToken() }, body });
+        result = await response.json();
+      } catch (err) {
+        response = null;
+      }
+      if (response && response.ok && result.ok) {
+        pendingArt = null;
+        previousArt = null;
+        Object.assign(config, { save_url: result.save_url, upload_url: result.upload_url, create_url: null,
+                                image: result.image, art_cropped: !!result.cropped });
+        nameInput.value = result.name;
+        history.replaceState(null, '', result.builder_url);
+        const heading = document.getElementById('mb-page-title');
+        if (heading) heading.textContent = result.name;
+        const back = document.getElementById('mb-back-link');
+        if (back) {
+          back.href = result.detail_url;
+          back.querySelector('span').textContent = 'Back to Map';
+        }
+        artStatus(null);
+        render();
+        return true;
+      }
+      if (response && response.status === 400) {
+        artStatus('danger', result.error || "Your map couldn't be created.");
+        if (result.field === 'art') {
+          // The file itself was refused: pick another.
+          pendingArt = null;
+          previousArt = null;
+          config.image = null;
+          config.art_cropped = false;
+          document.getElementById('mb-image').src = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+        }
+        render();
+        return false;
+      }
+      artStatus('danger', "Couldn't create your map — check your connection and click Next again.");
+      return false;
+    })();
+    creating.finally(() => { creating = null; });
+    return creating;
+  }
+
+  function uploadArt() {
+    if (!pendingArt) return Promise.resolve(true);
+    if (uploading) return uploading;
+    const file = pendingArt;
+    clearTimeout(retryTimer);
+    artStatus('info', 'Uploading your art…');
+    uploading = (async () => {
+      let response, result = {};
+      try {
+        const body = new FormData();
+        body.append('art', file);
+        response = await fetch(config.upload_url, { method: 'POST', headers: { 'X-CSRFToken': csrfToken() }, body });
+        result = await response.json().catch(() => ({}));
+      } catch (err) {
+        response = null;
+      }
+      if (response && response.ok && result.ok) {
+        if (pendingArt === file) {
+          pendingArt = null;
+          previousArt = null;
+          config.art_cropped = !!result.cropped;
+          artStatus(null);
+        }
+        render();
+        return true;
+      }
+      if (response && response.status === 400 && pendingArt === file) {
+        // The file itself was refused (not an image, too big...): retrying won't help.
+        pendingArt = null;
+        if (previousArt) {
+          config.image = previousArt.image;
+          config.art_cropped = previousArt.cropped;
+          document.getElementById('mb-image').src = config.image || 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+          previousArt = null;
+        }
+        artStatus('danger', result.error || "That image couldn't be used. Try another file.");
+        if (!hasArt()) goTo(STEP_UPLOAD); else render();
+        return false;
+      }
+      artStatus('warning', 'Art not uploaded yet — retrying.');
+      retryTimer = setTimeout(uploadArt, 8000);
+      return false;
+    })();
+    uploading.finally(() => {
+      uploading = null;
+      // Another file was picked while this one was uploading: send that one now.
+      if (pendingArt && pendingArt !== file) uploadArt();
+    });
+    return uploading;
+  }
+
+  if (artStep) {
+    artStep.addEventListener('pointerdown', (evt) => evt.stopPropagation());
+    uploadButton.addEventListener('click', () => uploadInput.click());
+    document.querySelector('#mb-art-status .mb-art-status-close').addEventListener('click', () => artStatus(null));
+    // The name is saved with the layout (Save Progress or Complete).
+    if (languageInput) {
+      languageInput.addEventListener('change', () => {
+        dirty = true;
+        showSaved(false);
+      });
+      languageInput.addEventListener('pointerdown', (evt) => evt.stopPropagation());
+    }
+    nameInput.addEventListener('input', () => {
+      dirty = true;
+      showSaved(false);
+      updatePanel();   // Next waits for a name
+    });
+    nameInput.addEventListener('keydown', (evt) => {
+      if (evt.key === 'Enter') nameInput.blur();
+    });
+    uploadInput.addEventListener('change', () => {
+      pickArt(uploadInput.files[0]);
+      uploadInput.value = '';
+    });
+    board.addEventListener('dragover', (evt) => {
+      if (step !== STEP_UPLOAD || !evt.dataTransfer.types.includes('Files')) return;
+      evt.preventDefault();
+      uploadButton.classList.add('mb-drop');
+    });
+    board.addEventListener('dragleave', (evt) => {
+      if (!board.contains(evt.relatedTarget)) uploadButton.classList.remove('mb-drop');
+    });
+    board.addEventListener('drop', (evt) => {
+      uploadButton.classList.remove('mb-drop');
+      if (step !== STEP_UPLOAD) return;
+      evt.preventDefault();
+      pickArt(evt.dataTransfer.files[0]);
+    });
+    window.addEventListener('online', () => { if (pendingArt) uploadArt(); });
+  }
+
   // ── Steps and saving ──────────────────────────────────────────────────────
   function goTo(n) {
-    step = Math.min(Math.max(n, 0), STEPS.length - 1);
+    n = Math.min(Math.max(n, 0), STEP_REVIEW);
+    if (n > STEP_UPLOAD && artStepLocked()) n = STEP_UPLOAD;   // name and art first
+    step = n;
     selected = null;
     if (pendingMarker !== null && !state.clearings[pendingMarker].marker) removeClearing(pendingMarker);
     pendingMarker = null;
     render();
     introduceStep();
   }
-  document.querySelectorAll('#mb-progress [data-step]').forEach(btn => {
+  // The progress bar: a button per step, with a highlight that slides along.
+  const progress = document.getElementById('mb-progress');
+  progress.style.setProperty('--mb-steps', STEPS.length);
+  STEPS.forEach((s, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.setAttribute('role', 'listitem');
+    btn.dataset.step = i;
+    btn.innerHTML = '<span class="mb-step-num"></span><span class="mb-step-name"></span>';
+    btn.querySelector('.mb-step-num').textContent = i + 1;
+    const name = btn.querySelector('.mb-step-name');
+    if (s.short) {
+      name.innerHTML = '<span class="mb-name-full"></span><span class="mb-name-short"></span>';
+      name.querySelector('.mb-name-full').textContent = s.name;
+      name.querySelector('.mb-name-short').textContent = s.short;
+    } else {
+      name.textContent = s.name;
+    }
     btn.addEventListener('click', () => {
-      if (Number(btn.dataset.step) !== step) goTo(Number(btn.dataset.step));
+      if (i !== step) goTo(i);
     });
+    progress.appendChild(btn);
   });
 
   // ── Step cards ────────────────────────────────────────────────────────────
@@ -1093,7 +1499,7 @@
     }
     // Cards open by themselves only until the user's first finished map; the
     // info button beside the title always shows them.
-    if (!config.show_intros || introduced.has(step)) return;
+    if (config.readonly || !config.show_intros || introduced.has(step)) return;
     introduced.add(step);
     openCard();
   }
@@ -1103,11 +1509,23 @@
   }
 
   function openCard() {
-    document.getElementById('mb-card-heading').textContent = STEPS[step].heading;
+    const s = STEPS[step];
+    document.getElementById('mb-card-heading').textContent = s.heading;
+    const hint = document.getElementById('mb-card-hint');
+    hint.textContent = s.hint;
+    // An optional link after the hint: {before, label, url, after}.
+    if (s.link) {
+      hint.append(' ' + (s.link.before || ''));
+      const a = document.createElement('a');
+      a.href = s.link.url;
+      a.textContent = s.link.label;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      hint.append(a, s.link.after || '');
+    }
     // On touch screens, mention that two fingers zoom (one finger edits).
     const touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
-    document.getElementById('mb-card-hint').textContent =
-      STEPS[step].hint + (touch && step !== STEPS.length - 1 ? ' Pinch with two fingers to zoom in.' : '');
+    if (touch && step !== STEP_REVIEW && step !== STEP_UPLOAD) hint.append(' Pinch with two fingers to zoom in.');
     cardReturn = document.activeElement;
     card.classList.add('show');
     card.setAttribute('aria-hidden', 'false');
@@ -1127,7 +1545,11 @@
   });
   document.getElementById('mb-info').addEventListener('click', openCard);
   document.getElementById('mb-back').addEventListener('click', () => goTo(step - 1));
-  document.getElementById('mb-next').addEventListener('click', () => goTo(step + 1));
+  document.getElementById('mb-next').addEventListener('click', async () => {
+    // A new map is created from its name and art when it leaves the Art step.
+    if (step === STEP_UPLOAD && isNew() && !(await createMap())) return;
+    goTo(step + 1);
+  });
   document.getElementById('mb-save').addEventListener('click', () => save(false));
   document.getElementById('mb-generate').addEventListener('click', () => save(true));
 
@@ -1136,15 +1558,45 @@
     return input ? input.value : '';
   }
 
+  // Complete can take a while (the Forge renders the map): the button shows a
+  // spinner and can't be pressed again until the server answers. When the
+  // answer is a redirect it stays that way while the next page loads.
   async function save(generate) {
+    const button = document.getElementById('mb-generate');
+    if (!generate) return saveNow(false);
+    if (button.disabled) return;
+    const label = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Completing…';
+    let leaving = false;
+    try {
+      leaving = await saveNow(true);
+    } finally {
+      if (!leaving) {
+        button.disabled = false;
+        button.innerHTML = label;
+      }
+    }
+  }
+
+  // Returns true when the page is moving on (a redirect).
+  async function saveNow(generate) {
     const box = document.getElementById('mb-messages');
     box.innerHTML = '';
+    // A new map is created first (Save is only enabled once it has a name and art).
+    if (isNew() && !(await createMap())) return;
+    // Art picked but not stored yet (the upload failed): send it again first.
+    // Generating needs it on the server; a plain save goes ahead anyway.
+    if (pendingArt && !(await uploadArt()) && generate) {
+      box.appendChild(alertBox('danger', ["Your map's art hasn't uploaded yet, so the map can't be generated. Check your connection and try again."]));
+      return;
+    }
     let result;
     try {
       const response = await fetch(config.save_url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() },
-        body: JSON.stringify({ state, generate }),
+        body: JSON.stringify(startStepFields({ state, generate })),
       });
       result = await response.json();
     } catch (err) {
@@ -1154,6 +1606,11 @@
     if (result.saved) {
       dirty = false;
       showSaved(true);
+    }
+    if (nameInput && result.name) {
+      nameInput.value = result.name;
+      const heading = document.getElementById('mb-page-title');
+      if (heading) heading.textContent = result.name;
     }
     // No message for a plain save: the Save button already reads "Saved", and the
     // counters show the Map's new figures.
@@ -1167,7 +1624,7 @@
     // Problems the review step already lists aren't repeated: that list is
     // highlighted instead. Errors only block generating (the layout is still
     // saved), so a plain save doesn't show them.
-    const shown = new Set(step === STEPS.length - 1 ? localErrors() : []);
+    const shown = new Set(step === STEP_REVIEW ? localErrors() : []);
     const errors = result.errors || [];
     const newErrors = generate ? errors.filter(e => !shown.has(e)) : [];
     const warnings = (result.warnings || []).filter(w => !shown.has(w));
@@ -1176,7 +1633,7 @@
     if (warnings.length) box.appendChild(alertBox('warning', warnings));
     if (result.redirect) {
       window.location = result.redirect;
-      return;
+      return true;
     }
     if (result.message) box.appendChild(alertBox(result.ok ? 'success' : 'danger', [result.message]));
     render();
@@ -1185,12 +1642,17 @@
   }
 
   window.addEventListener('beforeunload', (evt) => {
-    if (dirty) {
+    if (dirty || pendingArt || (isNew() && (hasArt() || hasName()))) {
       evt.preventDefault();
       evt.returnValue = '';
     }
   });
 
   render();
+  // A new map starts in its name field; focused before the step card opens,
+  // which gives focus back to it when it closes.
+  if (nameInput && step === STEP_UPLOAD && !hasName()) {
+    nameInput.focus({ preventScroll: true });
+  }
   introduceStep();
 })();

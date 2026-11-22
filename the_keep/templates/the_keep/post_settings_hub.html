@@ -117,11 +117,11 @@
                               aria-hidden="true"></span>{% trans 'Edit in the Forge' %}
                     </h5>
                     <p class="card-text text-muted">
-                        {% trans 'Make changes in the Forge and sync to update your Faction' %}
+                        {% blocktrans with component=object.component %}Make changes in the Forge and sync to update your {{ component }}{% endblocktrans %}
                     </p>
                 </div>
                 <div class="card-footer bg-transparent">
-                    <a href="{% url 'forge-faction-detail' forged_faction.pk %}" class="btn btn-primary w-100">
+                    <a href="{{ forged_faction.forge_detail_url }}" class="btn btn-primary w-100">
                         <span class="forge-home-hero-logo d-inline-block align-middle me-2"
                               style="height:1em; width:1em; vertical-align:-0.125em;
                                      background-color: currentColor;

@@ -25,6 +25,9 @@ from .forms import (FactionImportForm, MapImportForm, VagabondImportForm, DeckIm
 class PieceInline(admin.StackedInline):
     model = Piece
     extra = 0
+    # Generated for Tabletop Simulator (warriors): never edited by hand.
+    readonly_fields = ('figure_mesh', 'figure_texture', 'figure_fingerprint',
+                       'figure_source_fingerprint', 'figure_size')
 
 class PostTranslationInline(admin.StackedInline):
     model = PostTranslation

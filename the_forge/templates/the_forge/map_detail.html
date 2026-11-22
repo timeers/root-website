@@ -1,0 +1,103 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block title %}{{ faction.faction_name }} - The Forge | {% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="{% static 'the_keep/map_builder.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="container py-3">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <a href="{% url 'forge-map-list' %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i>  My Maps</a>
+    {% if can_edit %}
+    <div class="d-flex justify-content-center gap-2 mb-4">
+      <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#deleteMapModal">
+        <i class="bi bi-trash"></i><span class="d-none d-md-inline ms-1">Delete</span>
+      </button>
+      <a href="{% url 'forge-map-builder' pk=faction.pk %}" class="btn btn-warning">
+        <i class="bi bi-pencil-square me-1"></i>Edit
+      </a>
+      {% if forged_map.art %}
+        <div class="btn-group">
+          <button type="button" class="btn btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="bi bi-download me-1"></i>Download
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item forge-async-download" href="{% url 'forge-map-pdf' pk=faction.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
+            <li><a class="dropdown-item forge-async-download" href="{% url 'forge-map-webp' pk=faction.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
+            <li><a class="dropdown-item forge-async-download" href="{% url 'forge-map-tts' pk=faction.pk %}"><i class="bi bi-pc-display"></i> Tabletop Simulator (JSON)</a></li>
+          </ul>
+        </div>
+      {% endif %}
+
+
+
+    </div>
+    {% endif %}
+  </div>
+
+  <h1 class="root-title luminari text-center mb-3">{{ faction.faction_name }}{% if faction.language and faction.language.code != 'en' %} <span class="badge text-bg-secondary align-middle fs-6">{{ faction.language.name }}</span>{% endif %}</h1>
+
+  <!-- The generated map -->
+  <div class="card p-3 mb-3">
+    {% if forged_map.image_preview %}
+      <img src="{{ forged_map.image_preview.url }}?v={{ forged_map.preview_version }}" alt="{{ faction.faction_name }}"
+           class="w-100 d-block rounded zoomable" data-full="{{ forged_map.image_preview.url }}?v={{ forged_map.preview_version }}"
+           onclick="openLightbox(this)">
+      {% if stale %}
+        <p class="text-muted small text-center mt-2 mb-0">The map has changed since this image was made: it refreshes when you click Complete in the builder or download it.</p>
+      {% endif %}
+    {% else %}
+      <div class="bg-body-secondary rounded d-flex flex-column align-items-center justify-content-center text-muted text-center p-3" style="aspect-ratio: 1.09;">
+        <i class="bi bi-map fs-1 mb-2"></i>
+        {% if forged_map.art %}Not generated yet: finish the map in the builder and click Complete.{% else %}No art yet: open the builder to upload your map's art.{% endif %}
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- The art with the builder's layout over it -->
+  {% if config %}
+    <div class="card p-3 mb-3">
+      <h4 class="root-title text-center mb-2">Layout</h4>
+      {% include 'the_keep/includes/map_builder.html' with board_alt=faction.faction_name %}
+    </div>
+  {% endif %}
+
+  {% include 'the_forge/partials/_publish_card.html' %}
+
+  {% include 'the_forge/partials/_tts_library_card.html' with noun='map' %}
+</div>
+
+{% if can_edit %}
+<div class="modal fade" id="deleteMapModal" tabindex="-1" aria-labelledby="deleteMapModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="deleteMapModalLabel">Delete {{ faction.faction_name }}?</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        This deletes the map, its art and its layout. This can't be undone.
+        {% if faction.published_post_id or faction.published_translation_id %}
+          <p class="small text-muted mb-0 mt-2">Its Root Database Map stays, and can be edited there again.</p>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <form method="post" action="{% url 'forge-faction-delete' pk=faction.pk %}" class="m-0">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-danger">Delete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if config %}<script src="{% static 'the_keep/map_builder.js' %}"></script>{% endif %}
+<script src="{% static 'the_forge/forge_async_download.js' %}"></script>
+{% endblock %}

@@ -33,6 +33,7 @@ from the_tavern.models import Survey
 logger = logging.getLogger(__name__)
 
 SMALL_ICON = 100
+WARRIOR_ICON = 400   # the Forge's ICON_MAX
 BOARD_IMAGE = 1600
 CARD_IMAGE = 600
 
@@ -403,6 +404,9 @@ def handle_image_resize(sender, instance, **kwargs):
 
     updated_fields = []
     for field_name, max_size in config["fields"].items():
+        if field_name == 'small_icon' and isinstance(instance, Piece) and instance.type == Piece.TypeChoices.WARRIOR:
+            # Warriors become Tabletop Simulator figures traced from this image.
+            max_size = WARRIOR_ICON
         image_field = getattr(instance, field_name, None)
         if image_field and hasattr(image_field, "path") and image_field.name:
             old_name = image_field.name

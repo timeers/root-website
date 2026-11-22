@@ -2,17 +2,21 @@
 
 {% block content %}
 <div class="my-2">
-  <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i> Back</a>
+  <a href="{{ detail_url }}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i> Back</a>
 </div>
 
 <div class="mb-3">
-  {% if mode == 'faction' %}
-    <h2 class="root-title m-0">Sync Faction: {{ target_label }}</h2>
+  {% if mode == 'post' %}
+    <h2 class="root-title m-0">Sync {{ publisher.noun }}: {{ target_label }}</h2>
   {% else %}
     <h2 class="root-title m-0">Sync Translation: {{ target_label }}</h2>
   {% endif %}
   <p class="text-muted mb-0">Check each row to push that value from the Forge draft. Unchecked rows are kept as-is.</p>
+  {% if publisher.noun == 'Faction' %}
   <p class="text-muted mb-0">Faction Board, Back and Adset cards only update when downloaded.</p>
+  {% else %}
+  <p class="text-muted mb-0">The map is synced as it was when you last clicked Complete in the builder.</p>
+  {% endif %}
 </div>
 
 {% if not diff_rows and not piece_plan and not deck_plan and not tts_asset_plan and not tts_plan %}
@@ -98,7 +102,7 @@
     </div>
     {% endif %}
 
-    {% if mode == 'faction' %}
+    {% if mode == 'post' %}
       {% if piece_plan %}
         <h5 class="root-title mt-4">Pieces</h5>
         <div class="card p-0 mb-3">
@@ -166,7 +170,7 @@
             </tbody>
           </table>
         </div>
-        <p class="form-text mb-3">Existing pieces on the Faction without a matching name are not touched and are not shown above.</p>
+        <p class="form-text mb-3">Existing pieces on the {{ publisher.noun }} without a matching name are not touched and are not shown above.</p>
       {% endif %}
 
       {% if deck_plan %}
@@ -238,7 +242,7 @@
                 <tr{% if tts_plan.in_sync %} class="text-muted"{% endif %}>
                   <td>
                     <strong>TTS Library</strong>
-                    <div class="small text-muted">What the TTS Library spawns for this Faction.</div>
+                    <div class="small text-muted">What the TTS Library spawns for this {{ publisher.noun }}.</div>
                   </td>
                   <td>
                     {% if tts_plan.keep_object_count %}{{ tts_plan.keep_object_count }} object{{ tts_plan.keep_object_count|pluralize }}{% else %}<span class="text-muted">— none —</span>{% endif %}
@@ -261,7 +265,7 @@
           </table>
         </div>
       {% endif %}
-    {% else %}
+    {% elif publisher.noun == 'Faction' %}
       <p class="form-text mt-3 mb-3 text-muted"><em>Pieces aren't synced for translations. Manage them via the original Faction.</em></p>
     {% endif %}
 
@@ -294,11 +298,23 @@
     {% endif %}
 
     <div class="d-flex justify-content-end gap-2 mb-5">
-      <a href="{% url 'forge-faction-detail' pk=faction.pk %}" class="btn btn-secondary">{% if has_changes %}Cancel{% else %}Back{% endif %}</a>
+      <a href="{{ detail_url }}" class="btn btn-secondary">{% if has_changes %}Cancel{% else %}Back{% endif %}</a>
       {% if has_changes %}
-        <button type="submit" class="btn btn-primary">Sync Selected</button>
+        <button type="submit" class="btn btn-primary" id="forge-sync-submit">Sync Selected</button>
       {% endif %}
     </div>
   </form>
+  <script>
+    // Syncing copies images and rebuilds the TTS JSON, which can take a while:
+    // show it's working, and don't let it be sent twice.
+    (function () {
+      var button = document.getElementById('forge-sync-submit');
+      if (!button) return;
+      button.form.addEventListener('submit', function () {
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Syncing…';
+      });
+    })();
+  </script>
 {% endif %}
 {% endblock %}

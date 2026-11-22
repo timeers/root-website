@@ -27,6 +27,11 @@ _FINGERPRINT_EXCLUDE_FIELDS = frozenset({
     'snap_points',
     'decree_slide_pts',
     'ability_bar_extra_h_pts',
+    # A warrior's generated TTS figure (written on export, not a render input).
+    'figure_mesh',
+    'figure_texture',
+    'figure_fingerprint',
+    'figure_size',
 })
 
 
@@ -128,6 +133,23 @@ def fingerprint_setup_card(card):
         'faction': _faction_payload_for_render(card.faction),
         'card': _serialize_instance(card),
         'steps': _serialize_qs(card.setup_steps.all(), order_by=('number', 'pk')),
+    })
+
+
+# Bump when the map's print layout changes (tts_map.print_layout, the map
+# engine), so stored map previews and cached PDFs are rebuilt.
+MAP_RENDER_VERSION = 4
+
+
+def fingerprint_map(forged_map):
+    """Everything a Forge map's printed image depends on: its art, the layout
+    and whether its clearings have fixed suits."""
+    return _digest({
+        'render': MAP_RENDER_VERSION,
+        'art': forged_map.art.name if forged_map.art else '',
+        'art_version': forged_map.art_version,
+        'state': forged_map.tts_builder or {},
+        'fixed': bool(forged_map.fixed_clearings),
     })
 
 

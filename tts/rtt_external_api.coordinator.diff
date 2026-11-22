@@ -19,16 +19,18 @@
      for _, seat in ipairs(RTT_SEATS) do
        if seat.faction ~= nil then RTT_FAC_TAKEN[seat.faction] = true end
      end
-@@ -2637,6 +2642,8 @@
+@@ -2637,6 +2642,10 @@
        if string.find(j, h, 1, true) then return suit end
      end
    end
 +  local tagged = string.match(j, '"Suit: (%a+)"')
-+  if tagged ~= nil then return string.lower(tagged) end
++  -- "city" is a Lost City clearing (fox, rabbit and mouse at once): not a
++  -- single suit, so it isn't published.
++  if tagged ~= nil and string.lower(tagged) ~= "city" then return string.lower(tagged) end
    return nil
  end
  function rttPublishSuits()
-@@ -3137,6 +3144,7 @@
+@@ -3137,6 +3146,7 @@
    RTT_SEATS      = {}
    RTT_PICK_N     = 0
    RTT_HOUSERULES = {}
@@ -36,7 +38,7 @@
    RTT_ORDER      = {}
    RTT_TURN_SEATS = nil
    for _, k in ipairs({ "RTT_SEAT_POS", "RTT_SEAT_COLOR", "RTT_SEAT_PLAYER", "RTT_SEAT_STEAM",
-@@ -3893,6 +3901,7 @@
+@@ -3893,6 +3903,7 @@
    for _, dk in ipairs(getObjectsWithTag("Deck Object") or {}) do
      pcall(function()
        if dk.name ~= "Deck" and dk.name ~= "DeckCustom" then return end
@@ -44,7 +46,7 @@
        local data = dk.getData()
        for _, c in ipairs((data and data.ContainedObjects) or {}) do
          if (c.Description or "") == "Frog" then
-@@ -3977,13 +3986,10 @@
+@@ -3977,13 +3988,10 @@
  end
  
  function makeDeck(player,value,id)
@@ -60,7 +62,7 @@
  
    if (ends_with(id,"2")) then
      allObjects = {EVERYTHING["Decks"]['Refill Card']['data'],EVERYTHING["Decks"][id]['data']}
-@@ -3993,43 +3999,14 @@
+@@ -3993,43 +4001,14 @@
  
    for _,n in ipairs(allObjects) do
      for _,v in ipairs(n) do
@@ -98,16 +100,16 @@
 +          callback_function = rttDeckPieceCallback
        })
      end
--  end
+   end
 -  if find_object_by_gm_note("Dragon God") ~= nil then
 -    Wait.frames(function() pcall(function() rttPlaceDragonGod() end) end, 2)
-   end
+-  end
 -  if #frogs > 0 then Wait.time(function() rttRestoreFrogs(frogs, 0) end, RTT_FROG_WAIT) end
 +  rttFinishDeck(frogs)
  end
  
  function makeTool(player,value,id)
-@@ -4768,6 +4745,11 @@
+@@ -4768,6 +4747,11 @@
      out.houserules = {}
      for i, r in ipairs(RTT_HOUSERULES) do out.houserules[i] = r end
    end
@@ -119,7 +121,7 @@
    return out
  end
  
-@@ -6608,7 +6590,7 @@
+@@ -6608,7 +6592,7 @@
      end
    end
    local board, mapId, fivep = rttMap()
@@ -128,7 +130,7 @@
    if board == nil or centres == nil then
      if tries > 0 then later() return end
      rttReply(who, "Place a map before deploying the Marquise warriors.")
-@@ -7033,7 +7015,7 @@
+@@ -7033,7 +7017,7 @@
  
  function rttForestWorldCenters(mapId)
    local cents = RTT_FOREST_UV[mapId]
@@ -137,7 +139,7 @@
    local m = rttFindMapObject()
    if m == nil then return {} end
    local b = m.getBounds()
-@@ -7070,7 +7052,7 @@
+@@ -7070,7 +7054,7 @@
        targets[#targets + 1] = { w.x, w.z }
      end
    else
@@ -146,7 +148,7 @@
    end
    if #targets == 0 then return end
  
-@@ -7580,63 +7562,22 @@
+@@ -7580,63 +7564,22 @@
  end
  
  function makeMap(player,value,id,keepBoard)
@@ -224,7 +226,7 @@
  
    local objects = {}
    objects = EVERYTHING["Maps"][id]['data']
-@@ -7685,16 +7626,7 @@
+@@ -7685,16 +7628,7 @@
          callback_function = function(spawned_object)
  
          if rtt_ov then spawned_object.setLock(true) end
@@ -242,7 +244,7 @@
          if rtt_ov and RTT_MARSH_PIECES ~= nil then
            pcall(function() RTT_MARSH_PIECES[#RTT_MARSH_PIECES + 1] = spawned_object.getGUID() end)
          end
-@@ -7710,22 +7642,7 @@
+@@ -7710,22 +7644,7 @@
      }
      end
    end
@@ -266,7 +268,7 @@
  end
  
  function rttLockRuins()
-@@ -9132,4 +9049,415 @@
+@@ -9132,4 +9051,415 @@
  function onScriptingButtonUp(idx, color)
    if idx == 2 then pcall(function() rttKey2Up(color) end) end
    if idx == 4 then pcall(function() rttKey4Up(color) end) end
