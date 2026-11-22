@@ -125,7 +125,7 @@ class PieceInline(admin.TabularInline):
     model = Piece
     fk_name = 'faction'
     extra = 0
-    fields = ('name', 'quantity', 'type', 'small_icon')
+    fields = ('name', 'quantity', 'type', 'small_icon', 'use_image_on_back')
 
 
 class SetupStepBackInline(admin.TabularInline):

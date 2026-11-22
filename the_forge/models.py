@@ -1040,6 +1040,9 @@ class Piece(models.Model):
     back_image = models.ImageField(upload_to=piece_back_upload_path, null=True, blank=True)
     front_version = models.PositiveIntegerField(default=0)
     back_version = models.PositiveIntegerField(default=0)
+    # Warriors only: draw small_icon on the Faction Back's component manifest.
+    # Off (or no image), the back draws the faction-coloured meeple instead.
+    use_image_on_back = models.BooleanField(default=False)
     # Warriors' Tabletop Simulator figure, generated from small_icon on export
     # (the_keep/services/tts_figures.py ensure_figure).
     figure_mesh = models.FileField(upload_to=piece_figure_mesh_upload_path, null=True, blank=True)

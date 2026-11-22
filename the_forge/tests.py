@@ -1878,3 +1878,114 @@ class TTSAssetFingerprintLengthTests(TestCase):
         self.assertEqual(keep.tts_assets.count(), 2)
         self.assertTrue(all(e['in_sync'] for e in ForgedFactionSyncForm(
             forged=ForgedFaction.objects.get(pk=forged.pk)).tts_asset_plan))
+
+
+# ── Warriors: "Use image on Faction Back" ────────────────────────────────────
+
+@override_settings(MEDIA_ROOT=_TTS_MEDIA)
+class WarriorBackImageTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+
+        Language.objects.get_or_create(code='en', defaults={'name': 'English'})
+        self.user = User.objects.create_user(username='warriorback', password='pw')
+        self.designer = Profile.objects.get(user=self.user)
+        Profile.objects.filter(pk=self.designer.pk).update(group='D', player_onboard=True, forge_onboard=True)
+        self.client.force_login(self.user)
+        self.forged = ForgedFaction.objects.create(designer=self.designer, faction_name='Back Cats', color='#d2691e')
+        self.back = FactionBack.objects.create(faction=self.forged)
+        self.warrior = _piece_with_icon(_warrior_png(), faction=self.forged, type='W', quantity=10, name='Cat')
+
+    # ── the PDF engine ──
+    def _drawn(self, piece):
+        """'image' or 'svg': what the Faction Back draws for `piece`."""
+        from io import BytesIO
+        from reportlab.pdfgen import canvas as rl_canvas
+        from .pdf_engine import FactionBackLayoutEngine
+        engine = FactionBackLayoutEngine(FactionBack.objects.get(pk=self.back.pk))
+        c = rl_canvas.Canvas(BytesIO())
+        with mock.patch.object(c, 'drawImage') as draw_image, \
+                mock.patch('the_forge.pdf_engine.renderPDF.draw') as draw_svg:
+            engine._draw_piece(c, Piece.objects.get(pk=piece.pk), 0, 0, 200, 60)
+        if draw_image.called:
+            return 'image'
+        return 'svg' if draw_svg.called else None
+
+    def test_back_draws_the_image_only_when_asked(self):
+        self.assertEqual(self._drawn(self.warrior), 'svg')                   # default: off
+        Piece.objects.filter(pk=self.warrior.pk).update(use_image_on_back=True)
+        self.assertEqual(self._drawn(self.warrior), 'image')
+        no_image = Piece.objects.create(faction=self.forged, type='W', quantity=3, name='Kit',
+                                        use_image_on_back=True)
+        self.assertEqual(self._drawn(no_image), 'svg')
+        building = _piece_with_icon(_png('saw.png'), faction=self.forged, type='B', quantity=3, name='Sawmill')
+        self.assertEqual(self._drawn(building), 'image')                     # other types unchanged
+
+    def test_toggling_rerenders_the_back(self):
+        before = fingerprint_back(FactionBack.objects.get(pk=self.back.pk))
+        Piece.objects.filter(pk=self.warrior.pk).update(use_image_on_back=True)
+        self.assertNotEqual(fingerprint_back(FactionBack.objects.get(pk=self.back.pk)), before)
+
+    # ── the editor ──
+    def _post(self, rows):
+        """Save the Faction Back editor with `rows`: dicts of piece_* values."""
+        from .forms import FactionBackForm
+        form = FactionBackForm(back=self.back)
+        data = {name: form[name].value() for name in form.fields
+                if name not in ('back_image',) and form[name].value() is not None}
+        for key in ('piece_id', 'piece_type', 'piece_name', 'piece_quantity', 'piece_clear_icon',
+                    'piece_clear_back', 'piece_use_image'):
+            data[key] = [row.get(key, '0' if 'clear' in key or 'use' in key else '') for row in rows]
+        response = self.client.post(reverse('forge-back-edit', args=[self.back.pk]), data)
+        self.assertEqual(response.status_code, 302, getattr(response, 'context', None) and
+                         response.context['form'].errors)
+
+    def _warrior_row(self, **values):
+        return {'piece_id': str(self.warrior.pk), 'piece_type': 'W', 'piece_name': 'Cat',
+                'piece_quantity': '10', **values}
+
+    def test_saving_the_setting(self):
+        self._post([self._warrior_row(piece_use_image='1')])
+        self.assertTrue(Piece.objects.get(pk=self.warrior.pk).use_image_on_back)
+        self._post([self._warrior_row(piece_use_image='0')])
+        self.assertFalse(Piece.objects.get(pk=self.warrior.pk).use_image_on_back)
+
+    def test_clearing_the_image_turns_it_off(self):
+        self._post([self._warrior_row(piece_use_image='1', piece_clear_icon='1')])
+        warrior = Piece.objects.get(pk=self.warrior.pk)
+        self.assertFalse(warrior.small_icon)
+        self.assertFalse(warrior.use_image_on_back)
+
+    def test_card_rows_keep_the_lists_aligned(self):
+        card = Piece.objects.create(faction=self.forged, type='C', quantity=1, name='Ambush')
+        self._post([
+            {'piece_id': str(card.pk), 'piece_type': 'C', 'piece_name': 'Ambush', 'piece_quantity': '1'},
+            self._warrior_row(piece_use_image='1'),
+        ])
+        self.assertTrue(Piece.objects.get(pk=self.warrior.pk).use_image_on_back)
+        self.assertFalse(Piece.objects.get(pk=card.pk).use_image_on_back)
+
+    def test_the_checkbox(self):
+        Piece.objects.create(faction=self.forged, type='W', quantity=3, name='Kit')
+        _piece_with_icon(_png('saw.png'), faction=self.forged, type='B', quantity=3, name='Sawmill')
+        html = self.client.get(reverse('forge-back-edit', args=[self.back.pk])).content.decode()
+        rows = {}
+        for chunk in html.split('class="border rounded p-2 mb-2 piece-row"')[1:]:
+            name = chunk.split('name="piece_name" value="', 1)[1].split('"', 1)[0]
+            rows[name] = chunk.split('class="border rounded p-2 mb-2 piece-row"')[0]
+        import re
+
+        def checkbox(row):
+            return re.search(r'<input type="checkbox"[^>]*data-use-image[^-][^>]*>', row).group(0)
+
+        cat, kit, saw = rows['Cat'], rows['Kit'], rows['Sawmill']
+        self.assertIn('Use image on Faction Back', cat)
+        self.assertNotIn('disabled', checkbox(cat))      # has an image
+        self.assertIn('disabled', checkbox(kit))         # no image
+        self.assertNotIn('Use image on Faction Back', saw)
+        # The blank template row (shared with the cardboard editor) starts hidden.
+        template = html.split('id="piece-row-template"', 1)[1].split('</template>', 1)[0]
+        self.assertRegex(template, r'data-use-image-row[^>]*\bhidden\b')
