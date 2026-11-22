@@ -159,6 +159,10 @@ class Publisher:
     def tts_fingerprint(self, forged):
         return ''
 
+    def always_sync(self, forged, target):
+        """Applied with every sync of a post (whatever rows are ticked): data
+        that isn't worth a row of its own (Map: the layout)."""
+
     def sync_blocked(self, forged):
         """Why the draft can't be synced right now, or None."""
         return None

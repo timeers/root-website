@@ -1339,12 +1339,12 @@ class MapPublishTests(_MapPublishBase):
         self._save(draft, more_forests, generate=True)
         form = self._sync_form(draft)
         stale = {row[0] for row in form.diff_rows if not row[5]}
-        self.assertEqual(stale, {'board_image', 'forests', 'tts_builder'})
+        self.assertEqual(stale, {'board_image', 'forests'})   # the layout goes with any sync
         self.assertFalse(form.tts_plan['in_sync'])
 
         # Apply everything but the forest count: it stays as it was.
         response = self.client.post(reverse('forge-map-sync', args=[draft.pk]), {
-            'sync_board_image': 'on', 'sync_tts_builder': 'on', 'sync_tts_json': 'on',
+            'sync_board_image': 'on', 'sync_tts_json': 'on',
         })
         self.assertRedirects(response, reverse('forge-map-detail', args=[draft.pk]), fetch_redirect_response=False)
         keep_map.refresh_from_db()

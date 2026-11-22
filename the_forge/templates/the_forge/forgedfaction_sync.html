@@ -300,9 +300,21 @@
     <div class="d-flex justify-content-end gap-2 mb-5">
       <a href="{{ detail_url }}" class="btn btn-secondary">{% if has_changes %}Cancel{% else %}Back{% endif %}</a>
       {% if has_changes %}
-        <button type="submit" class="btn btn-primary">Sync Selected</button>
+        <button type="submit" class="btn btn-primary" id="forge-sync-submit">Sync Selected</button>
       {% endif %}
     </div>
   </form>
+  <script>
+    // Syncing copies images and rebuilds the TTS JSON, which can take a while:
+    // show it's working, and don't let it be sent twice.
+    (function () {
+      var button = document.getElementById('forge-sync-submit');
+      if (!button) return;
+      button.form.addEventListener('submit', function () {
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Syncing…';
+      });
+    })();
+  </script>
 {% endif %}
 {% endblock %}

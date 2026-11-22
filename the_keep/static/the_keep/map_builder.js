@@ -1558,7 +1558,29 @@
     return input ? input.value : '';
   }
 
+  // Complete can take a while (the Forge renders the map): the button shows a
+  // spinner and can't be pressed again until the server answers. When the
+  // answer is a redirect it stays that way while the next page loads.
   async function save(generate) {
+    const button = document.getElementById('mb-generate');
+    if (!generate) return saveNow(false);
+    if (button.disabled) return;
+    const label = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Completing…';
+    let leaving = false;
+    try {
+      leaving = await saveNow(true);
+    } finally {
+      if (!leaving) {
+        button.disabled = false;
+        button.innerHTML = label;
+      }
+    }
+  }
+
+  // Returns true when the page is moving on (a redirect).
+  async function saveNow(generate) {
     const box = document.getElementById('mb-messages');
     box.innerHTML = '';
     // A new map is created first (Save is only enabled once it has a name and art).
@@ -1611,7 +1633,7 @@
     if (warnings.length) box.appendChild(alertBox('warning', warnings));
     if (result.redirect) {
       window.location = result.redirect;
-      return;
+      return true;
     }
     if (result.message) box.appendChild(alertBox(result.ok ? 'success' : 'danger', [result.message]));
     render();

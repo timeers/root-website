@@ -186,6 +186,7 @@ class ForgedPostSyncForm(forms.Form):
         if self.mode == 'post':
             from ..forms_publish import apply_extra_plans
             apply_extra_plans(self, target)
+            self.publisher.always_sync(self.forged, target)
         return target
 
 

@@ -67,14 +67,6 @@ def _layout_in_sync(forged, current, proposed):
     return clean_builder_state(current or {}) == proposed
 
 
-def _layout_summary(state):
-    if not state:
-        return 'No layout'
-    counts = layout_counts(state)
-    return (f"{counts['clearings']} clearings, {counts['building_slots']} building slots "
-            f"({counts['ruins']} ruins), {counts['forests']} forests")
-
-
 def _image(forged):
     forged_map, state = rendered(forged)
     return forged_map.image_preview if state else None
@@ -170,8 +162,9 @@ class MapPublisher(Publisher):
     unlink_url_name = 'forge-map-unlink'
     sync_url_name = 'forge-map-sync'
     submit_template = 'the_forge/map_submit.html'
-    # The keep TTS JSON is built from the keep's board image and layout.
-    tts_forced_fields = ('board_image', 'tts_builder')
+    # The keep TTS JSON is built from the keep's board image and layout (the
+    # layout goes with every sync: always_sync).
+    tts_forced_fields = ('board_image',)
 
     # ── Forge side ──────────────────────────────────────────────────────────
     # refresh: nothing. Only the builder's Complete (or a download) renders a
@@ -247,9 +240,16 @@ class MapPublisher(Publisher):
             SyncField('ruins', 'Ruins', _count('ruins'), kind='int'),
             SyncField('forests', 'Forests', _count('forests'), kind='int'),
             SyncField('fixed_clearings', 'Fixed Clearing Suits', _fixed, kind='bool'),
-            SyncField('tts_builder', 'Map Layout', _layout, kind='json',
-                      in_sync=_layout_in_sync, display=_layout_summary),
         ]
+
+    def always_sync(self, forged, target):
+        """The layout isn't a row: it goes with every sync. (A layout change
+        always comes with a new map image, so there's always a row to sync it
+        with.)"""
+        layout = _layout(forged)
+        if layout is not None and not _layout_in_sync(forged, target.tts_builder, layout):
+            Map.objects.filter(pk=target.pk).update(tts_builder=layout)
+            target.tts_builder = layout
 
     def translation_fields(self, forged):
         return [SyncField('translated_board_image', 'Map Image (translation)', _image, kind='image',
