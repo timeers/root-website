@@ -1844,3 +1844,37 @@ class TimeForgeSyncCommandTests(TestCase):
         ForgedFaction.objects.filter(pk=self.forged.pk).update(published_post=None)
         with self.assertRaises(CommandError):
             self._run()
+
+
+@override_settings(MEDIA_ROOT=_TTS_MEDIA, SITE_URL='https://example.test')
+class TTSAssetFingerprintLengthTests(TestCase):
+    """Production (Postgres) enforces TTSAsset.source_fingerprint's 64
+    characters; the dev database (SQLite) doesn't. Marker and decree
+    fingerprints used to embed the file path, so a long faction slug broke
+    the sync ("value too long for type character varying(64)")."""
+
+    def test_fingerprints_fit_whatever_the_slug(self):
+        from the_keep.models import TTSAsset
+        from .forms_publish import forge_tts_asset_sources
+        designer = Profile.objects.create(discord='longslug')
+        keep = KeepFaction.objects.create(title='Archivists of Parliament', animal='Owl', designer=designer,
+                                          component='Faction')
+        forged = ForgedFaction.objects.create(designer=designer, published_post=keep,
+                                              faction_name='The Most Honourable Archivists of Parliament')
+        forged.vp_marker.save('vp.png', _png('vp.png'))
+        forged.relationship_marker.save('rel.png', _png('rel.png'))
+        forged = ForgedFaction.objects.get(pk=forged.pk)
+        limit = TTSAsset._meta.get_field('source_fingerprint').max_length
+        sources = forge_tts_asset_sources(forged)
+        self.assertEqual(len(sources), 2)
+        self.assertGreater(len(forged.vp_marker.name), limit)   # the path alone wouldn't fit
+        for _role, _label, _image, fingerprint in sources:
+            self.assertLessEqual(len(fingerprint), limit)
+
+        form = ForgedFactionSyncForm({'ttsasset_vp_marker': 'on', 'ttsasset_relationship_marker': 'on'},
+                                     forged=forged)
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.assertEqual(keep.tts_assets.count(), 2)
+        self.assertTrue(all(e['in_sync'] for e in ForgedFactionSyncForm(
+            forged=ForgedFaction.objects.get(pk=forged.pk)).tts_asset_plan))
