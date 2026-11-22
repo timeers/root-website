@@ -426,19 +426,22 @@ def apply_deck_entry(entry, faction, keep_piece):
 
 def forge_tts_asset_sources(forged):
     """(role, label, forge image, fingerprint) for the TTS images that live in
-    keep TTSAssets. The decree only counts while include_decree is on."""
+    keep TTSAssets. The decree only counts while include_decree is on.
+
+    Fingerprints are hashed: they're built from file paths, which grow with the
+    faction's slug, and TTSAsset.source_fingerprint holds at most 64 characters."""
     sources = []
     sheet = _safe_related(forged, 'faction_sheet')
     if sheet and sheet.include_decree and sheet.decree_preview:
         sources.append((TTSAsset.RoleChoices.DECREE, 'Decree', sheet.decree_preview,
-                        f'{sheet.decree_fingerprint}:{sheet.decree_preview.name}'))
+                        _md5(f'{sheet.decree_fingerprint}:{sheet.decree_preview.name}')))
     markers = (
         (TTSAsset.RoleChoices.VP_MARKER, 'VP Marker', forged.vp_marker),
         (TTSAsset.RoleChoices.RELATIONSHIP_MARKER, 'Relationship Marker', forged.relationship_marker),
     )
     for role, label, image in markers:
         if image:
-            sources.append((role, label, image, f'{forged.markers_version}:{_file_sig(image)}'))
+            sources.append((role, label, image, _md5(f'{forged.markers_version}:{_file_sig(image)}')))
     return sources
 
 
