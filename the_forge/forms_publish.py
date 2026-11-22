@@ -672,12 +672,10 @@ class ForgedFactionSubmitForm(FactionCreateForm):
         if 'picture' in self.fields:
             self.fields['picture'].required = False
 
-        # ww_link is the only required link on this form. The "add more"
-        # links stay optional and start hidden in the template.
-        if 'ww_link' in self.fields:
-            self.fields['ww_link'].required = True
-        for fname in self.OPTIONAL_LINK_FIELDS:
-            if fname in self.fields and fname != 'ww_link':
+        # Every link is optional on its own: clean() requires a thread on one
+        # of Woodland Warriors, French Root or Board Game Geek.
+        for fname in ('ww_link',) + self.OPTIONAL_LINK_FIELDS:
+            if fname in self.fields:
                 self.fields[fname].required = False
 
         # Disable every field that isn't user-editable on this page. The
@@ -712,6 +710,8 @@ class ForgedFactionSubmitForm(FactionCreateForm):
 
     def clean(self):
         cleaned = super().clean()
+        from .publishing.base import require_thread_link
+        require_thread_link(self, cleaned)
         source = cleaned.get('picture_source')
         if source == self.PICTURE_UPLOAD:
             if not cleaned.get('picture'):

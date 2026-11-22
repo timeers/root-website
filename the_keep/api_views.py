@@ -291,10 +291,7 @@ def search_posts(request):
 
 # Posts the TTS Library lists: publicly active only (no Abandoned / Rejected /
 # Submitted). Enum members, not ints -- status values are strings ('1').
-TTS_LISTED_STATUSES = (
-    StatusChoices.STABLE, StatusChoices.TESTING,
-    StatusChoices.DEVELOPMENT, StatusChoices.INACTIVE,
-)
+from .models import TTS_LIBRARY_STATUSES as TTS_LISTED_STATUSES  # noqa: E402
 
 
 class TTSLoaderView(APIView):
@@ -383,8 +380,10 @@ class TTSCatalogView(TTSLoaderView):
             # Development, Inactive -- the loader adds a header per group.
             .order_by('status', 'component', 'title')
         )
+        # Drafts linked to a post the Library lists itself are left out
+        # (ForgedFaction.tts_library_queryset), so nothing is listed twice.
         forge_factions = (
-            ForgedFaction.objects.filter(tts_status=ForgedFaction.TTSStatus.APPROVED, tts_json__isnull=False)
+            ForgedFaction.tts_library_queryset()
             .select_related('designer')
             .only('pk', 'faction_name', 'component', 'faction_icon', 'designer__display_name')
             .order_by('faction_name')
@@ -425,7 +424,7 @@ class TTSForgeDetailView(TTSLoaderView):
         from the_forge.models import ForgedFaction
 
         forged = get_object_or_404(
-            ForgedFaction.objects.filter(tts_status=ForgedFaction.TTSStatus.APPROVED, tts_json__isnull=False)
+            ForgedFaction.tts_library_queryset()
             .only('faction_name', 'component', 'tts_json'),
             pk=pk,
         )

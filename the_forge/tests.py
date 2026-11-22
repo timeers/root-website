@@ -1199,8 +1199,8 @@ class ForgedMapTests(TestCase):
 
 # ── Publishing a Forge map to the Root Database (the_forge/publishing/) ─────
 
-@override_settings(MEDIA_ROOT=_TTS_MEDIA, SITE_URL='https://example.test')
-class MapPublishTests(TestCase):
+class _MapPublishBase(TestCase):
+    """Setup and helpers for the map publishing tests."""
     def setUp(self):
         from django.contrib.auth.signals import user_logged_in
         from the_gatehouse.signals import user_logged_in_handler
@@ -1248,6 +1248,10 @@ class MapPublishTests(TestCase):
         from .publishing.diff import ForgedPostSyncForm
         draft = ForgedFaction.objects.get(pk=draft.pk)
         return ForgedPostSyncForm(forged=draft)
+
+
+@override_settings(MEDIA_ROOT=_TTS_MEDIA, SITE_URL='https://example.test')
+class MapPublishTests(_MapPublishBase):
 
     def test_registry(self):
         from .publishing import publisher_for
@@ -1409,7 +1413,125 @@ class MapPublishTests(TestCase):
         self.assertIn('This map is built in the Forge', page)
         self.assertIn(reverse('forge-map-detail', args=[draft.pk]), page)
         self.assertEqual(self.client.post(builder, '{}', content_type='application/json').status_code, 403)
+        manage = self.client.get(reverse('manage-tts-json', args=[keep_map.slug])).content.decode()
+        self.assertIn(reverse('forge-map-builder', args=[draft.pk]), manage)
+        self.assertNotIn(builder, manage)
         from the_keep.services.tts_store import generate_unavailable_reason
         KeepMap.objects.filter(pk=keep_map.pk).update(tts_builder={})
         keep_map.refresh_from_db()
         self.assertIn('Sync in the Forge', generate_unavailable_reason(keep_map))
+
+
+@override_settings(MEDIA_ROOT=_TTS_MEDIA, SITE_URL='https://example.test')
+class PublishFollowUpTests(_MapPublishBase):
+    """Library listing, delete/unlink, Complete without changes, submit links."""
+
+    def _catalogue_forge_ids(self):
+        from rest_framework.test import APIRequestFactory
+        from the_keep.api_views import TTSCatalogView
+        data = TTSCatalogView.as_view()(APIRequestFactory().get('/')).data
+        return {entry['id'] for entry in data['forge']}
+
+    def test_a_draft_linked_to_a_listed_post_leaves_the_tts_library(self):
+        draft = self._completed()
+        self._submit(draft)
+        keep_map = KeepMap.objects.get(title='Highlands')
+        ForgedFaction.objects.filter(pk=draft.pk).update(tts_status=ForgedFaction.TTSStatus.APPROVED)
+        draft.refresh_from_db()
+        # Still Submitted: the keep doesn't list it yet, so the Forge entry stays.
+        self.assertIn(draft.pk, self._catalogue_forge_ids())
+        self.assertIsNone(draft.library_listed_via)
+        for status, listed in (('3', False), ('1', False), ('4', False), ('5', True), ('8', True), ('9', True)):
+            with self.subTest(status=status):
+                KeepMap.objects.filter(pk=keep_map.pk).update(status=status)
+                self.assertEqual(draft.pk in self._catalogue_forge_ids(), listed)
+        KeepMap.objects.filter(pk=keep_map.pk).update(status='3')
+        from rest_framework.test import APIRequestFactory
+        from the_keep.api_views import TTSForgeDetailView
+        response = TTSForgeDetailView.as_view()(APIRequestFactory().get('/'), pk=draft.pk)
+        self.assertEqual(response.status_code, 404)
+        draft = ForgedFaction.objects.get(pk=draft.pk)
+        self.assertEqual(draft.library_listed_via.pk, keep_map.pk)
+        page = self.client.get(reverse('forge-map-detail', args=[draft.pk])).content.decode()
+        self.assertIn('through its Root Database post', page)
+
+    def test_through_a_translation_too(self):
+        keep_map = KeepMap.objects.create(title='Highlands', designer=self.designer, language=self.english, status='3')
+        draft = self._completed(name='Hautes Terres')
+        ForgedFaction.objects.filter(pk=draft.pk).update(language=self.french, tts_status=ForgedFaction.TTSStatus.APPROVED)
+        self.client.post(reverse('forge-map-link', args=[draft.pk]), {'target': f'new_translation:{keep_map.pk}'})
+        self.assertNotIn(draft.pk, self._catalogue_forge_ids())
+        KeepMap.objects.filter(pk=keep_map.pk).update(status='8')
+        self.assertIn(draft.pk, self._catalogue_forge_ids())
+
+    def _assert_keep_builder_free(self, keep_map):
+        builder = reverse('map-builder', args=[keep_map.slug])
+        page = self.client.get(builder).content.decode()
+        self.assertNotIn('This map is built in the Forge', page)
+        self.assertIn('map-builder-config', page)
+        response = self.client.post(builder, json.dumps({'state': keep_map.tts_builder}), content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        from the_keep.services.tts_store import generate_unavailable_reason
+        keep_map.refresh_from_db()
+        self.assertNotIn('Forge', generate_unavailable_reason(keep_map) or '')
+        # And it can be linked again, by a new draft of the same name.
+        from .publishing import publisher_for
+        new_draft = self._create('Highlands')
+        posts, _translations, _cross = publisher_for(new_draft).link_querysets(new_draft, self.designer)
+        self.assertIn(keep_map, posts)
+
+    def test_deleting_the_draft_frees_the_keep_map(self):
+        draft = self._completed()
+        self._submit(draft)
+        keep_map = KeepMap.objects.get(title='Highlands')
+        KeepMap.objects.filter(pk=keep_map.pk).update(status='3')
+        self.client.post(reverse('forge-faction-delete', args=[draft.pk]))
+        self.assertFalse(ForgedFaction.objects.filter(pk=draft.pk).exists())
+        self._assert_keep_builder_free(KeepMap.objects.get(pk=keep_map.pk))
+
+    def test_unlinking_frees_the_keep_map(self):
+        draft = self._completed()
+        self._submit(draft)
+        keep_map = KeepMap.objects.get(title='Highlands')
+        KeepMap.objects.filter(pk=keep_map.pk).update(status='3')
+        self.client.post(reverse('forge-map-unlink', args=[draft.pk]))
+        self._assert_keep_builder_free(KeepMap.objects.get(pk=keep_map.pk))
+
+    def test_complete_with_nothing_changed_still_completes_the_map(self):
+        draft = self._completed()
+        ForgedMap.objects.filter(faction=draft).update(rendered_builder=None)   # rendered before the field existed
+        reqs = self.client.get(reverse('forge-map-detail', args=[draft.pk])).context['submit_requirements']
+        self.assertFalse(next(r for r in reqs if r['label'] == 'Completed Map')['done'])
+        version = ForgedMap.objects.get(faction=draft).preview_version
+        result = self._save(draft, _fixed_layout(), generate=True).json()
+        self.assertTrue(result['ok'])
+        forged_map = ForgedMap.objects.get(faction=draft)
+        self.assertEqual(forged_map.preview_version, version)   # not re-rendered
+        self.assertEqual(forged_map.rendered_builder, forged_map.tts_builder)
+        reqs = self.client.get(reverse('forge-map-detail', args=[draft.pk])).context['submit_requirements']
+        self.assertTrue(next(r for r in reqs if r['label'] == 'Completed Map')['done'])
+
+    def test_a_bgg_or_french_root_thread_is_enough_to_submit(self):
+        from .publishing.base import THREAD_LINK_MISSING
+        draft = self._completed()
+        response = self.client.post(reverse('forge-map-submit', args=[draft.pk]), {'lore': 'x'})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(THREAD_LINK_MISSING, response.context['form'].non_field_errors())
+        self.assertFalse(KeepMap.objects.exists())
+        bgg = 'https://boardgamegeek.com/thread/1234567/highlands'
+        response = self.client.post(reverse('forge-map-submit', args=[draft.pk]), {'bgg_link': bgg})
+        self.assertEqual(KeepMap.objects.get(title='Highlands').bgg_link, bgg)
+
+        from the_keep.forms import config
+        from .forms_publish import ForgedFactionSubmitForm
+        faction = ForgedFaction.objects.create(designer=self.designer, faction_name='Otters', component='Faction')
+        # The keep only offers a French Root link to French Root members.
+        Profile.objects.filter(pk=self.designer.pk).update(in_french_root=True)
+        self.user.profile.refresh_from_db()
+        fr = f"https://discord.com/channels/{config['FR_GUILD_ID']}/123456789012345678"
+        with_fr = ForgedFactionSubmitForm({'fr_link': fr}, forged_faction=faction, user=self.user)
+        with_fr.is_valid()
+        self.assertNotIn(THREAD_LINK_MISSING, with_fr.non_field_errors())
+        without = ForgedFactionSubmitForm({}, forged_faction=faction, user=self.user)
+        without.is_valid()
+        self.assertIn(THREAD_LINK_MISSING, without.non_field_errors())

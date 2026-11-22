@@ -29,7 +29,7 @@ a publisher (the_forge/publishing/); context from publishing/context.py
             {% endif %}
           {% else %}
             All requirements below must be met before submitting as a new {{ publish_noun }}.<br>
-            In addition, you must have a link to a Woodland Warriors Discord Thread.
+            In addition, you must have a link to a Discord or BGG Thread.
           {% endif %}
         </p>
         {% if publish_target and sync_blocked %}
@@ -70,28 +70,32 @@ a publisher (the_forge/publishing/); context from publishing/context.py
               </li>
             </ul>
           </div>
-        {% elif submit_ready and link_candidate_exists %}
+        {% else %}
+          {% comment %} Always the same Publish menu: submit as a new post, or link to
+          an existing one. An option that isn't available yet is greyed out; with
+          neither, the button is disabled. {% endcomment %}
           <div class="btn-group">
-            <button type="button" class="btn btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+            <button type="button" class="btn btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false"
+                    {% if not submit_ready and not link_candidate_exists %}disabled{% endif %}>
               <i class="bi bi-upload me-1"></i>Publish
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
-              <li><a class="dropdown-item" href="{{ publish_urls.submit }}"><i class="bi bi-plus-circle me-1"></i>Submit</a></li>
-              <li><a class="dropdown-item" href="{{ publish_urls.link }}"><i class="icon-mask icon-link me-1"></i>Link to Existing {{ publish_noun }}</a></li>
+              <li>
+                {% if submit_ready %}
+                  <a class="dropdown-item" href="{{ publish_urls.submit }}"><i class="bi bi-plus-circle me-1"></i>Submit as New {% if faction.is_clockwork %}Clockwork {% endif %}{{ publish_noun }}</a>
+                {% else %}
+                  <span class="dropdown-item disabled" aria-disabled="true"><i class="bi bi-plus-circle me-1"></i>Submit as New {% if faction.is_clockwork %}Clockwork {% endif %}{{ publish_noun }}</span>
+                {% endif %}
+              </li>
+              <li>
+                {% if link_candidate_exists %}
+                  <a class="dropdown-item" href="{{ publish_urls.link }}"><i class="icon-mask icon-link me-1"></i>Link to Existing {{ publish_noun }}</a>
+                {% else %}
+                  <span class="dropdown-item disabled" aria-disabled="true"><i class="icon-mask icon-link me-1"></i>Link to Existing {{ publish_noun }}</span>
+                {% endif %}
+              </li>
             </ul>
           </div>
-        {% elif submit_ready %}
-          <a href="{{ publish_urls.submit }}" class="btn btn-primary">
-            <i class="bi bi-upload me-1"></i>Submit as New {% if faction.is_clockwork %}Clockwork {% endif %}{{ publish_noun }}
-          </a>
-        {% elif link_candidate_exists %}
-          <a href="{{ publish_urls.link }}" class="btn btn-primary">
-            <i class="icon-mask icon-link me-1"></i>Link to Existing {{ publish_noun }}
-          </a>
-        {% else %}
-          <button type="button" class="btn btn-primary" disabled>
-            <i class="bi bi-upload me-1"></i>Submit as New {% if faction.is_clockwork %}Clockwork {% endif %}{{ publish_noun }}
-          </button>
         {% endif %}
       </div>
     </div>
@@ -128,7 +132,7 @@ a publisher (the_forge/publishing/); context from publishing/context.py
           <div class="modal-body">
             <p>Unlink <strong>{{ faction.faction_name }}</strong> from <strong>{{ publish_target_label }}</strong>?</p>
             <p class="text-muted small mb-0">
-              The {{ publish_noun }} will not be deleted: it stays as-is and can be linked with another Forge draft. This draft becomes unlinked again, so you can re-submit it as a new {{ publish_noun }} or link it to a different existing one.
+              The {{ publish_noun }} will not be deleted: it stays as-is, can be edited in the Root Database again, and can be linked with another Forge draft. This draft becomes unlinked again, so you can re-submit it as a new {{ publish_noun }} or link it to a different existing one.
             </p>
           </div>
           <div class="modal-footer">

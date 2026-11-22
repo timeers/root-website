@@ -30,6 +30,9 @@ Context: faction, can_edit, tts_state, is_admin, noun ("faction" or "map").
             Submit this {{ noun }} to be listed in the Tabletop Simulator Library. An admin will review it first.
           {% elif tts_state == 'submitted' %}
             Submitted {{ faction.tts_submitted_at|timesince }} ago. An admin will review it soon.
+          {% elif tts_state == 'approved' and faction.library_listed_via %}
+            Listed in the Tabletop Simulator Library through its Root Database post, <strong>{{ faction.library_listed_via.title }}</strong>,
+            so this Forge entry isn't listed separately.
           {% elif tts_state == 'approved' %}
             Listed in the Tabletop Simulator Library.
             {% if faction.is_map %}Completing the map in the builder or downloading the TTS JSON{% else %}Downloading the TTS JSON{% endif %} updates the listed version{% if faction.tts_json_generated %} (last updated {{ faction.tts_json_generated|date:"M j, Y" }}){% endif %}.

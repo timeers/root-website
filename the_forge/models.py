@@ -230,6 +230,30 @@ class ForgedFaction(models.Model):
     def is_clockwork(self):
         return self.component == Post.ComponentChoices.CLOCKWORK
 
+    @classmethod
+    def tts_library_queryset(cls):
+        """The drafts the TTS Library lists in its Forge section: approved, with
+        JSON, and not linked to a keep post (or a translation of one) that the
+        Library lists itself (statuses Stable to Inactive), so nothing is listed
+        twice. A linked post that's Submitted, Rejected or Abandoned isn't
+        listed, so its Forge draft still is."""
+        from the_keep.models import TTS_LIBRARY_STATUSES
+        return cls.objects.filter(tts_status=cls.TTSStatus.APPROVED, tts_json__isnull=False).exclude(
+            published_post__status__in=TTS_LIBRARY_STATUSES).exclude(
+            published_translation__post__status__in=TTS_LIBRARY_STATUSES)
+
+    @property
+    def library_listed_via(self):
+        """The linked keep post the Library lists instead of this draft, or None."""
+        from the_keep.models import TTS_LIBRARY_STATUSES
+        if self.published_post_id:
+            post = self.published_keep_post
+        elif self.published_translation_id:
+            post = self.published_translation.post
+        else:
+            return None
+        return post if post and post.status in TTS_LIBRARY_STATUSES else None
+
     @property
     def forge_detail_url(self):
         """The draft's own Forge page (maps have theirs)."""

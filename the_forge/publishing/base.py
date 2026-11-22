@@ -8,6 +8,29 @@ from django.urls import reverse
 from the_keep.models import PostTranslation
 
 
+# Submitting needs a thread for the post on one of these (each link's own
+# format is checked by the keep's PostCreateForm).
+SUBMIT_THREAD_LINKS = ('ww_link', 'fr_link', 'bgg_link')
+THREAD_LINK_MISSING = "Add a link to a Woodland Warriors, French Root or Board Game Geek thread."
+
+
+def link_context():
+    """What the submit pages' Links card (partials/_submit_links.html) needs to
+    check Discord thread links in the browser."""
+    from the_keep.forms import config
+    return {
+        'ww_guild_id': config.get('WW_GUILD_ID', ''),
+        'wr_guild_id': config.get('WR_GUILD_ID', ''),
+        'fr_guild_id': config.get('FR_GUILD_ID', ''),
+    }
+
+
+def require_thread_link(form, cleaned):
+    """A submit form's rule: at least one of SUBMIT_THREAD_LINKS."""
+    if not any((cleaned.get(name) or '').strip() for name in SUBMIT_THREAD_LINKS):
+        form.add_error(None, THREAD_LINK_MISSING)
+
+
 @dataclass
 class SyncField:
     """One keep field the sync page can update from the Forge.

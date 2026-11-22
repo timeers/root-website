@@ -191,6 +191,13 @@ class StatusChoices(models.TextChoices):
     REJECTED = '8', _('Rejected')
     SUBMITTED = '9', _('Submitted')
 
+
+# The statuses the TTS Library lists a post at (Stable to Inactive).
+TTS_LIBRARY_STATUSES = (
+    StatusChoices.STABLE, StatusChoices.TESTING,
+    StatusChoices.DEVELOPMENT, StatusChoices.INACTIVE,
+)
+
 # def get_status_name_from_int(status_int):
 #     # Iterate through the choices to find the matching integer
 #     for status in StatusChoices:

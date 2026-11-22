@@ -15,7 +15,7 @@ from the_keep.models import Map, Post
 from the_keep.services.tts_map import (apply_builder_counts, build_map_tts_json, check_builder,
                                        clean_builder_state, layout_counts)
 
-from .base import Publisher, Requirement, SyncField
+from .base import Publisher, Requirement, SyncField, require_thread_link
 
 # A keep post's title is at most this long (Post.title), so a map's name must be too.
 MAX_TITLE = Post._meta.get_field('title').max_length
@@ -122,9 +122,9 @@ class MapSubmitForm(MapCreateForm):
                      'rootjam_link', 'leder_games_link'):
             self.fields.pop(name, None)
 
-        if 'ww_link' in self.fields:
-            self.fields['ww_link'].required = True
-        for name in self.OPTIONAL_LINK_FIELDS:
+        # Every link is optional on its own: clean() requires a thread on one
+        # of Woodland Warriors, French Root or Board Game Geek.
+        for name in ('ww_link',) + self.OPTIONAL_LINK_FIELDS:
             if name in self.fields:
                 self.fields[name].required = False
 
@@ -135,6 +135,29 @@ class MapSubmitForm(MapCreateForm):
         for name, field in self.fields.items():
             if name not in self.EDITABLE_FIELDS:
                 field.disabled = True
+
+        # The details card's inputs (map_submit.html).
+        details = {
+            'lore': ('Lore', {'rows': 3, 'placeholder': 'Thematic text for your map.'}),
+            'description': ('How to Play', {'rows': 4, 'placeholder': 'Special instructions or details about how to setup or play on this map.'}),
+            'version': ('Version', {'placeholder': 'e.g. 1.0'}),
+            'river_clearings': ('River Clearings', {'min': 0, 'placeholder': '0'}),
+            'based_on': ('Based On', {}),
+            'artist': ('Artist', {}),
+        }
+        for name, (label, attrs) in details.items():
+            field = self.fields.get(name)
+            if field is None:
+                continue
+            field.label = label
+            field.help_text = ''
+            css = 'form-select' if name in ('based_on', 'artist') else 'form-control'
+            field.widget.attrs.update({'class': css, **attrs})
+
+    def clean(self):
+        cleaned = super().clean()
+        require_thread_link(self, cleaned)
+        return cleaned
 
 
 class MapPublisher(Publisher):
@@ -211,7 +234,8 @@ class MapPublisher(Publisher):
 
     def submit_context(self, forged, form):
         forged_map, state = rendered(forged)
-        return {'forged_map': forged_map, 'counts': layout_counts(state) if state else {}}
+        from .base import link_context
+        return {'forged_map': forged_map, 'counts': layout_counts(state) if state else {}, **link_context()}
 
     # ── Sync ────────────────────────────────────────────────────────────────
     def post_fields(self, forged):

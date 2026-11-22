@@ -78,7 +78,12 @@
         <h5 class="modal-title" id="deleteMapModalLabel">Delete {{ faction.faction_name }}?</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
-      <div class="modal-body">This deletes the map, its art and its layout. This can't be undone.</div>
+      <div class="modal-body">
+        This deletes the map, its art and its layout. This can't be undone.
+        {% if faction.published_post_id or faction.published_translation_id %}
+          <p class="small text-muted mb-0 mt-2">Its Root Database Map stays, and can be edited there again.</p>
+        {% endif %}
+      </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
         <form method="post" action="{% url 'forge-faction-delete' pk=faction.pk %}" class="m-0">

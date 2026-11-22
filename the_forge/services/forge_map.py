@@ -178,6 +178,13 @@ def refresh_map_image(forged_map):
 
     fingerprint = fingerprint_map(forged_map)
     if forged_map.image_preview and forged_map.preview_fingerprint == fingerprint:
+        # Already current. The fingerprint covers the layout, so the image was
+        # rendered from exactly the current layout: record it as the rendered
+        # one if it isn't yet (maps rendered before rendered_builder existed,
+        # or a Complete with nothing changed).
+        if forged_map.rendered_builder != forged_map.tts_builder:
+            forged_map.rendered_builder = copy.deepcopy(forged_map.tts_builder or {})
+            forged_map.save(update_fields=['rendered_builder'])
         return False
     dpi = preview_dpi(forged_map)
     webp = pdf_bytes_to_webp_bytes(render_map_pdf(forged_map, target_dpi=dpi), dpi=dpi, quality=90)

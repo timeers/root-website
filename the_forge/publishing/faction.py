@@ -136,16 +136,14 @@ class FactionPublisher(Publisher):
         forged.save(update_fields=['icon_synced_name'])
 
     def submit_context(self, forged, form):
-        from the_keep.forms import config as keep_config
+        from .base import link_context
         return {
+            **link_context(),
             'art_by_hint': forged.art_by,
             'picture_options': form._picture_options,
             'sheet': fp._safe_related(forged, 'faction_sheet'),
             'back': fp._safe_related(forged, 'faction_back'),
             'card': fp._safe_related(forged, 'setup_card'),
-            'ww_guild_id': keep_config.get('WW_GUILD_ID', ''),
-            'wr_guild_id': keep_config.get('WR_GUILD_ID', ''),
-            'fr_guild_id': keep_config.get('FR_GUILD_ID', ''),
         }
 
     # ── Sync ────────────────────────────────────────────────────────────────

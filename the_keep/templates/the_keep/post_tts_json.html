@@ -48,6 +48,11 @@
                     <a href="{% url 'map-builder' object.slug %}" class="btn btn-outline-primary w-100">
                         <i class="bi bi-map me-1"></i>{% trans 'Open Map Builder' %}
                     </a>
+                    {% elif is_map and forged_faction.is_map and forged_faction.designer_id == request.user.profile.id %}
+                    {% comment %} Built in the Forge: its builder there (only its designer can edit the draft). {% endcomment %}
+                    <a href="{% url 'forge-map-builder' forged_faction.pk %}" class="btn btn-outline-primary w-100">
+                        <i class="bi bi-map me-1"></i>{% trans 'Open Map Builder' %}
+                    </a>
                     {% endif %}
                     {% if not is_map or not generate_reason %}
                     <form method="post"

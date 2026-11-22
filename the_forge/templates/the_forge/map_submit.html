@@ -3,6 +3,35 @@
 
 {% block title %}Submit {{ faction.faction_name }} - The Forge | {% endblock %}
 
+{% block styles %}
+<style>
+  .mb-submit-card { border-radius: 16px; overflow: hidden; border: 1px solid var(--bs-border-color-translucent);
+                    box-shadow: 0 8px 24px rgba(0, 0, 0, .06), 0 1px 3px rgba(0, 0, 0, .05); }
+  .mb-submit-map { display: block; width: 100%; aspect-ratio: 1.09; object-fit: cover; }
+  .mb-submit-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 12px; border-radius: 999px;
+                    font-size: .85rem; background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color-translucent); }
+  .mb-submit-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  @media (max-width: 575.98px) { .mb-submit-stats { grid-template-columns: repeat(2, 1fr); } }
+  .mb-submit-stat { display: flex; flex-direction: column; align-items: center; padding: 10px 6px; border-radius: 12px;
+                    background: var(--bs-tertiary-bg); border: 1px solid var(--bs-border-color-translucent); }
+  .mb-submit-stat-n { font-size: 1.5rem; font-weight: 700; line-height: 1.1; }
+  .mb-submit-stat-label { font-size: .78rem; color: var(--bs-secondary-color); text-align: center; }
+  .mb-submit-label { font-weight: 600; font-size: .9rem; margin-bottom: .35rem; }
+  .mb-submit-card textarea.form-control { resize: vertical; }
+  .mb-submit-card .select2-container { width: 100% !important; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  // The long lists are searchable, as on the Root Database's own post form.
+  $(function () {
+    $('#id_based_on').select2({ theme: 'bootstrap-5', placeholder: 'Not based on another map', allowClear: true, width: '100%' });
+    $('#id_artist').select2({ theme: 'bootstrap-5', placeholder: 'Search for the artist...', allowClear: true, width: '100%' });
+  });
+</script>
+{% endblock %}
+
 {% block content %}
 <div class="container py-3">
   <div class="my-2">
@@ -25,56 +54,74 @@
 
     <div class="row g-3 mb-3">
       <div class="col-12 col-lg-7">
-        <div class="card p-3 h-100">
-          <h5 class="root-title">The Map</h5>
+        <div class="card mb-submit-card h-100">
           {% if forged_map.image_preview %}
             <img src="{{ forged_map.image_preview.url }}?v={{ forged_map.preview_version }}" alt="{{ faction.faction_name }}"
-                 class="w-100 rounded mb-3">
+                 class="mb-submit-map">
           {% endif %}
-          <dl class="row small mb-0">
-            <dt class="col-6">Name</dt><dd class="col-6">{{ faction.faction_name }}</dd>
-            <dt class="col-6">Language</dt><dd class="col-6">{{ faction.language.name|default:'English' }}</dd>
-            <dt class="col-6">Clearings</dt><dd class="col-6">{{ counts.clearings }}</dd>
-            <dt class="col-6">Building Slots (including Ruins)</dt><dd class="col-6">{{ counts.building_slots }}</dd>
-            <dt class="col-6">Ruins</dt><dd class="col-6">{{ counts.ruins }}</dd>
-            <dt class="col-6">Forests</dt><dd class="col-6">{{ counts.forests }}</dd>
-            <dt class="col-6">Clearing Suits</dt><dd class="col-6">{% if form.fixed_clearings.value %}Fixed{% else %}Random{% endif %}</dd>
-          </dl>
+          <div class="card-body">
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+              <h4 class="luminari mb-0 me-auto">{{ faction.faction_name }}</h4>
+              <span class="mb-submit-chip"><i class="bi bi-translate"></i>{{ faction.language.name|default:'English' }}</span>
+              <span class="mb-submit-chip">
+                {% if form.fixed_clearings.value %}<i class="bi bi-pin-map"></i>Fixed suits{% else %}<i class="bi bi-shuffle"></i>Random suits{% endif %}
+              </span>
+            </div>
+            <div class="mb-submit-stats">
+              <div class="mb-submit-stat"><span class="mb-submit-stat-n">{{ counts.clearings }}</span><span class="mb-submit-stat-label">Clearings</span></div>
+              <div class="mb-submit-stat"><span class="mb-submit-stat-n">{{ counts.building_slots }}</span><span class="mb-submit-stat-label">Building Slots</span></div>
+              <div class="mb-submit-stat"><span class="mb-submit-stat-n">{{ counts.ruins }}</span><span class="mb-submit-stat-label">Ruins</span></div>
+              <div class="mb-submit-stat"><span class="mb-submit-stat-n">{{ counts.forests }}</span><span class="mb-submit-stat-label">Forests</span></div>
+            </div>
+            <p class="form-text mb-0 mt-3">These come from the map builder. To change them, edit the map and click Complete again.</p>
+          </div>
         </div>
       </div>
+
       <div class="col-12 col-lg-5">
-        <div class="card p-3 h-100">
-          <h5 class="root-title">Details</h5>
-          {% for field in form %}
-            {% if field.name == 'lore' or field.name == 'description' or field.name == 'version' or field.name == 'artist' or field.name == 'based_on' or field.name == 'river_clearings' %}
-              <div class="mb-3">
-                <label class="form-label fw-semibold" for="{{ field.id_for_label }}">{{ field.label }}</label>
-                {{ field }}
-                {% if field.help_text %}<div class="form-text">{{ field.help_text|safe }}</div>{% endif %}
-                {% for error in field.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+        <div class="card mb-submit-card h-100">
+          <div class="card-body">
+            <h5 class="root-title mb-1">Details</h5>
+            <p class="form-text mt-0 mb-3">All optional. You can change these later.</p>
+
+            <div class="mb-3">
+              <label class="form-label mb-submit-label" for="{{ form.lore.id_for_label }}">{{ form.lore.label }}</label>
+              {{ form.lore }}
+              {% for error in form.lore.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+            </div>
+            <div class="mb-3">
+              <label class="form-label mb-submit-label" for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+              {{ form.description }}
+              {% for error in form.description.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+            </div>
+            <div class="row g-3 mb-3">
+              <div class="col-6">
+                <label class="form-label mb-submit-label" for="{{ form.version.id_for_label }}">{{ form.version.label }}</label>
+                {{ form.version }}
+                {% for error in form.version.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
               </div>
-            {% endif %}
-          {% endfor %}
+              <div class="col-6">
+                <label class="form-label mb-submit-label" for="{{ form.river_clearings.id_for_label }}">{{ form.river_clearings.label }}</label>
+                {{ form.river_clearings }}
+                {% for error in form.river_clearings.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label mb-submit-label" for="{{ form.based_on.id_for_label }}">{{ form.based_on.label }}</label>
+              {{ form.based_on }}
+              {% for error in form.based_on.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+            </div>
+            <div class="mb-0">
+              <label class="form-label mb-submit-label" for="{{ form.artist.id_for_label }}">{{ form.artist.label }}</label>
+              {{ form.artist }}
+              {% for error in form.artist.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="card p-3 mb-3">
-      <h5 class="root-title">Links</h5>
-      <p class="form-text mb-3">
-        A Woodland Warriors thread link is required: head to the fan-content section of Woodland Warriors to create a thread for your map,
-        with the map and a description of how to play on it. You can add other links too.
-      </p>
-      {% for field in form %}
-        {% if field.name == 'ww_link' or field.name == 'bgg_link' or field.name == 'tts_link' or field.name == 'wr_link' or field.name == 'fr_link' or field.name == 'pnp_link' or field.name == 'stl_link' %}
-          <div class="mb-3">
-            <label class="form-label{% if field.name == 'ww_link' %} fw-semibold{% endif %}" for="{{ field.id_for_label }}">{{ field.label }}{% if field.name == 'ww_link' %} *{% endif %}</label>
-            {{ field }}
-            {% for error in field.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
-          </div>
-        {% endif %}
-      {% endfor %}
-    </div>
+    {% include 'the_forge/partials/_submit_links.html' with subject='map' thread_contents='the map as well as a description of how to play on it' %}
 
     <div class="d-flex justify-content-end gap-2 mb-5">
       <a href="{% url 'forge-map-detail' pk=faction.pk %}" class="btn btn-secondary">Cancel</a>
