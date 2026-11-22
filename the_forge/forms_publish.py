@@ -19,6 +19,7 @@ from the_keep.models import (
     PostTranslation,
     TTSAsset,
 )
+from the_keep.services.tts_figures import FIGURE_VERSION
 from the_keep.utils import tts_json_hash
 
 from .models import (
@@ -496,8 +497,62 @@ def forge_tts_fingerprint(forged):
                     forged.relationship_marker.name if forged.relationship_marker else ''],
         'pieces': pieces,
         'decks': decks,
+        'figures': FIGURE_VERSION,
     }
     return _md5(json.dumps(inputs, sort_keys=True, default=str))
+
+
+# ── Warrior figures (the_keep/services/tts_figures.py) ──────────────────────
+# The keep copies the Forge's generated figure files rather than regenerating
+# them (it would trace its own re-encoded copy of the image). A copy is due
+# whenever the Forge figure changed since the last one, or the keep file is
+# missing, whatever the piece row says: a colour change, or warriors synced
+# before figures existed, leave that row in sync.
+
+def figure_pairs(forged, piece_plan=None):
+    """(forge piece, keep piece) for every matched warrior."""
+    plan = build_piece_plan(forged) if piece_plan is None else piece_plan
+    return [(e['forge_piece'], e['keep_piece']) for e in plan
+            if e['forge_piece'].type == 'W' and e['keep_piece'] is not None and e['keep_piece'].pk]
+
+
+def _stored(field_file):
+    try:
+        return bool(field_file and field_file.name and field_file.storage.exists(field_file.name))
+    except Exception:
+        return False
+
+
+def figure_stale(forge_piece, keep_piece):
+    if not (forge_piece.figure_fingerprint and _stored(forge_piece.figure_mesh)
+            and _stored(forge_piece.figure_texture)):
+        return False   # no Forge figure (an unusable image): nothing to copy
+    return (keep_piece.figure_source_fingerprint != forge_piece.figure_fingerprint
+            or not _stored(keep_piece.figure_mesh) or not _stored(keep_piece.figure_texture))
+
+
+def copy_figures(forged):
+    """Copy every stale Forge warrior figure to its keep piece (after the
+    piece rows are applied, so new keep pieces have their pk for the path)."""
+    for forge_piece, keep_piece in figure_pairs(forged):
+        if not figure_stale(forge_piece, keep_piece):
+            continue
+        keep_piece.figure_mesh.save('figure.obj', copy_image_field(forge_piece.figure_mesh), save=False)
+        keep_piece.figure_texture.save('figure.png', copy_image_field(forge_piece.figure_texture), save=False)
+        # figure_fingerprint stays empty: a later keep Generate (once unlinked)
+        # regenerates from the keep's own image.
+        KeepPiece.objects.filter(pk=keep_piece.pk).update(
+            figure_mesh=keep_piece.figure_mesh.name, figure_texture=keep_piece.figure_texture.name,
+            figure_size=forge_piece.figure_size, figure_fingerprint='',
+            figure_source_fingerprint=forge_piece.figure_fingerprint)
+
+
+def ensure_forge_figures(forged):
+    """Bring the Forge's warrior figures up to date (before the sync page
+    compares or copies them)."""
+    from the_keep.services.tts_figures import ensure_figure
+    for piece in forged.pieces.filter(type='W'):
+        ensure_figure(piece, forged.color)
 
 
 def build_tts_plan(forged, diff_rows, piece_plan, deck_plan, asset_plan):
@@ -515,6 +570,7 @@ def build_tts_plan(forged, diff_rows, piece_plan, deck_plan, asset_plan):
         + sum(1 for e in piece_plan if not e['in_sync'])
         + sum(1 for e in deck_plan if not e['in_sync'])
         + sum(1 for e in asset_plan if not e['in_sync'])
+        + sum(1 for fp_, kp in figure_pairs(forged, piece_plan) if figure_stale(fp_, kp))
     )
     keep_json = faction.tts_json
     json_matches = bool(keep_json) and tts_json_hash(keep_json) == forged.tts_synced_hash

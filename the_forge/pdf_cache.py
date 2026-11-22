@@ -27,6 +27,11 @@ _FINGERPRINT_EXCLUDE_FIELDS = frozenset({
     'snap_points',
     'decree_slide_pts',
     'ability_bar_extra_h_pts',
+    # A warrior's generated TTS figure (written on export, not a render input).
+    'figure_mesh',
+    'figure_texture',
+    'figure_fingerprint',
+    'figure_size',
 })
 
 

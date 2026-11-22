@@ -19,6 +19,8 @@ from .services.upload_paths import (
     relationship_marker_upload_path,
     piece_front_upload_path,
     piece_back_upload_path,
+    piece_figure_mesh_upload_path,
+    piece_figure_texture_upload_path,
     forged_deck_back_upload_path,
     forged_deck_sheet_upload_path,
     forged_card_upload_path,
@@ -1038,6 +1040,12 @@ class Piece(models.Model):
     back_image = models.ImageField(upload_to=piece_back_upload_path, null=True, blank=True)
     front_version = models.PositiveIntegerField(default=0)
     back_version = models.PositiveIntegerField(default=0)
+    # Warriors' Tabletop Simulator figure, generated from small_icon on export
+    # (the_keep/services/tts_figures.py ensure_figure).
+    figure_mesh = models.FileField(upload_to=piece_figure_mesh_upload_path, null=True, blank=True)
+    figure_texture = models.ImageField(upload_to=piece_figure_texture_upload_path, null=True, blank=True)
+    figure_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    figure_size = models.JSONField(null=True, blank=True)
 
     def save(self, *args, **kwargs):
         if self.pk:
@@ -1047,6 +1055,9 @@ class Piece(models.Model):
                 old = None
             if old is not None:
                 type_changed = old.type != self.type
+                if type_changed and old.type == self.TypeChoices.WARRIOR:
+                    from the_keep.services.tts_figures import clear_figure
+                    clear_figure(self)
                 for field_name, version_attr in (
                     ('small_icon', 'front_version'),
                     ('back_image', 'back_version'),

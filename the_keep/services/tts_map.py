@@ -22,7 +22,7 @@ from pathlib import Path
 from django.conf import settings
 from django.templatetags.static import static
 
-from .tts import SiteURLRequest, generate_tts_guid, tts_image_url, wrap_tts_save
+from .tts import SiteURLRequest, _guids, generate_tts_guid, tts_image_url, wrap_tts_save
 
 PIECES_PATH = Path(settings.BASE_DIR) / 'tts' / 'rtt_map_pieces.json'
 ASSETS_DIR = Path(settings.BASE_DIR) / 'the_keep' / 'static' / 'images' / 'tts' / 'assets'
@@ -493,15 +493,6 @@ def _resolve(value):
     if isinstance(value, str) and value.startswith('static:'):
         return tts_image_url(static(value[len('static:'):]), request=SiteURLRequest())
     return value
-
-
-def _guids(obj):
-    obj['GUID'] = generate_tts_guid()
-    for child in obj.get('ContainedObjects') or []:
-        _guids(child)
-    for child in (obj.get('States') or {}).values():
-        _guids(child)
-    return obj
 
 
 def _piece(template, dx, dz, height, tags, rot_y=None):

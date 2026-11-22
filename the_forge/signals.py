@@ -105,6 +105,17 @@ def _delete_map_art(sender, instance, **kwargs):
             pass
 
 
+def _delete_piece_figure(sender, instance, **kwargs):
+    """A warrior's generated TTS figure files go with the piece."""
+    for name in ('figure_mesh', 'figure_texture'):
+        f = getattr(instance, name, None)
+        if f and f.name:
+            try:
+                f.delete(save=False)
+            except Exception:
+                pass
+
+
 # ---------------------------------------------------------------------------
 # Timestamp bubble-up.
 #
@@ -352,6 +363,7 @@ def _connect():
         post_delete.connect(handler, sender=Model)
 
     post_delete.connect(_delete_map_art, sender=apps.get_model('the_forge', 'ForgedMap'))
+    post_delete.connect(_delete_piece_figure, sender=apps.get_model('the_forge', 'Piece'))
 
     ForgedFaction = apps.get_model('the_forge', 'ForgedFaction')
     pre_save.connect(_forged_faction_pre_save, sender=ForgedFaction)

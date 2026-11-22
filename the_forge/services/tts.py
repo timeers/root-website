@@ -11,6 +11,9 @@ from the_keep.services.tts import (
     generate_tts_guid,
     LOCK_ON_REST_LUA,
 )
+from the_keep.services.tts_supply import (
+    LOOSE_SPACING, ROW_START_X, ROW_START_X_DECREE, RowLayout, layout_groups, tile_obstacle,
+)
 
 
 TTS_OBJECTS_DIR = os.path.join(os.path.dirname(__file__), 'tts_objects')
@@ -216,26 +219,21 @@ class TTSForgedFactionDecree(TTSBoardBase):
 
 PIECE_BASE_Y = 1.5
 PIECE_STACK_Y_STEP = 0.12
-PIECE_GROUP_X_STEP = 1.5
-# Fallback origin: just NW of the faction board. The board sits at world
-# origin with scale 9.035, so its NW corner is roughly (-4.5, +4.5) on (X, Z).
-# Step the X out a bit further so stacks don't overhang the board edge.
-PIECE_FALLBACK_ORIGIN_X = -13.0
-PIECE_FALLBACK_ORIGIN_Z = 12.0
 PIECE_ROT_Y = 180.0
 BUILDING_SCALE = 0.70858
 TOKEN_SCALE = 0.703911364
 
 PIECE_TYPE_TO_TRACK_TYPE = {'B': 'building', 'T': 'token'}
 
-MARKER_FALLBACK_ORIGIN_X = 13.0
-MARKER_FALLBACK_ORIGIN_Z = 12.0
-MARKER_GROUP_X_STEP = 1.5
+# The VP and relationship markers stay at x >= 13: the loader puts the RTT VP
+# panel at the VP marker + (3, -5), so further left it would cover the board.
+MARKER_MIN_X = 13.0
 
 # Fallback spawn location for ForgedDeckGroup decks that don't match a
-# CardPile snap point. Sits north of the marker stack (higher Z in TTS world coords) so it doesn't overlap the markers; subsequent decks step east (higher X).
-DECK_FALLBACK_ORIGIN_X = MARKER_FALLBACK_ORIGIN_X + 1.5
-DECK_FALLBACK_ORIGIN_Z = MARKER_FALLBACK_ORIGIN_Z + 5.0  # ~5u north of markers
+# CardPile snap point: a row north of the warriors / pieces / markers row,
+# stepping east (higher X), pushed right when that row runs long.
+DECK_FALLBACK_ORIGIN_X = 14.5
+DECK_FALLBACK_ORIGIN_Z = 17.0
 DECK_FALLBACK_X_STEP = 6.5
 
 
@@ -319,12 +317,16 @@ class TTSForgedPiece:
             "scaleX": scale, "scaleY": 1.0, "scaleZ": scale,
         })
 
-    def at_fallback_stack(self, group_index, copy_index):
+    def width(self):
+        return 2 * self._scale()
+
+    def at_row_stack(self, world_x, world_z, copy_index):
+        """One copy of an unmatched piece's stack in the row above the board."""
         scale = self._scale()
         return self._base_dict({
-            "posX": PIECE_FALLBACK_ORIGIN_X - group_index * PIECE_GROUP_X_STEP,
+            "posX": world_x,
             "posY": PIECE_BASE_Y + copy_index * PIECE_STACK_Y_STEP,
-            "posZ": PIECE_FALLBACK_ORIGIN_Z,
+            "posZ": world_z,
             "rotX": 0.0, "rotY": PIECE_ROT_Y, "rotZ": 0.0,
             "scaleX": scale, "scaleY": 1.0, "scaleZ": scale,
         })
@@ -420,12 +422,13 @@ def _snap_to_world(sp):
     return world_x, world_z, world_y
 
 
-def place_pieces_for_back(back, sheet, request):
+def place_pieces_for_back(back, sheet, request, row=None):
     """Return TTS object dicts for all buildings/tokens on `back`.
 
     Pieces whose names match a CardboardTrack title (or row title) on `sheet`
-    get placed at that track's snap points; everything else falls back to an
-    offset stack next to the board.
+    get placed at that track's snap points; everything else is stacked in the
+    row above the board (`row`, a RowLayout shared with the warriors and
+    markers), one stack per piece.
     """
     pieces = list(back.faction.pieces.filter(type__in=['B', 'T']).order_by('type', 'pk'))
     if not pieces:
@@ -481,19 +484,21 @@ def place_pieces_for_back(back, sheet, request):
         if remaining > 0:
             fallback_queue.append((piece, remaining))
 
-    for fallback_index, (piece, remaining) in enumerate(fallback_queue):
+    if fallback_queue and row is None:
+        row = RowLayout()
+    for piece, remaining in fallback_queue:
         builder = TTSForgedPiece(piece, request=request)
+        world_x, world_z = row.place(builder.width(), builder.width())
         for copy_index in range(remaining):
-            objects.append(builder.at_fallback_stack(fallback_index, copy_index))
+            objects.append(builder.at_row_stack(world_x, world_z, copy_index))
 
     return objects
 
 
-def place_markers_for_faction(faction, request):
-    """Return TTS object dicts for the faction's VP and Relationship markers.
-
-    Markers stack east of the faction board, mirroring the piece fallback
-    stacks that sit west of it. Missing markers are skipped.
+def place_markers_for_faction(faction, request, row=None):
+    """Return TTS object dicts for the faction's VP and Relationship markers,
+    in the row above the board (`row`), never left of MARKER_MIN_X. Missing
+    markers are skipped.
     """
     candidates = [
         (getattr(faction, 'vp_marker', None),
@@ -501,14 +506,62 @@ def place_markers_for_faction(faction, request):
         (getattr(faction, 'relationship_marker', None),
          f"{_tts_faction_name(faction)} Relationship"),
     ]
+    row = row or RowLayout()
     objects = []
-    group_index = 0
     for image_field, nickname in candidates:
         if not image_field:
             continue
-        world_x = MARKER_FALLBACK_ORIGIN_X + group_index * MARKER_GROUP_X_STEP
-        world_z = MARKER_FALLBACK_ORIGIN_Z
+        world_x, world_z = row.place(2 * BUILDING_SCALE, 2 * BUILDING_SCALE, min_x=MARKER_MIN_X)
         builder = TTSForgedMarker(faction, image_field, nickname, request=request)
         objects.append(builder.at_world_point(world_x, world_z))
-        group_index += 1
     return objects
+
+
+# ---------------------------------------------------------------------------
+# Warriors — a supply (or a few loose figures) per warrior Piece
+# ---------------------------------------------------------------------------
+
+IMPROVEMENTS_TRANSFORM = {
+    "posX": -16.0, "posY": -0.113604546, "posZ": 0.0,
+    "rotX": 0.0, "rotY": 180.0, "rotZ": 0.0,
+    "scaleX": 9.516764, "scaleY": 1.0, "scaleZ": 9.516764,
+}
+IMPROVEMENTS_IMAGE = 'images/Improved Crafted Improvements.jpg'
+
+
+@lru_cache(maxsize=1)
+def _improvements_aspect():
+    """The Crafted Improvements tile image's width / height (its tile's
+    footprint follows it). A static copy of the tile's image lives in the keep."""
+    from django.contrib.staticfiles import finders
+    from PIL import Image
+    try:
+        with Image.open(finders.find(IMPROVEMENTS_IMAGE)) as im:
+            return im.width / im.height
+    except Exception:
+        return 740 / 1955
+
+
+def board_row(decree_transform=None):
+    """The shared row above the faction board (warriors, unmatched pieces,
+    markers), set out like the official mod: left of centre, or past the
+    board's left edge when there's a decree tile above it. The decree and the
+    Crafted Improvements tile are obstacles."""
+    from ..pdf_engine import PAGE_H, PAGE_W
+    obstacles = [tile_obstacle(IMPROVEMENTS_TRANSFORM, _improvements_aspect())]
+    if decree_transform:
+        # The decree spans the board's full width (scaled to its own height).
+        full_half_width = PAGE_W / PAGE_H * FACTION_BOARD_TRANSFORM['scaleX']
+        aspect = full_half_width / (decree_transform.get('scaleX') or 1.0)
+        obstacles.append(tile_obstacle(decree_transform, aspect))
+    return RowLayout(ROW_START_X_DECREE if decree_transform else ROW_START_X, obstacles=obstacles)
+
+
+def place_warriors_for_faction(faction, request=None, row=None):
+    """Return TTS objects for the faction's warrior pieces: each a supply bag
+    (or, under SUPPLY_MINIMUM, its warriors standing in a row), stepping right
+    along the row above the board."""
+    from the_keep.services.tts_figures import warrior_groups
+    pieces = faction.pieces.filter(type='W').order_by('pk')
+    groups = warrior_groups(pieces, faction.color, _tts_faction_name(faction), request=request)
+    return layout_groups(groups, row or RowLayout(), loose_spacing=LOOSE_SPACING, request=request)

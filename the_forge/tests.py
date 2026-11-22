@@ -1535,3 +1535,224 @@ class PublishFollowUpTests(_MapPublishBase):
         without = ForgedFactionSubmitForm({}, forged_faction=faction, user=self.user)
         without.is_valid()
         self.assertIn(THREAD_LINK_MISSING, without.non_field_errors())
+
+
+# ── Warrior figures in the TTS export (tts_figures / tts_supply) ────────────
+
+import os as _os
+
+from the_keep.tests import _meeple_bytes
+from the_keep.services import tts_supply
+from the_keep.services.tts import SiteURLRequest as _SiteURLRequest
+
+
+def _warrior_png(name='w.png'):
+    return SimpleUploadedFile(name, _meeple_bytes(size=(300, 390)), content_type='image/png')
+
+
+def _piece_with_icon(icon, **fields):
+    # Forge piece icons are named by pk, so save the icon once there is one.
+    piece = Piece.objects.create(**fields)
+    piece.small_icon.save(icon.name, icon)
+    return piece
+
+
+def _decree_png(height):
+    from PIL import Image
+    out = BytesIO()
+    Image.new('RGB', (1650, height), (240, 230, 200)).save(out, format='PNG')
+    return SimpleUploadedFile('decree.png', out.getvalue(), content_type='image/png')
+
+
+@override_settings(MEDIA_ROOT=_TTS_MEDIA, SITE_URL='https://example.test')
+class ForgeWarriorExportTests(TestCase):
+    def setUp(self):
+        Language.objects.get_or_create(code='en', defaults={'name': 'English'})
+        self.designer = Profile.objects.create(discord='warriordesigner')
+        self.forged = ForgedFaction.objects.create(designer=self.designer, faction_name='Cats',
+                                                   color='#d2691e', vp_marker=_png('vp.png'))
+        back = FactionBack.objects.create(faction=self.forged)
+        back.image_preview.save('back.png', _png('back.png'))
+        FactionBack.objects.filter(pk=back.pk).update(preview_version=1)
+        self.warrior = _piece_with_icon(_warrior_png(), faction=self.forged, type='W', quantity=8, name='Cat')
+        self.roost = _piece_with_icon(_png('saw.png'), faction=self.forged, type='B', quantity=3, name='Sawmill')
+
+    def _export(self):
+        from .views import _build_forged_tts_save
+        forged = ForgedFaction.objects.get(pk=self.forged.pk)
+        save_file, error, _parts = _build_forged_tts_save(_SiteURLRequest(), forged, refresh_previews=False)
+        self.assertIsNotNone(save_file, error)
+        return save_file['ObjectStates']
+
+    def _named(self, objects, name):
+        return [o for o in objects if o.get('Nickname') == name]
+
+    def test_supply_and_row_without_decree(self):
+        objects = self._export()
+        bag, = self._named(objects, 'Cats Supply')
+        self.assertEqual(bag['Name'], 'Custom_Model_Bag')
+        self.assertEqual(len(bag['ContainedObjects']), 8)
+        self.assertEqual({o['Name'] for o in bag['ContainedObjects']}, {'Custom_Model'})
+        self.assertEqual(bag['ContainedObjects'][0]['Nickname'], 'Cat Warrior')
+        self.assertTrue(bag['CustomMesh']['MeshURL'].endswith('-figure.obj'))
+        self.assertAlmostEqual(bag['Transform']['posX'], tts_supply.ROW_START_X)
+        warrior = Piece.objects.get(pk=self.warrior.pk)
+        self.assertTrue(_os.path.exists(warrior.figure_mesh.path))
+        self.assertTrue(_os.path.exists(warrior.figure_texture.path))
+        self.assertIn('/pieces/warriors/', warrior.figure_mesh.name)
+
+        # The unmatched building stack and the VP marker follow to the right.
+        saw = self._named(objects, 'Sawmill')
+        self.assertEqual(len(saw), 3)
+        bag_right = bag['Transform']['posX'] + warrior.figure_size[0] * tts_supply.SUPPLY_SCALE / 2
+        self.assertGreater(saw[0]['Transform']['posX'] - 0.70858, bag_right)
+        vp, = self._named(objects, 'Cats VP')
+        self.assertGreaterEqual(vp['Transform']['posX'], 13.0)
+
+    def test_figures_are_reused_and_follow_the_colour(self):
+        self._export()
+        first = Piece.objects.get(pk=self.warrior.pk)
+        mtime = _os.path.getmtime(first.figure_texture.path)
+        self._export()
+        again = Piece.objects.get(pk=self.warrior.pk)
+        self.assertEqual(again.figure_fingerprint, first.figure_fingerprint)
+        self.assertEqual(_os.path.getmtime(again.figure_texture.path), mtime)
+        ForgedFaction.objects.filter(pk=self.forged.pk).update(color='#3366cc')
+        self._export()
+        recoloured = Piece.objects.get(pk=self.warrior.pk)
+        self.assertNotEqual(recoloured.figure_fingerprint, first.figure_fingerprint)
+        from PIL import Image
+        with Image.open(recoloured.figure_texture.path) as tex:
+            self.assertEqual(tex.getpixel((1000, 1000)), (0x33, 0x66, 0xcc))
+
+    def test_few_warriors_stand_loose(self):
+        Piece.objects.filter(pk=self.warrior.pk).update(quantity=3)
+        objects = self._export()
+        self.assertEqual(self._named(objects, 'Cats Supply'), [])
+        self.assertEqual(len(self._named(objects, 'Cat Warrior')), 3)
+
+    def test_unusable_warrior_is_skipped(self):
+        bad = _piece_with_icon(_png('ghost.png'), faction=self.forged, type='W', quantity=6,
+                               name='Ghost')   # fully transparent
+        objects = self._export()
+        self.assertEqual(self._named(objects, 'Cats Ghost Supply'), [])
+        self.assertEqual(len(self._named(objects, 'Cats Cat Supply')), 1)
+        self.assertEqual(Piece.objects.get(pk=bad.pk).figure_fingerprint, '')
+
+    def test_export_has_no_side_effects(self):
+        back = FactionBack.objects.get(faction=self.forged)
+        fingerprint = fingerprint_back(back)
+        updated = ForgedFaction.objects.get(pk=self.forged.pk).last_updated
+        back_updated = back.last_updated
+        self._export()
+        back = FactionBack.objects.get(faction=self.forged)
+        self.assertEqual(fingerprint_back(back), fingerprint)
+        self.assertEqual(back.last_updated, back_updated)
+        self.assertEqual(ForgedFaction.objects.get(pk=self.forged.pk).last_updated, updated)
+
+    def test_decree_moves_the_row_left(self):
+        sheet = FactionSheet.objects.create(faction=self.forged, include_decree=True)
+        sheet.decree_preview.save('decree.png', _decree_png(560))
+        objects = self._export()
+        bag, = self._named(objects, 'Cats Supply')
+        self.assertAlmostEqual(bag['Transform']['posX'], tts_supply.ROW_START_X_DECREE)
+        # It clears the Crafted Improvements tile's north edge.
+        from .services.tts import IMPROVEMENTS_TRANSFORM
+        length = Piece.objects.get(pk=self.warrior.pk).figure_size[2] * tts_supply.SUPPLY_SCALE
+        self.assertGreaterEqual(bag['Transform']['posZ'], IMPROVEMENTS_TRANSFORM['scaleZ'])
+        self.assertLess(bag['Transform']['posZ'] + length, 18.8 - 4.0)
+
+    def test_tall_decree_pushes_the_row_past_it(self):
+        from .services.tts import board_row
+        row = board_row({'posX': 0.0, 'posZ': 18.8, 'scaleX': 9.035468, 'scaleZ': 9.035468})
+        first, _z = row.place(2.0, 2.7)          # left of the decree: unaffected
+        self.assertAlmostEqual(first, tts_supply.ROW_START_X_DECREE)
+        second, _z = row.place(2.0, 2.7)         # would run under it: past its right edge
+        self.assertGreater(second - 1.0, 11.70)
+
+
+@override_settings(MEDIA_ROOT=_TTS_MEDIA, SITE_URL='https://example.test')
+class ForgeWarriorSyncTests(TestCase):
+    def setUp(self):
+        Language.objects.get_or_create(code='en', defaults={'name': 'English'})
+        self.designer = Profile.objects.create(discord='warriorsync')
+        self.keep = KeepFaction.objects.create(title='Cats', animal='Cat', designer=self.designer,
+                                               component='Faction')
+        self.forged = ForgedFaction.objects.create(designer=self.designer, faction_name='Cats',
+                                                   color='#d2691e', published_post=self.keep)
+        back = FactionBack.objects.create(faction=self.forged)
+        back.image_preview.save('back.png', _png('back.png'))
+        FactionBack.objects.filter(pk=back.pk).update(preview_version=1)
+        self.warrior = _piece_with_icon(_warrior_png(), faction=self.forged, type='W', quantity=8, name='Cat')
+
+    def _sync(self):
+        from .publishing import publisher_for
+        from .views import _sync_keep_tts_json
+        forged = ForgedFaction.objects.get(pk=self.forged.pk)
+        publisher_for(forged).refresh(forged, for_sync=True)
+        form = ForgedFactionSyncForm({'sync_tts_json': 'on'}, forged=ForgedFaction.objects.get(pk=self.forged.pk))
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        self.assertIsNone(_sync_keep_tts_json(self.forged.pk))
+        return KeepFaction.objects.get(pk=self.keep.pk).tts_json
+
+    def test_sync_copies_the_figure(self):
+        stored = self._sync()
+        self.assertEqual(find_forge_urls(stored), [])
+        bag, = [o for o in stored['ObjectStates'] if o.get('Nickname') == 'Cats Supply']
+        self.assertIn('/media/uploads/posts/', bag['CustomMesh']['MeshURL'])
+        keep_piece = KeepPiece.objects.get(parent=self.keep, type='W')
+        forge_piece = Piece.objects.get(pk=self.warrior.pk)
+        self.assertEqual(keep_piece.figure_source_fingerprint, forge_piece.figure_fingerprint)
+        self.assertTrue(keep_piece.figure_mesh.name.endswith(f'warriors/{keep_piece.pk}-figure.obj'))
+        with open(keep_piece.figure_mesh.path) as a, open(forge_piece.figure_mesh.path) as b:
+            self.assertEqual(a.read(), b.read())
+        fresh = ForgedFactionSyncForm(forged=ForgedFaction.objects.get(pk=self.forged.pk))
+        self.assertTrue(fresh.tts_plan['in_sync'], fresh.tts_plan)
+
+    def test_colour_change_recopies_the_figure(self):
+        self._sync()
+        before = KeepPiece.objects.get(parent=self.keep, type='W').figure_source_fingerprint
+        ForgedFaction.objects.filter(pk=self.forged.pk).update(color='#3366cc')
+        KeepFaction.objects.filter(pk=self.keep.pk).update(color='#3366cc')
+        self._sync()
+        keep_piece = KeepPiece.objects.get(parent=self.keep, type='W')
+        self.assertNotEqual(keep_piece.figure_source_fingerprint, before)
+        from PIL import Image
+        with Image.open(keep_piece.figure_texture.path) as tex:
+            self.assertEqual(tex.getpixel((1000, 1000)), (0x33, 0x66, 0xcc))
+
+    def test_previously_synced_warrior_gets_a_figure(self):
+        self._sync()
+        keep_piece = KeepPiece.objects.get(parent=self.keep, type='W')
+        _os.remove(keep_piece.figure_mesh.path)
+        KeepPiece.objects.filter(pk=keep_piece.pk).update(figure_mesh='', figure_texture='',
+                                                         figure_source_fingerprint='')
+        forged = ForgedFaction.objects.get(pk=self.forged.pk)
+        form = ForgedFactionSyncForm(forged=forged)
+        self.assertTrue(all(e['in_sync'] for e in form.piece_plan))
+        self.assertFalse(form.tts_plan['in_sync'])
+        self.assertGreaterEqual(form.tts_plan['stale_count'], 1)
+        self._sync()
+        keep_piece = KeepPiece.objects.get(pk=keep_piece.pk)
+        self.assertTrue(_os.path.exists(keep_piece.figure_mesh.path))
+
+    def test_type_change_and_delete_remove_the_figure(self):
+        self._sync()
+        forge_piece = Piece.objects.get(pk=self.warrior.pk)
+        mesh = forge_piece.figure_mesh.path
+        forge_piece.type = 'T'
+        forge_piece.save()
+        self.assertFalse(_os.path.exists(mesh))
+        self.assertEqual(Piece.objects.get(pk=self.warrior.pk).figure_fingerprint, '')
+        keep_piece = KeepPiece.objects.get(parent=self.keep, type='W')
+        keep_mesh = keep_piece.figure_mesh.path
+        keep_piece.delete()
+        self.assertFalse(_os.path.exists(keep_mesh))
+
+    def test_clone_leaves_the_figure_behind(self):
+        self._sync()
+        copy = clone_forged_faction(ForgedFaction.objects.get(pk=self.forged.pk))
+        warrior = copy.pieces.get(type='W')
+        self.assertFalse(warrior.figure_mesh)
+        self.assertEqual(warrior.figure_fingerprint, '')

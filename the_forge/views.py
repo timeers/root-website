@@ -2902,26 +2902,27 @@ def _build_forged_tts_save(request, faction, refresh_previews=True):
         return None, "Preview unavailable.", parts
 
     from .services.tts import (
-        TTSForgedFactionBoard, TTSForgedFactionDecree, load_tts_object,
-        place_pieces_for_back, place_markers_for_faction,
+        IMPROVEMENTS_TRANSFORM, TTSForgedFactionBoard, TTSForgedFactionDecree, board_row, load_tts_object,
+        place_pieces_for_back, place_markers_for_faction, place_warriors_for_faction,
     )
     from the_keep.services.tts import wrap_tts_save, TTSSingleCardDeck
 
     boards = []
+    # include_decree is checked too: decree_preview can outlive the toggle.
+    decree = (TTSForgedFactionDecree(faction, request=request).to_dict()
+              if (sheet_ready or back_ready) and sheet and sheet.include_decree and sheet.decree_preview else None)
+    # One row above the board for warriors, unmatched pieces and markers; the
+    # fallback decks below start past its end.
+    row = board_row(decree['Transform'] if decree else None)
     if sheet_ready or back_ready:
         boards.append(TTSForgedFactionBoard(faction, request=request).to_dict())
-        # include_decree is checked too: decree_preview can outlive the toggle.
-        if sheet and sheet.include_decree and sheet.decree_preview:
-            boards.append(TTSForgedFactionDecree(faction, request=request).to_dict())
-        improvements_transform = {
-            "posX": -16.0, "posY": -0.113604546, "posZ": 0.0,
-            "rotX": 0.0, "rotY": 180.0, "rotZ": 0.0,
-            "scaleX": 9.516764, "scaleY": 1.0, "scaleZ": 9.516764,
-        }
-        boards.append(load_tts_object('Improved Crafted Improvements.json', transform=improvements_transform))
+        if decree:
+            boards.append(decree)
+        boards.append(load_tts_object('Improved Crafted Improvements.json', transform=dict(IMPROVEMENTS_TRANSFORM)))
+        boards.extend(place_warriors_for_faction(faction, request=request, row=row))
         if back_ready:
-            boards.extend(place_pieces_for_back(back, sheet=sheet, request=request))
-        boards.extend(place_markers_for_faction(faction, request=request))
+            boards.extend(place_pieces_for_back(back, sheet=sheet, request=request, row=row))
+        boards.extend(place_markers_for_faction(faction, request=request, row=row))
     if card_ready:
         from the_keep.services.tts import DEFAULT_CARD_TRANSFORM
         adset_transform = dict(DEFAULT_CARD_TRANSFORM)
@@ -2992,7 +2993,7 @@ def _build_forged_tts_save(request, faction, refresh_previews=True):
                 transform['posY'] = wy + 1.5  # spawn above the pile so cards settle
             else:
                 transform = dict(DEFAULT_CARD_TRANSFORM)
-                transform['posX'] = DECK_FALLBACK_ORIGIN_X + deck_offset * DECK_FALLBACK_X_STEP
+                transform['posX'] = max(DECK_FALLBACK_ORIGIN_X, row.end) + deck_offset * DECK_FALLBACK_X_STEP
                 transform['posZ'] = DECK_FALLBACK_ORIGIN_Z
                 deck_offset += 1
             obj['Transform'] = transform

@@ -45,13 +45,15 @@ EXCLUDE_FIELDS = {
     'tts_status', 'tts_submitted_at', 'tts_rejection_reason',
     'tts_json', 'tts_json_generated',
     'tts_synced_hash', 'tts_source_fingerprint',
+    # A warrior's TTS figure regenerates under the duplicate's own slug.
+    'figure_fingerprint', 'figure_size',
     # slug: root gets one from the create signal; ForgedDeckGroup regenerates its
     # own in save(). Never copy the source value (unique on ForgedFaction).
     'slug',
 }
 
 # Generated preview / spritesheet images: leave blank so they regenerate.
-ARTIFACT_IMAGE_FIELDS = {'image_preview', 'decree_preview', 'sprite_sheet'}
+ARTIFACT_IMAGE_FIELDS = {'image_preview', 'decree_preview', 'sprite_sheet', 'figure_mesh', 'figure_texture'}
 
 # After the tree is built, restore these from the source via the memo using
 # .update() (bypasses save()/signals so nothing re-mutates them). Keyed by model

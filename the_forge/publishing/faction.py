@@ -78,6 +78,7 @@ class FactionPublisher(Publisher):
     def refresh(self, forged, for_sync=False):
         from ..views import _ensure_decree_preview, _refresh_all_element_previews
         _refresh_all_element_previews(forged)
+        fp.ensure_forge_figures(forged)
         if for_sync:
             # _refresh_all_element_previews skips the decree, which the TTS sync copies.
             sheet = getattr(forged, 'faction_sheet', None)
@@ -181,6 +182,8 @@ class FactionPublisher(Publisher):
             save_file, error, _parts = _build_forged_tts_save(site_request, forged, refresh_previews=False)
             if save_file is None:
                 return None, error
+            # The export just made sure the Forge figures are current: copy them.
+            fp.copy_figures(forged)
             url_map = build_url_map(forged, target, site_request)
         except ValueError as exc:  # sprite sheet over the pixel cap
             return None, str(exc)
