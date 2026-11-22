@@ -10,8 +10,10 @@ def store_keep_tts(forged, publisher, target, profile=None):
     from the_keep.services.tts_store import store_tts_json
     from the_keep.utils import tts_json_hash, validate_tts_save
     from ..models import ForgedFaction
+    from ..services.sync_timing import sync_stage
 
-    save, error = publisher.build_keep_tts(forged, target)
+    with sync_stage('tts: build'):
+        save, error = publisher.build_keep_tts(forged, target)
     if save is None:
         return error
     try:
@@ -20,7 +22,8 @@ def store_keep_tts(forged, publisher, target, profile=None):
         return "the export produced no objects."
     post = Post.objects.get(pk=target.pk)
     # A queryset update with its tts_info (store_tts_json): skips Post.save().
-    store_tts_json(post, save, source='forge', profile=profile)
+    with sync_stage('tts: store'):
+        store_tts_json(post, save, source='forge', profile=profile)
     # Hash the value as stored: Postgres jsonb reorders keys.
     stored = Post.objects.values_list('tts_json', flat=True).get(pk=post.pk)
     forged.tts_synced_hash = tts_json_hash(stored)

@@ -76,14 +76,17 @@ class FactionPublisher(Publisher):
 
     # ── Forge side ──────────────────────────────────────────────────────────
     def refresh(self, forged, for_sync=False):
+        from ..services.sync_timing import sync_stage
         from ..views import _ensure_decree_preview, _refresh_all_element_previews
         _refresh_all_element_previews(forged)
-        fp.ensure_forge_figures(forged)
+        with sync_stage('refresh warrior figures'):
+            fp.ensure_forge_figures(forged)
         if for_sync:
             # _refresh_all_element_previews skips the decree, which the TTS sync copies.
             sheet = getattr(forged, 'faction_sheet', None)
             if sheet:
-                _ensure_decree_preview(sheet)
+                with sync_stage('refresh decree'):
+                    _ensure_decree_preview(sheet)
 
     def prerequisites(self, forged):
         sheet = fp._safe_related(forged, 'faction_sheet')
@@ -175,16 +178,21 @@ class FactionPublisher(Publisher):
         from ..services.tts_convert import build_url_map, convert_save, find_forge_urls
         from ..views import _build_forged_tts_save
 
+        from ..services.sync_timing import sync_stage
+
         site_request = SiteURLRequest()
         try:
             # refresh_previews=False: the keep copies were taken from these
             # exact previews, so nothing may re-render now.
-            save_file, error, _parts = _build_forged_tts_save(site_request, forged, refresh_previews=False)
+            with sync_stage('tts: forge export'):
+                save_file, error, _parts = _build_forged_tts_save(site_request, forged, refresh_previews=False)
             if save_file is None:
                 return None, error
             # The export just made sure the Forge figures are current: copy them.
-            fp.copy_figures(forged)
-            url_map = build_url_map(forged, target, site_request)
+            with sync_stage('tts: copy figures'):
+                fp.copy_figures(forged)
+            with sync_stage('tts: url map'):
+                url_map = build_url_map(forged, target, site_request)
         except ValueError as exc:  # sprite sheet over the pixel cap
             return None, str(exc)
         converted = convert_save(save_file, url_map)

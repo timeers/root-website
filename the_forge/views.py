@@ -1,5 +1,6 @@
 import contextlib
 import json
+import logging
 
 from django.conf import settings
 from django.db import transaction
@@ -112,6 +113,9 @@ from .models import (
     faction_has_background,
     faction_secondary_in_use,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 # ---------- Helpers ----------
@@ -2408,6 +2412,10 @@ def _maybe_save_image_preview(instance, pdf_bytes, fingerprint, field_prefix):
     try:
         webp = pdf_bytes_to_webp_bytes(pdf_bytes, dpi=dpi)
     except Exception:
+        # The fingerprint isn't stored, so this preview stays stale and is
+        # rendered again next time: log it so a repeat failure is visible.
+        logger.exception('Converting the %s preview of %s %s to WebP failed',
+                         field_prefix, type(instance).__name__, instance.pk)
         return
     if instance.image_preview:
         instance.image_preview.delete(save=False)
@@ -2523,17 +2531,21 @@ def _refresh_all_element_previews(forged):
         setup_card = forged.setup_card
     except SetupCard.DoesNotExist:
         setup_card = None
-    for related, ensure_fn in (
-        (sheet, _ensure_sheet_preview),
-        (back, _ensure_back_preview),
-        (setup_card, _ensure_setup_card_preview),
+    from .services.sync_timing import sync_stage
+    for label, related, ensure_fn in (
+        ('sheet', sheet, _ensure_sheet_preview),
+        ('back', back, _ensure_back_preview),
+        ('setup card', setup_card, _ensure_setup_card_preview),
     ):
         if related is None:
             continue
         try:
-            ensure_fn(related)
+            with sync_stage(f'refresh {label}'):
+                ensure_fn(related)
         except Exception:
-            pass
+            # Still never blocks the caller, but a preview that fails every
+            # time would otherwise re-render (and fail) on every request unseen.
+            logger.exception('Refreshing the %s preview of forge faction %s failed', label, forged.pk)
 
 
 @login_required
@@ -3528,7 +3540,9 @@ def _sync_keep_tts_json(forged_pk, profile=None):
 
     # Re-check after the save: a forge edit or re-render mid-request would leave
     # a forge asset newer than its keep copy.
-    stale = ForgedFactionSyncForm(forged=forged).tts_forced_field_names
+    from .services.sync_timing import sync_stage
+    with sync_stage('tts: re-check'):
+        stale = ForgedFactionSyncForm(forged=forged).tts_forced_field_names
     if stale:
         return f"{len(stale)} row(s) are still out of date. Reload the sync page and try again."
     return store_keep_tts(forged, publisher, target, profile=profile)
@@ -3536,7 +3550,15 @@ def _sync_keep_tts_json(forged_pk, profile=None):
 
 @forge_onboard_required
 def forgedfaction_sync(request, pk):
+    from .services.sync_timing import SyncTimer
+    # Slow stages land in Apache's error log (see services/sync_timing.py).
+    with SyncTimer(f'{pk} {request.method}'):
+        return _forgedfaction_sync(request, pk)
+
+
+def _forgedfaction_sync(request, pk):
     from .publishing import publisher_for
+    from .services.sync_timing import sync_stage
     forged = get_object_or_404(ForgedFaction, pk=pk)
     if (resp := _forbid_if_not_editor(request, forged)):
         return resp
@@ -3545,7 +3567,8 @@ def forgedfaction_sync(request, pk):
     publisher = publisher_for(forged)
     detail = publisher.detail_url(forged)
 
-    publisher.refresh(forged, for_sync=True)
+    with sync_stage('refresh'):
+        publisher.refresh(forged, for_sync=True)
 
     target, mode, target_label = _resolved_published(forged)
     if target is None:
@@ -3562,11 +3585,15 @@ def forgedfaction_sync(request, pk):
             return redirect('forge-home')
 
     if request.method == 'POST':
-        form = ForgedFactionSyncForm(request.POST, forged=forged)
-        if form.is_valid():
-            form.save()
+        with sync_stage('form'):
+            form = ForgedFactionSyncForm(request.POST, forged=forged)
+            valid = form.is_valid()
+        if valid:
+            with sync_stage('save'):
+                form.save()
             if mode == 'post' and form.cleaned_data.get('sync_tts_json'):
-                tts_error = _sync_keep_tts_json(forged.pk, profile=request.user.profile)
+                with sync_stage('tts'):
+                    tts_error = _sync_keep_tts_json(forged.pk, profile=request.user.profile)
                 if tts_error:
                     messages.error(
                         request,
@@ -3587,7 +3614,8 @@ def forgedfaction_sync(request, pk):
             messages.success(request, "Selected changes applied.")
             return redirect(detail)
     else:
-        form = ForgedFactionSyncForm(forged=forged)
+        with sync_stage('form'):
+            form = ForgedFactionSyncForm(forged=forged)
 
     has_changes = form.has_changes
     return render(request, 'the_forge/forgedfaction_sync.html', {

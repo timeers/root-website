@@ -1756,3 +1756,91 @@ class ForgeWarriorSyncTests(TestCase):
         warrior = copy.pieces.get(type='W')
         self.assertFalse(warrior.figure_mesh)
         self.assertEqual(warrior.figure_fingerprint, '')
+
+
+# ── Sync stage timings (services/sync_timing.py, time_forge_sync) ───────────
+
+class SyncTimingTests(TestCase):
+    def test_slow_stages_and_long_syncs_are_logged(self):
+        from .services.sync_timing import SyncTimer, sync_stage
+        with self.assertLogs('the_forge.services.sync_timing', level='WARNING') as logs:
+            with SyncTimer('7 POST', slow_stage=0.0, long_sync=0.0):
+                with sync_stage('save: decks'):
+                    pass
+        text = '\n'.join(logs.output)
+        self.assertIn('forge sync 7 POST: starting save: decks', text)
+        self.assertIn('forge sync 7 POST: save: decks took', text)
+        self.assertIn('forge sync 7 POST: took', text)
+
+    def test_fast_syncs_log_nothing_and_stages_need_a_timer(self):
+        from .services.sync_timing import SyncTimer, sync_stage
+        with sync_stage('outside a timer'):   # a no-op, never an error
+            pass
+        lines = []
+        with self.assertNoLogs('the_forge.services.sync_timing', level='WARNING'):
+            with SyncTimer('7 GET', echo=lines.append) as timer:
+                with sync_stage('form'):
+                    pass
+        self.assertEqual([name for name, _s in timer.stages], ['form'])
+        self.assertTrue(lines[0].startswith('form: '))
+
+    def test_a_failed_preview_conversion_is_logged(self):
+        from .views import _maybe_save_image_preview
+        designer = Profile.objects.create(discord='previewfail')
+        forged = ForgedFaction.objects.create(designer=designer, faction_name='Fails')
+        back = FactionBack.objects.create(faction=forged)
+        with mock.patch('the_forge.pdf_engine.pdf_bytes_to_webp_bytes', side_effect=RuntimeError('fitz')):
+            with self.assertLogs('the_forge.views', level='ERROR') as logs:
+                _maybe_save_image_preview(back, b'%PDF', 'abc', 'back')
+        self.assertIn('back preview of FactionBack', logs.output[0])
+        self.assertEqual(FactionBack.objects.get(pk=back.pk).preview_fingerprint, '')
+
+
+@override_settings(MEDIA_ROOT=_TTS_MEDIA, SITE_URL='https://example.test')
+class TimeForgeSyncCommandTests(TestCase):
+    def setUp(self):
+        Language.objects.get_or_create(code='en', defaults={'name': 'English'})
+        self.designer = Profile.objects.create(discord='timesync')
+        self.keep = KeepFaction.objects.create(title='Timed Fox', animal='Fox', designer=self.designer,
+                                               component='Faction')
+        self.forged = ForgedFaction.objects.create(designer=self.designer, faction_name='Timed Fox',
+                                                   published_post=self.keep)
+        back = FactionBack.objects.create(faction=self.forged)
+        back.image_preview.save('back.png', _png('back.png'))
+        FactionBack.objects.filter(pk=back.pk).update(preview_version=1)
+
+    def _run(self, *args):
+        from django.core.management import call_command
+        out = StringIO()
+        with mock.patch('the_forge.publishing.faction.FactionPublisher.refresh'):  # no PDF renders
+            call_command('time_forge_sync', str(self.forged.pk), *args, stdout=out)
+        return out.getvalue()
+
+    def test_default_only_times_the_page_load(self):
+        out = self._run()
+        self.assertIn('refresh: ', out)
+        self.assertIn('form: ', out)
+        self.assertIn('sync_tts_json', out)          # listed as out of date
+        self.assertIn('total: ', out)
+        keep = KeepFaction.objects.get(pk=self.keep.pk)
+        self.assertIsNone(keep.tts_json)
+        self.assertFalse(keep.board_2_image)
+
+    def test_apply_tts_syncs_only_the_tts_row_and_what_it_needs(self):
+        KeepFaction.objects.filter(pk=self.keep.pk).update(version='1.0')
+        ForgedFaction.objects.filter(pk=self.forged.pk).update(pnp_version='2.0')
+        out = self._run('--apply-tts')
+        for stage in ('save: ', 'tts: forge export', 'tts: url map', 'tts: store', 'Synced.'):
+            self.assertIn(stage, out)
+        keep = KeepFaction.objects.get(pk=self.keep.pk)
+        self.assertTrue(keep.tts_json)
+        self.assertTrue(keep.board_2_image)            # forced by the TTS row
+        self.assertEqual(keep.version, '1.0')          # text rows are never applied
+        # Nothing left to do on a second run.
+        self.assertIn('nothing to apply', self._run('--apply-tts'))
+
+    def test_unlinked_draft_is_refused(self):
+        from django.core.management import CommandError
+        ForgedFaction.objects.filter(pk=self.forged.pk).update(published_post=None)
+        with self.assertRaises(CommandError):
+            self._run()
