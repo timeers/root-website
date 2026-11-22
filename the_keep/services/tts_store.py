@@ -40,6 +40,11 @@ def forge_linked(post):
 
 def generate_unavailable_reason(post):
     """Why the builder can't (re)generate this post's JSON, or None."""
+    # First: a Forge-linked post's JSON (and a map's layout) come from the
+    # Forge, whatever state the keep's own builder data is in.
+    if forge_linked(post):
+        noun = (post.component or 'post').lower()
+        return f"This {noun}'s JSON comes from its Forge draft. Update it with Sync in the Forge."
     if post.component == Post.ComponentChoices.MAP:
         from .tts_map import check_builder
         if not post.board_image:
@@ -49,8 +54,6 @@ def generate_unavailable_reason(post):
         errors, _warnings = check_builder(post, post.tts_builder)
         if errors:
             return "Finish the map builder first: " + " ".join(errors)
-    if forge_linked(post):
-        return "This faction's JSON comes from its Forge draft. Update it from the Forge sync page."
     return None
 
 

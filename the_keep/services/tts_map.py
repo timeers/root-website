@@ -393,15 +393,23 @@ def print_layout(geometry, state):
 STAGES = ('clearings', 'buildings', 'forests')
 
 
-def check_builder(map_post, state, stages=None):
+def check_builder(map_post, state, stages=None, require_buildings=False):
     """(errors, warnings) for a builder layout. Errors block generating; count
     differences from the post are only warnings (saving updates the post), and
-    only for `stages` reached (all when None)."""
+    only for `stages` reached (all when None). `require_buildings`: at least one
+    building slot and one ruin (the Forge, where the map is printed with them;
+    some keep maps have none)."""
     errors, warnings = [], []
     state = state or {}
     clearings = state.get('clearings') or []
     if not clearings:
         errors.append("Mark at least one clearing.")
+    if require_buildings:
+        buildings = state.get('buildings') or []
+        if not buildings:
+            errors.append("Mark at least one building slot.")
+        if not any(b.get('ruin') for b in buildings):
+            errors.append("Mark at least one ruin.")
     if any(not c.get('marker') for c in clearings):
         errors.append("Every clearing needs its suit-marker spot.")
     numbers = sorted(c.get('number') for c in clearings if isinstance(c.get('number'), int))
@@ -432,6 +440,12 @@ def _counts(state):
         ('buildings', 'building slots', 'building_slots', len(buildings)),
         ('buildings', 'ruins', 'ruins', sum(1 for b in buildings if b.get('ruin'))),
     )
+
+
+def layout_counts(state):
+    """{Map field: count} for the counts a layout sets (clearings, forests,
+    building_slots, ruins)."""
+    return {field: count for _stage, _label, field, count in _counts(state or {})}
 
 
 def visited_stages(state):

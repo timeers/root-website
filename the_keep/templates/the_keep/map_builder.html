@@ -16,7 +16,14 @@
         </a>
     </div>
 
-    {% if not has_image %}
+    {% if forged_map %}
+    <div class="alert alert-info d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <span><i class="bi bi-hammer me-1"></i>{% trans "This map is built in the Forge. Change its layout there and sync it to update this Map." %}</span>
+        {% if forged_map.designer_id == request.user.profile.id %}
+        <a href="{{ forged_map.forge_detail_url }}" class="btn btn-sm btn-primary">{% trans 'Open in the Forge' %}</a>
+        {% endif %}
+    </div>
+    {% elif not has_image %}
     <div class="alert alert-warning">
         {% trans "This map has no board image yet. Come back to build the layout once it's added." %}
     </div>

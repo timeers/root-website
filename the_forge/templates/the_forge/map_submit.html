@@ -1,0 +1,85 @@
+{% extends 'the_keep/base.html' %}
+{% load static %}
+
+{% block title %}Submit {{ faction.faction_name }} - The Forge | {% endblock %}
+
+{% block content %}
+<div class="container py-3">
+  <div class="my-2">
+    <a href="{% url 'forge-map-detail' pk=faction.pk %}" class="btn btn-sm btn-secondary"><i class="bi bi-chevron-left"></i> Back</a>
+  </div>
+
+  <div class="mb-3">
+    <h2 class="root-title m-0">Submit "{{ faction.faction_name }}" as a Map</h2>
+    <p class="text-muted mb-0">Your map is submitted as it was when you last clicked Complete in the builder, and linked to this Forge map.
+      You can keep changing it in the Forge: changes reach the Root Database when you sync.
+      <strong>You won't be able to change {{ faction.faction_name }}'s name or language after submitting.</strong></p>
+  </div>
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+      <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+    {% endif %}
+
+    <div class="row g-3 mb-3">
+      <div class="col-12 col-lg-7">
+        <div class="card p-3 h-100">
+          <h5 class="root-title">The Map</h5>
+          {% if forged_map.image_preview %}
+            <img src="{{ forged_map.image_preview.url }}?v={{ forged_map.preview_version }}" alt="{{ faction.faction_name }}"
+                 class="w-100 rounded mb-3">
+          {% endif %}
+          <dl class="row small mb-0">
+            <dt class="col-6">Name</dt><dd class="col-6">{{ faction.faction_name }}</dd>
+            <dt class="col-6">Language</dt><dd class="col-6">{{ faction.language.name|default:'English' }}</dd>
+            <dt class="col-6">Clearings</dt><dd class="col-6">{{ counts.clearings }}</dd>
+            <dt class="col-6">Building Slots (including Ruins)</dt><dd class="col-6">{{ counts.building_slots }}</dd>
+            <dt class="col-6">Ruins</dt><dd class="col-6">{{ counts.ruins }}</dd>
+            <dt class="col-6">Forests</dt><dd class="col-6">{{ counts.forests }}</dd>
+            <dt class="col-6">Clearing Suits</dt><dd class="col-6">{% if form.fixed_clearings.value %}Fixed{% else %}Random{% endif %}</dd>
+          </dl>
+        </div>
+      </div>
+      <div class="col-12 col-lg-5">
+        <div class="card p-3 h-100">
+          <h5 class="root-title">Details</h5>
+          {% for field in form %}
+            {% if field.name == 'lore' or field.name == 'description' or field.name == 'version' or field.name == 'artist' or field.name == 'based_on' or field.name == 'river_clearings' %}
+              <div class="mb-3">
+                <label class="form-label fw-semibold" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field }}
+                {% if field.help_text %}<div class="form-text">{{ field.help_text|safe }}</div>{% endif %}
+                {% for error in field.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+              </div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card p-3 mb-3">
+      <h5 class="root-title">Links</h5>
+      <p class="form-text mb-3">
+        A Woodland Warriors thread link is required: head to the fan-content section of Woodland Warriors to create a thread for your map,
+        with the map and a description of how to play on it. You can add other links too.
+      </p>
+      {% for field in form %}
+        {% if field.name == 'ww_link' or field.name == 'bgg_link' or field.name == 'tts_link' or field.name == 'wr_link' or field.name == 'fr_link' or field.name == 'pnp_link' or field.name == 'stl_link' %}
+          <div class="mb-3">
+            <label class="form-label{% if field.name == 'ww_link' %} fw-semibold{% endif %}" for="{{ field.id_for_label }}">{{ field.label }}{% if field.name == 'ww_link' %} *{% endif %}</label>
+            {{ field }}
+            {% for error in field.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+
+    <div class="d-flex justify-content-end gap-2 mb-5">
+      <a href="{% url 'forge-map-detail' pk=faction.pk %}" class="btn btn-secondary">Cancel</a>
+      <button type="submit" class="btn btn-primary"><i class="bi bi-upload me-1"></i>Submit Map</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

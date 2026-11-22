@@ -467,6 +467,11 @@
   function localErrors() {
     const errors = [];
     if (!state.clearings.length) errors.push('Mark at least one clearing.');
+    // Same wording as check_builder(require_buildings=True): the Forge prints them.
+    if (config.require_buildings) {
+      if (!state.buildings.length) errors.push('Mark at least one building slot.');
+      if (!state.buildings.some(b => b.ruin)) errors.push('Mark at least one ruin.');
+    }
     if (state.clearings.some(c => !c.marker)) errors.push('Every clearing needs its suit-marker spot.');
     // Same wording as check_builder in tts_map.py, so a server copy can be matched to it.
     if (config.fixed && state.clearings.some(c => !c.suit)) errors.push('This Map has fixed clearings: choose a suit for each clearing before generating.');
@@ -1191,6 +1196,17 @@
   const uploadButton = document.getElementById('mb-upload');
   const uploadInput = document.getElementById('mb-upload-input');
   const nameInput = document.getElementById('mb-name');
+  const languageInput = document.getElementById('mb-language');
+
+  // The Start step's name and language go with every save, unless the map is
+  // linked to a keep post (then they're the post's and locked).
+  function startStepFields(payload) {
+    if (nameInput && !config.name_locked) {
+      payload.name = nameInput.value;
+      if (languageInput) payload.language = languageInput.value;
+    }
+    return payload;
+  }
   let pendingArt = null;      // a picked File not stored on the server yet
   let uploading = null;       // the upload in progress (a Promise of success)
   let retryTimer = null;
@@ -1289,6 +1305,7 @@
       try {
         const body = new FormData();
         body.append('name', nameInput.value.trim());
+        if (languageInput) body.append('language', languageInput.value);
         if (pendingArt) body.append('art', pendingArt);
         body.append('state', JSON.stringify(state));
         response = await fetch(config.create_url, { method: 'POST', headers: { 'X-CSRFToken': csrfToken() }, body });
@@ -1390,6 +1407,13 @@
     uploadButton.addEventListener('click', () => uploadInput.click());
     document.querySelector('#mb-art-status .mb-art-status-close').addEventListener('click', () => artStatus(null));
     // The name is saved with the layout (Save Progress or Complete).
+    if (languageInput) {
+      languageInput.addEventListener('change', () => {
+        dirty = true;
+        showSaved(false);
+      });
+      languageInput.addEventListener('pointerdown', (evt) => evt.stopPropagation());
+    }
     nameInput.addEventListener('input', () => {
       dirty = true;
       showSaved(false);
@@ -1550,7 +1574,7 @@
       const response = await fetch(config.save_url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() },
-        body: JSON.stringify(nameInput ? { state, generate, name: nameInput.value } : { state, generate }),
+        body: JSON.stringify(startStepFields({ state, generate })),
       });
       result = await response.json();
     } catch (err) {

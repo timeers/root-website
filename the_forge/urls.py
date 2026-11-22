@@ -49,6 +49,11 @@ urlpatterns = [
     path('forge/map/<int:pk>/pdf/', map_views.map_pdf, name='forge-map-pdf'),
     path('forge/map/<int:pk>/webp/', map_views.map_webp, name='forge-map-webp'),
     path('forge/map/<int:pk>/tts/', map_views.map_tts, name='forge-map-tts'),
+    # Publishing a map to the Root Database: the same views as factions use.
+    path('forge/map/<int:pk>/submit/', views.forgedfaction_submit, name='forge-map-submit'),
+    path('forge/map/<int:pk>/link/', views.forgedfaction_link, name='forge-map-link'),
+    path('forge/map/<int:pk>/unlink/', views.forgedfaction_unlink, name='forge-map-unlink'),
+    path('forge/map/<int:pk>/sync/', views.forgedfaction_sync, name='forge-map-sync'),
 
     # FactionSheet Front
     path('forge/faction/<int:faction_pk>/front/new/', views.factionsheet_create, name='forge-sheet-create'),

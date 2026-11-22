@@ -1,0 +1,146 @@
+{% comment %}
+The publish card on a Forge draft's page: submit it as a new keep post, link it
+to an existing one, or sync / unlink once linked. Shared by every component with
+a publisher (the_forge/publishing/); context from publishing/context.py
+(publish_context), wording from its noun.
+{% endcomment %}
+{% if publisher %}
+<div class="card forge-publish-card mt-4 position-relative">
+  <div class="card-body">
+    <div class="d-flex flex-column flex-md-row gap-3 align-items-md-center justify-content-between">
+      <div class="flex-grow-1">
+        <h5 class="root-title mb-1">
+          {% if publish_target %}
+            {% if sync_available %}
+              Updates Available
+            {% else %}
+              Up to Date
+            {% endif %}
+          {% else %}
+            Submit to the Root Database
+          {% endif %}
+        </h5>
+        <p class="text-muted small mb-0">
+          {% if publish_target %}
+            {% if sync_available %}
+              Push selected changes from this draft to <strong>{{ publish_target_label }}</strong>.
+            {% else %}
+              This {{ publish_noun }}, <strong>{{ publish_target_label }}</strong>, is up to date.
+            {% endif %}
+          {% else %}
+            All requirements below must be met before submitting as a new {{ publish_noun }}.<br>
+            In addition, you must have a link to a Woodland Warriors Discord Thread.
+          {% endif %}
+        </p>
+        {% if publish_target and sync_blocked %}
+          <p class="small text-warning-emphasis mb-0 mt-1"><i class="bi bi-exclamation-triangle-fill me-1"></i>{{ sync_blocked }}</p>
+        {% elif publish_note %}
+          <p class="small text-muted mb-0 mt-1"><i class="bi bi-info-circle me-1"></i>{{ publish_note }}</p>
+        {% endif %}
+      </div>
+      <div class="forge-publish-card__action">
+        {% if publish_target %}
+          <div class="btn-group">
+            {% if sync_available %}
+              <a href="{{ publish_urls.sync }}" class="btn btn-success">
+                <i class="bi bi-arrow-repeat me-1"></i>Sync
+              </a>
+              <button type="button" class="btn btn-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+                <span class="visually-hidden">Toggle Dropdown</span>
+              </button>
+            {% else %}
+              <a href="{{ publish_target_url }}" class="btn btn-outline-success">
+                <i class="bi bi-check2-circle me-1"></i>View {{ publish_noun }}
+              </a>
+              <button type="button" class="btn btn-outline-success dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false">
+                <span class="visually-hidden">Toggle Dropdown</span>
+              </button>
+            {% endif %}
+            <ul class="dropdown-menu dropdown-menu-end">
+              {% if sync_available %}
+                <li><a class="dropdown-item" href="{{ publish_target_url }}"><i class="bi bi-box-arrow-up-right me-1"></i>View {{ publish_noun }}</a></li>
+              {% else %}
+                <li><a class="dropdown-item" href="{{ publish_urls.sync }}"><i class="bi bi-arrow-repeat me-1"></i>Sync</a></li>
+              {% endif %}
+              <li><hr class="dropdown-divider"></li>
+              <li>
+                <button type="button" class="dropdown-item text-danger" data-bs-toggle="modal" data-bs-target="#unlinkForgeModal">
+                  <i class="icon-mask icon-unlink me-1"></i>Unlink
+                </button>
+              </li>
+            </ul>
+          </div>
+        {% elif submit_ready and link_candidate_exists %}
+          <div class="btn-group">
+            <button type="button" class="btn btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+              <i class="bi bi-upload me-1"></i>Publish
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li><a class="dropdown-item" href="{{ publish_urls.submit }}"><i class="bi bi-plus-circle me-1"></i>Submit</a></li>
+              <li><a class="dropdown-item" href="{{ publish_urls.link }}"><i class="icon-mask icon-link me-1"></i>Link to Existing {{ publish_noun }}</a></li>
+            </ul>
+          </div>
+        {% elif submit_ready %}
+          <a href="{{ publish_urls.submit }}" class="btn btn-primary">
+            <i class="bi bi-upload me-1"></i>Submit as New {% if faction.is_clockwork %}Clockwork {% endif %}{{ publish_noun }}
+          </a>
+        {% elif link_candidate_exists %}
+          <a href="{{ publish_urls.link }}" class="btn btn-primary">
+            <i class="icon-mask icon-link me-1"></i>Link to Existing {{ publish_noun }}
+          </a>
+        {% else %}
+          <button type="button" class="btn btn-primary" disabled>
+            <i class="bi bi-upload me-1"></i>Submit as New {% if faction.is_clockwork %}Clockwork {% endif %}{{ publish_noun }}
+          </button>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if not publish_target %}
+      <ul class="forge-publish-requirements mt-3 mb-0">
+        {% for req in submit_requirements %}
+          <li class="forge-publish-requirement {% if req.done %}is-done{% else %}is-missing{% endif %}{% if req.warning %} has-warning{% endif %}">
+            <i class="bi {% if req.done and not req.warning %}bi-check-circle-fill{% elif req.warning %}bi-exclamation-triangle-fill{% else %}bi-circle{% endif %} forge-publish-requirement__icon"></i>
+            <span class="forge-publish-requirement__label">
+              {{ req.label }}
+              {% if req.warning %}
+                <span class="forge-publish-requirement__warning d-block small text-warning-emphasis">{{ req.warning }}</span>
+              {% endif %}
+            </span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
+  </div>
+</div>
+{% endif %} 
+
+{% if publisher and publish_target %}
+    <div class="modal fade" id="unlinkForgeModal" tabindex="-1" aria-labelledby="unlinkForgeModalLabel" aria-hidden="true">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="unlinkForgeModalLabel">
+              <i class="icon-mask icon-unlink"></i> Unlink from {{ publish_noun }}
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p>Unlink <strong>{{ faction.faction_name }}</strong> from <strong>{{ publish_target_label }}</strong>?</p>
+            <p class="text-muted small mb-0">
+              The {{ publish_noun }} will not be deleted: it stays as-is and can be linked with another Forge draft. This draft becomes unlinked again, so you can re-submit it as a new {{ publish_noun }} or link it to a different existing one.
+            </p>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <form method="POST" action="{{ publish_urls.unlink }}" class="d-inline">
+              {% csrf_token %}
+              <button type="submit" class="btn btn-warning">
+                <i class="icon-mask icon-unlink"></i> Unlink
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+{% endif %}

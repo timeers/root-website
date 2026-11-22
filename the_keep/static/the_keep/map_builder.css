@@ -324,7 +324,20 @@ body.mb-dragging, body.mb-dragging * { -webkit-user-select: none !important; use
     position: absolute; inset: 0; z-index: 3; display: grid; grid-template-rows: 1fr 2fr;
     padding: 4%;
 }
-.mb-art-name { display: flex; align-items: center; justify-content: center; }
+.mb-art-name { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+/* The map's language, a small pill under the name. */
+#mb-language {
+    padding: .25em 2em .25em 1em; border: 1px solid rgba(0, 0, 0, .08); border-radius: 999px;
+    font-size: .9rem; color: #343a40; background-color: rgba(255, 255, 255, .9);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, .12); cursor: pointer;
+}
+#mb-language:disabled { cursor: default; opacity: .85; }
+/* Linked to a keep post: the name and language are the post's, shown locked. */
+#mb-name[readonly] { background: rgba(233, 236, 239, .92); color: #495057; cursor: default; }
+.mb-name-locked {
+    max-width: min(80%, 520px); padding: 3px 12px; border-radius: 999px; font-size: .8rem; text-align: center;
+    background: rgba(255, 255, 255, .9); color: #495057; box-shadow: 0 4px 12px rgba(0, 0, 0, .12);
+}
 #mb-name {
     width: min(80%, 520px); padding: .45em 1.1em; border: 1px solid rgba(0, 0, 0, .08); border-radius: 999px;
     font-family: 'Luminari', serif; font-size: clamp(1.1rem, 3.2vw, 2rem); text-align: center; color: #212529;

@@ -38,9 +38,19 @@ generate_title. Load map_builder.css and map_builder.js on the page too.
          thirds: click the dashed area or drop a file on it) -->
     <div id="mb-art-step" class="d-none">
         <div class="mb-art-name">
-            <input type="text" id="mb-name" maxlength="50" required autocomplete="off" spellcheck="false"
-                   value="{{ config.map_name }}" placeholder="{% trans 'Map Name' %}"
-                   aria-label="{% trans 'Map name' %}">
+            <input type="text" id="mb-name" maxlength="{{ config.name_max|default:50 }}" required autocomplete="off"
+                   spellcheck="false" value="{{ config.map_name }}" placeholder="{% trans 'Map Name' %}"
+                   aria-label="{% trans 'Map name' %}"{% if config.name_locked %} readonly{% endif %}>
+            {% if config.languages %}
+            <select id="mb-language" aria-label="{% trans 'Language' %}"{% if config.name_locked %} disabled{% endif %}>
+                {% for language in config.languages %}
+                <option value="{{ language.id }}"{% if language.id == config.language %} selected{% endif %}>{{ language.name }}</option>
+                {% endfor %}
+            </select>
+            {% endif %}
+            {% if config.name_locked %}
+            <div class="mb-name-locked"><i class="bi bi-lock-fill me-1"></i>{{ config.name_locked_note }}</div>
+            {% endif %}
         </div>
         <div class="mb-art-drop">
             <button type="button" id="mb-upload">

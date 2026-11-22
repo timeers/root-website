@@ -231,6 +231,13 @@ class ForgedFaction(models.Model):
         return self.component == Post.ComponentChoices.CLOCKWORK
 
     @property
+    def forge_detail_url(self):
+        """The draft's own Forge page (maps have theirs)."""
+        from django.urls import reverse
+        name = 'forge-map-detail' if self.is_map else 'forge-faction-detail'
+        return reverse(name, kwargs={'pk': self.pk})
+
+    @property
     def is_map(self):
         """Map drafts are built in the map builder (forge/map/, ForgedMap)."""
         return self.component == Post.ComponentChoices.MAP
@@ -1316,6 +1323,10 @@ class ForgedMap(models.Model):
     # The builder's layout, as the keep's Map.tts_builder, plus the logo's spot.
     tts_builder = models.JSONField(default=dict, blank=True)
     fixed_clearings = models.BooleanField(default=False)
+    # The layout image_preview was rendered from (set together by
+    # refresh_map_image). Publishing to the keep uses this pair, never the live
+    # tts_builder, so a half-edited layout is never published.
+    rendered_builder = models.JSONField(null=True, blank=True)
 
     image_preview = models.ImageField(upload_to=map_preview_upload_path, blank=True, null=True)
     preview_fingerprint = models.CharField(max_length=32, blank=True, default='')

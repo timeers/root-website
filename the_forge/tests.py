@@ -764,9 +764,9 @@ class ForgeComponentTests(TestCase):
         self.assertTrue(_link_candidate_exists(self.designer, clockwork_draft))
         form = ForgedFactionLinkForm(user=self.user, forged=clockwork_draft)
         values = [value for value, _label in form.fields['target'].choices]
-        self.assertEqual(values, [f'faction:{keep_clockwork.pk}'])
+        self.assertEqual(values, [f'post:{keep_clockwork.pk}'])
         faction = KeepFaction.objects.get(title='Gears')
-        bad = ForgedFactionLinkForm({'target': f'faction:{faction.pk}'}, user=self.user, forged=clockwork_draft)
+        bad = ForgedFactionLinkForm({'target': f'post:{faction.pk}'}, user=self.user, forged=clockwork_draft)
         self.assertFalse(bad.is_valid())
 
     def test_linked_faction_is_no_longer_a_candidate(self):
@@ -1195,3 +1195,221 @@ class ForgedMapTests(TestCase):
         self.assertEqual(data['component'], 'Map')
         self.assertEqual(data['map_board'], 1)
         self.assertTrue(data['shuffle'])   # random suits: the coordinator shuffles its markers
+
+
+# ── Publishing a Forge map to the Root Database (the_forge/publishing/) ─────
+
+@override_settings(MEDIA_ROOT=_TTS_MEDIA, SITE_URL='https://example.test')
+class MapPublishTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+        patcher = mock.patch('the_forge.views.send_rich_discord_message_task')
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+        self.english, _ = Language.objects.get_or_create(code='en', defaults={'name': 'English'})
+        self.french, _ = Language.objects.get_or_create(code='fr', defaults={'name': 'French'})
+        self.user = User.objects.create_user(username='mapmaker', password='pw')
+        self.designer = Profile.objects.get(user=self.user)
+        Profile.objects.filter(pk=self.designer.pk).update(group='D', player_onboard=True, forge_onboard=True)
+        self.designer.refresh_from_db()
+        self.client.force_login(self.user)
+        from the_keep.forms import config
+        self.ww_link = f"https://discord.com/channels/{config['WW_GUILD_ID']}/123456789012345678"
+
+    def _create(self, name='Highlands', language=None):
+        data = {'name': name, 'art': _image_upload(1090, 1000)}
+        if language is not None:
+            data['language'] = language.pk
+        result = self.client.post(reverse('forge-map-create'), data).json()
+        self.assertTrue(result['ok'], result)
+        return ForgedFaction.objects.get(pk=result['pk'])
+
+    def _save(self, draft, state, generate=False, **extra):
+        return self.client.post(reverse('forge-map-builder', args=[draft.pk]),
+                                json.dumps({'state': state, 'generate': generate, **extra}),
+                                content_type='application/json')
+
+    def _completed(self, name='Highlands', **layout):
+        draft = self._create(name)
+        result = self._save(draft, _fixed_layout(**layout), generate=True).json()
+        self.assertTrue(result['ok'], result)
+        draft.refresh_from_db()
+        return draft
+
+    def _submit(self, draft):
+        return self.client.post(reverse('forge-map-submit', args=[draft.pk]),
+                                {'ww_link': self.ww_link, 'lore': 'Hills and hollows.'})
+
+    def _sync_form(self, draft):
+        from .publishing.diff import ForgedPostSyncForm
+        draft = ForgedFaction.objects.get(pk=draft.pk)
+        return ForgedPostSyncForm(forged=draft)
+
+    def test_registry(self):
+        from .publishing import publisher_for
+        self.assertEqual(publisher_for(ForgedFaction(component='Map')).noun, 'Map')
+        self.assertEqual(publisher_for(ForgedFaction(component='Clockwork')).noun, 'Faction')
+        self.assertIsNone(publisher_for(ForgedFaction(component='Deck')))
+        self.assertIsNone(publisher_for(ForgedFaction(component='Vagabond')))
+
+    def test_an_unfinished_map_cant_be_submitted(self):
+        draft = self._create()
+        detail = self.client.get(reverse('forge-map-detail', args=[draft.pk]))
+        self.assertFalse(detail.context['submit_ready'])
+        self.assertIn('Submit as New Map', detail.content.decode())
+        response = self.client.get(reverse('forge-map-submit', args=[draft.pk]))
+        self.assertRedirects(response, reverse('forge-map-detail', args=[draft.pk]), fetch_redirect_response=False)
+        self.assertFalse(KeepMap.objects.exists())
+
+    def test_submit_creates_a_keep_map_with_its_layout_and_tts_json(self):
+        draft = self._completed()
+        forged_map = draft.forged_map
+        self.assertTrue(self.client.get(reverse('forge-map-detail', args=[draft.pk])).context['submit_ready'])
+        self.assertEqual(self.client.get(reverse('forge-map-submit', args=[draft.pk])).status_code, 200)
+
+        response = self._submit(draft)
+        keep_map = KeepMap.objects.get(title='Highlands')
+        self.assertRedirects(response, keep_map.get_absolute_url(), fetch_redirect_response=False)
+        self.assertEqual(keep_map.status, '9')   # a designer's submission waits for review
+        self.assertEqual(keep_map.lore, 'Hills and hollows.')
+        self.assertEqual(keep_map.ww_link, self.ww_link)
+        self.assertTrue(keep_map.board_image)
+        self.assertEqual(keep_map.board_image_version, forged_map.preview_version)
+        self.assertEqual((keep_map.clearings, keep_map.building_slots, keep_map.ruins, keep_map.forests),
+                         (2, 2, 1, 1))
+        self.assertTrue(keep_map.fixed_clearings)
+        self.assertNotIn('logo', keep_map.tts_builder)
+        board = keep_map.tts_json['ObjectStates'][0]['CustomImage']['ImageURL']
+        self.assertIn(keep_map.board_image.url, board)
+        self.assertNotIn('/forge/', json.dumps(keep_map.tts_json))
+
+        draft.refresh_from_db()
+        self.assertEqual(draft.published_post_id, keep_map.pk)
+        self.assertFalse(self._sync_form(draft).has_changes)
+        page = self.client.get(reverse('forge-map-detail', args=[draft.pk])).content.decode()
+        self.assertIn('Up to Date', page)
+        self.assertIn('View Map', page)
+
+    def test_a_taken_or_too_long_name_blocks_submit(self):
+        draft = self._completed()
+        KeepMap.objects.create(title='highlands', designer=self.designer)
+        detail = self.client.get(reverse('forge-map-detail', args=[draft.pk]))
+        self.assertFalse(detail.context['submit_ready'])
+        self.assertRedirects(self._submit(draft), reverse('forge-map-detail', args=[draft.pk]),
+                             fetch_redirect_response=False)
+
+        long_draft = self._completed(name='Lowlands')
+        ForgedFaction.objects.filter(pk=long_draft.pk).update(faction_name='L' * 41)
+        long_draft.refresh_from_db()
+        reqs = self.client.get(reverse('forge-map-detail', args=[long_draft.pk])).context['submit_requirements']
+        self.assertFalse(next(r for r in reqs if r['label'] == 'Map Name')['done'])
+
+    def test_forge_maps_need_a_building_slot_and_a_ruin(self):
+        draft = self._create()
+        layout = _fixed_layout(buildings=[{'at': [0.3, 0.3], 'ruin': False}])
+        result = self._save(draft, layout, generate=True).json()
+        self.assertFalse(result['ok'])
+        self.assertIn('Mark at least one ruin.', result['errors'])
+        # The keep's own builder still allows a map without them.
+        from the_keep.services.tts_map import check_builder
+        errors, _ = check_builder(None, layout)
+        self.assertNotIn('Mark at least one ruin.', errors)
+
+    def test_the_rendered_map_is_what_gets_synced(self):
+        draft = self._completed()
+        self._submit(draft)
+        keep_map = KeepMap.objects.get(title='Highlands')
+
+        # Saved but not completed: nothing to publish yet.
+        more_forests = _fixed_layout(forests=[[0.45, 0.45], [0.7, 0.7]])
+        self._save(draft, more_forests)
+        self.assertFalse(self._sync_form(draft).has_changes)
+        self.assertIn("been completed yet",
+                      self.client.get(reverse('forge-map-detail', args=[draft.pk])).content.decode())
+
+        # Completed: the image, the layout, the forest count and TTS are out of date.
+        self._save(draft, more_forests, generate=True)
+        form = self._sync_form(draft)
+        stale = {row[0] for row in form.diff_rows if not row[5]}
+        self.assertEqual(stale, {'board_image', 'forests', 'tts_builder'})
+        self.assertFalse(form.tts_plan['in_sync'])
+
+        # Apply everything but the forest count: it stays as it was.
+        response = self.client.post(reverse('forge-map-sync', args=[draft.pk]), {
+            'sync_board_image': 'on', 'sync_tts_builder': 'on', 'sync_tts_json': 'on',
+        })
+        self.assertRedirects(response, reverse('forge-map-detail', args=[draft.pk]), fetch_redirect_response=False)
+        keep_map.refresh_from_db()
+        self.assertEqual(keep_map.forests, 1)
+        self.assertEqual(len(keep_map.tts_builder['forests']), 2)
+        self.assertEqual(len(keep_map.tts_json['BoardLayout']['forests']), 2)
+        self.assertEqual({row[0] for row in self._sync_form(draft).diff_rows if not row[5]}, {'forests'})
+
+        self.client.post(reverse('forge-map-sync', args=[draft.pk]), {'sync_forests': 'on'})
+        keep_map.refresh_from_db()
+        self.assertEqual(keep_map.forests, 2)
+        self.assertFalse(self._sync_form(draft).has_changes)
+
+    def test_language_and_the_name_lock(self):
+        draft = self._create(language=self.french)
+        self.assertEqual(draft.language, self.french)
+        self.assertEqual(self._create('Second').language, self.english)   # the default
+
+        self._save(draft, _fixed_layout(), language=self.english.pk, name='Hautes Terres')
+        draft.refresh_from_db()
+        self.assertEqual((draft.faction_name, draft.language), ('Hautes Terres', self.english))
+
+        self._save(draft, _fixed_layout(), generate=True)
+        self._submit(draft)
+        config = self.client.get(reverse('forge-map-builder', args=[draft.pk])).context['config']
+        self.assertTrue(config['name_locked'])
+        self.assertIn('Hautes Terres', config['name_locked_note'])
+        self._save(draft, _fixed_layout(), language=self.french.pk, name='Renamed')
+        draft.refresh_from_db()
+        self.assertEqual((draft.faction_name, draft.language), ('Hautes Terres', self.english))
+
+    def test_link_a_french_map_as_a_translation_and_sync_its_image(self):
+        keep_map = KeepMap.objects.create(title='Highlands', designer=self.designer, language=self.english)
+        draft = self._completed(name='Hautes Terres')
+        ForgedFaction.objects.filter(pk=draft.pk).update(language=self.french)
+        draft.refresh_from_db()
+
+        from .forms_publish import ForgedPostLinkForm
+        form = ForgedPostLinkForm(user=self.user, forged=draft)
+        values = [value for value, _label in form.fields['target'].choices]
+        self.assertEqual(values, [f'new_translation:{keep_map.pk}'])
+        self.client.post(reverse('forge-map-link', args=[draft.pk]), {'target': f'new_translation:{keep_map.pk}'})
+        draft.refresh_from_db()
+        translation = draft.published_translation
+        self.assertEqual((translation.post_id, translation.language, translation.translated_title),
+                         (keep_map.pk, self.french, 'Hautes Terres'))
+
+        self.assertEqual([row[0] for row in self._sync_form(draft).diff_rows], ['translated_board_image'])
+        self.client.post(reverse('forge-map-sync', args=[draft.pk]), {'sync_translated_board_image': 'on'})
+        translation.refresh_from_db()
+        self.assertTrue(translation.translated_board_image)
+        self.assertEqual(translation.translated_board_image_version, draft.forged_map.preview_version)
+        self.assertFalse(self._sync_form(draft).has_changes)
+
+        self.client.post(reverse('forge-map-unlink', args=[draft.pk]))
+        draft.refresh_from_db()
+        self.assertIsNone(draft.published_translation_id)
+
+    def test_the_keep_points_a_forge_map_to_the_forge(self):
+        draft = self._completed()
+        self._submit(draft)
+        keep_map = KeepMap.objects.get(title='Highlands')
+        KeepMap.objects.filter(pk=keep_map.pk).update(status='3')   # approved: the designer can edit it
+        builder = reverse('map-builder', args=[keep_map.slug])
+        page = self.client.get(builder).content.decode()
+        self.assertIn('This map is built in the Forge', page)
+        self.assertIn(reverse('forge-map-detail', args=[draft.pk]), page)
+        self.assertEqual(self.client.post(builder, '{}', content_type='application/json').status_code, 403)
+        from the_keep.services.tts_store import generate_unavailable_reason
+        KeepMap.objects.filter(pk=keep_map.pk).update(tts_builder={})
+        keep_map.refresh_from_db()
+        self.assertIn('Sync in the Forge', generate_unavailable_reason(keep_map))

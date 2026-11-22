@@ -460,7 +460,7 @@ class GenerateTTSJsonActionTests(TestCase):
         self.assertIsNone(Post.objects.get(pk=linked.pk).tts_json)
         self.assertIsNone(Post.objects.get(pk=tweak.pk).tts_json)
         message = self.modeladmin.message_user.call_args_list[-1].args[1]
-        self.assertIn('Forge sync page', message)
+        self.assertIn('Sync in the Forge', message)
         self.assertIn('Nothing to generate', message)
 
 
@@ -928,7 +928,7 @@ class PostTTSJsonPageTests(TestCase):
                                          component='Faction')
         ForgedFaction.objects.create(designer=self.admin_user.profile, faction_name='Fox Folk', published_post=faction)
         page = self.client.get(reverse('manage-tts-json', kwargs={'slug': faction.slug})).content.decode()
-        self.assertIn('Forge sync page', page)
+        self.assertIn('Sync in the Forge', page)
 
     def test_generate_keeps_json_when_nothing_to_build(self):
         from the_keep.services.tts_store import store_tts_json

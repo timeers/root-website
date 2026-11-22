@@ -251,6 +251,14 @@ def map_builder(request, slug):
     _require_editor(request, post)
     if post.component != Post.ComponentChoices.MAP:
         raise Http404("The map builder is for maps.")
+    # A map published from the Forge is laid out there: its layout and JSON
+    # come from Forge syncs, so the keep's builder only points to the Forge.
+    forged = forge_linked(post)
+    if forged is not None:
+        if request.method == 'POST':
+            return JsonResponse({'ok': False, 'errors': [
+                "This map is built in the Forge: change it there and sync."]}, status=403)
+        return render(request, 'the_keep/map_builder.html', {'object': post, 'forged_map': forged})
 
     if request.method == 'POST':
         if not post.board_image:

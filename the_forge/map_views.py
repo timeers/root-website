@@ -19,8 +19,9 @@ from the_keep.models import Post
 from the_keep.services.tts_map import check_builder, clean_builder_state
 
 from .models import ForgedFaction, ForgedMap
-from .services.forge_map import (ArtRejected, default_state, map_builder_config,
-                                 map_library_state, refresh_map_image, save_art, store_map_tts)
+from .services.forge_map import (ArtRejected, default_state, map_builder_config, map_library_state,
+                                 map_name_max, name_locked_note, refresh_map_image, save_art, set_language,
+                                 store_map_tts)
 from .views import _forbid_if_not_editor, user_can_edit_forge, user_can_view_forge
 
 
@@ -61,8 +62,7 @@ def map_create(request):
             'config': map_builder_config(None, profile=request.user.profile),
         })
 
-    name_field = ForgedFaction._meta.get_field('faction_name')
-    name = (request.POST.get('name') or '').strip()[:name_field.max_length]
+    name = (request.POST.get('name') or '').strip()[:map_name_max()]
     if not name:
         return JsonResponse({'ok': False, 'field': 'name', 'error': 'Name your map.'}, status=400)
     upload = request.FILES.get('art')
@@ -75,8 +75,10 @@ def map_create(request):
 
     try:
         with transaction.atomic():
-            faction = ForgedFaction.objects.create(designer=request.user.profile, faction_name=name,
-                                                   component=Post.ComponentChoices.MAP)
+            faction = ForgedFaction(designer=request.user.profile, faction_name=name,
+                                    component=Post.ComponentChoices.MAP)
+            set_language(faction, request.POST.get('language'))   # else the default (English)
+            faction.save()
             forged_map = ForgedMap.objects.create(faction=faction, tts_builder=state)
             try:
                 cropped = save_art(forged_map, upload)
@@ -107,6 +109,8 @@ def map_detail(request, pk):
         'tts_state': map_library_state(faction, forged_map),
         'is_admin': bool(getattr(request.user.profile, 'admin', False)),
     }
+    from .publishing.context import publish_context
+    context.update(publish_context(request, faction))
     if forged_map.art:
         context['config'] = map_builder_config(forged_map, profile=request.user.profile, readonly=True)
     return render(request, 'the_forge/map_detail.html', context)
@@ -129,12 +133,15 @@ def map_builder(request, pk):
         if isinstance(state.get('fixed'), bool):
             forged_map.fixed_clearings = state['fixed']
         forged_map.save(update_fields=['tts_builder', 'fixed_clearings', 'last_updated'])
-        errors, warnings = check_builder(forged_map, state)
-        # The name, from the Art step's field.
-        name_field = ForgedFaction._meta.get_field('faction_name')
-        name = payload.get('name')
+        errors, warnings = check_builder(forged_map, state, require_buildings=True)
+        # The name and language, from the Start step. A map linked to a keep
+        # post keeps both: only an admin can rename a published post.
+        locked = bool(name_locked_note(faction))
+        if not locked and set_language(faction, payload.get('language')):
+            ForgedFaction.objects.filter(pk=faction.pk).update(language=faction.language)
+        name = None if locked else payload.get('name')
         if isinstance(name, str):
-            name = name.strip()[:name_field.max_length]
+            name = name.strip()[:map_name_max()]
             if not name:
                 warnings.append(f'Your map needs a name: kept "{faction.faction_name}".')
             elif name != faction.faction_name:

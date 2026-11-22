@@ -1,6 +1,8 @@
 """Forge maps (ForgedMap): the builder's settings, the generated map image and
 its TTS JSON. The builder itself, the layout checks and the TTS JSON are the
 keep's map builder code (the_keep/services/tts_map.py), shared as is."""
+import copy
+
 from django.core.files.base import ContentFile
 from django.urls import reverse
 from django.utils import timezone
@@ -11,6 +13,13 @@ from the_keep.services.tts_map import (DEFAULT_LOGO, FORGE_FRAME, OFFICIAL_RATIO
 from the_keep.utils import validate_tts_save
 
 MAX_ART_BYTES = 25 * 1024 * 1024
+
+
+def map_name_max():
+    """A map's name becomes a keep post's title when published, so it's held
+    to that length (shorter than faction_name's own limit)."""
+    from the_keep.models import Post
+    return Post._meta.get_field('title').max_length
 ART_QUALITY = 92
 
 
@@ -57,15 +66,22 @@ def map_builder_config(forged_map, *, profile, readonly=False):
     forged_map=None is a new map: nothing exists until the Art step's Next
     sends its name and art to create_url (the builder then carries on with the
     created map's URLs)."""
+    from the_gatehouse.models import Language
+    from the_forge.models import _default_language
+    languages = [{'id': lang.pk, 'name': lang.name} for lang in Language.objects.order_by('name')]
+    locked_note = ''
     if forged_map is None:
         state, image, fixed, cropped, name = default_state(), None, False, False, ''
+        language = _default_language()
         save_url = upload_url = None
     else:
+        faction = forged_map.faction
         state = forged_map.tts_builder or default_state()
         image, fixed, cropped = art_url(forged_map), forged_map.fixed_clearings, forged_map.art_cropped
-        name = forged_map.faction.faction_name
+        name, language = faction.faction_name, faction.language_id
         save_url = reverse('forge-map-builder', kwargs={'pk': forged_map.faction_id})
         upload_url = reverse('forge-map-art', kwargs={'pk': forged_map.faction_id})
+        locked_note = name_locked_note(faction)
     return builder_config(
         image, *FORGE_FRAME, state,
         fixed=fixed,
@@ -82,8 +98,43 @@ def map_builder_config(forged_map, *, profile, readonly=False):
         default_logo=list(DEFAULT_LOGO),
         step_text=step_text(),
         map_name=name,
+        name_max=map_name_max(),
+        # Linked to a keep post: its title (and language) can only be changed
+        # by an admin, so the map's can't either.
+        name_locked=bool(locked_note),
+        name_locked_note=locked_note,
+        languages=languages,
+        language=language,
+        # The Forge prints buildings and ruins on the map: at least one of each.
+        require_buildings=True,
         readonly=readonly,
     )
+
+
+def name_locked_note(faction):
+    """Why a map's name and language can't change (it's linked to a keep post
+    or translation), or ''."""
+    if faction.published_post_id:
+        title = faction.published_keep_post.title
+    elif faction.published_translation_id:
+        title = faction.published_translation.translated_title or faction.published_translation.post.title
+    else:
+        return ''
+    return f'Linked to {title} on the Root Database. Its title can only be changed by an admin.'
+
+
+def set_language(faction, language_pk):
+    """The map's language from the builder (an unknown pk is ignored). Returns
+    True if it changed."""
+    from the_gatehouse.models import Language
+    try:
+        language = Language.objects.filter(pk=int(language_pk)).first()
+    except (TypeError, ValueError):
+        return False
+    if language is None or language.pk == faction.language_id:
+        return False
+    faction.language = language
+    return True
 
 
 class ArtRejected(Exception):
@@ -134,7 +185,10 @@ def refresh_map_image(forged_map):
     forged_map.preview_fingerprint = fingerprint
     forged_map.preview_version = (forged_map.preview_version or 0) + 1
     forged_map.last_generated = timezone.now()
-    forged_map.save(update_fields=['image_preview', 'preview_fingerprint', 'preview_version', 'last_generated'])
+    # The layout this image shows, saved with it: what gets published.
+    forged_map.rendered_builder = copy.deepcopy(forged_map.tts_builder or {})
+    forged_map.save(update_fields=['image_preview', 'preview_fingerprint', 'preview_version', 'last_generated',
+                                   'rendered_builder'])
     return True
 
 
@@ -143,7 +197,7 @@ def store_map_tts(forged_map):
     store it on the draft. Returns (ok, errors)."""
     from the_forge.models import ForgedFaction
 
-    errors, _warnings = check_builder(forged_map, forged_map.tts_builder or {})
+    errors, _warnings = check_builder(forged_map, forged_map.tts_builder or {}, require_buildings=True)
     if errors:
         return False, errors
     save = build_map_tts_json(forged_map, forged_map.tts_builder)

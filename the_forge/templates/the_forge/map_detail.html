@@ -18,7 +18,7 @@
     {% endif %}
   </div>
 
-  <h1 class="root-title luminari text-center mb-3">{{ faction.faction_name }}</h1>
+  <h1 class="root-title luminari text-center mb-3">{{ faction.faction_name }}{% if faction.language and faction.language.code != 'en' %} <span class="badge text-bg-secondary align-middle fs-6">{{ faction.language.name }}</span>{% endif %}</h1>
 
   <!-- The generated map -->
   <div class="card p-3 mb-3">
@@ -64,6 +64,8 @@
       {% endif %}
     </div>
   {% endif %}
+
+  {% include 'the_forge/partials/_publish_card.html' %}
 
   {% include 'the_forge/partials/_tts_library_card.html' with noun='map' %}
 </div>
