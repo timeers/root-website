@@ -1395,6 +1395,7 @@ class MapBuilderTests(TestCase):
 # ── TTS warrior figures and supplies (tts_figures.py, tts_supply.py) ────────
 
 import io as _io
+import math
 
 from PIL import ImageDraw
 
@@ -1423,16 +1424,19 @@ def _poly_area(points):
     return abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(points, points[1:] + points[:1]))) / 2
 
 
-def _parse_obj(text):
+def _parse_obj(text, normals=False):
+    """(v, vt, faces), plus vn when `normals`. Face corners are index tuples:
+    (v, vt) or (v, vt, vn)."""
     v = [tuple(map(float, l.split()[1:])) for l in text.splitlines() if l.startswith('v ')]
     vt = [tuple(map(float, l.split()[1:])) for l in text.splitlines() if l.startswith('vt ')]
+    vn = [tuple(map(float, l.split()[1:])) for l in text.splitlines() if l.startswith('vn ')]
     faces = [[tuple(int(x) for x in p.split('/')) for p in l.split()[1:]]
              for l in text.splitlines() if l.startswith('f ')]
-    return v, vt, faces
+    return (v, vt, vn, faces) if normals else (v, vt, faces)
 
 
 def _normal(v, face):
-    a, b, c = (v[i - 1] for i, _t in face[:3])
+    a, b, c = (v[corner[0] - 1] for corner in face[:3])
     u = [b[i] - a[i] for i in range(3)]
     w = [c[i] - a[i] for i in range(3)]
     return (u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0])
@@ -1458,21 +1462,22 @@ class TTSFigureTests(TestCase):
 
     def test_obj_indexes_winding_and_side_uv(self):
         shape = tts_figures.build_shape(_meeple())
-        v, vt, faces = _parse_obj(tts_figures.figure_obj(shape))
+        v, vt, vn, faces = _parse_obj(tts_figures.figure_obj(shape), normals=True)
         for face in faces:
-            for vi, ti in face:
-                self.assertTrue(1 <= vi <= len(v) and 1 <= ti <= len(vt))
+            for vi, ti, ni in face:
+                self.assertTrue(1 <= vi <= len(v) and 1 <= ti <= len(vt) and 1 <= ni <= len(vn))
         n = len(shape.outline)
         caps = [f for f in faces if len(f) == 3]
-        front = [_normal(v, f)[2] for f in caps if all(i <= n for i, _ in f)]
-        back = [_normal(v, f)[2] for f in caps if all(i > n for i, _ in f)]
+        front = [_normal(v, f)[2] for f in caps if all(c[0] <= n for c in f)]
+        back = [_normal(v, f)[2] for f in caps if all(n < c[0] <= 2 * n for c in f)]
         self.assertTrue(front and all(z > 0 for z in front))
         self.assertTrue(back and all(z < 0 for z in back))
+        self.assertEqual(len(front) + len(back), len(caps))
         side_uv = len(vt)
         self.assertEqual(vt[side_uv - 1], tts_figures.SIDE_UV)
         for face in faces:
             if len(face) == 4:
-                self.assertTrue(all(t == side_uv for _v, t in face))
+                self.assertTrue(all(c[1] == side_uv and c[0] > 2 * n for c in face))
         # Base on the ground, centred across.
         self.assertAlmostEqual(min(p[1] for p in v), 0.0, places=4)
         xs = [p[0] for p in v]
@@ -1496,6 +1501,202 @@ class TTSFigureTests(TestCase):
         self.assertEqual(tts_figures.warrior_nickname('Cat Warriors', 'Marquise'), 'Cat Warrior')
         self.assertEqual(tts_figures.warrior_nickname('Warriors', 'Marquise'), 'Marquise Warrior')
         self.assertEqual(tts_figures.warrior_nickname('', 'Marquise'), 'Marquise Warrior')
+
+
+def _curved_meeple(size=(240, 300), aa=False, patch=False):
+    """A meeple with curves (a round body) and a sharp feature (a pointed ear,
+    its tip the topmost point). `aa`: drawn at 4x and downsampled, so its edge
+    is anti-aliased. `patch`: a translucent patch inside the art."""
+    scale = 4 if aa else 1
+    w, h = size[0] * scale, size[1] * scale
+    im = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    colour = (40, 120, 200, 255)
+    d.ellipse([w * 0.1, h * 0.25, w * 0.9, h * 0.95], fill=colour)
+    d.rectangle([w * 0.2, h * 0.6, w * 0.8, h - 1], fill=colour)
+    d.polygon([(w * 0.55, h * 0.35), (w * 0.7, 0), (w * 0.8, h * 0.4)], fill=colour)
+    if patch:
+        d.ellipse([w * 0.35, h * 0.55, w * 0.6, h * 0.75], fill=(255, 255, 255, 120))
+    return im.resize(size, Image.LANCZOS) if aa else im
+
+
+def _turns(outline):
+    """The turn at each vertex, in degrees."""
+    n = len(outline)
+    out = []
+    for i in range(n):
+        a, b, c = outline[i - 1], outline[i], outline[(i + 1) % n]
+        turn = math.atan2(c[1] - b[1], c[0] - b[0]) - math.atan2(b[1] - a[1], b[0] - a[0])
+        out.append(abs(math.degrees((turn + math.pi) % (2 * math.pi) - math.pi)))
+    return out
+
+
+def _segment_distance(p, a, b):
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    t = max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / ((dx * dx + dy * dy) or 1e-9)))
+    return math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy)
+
+
+def _max_deviation(points, outline):
+    edges = list(zip(outline, outline[1:] + outline[:1]))
+    return max(min(_segment_distance(p, a, b) for a, b in edges) for p in points)
+
+
+def _bbox(points):
+    xs, ys = [p[0] for p in points], [p[1] for p in points]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _inside(point, polygon):
+    """Ray casting: is `point` inside `polygon`?"""
+    x, y = point
+    inside = False
+    for (x0, y0), (x1, y1) in zip(polygon, polygon[1:] + polygon[:1]):
+        if (y0 > y) != (y1 > y) and x < x0 + (y - y0) * (x1 - x0) / (y1 - y0):
+            inside = not inside
+    return inside
+
+
+def _points_outward(v, ring, face, normal):
+    """Whether `normal` (x, y) points out of the shape at side `face`: a point
+    a little way along it from the face's middle is outside the outline."""
+    a, b = v[face[0][0] - 1], v[face[1][0] - 1]
+    mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+    length = math.hypot(normal[0], normal[1]) or 1e-9
+    step = 1e-3
+    return not _inside((mid[0] + normal[0] / length * step, mid[1] + normal[1] / length * step), ring)
+
+
+def _shape_from(outline):
+    outline = list(outline)
+    return tts_figures.FigureShape(outline=outline, triangles=tts_figures.triangulate(outline),
+                                   image_size=(100, 100), width=1.0, height=1.55, depth=0.56,
+                                   art_box=tts_figures.art_box((100, 100)))
+
+
+class TTSFigureSmoothingTests(TestCase):
+    """The outline is traced between pixels and, for hard-edged art, smoothed;
+    the mesh carries its own normals."""
+
+    def test_both_kinds_of_edge_give_a_smooth_detailed_outline(self):
+        for aa in (False, True):
+            with self.subTest(antialiased=aa):
+                outline = tts_figures.build_shape(_curved_meeple(aa=aa)).outline
+                turns = sorted(_turns(outline))
+                self.assertLess(turns[len(turns) // 2], 12)
+                self.assertGreaterEqual(len(outline), 60)     # the old tracer gave 36 on Meeple1
+                # No pixel stairs: 3+ consecutive axis-aligned ~1 px edges.
+                run = longest = 0
+                for a, b in zip(outline, outline[1:] + outline[:1]):
+                    dx, dy = abs(b[0] - a[0]), abs(b[1] - a[1])
+                    stair = (dx < 1e-6 or dy < 1e-6) and 0.9 <= dx + dy <= 1.1
+                    run = run + 1 if stair else 0
+                    longest = max(longest, run)
+                self.assertLess(longest, 3)
+
+    def test_hard_edges_are_read_from_the_outline(self):
+        hard = tts_figures.trace_outline(_curved_meeple())
+        patched_image = _curved_meeple(patch=True)
+        patched = tts_figures.trace_outline(patched_image)
+        soft = tts_figures.trace_outline(_curved_meeple(aa=True))
+        self.assertLess(hard.soft_share, tts_figures.HARD_EDGE_SHARE)
+        self.assertGreater(soft.soft_share, tts_figures.HARD_EDGE_SHARE)
+        # Translucent detail inside the art doesn't make the outline soft,
+        # though the image is full of partly transparent pixels.
+        partial = sum(patched_image.getchannel('A').histogram()[1:255])
+        self.assertGreater(partial / len(patched.points), 1)
+        self.assertLess(patched.soft_share, tts_figures.HARD_EDGE_SHARE)
+
+    def test_antialiased_art_is_not_smoothed(self):
+        image = _curved_meeple(aa=True)
+        raw = tts_figures.trace_outline(image).points
+        outline = tts_figures.build_shape(image).outline
+        self.assertLessEqual(_max_deviation(raw[::3], outline), 0.35)
+        # The ear's tip (the topmost point) is still a sharp vertex.
+        tip = min(range(len(outline)), key=lambda i: outline[i][1])
+        self.assertGreater(_turns(outline)[tip], 30)
+
+    def test_smoothing_keeps_the_shape(self):
+        image = _curved_meeple()
+        raw = tts_figures.trace_outline(image).points
+        outline = tts_figures.build_shape(image).outline
+        self.assertAlmostEqual(_poly_area(outline), _poly_area(raw), delta=_poly_area(raw) * 0.01)
+        for got, want in zip(_bbox(outline), _bbox(raw)):
+            self.assertAlmostEqual(got, want, delta=1.5)      # the pointed ear loses ~1 px
+
+    def test_detail_doesnt_depend_on_resolution(self):
+        small = tts_figures.build_shape(_curved_meeple(size=(160, 200)))
+        large = tts_figures.build_shape(_curved_meeple(size=(320, 400)))
+        self.assertAlmostEqual(len(large.outline) / len(small.outline), 1.0, delta=0.3)
+        self.assertAlmostEqual(large.width, small.width, delta=small.width * 0.01)
+
+    def test_intricate_shapes_are_capped(self):
+        import random
+        rng = random.Random(7)
+        im = Image.new('RGBA', (400, 400), (0, 0, 0, 0))
+        points = []
+        for i in range(720):
+            angle = 2 * math.pi * i / 720
+            radius = 150 + rng.uniform(-25, 25)
+            points.append((200 + radius * math.cos(angle), 200 + radius * math.sin(angle)))
+        ImageDraw.Draw(im).polygon(points, fill=(0, 0, 0, 255))
+        shape = tts_figures.build_shape(im)
+        self.assertLessEqual(len(shape.outline), tts_figures.MAX_OUTLINE_POINTS)
+        area = _poly_area(shape.outline)
+        tri_area = sum(_poly_area([shape.outline[i] for i in t]) for t in shape.triangles)
+        self.assertAlmostEqual(tri_area, area, delta=area * 0.01)
+
+    def test_sides_face_outward_whatever_order_the_trace_gives(self):
+        image = _curved_meeple(aa=True)
+        trace = tts_figures.trace_outline(image)
+        reversed_trace = tts_figures.Trace(list(reversed(trace.points)), trace.soft_share)
+        for traced in (trace, reversed_trace):
+            with self.subTest(reversed=traced is reversed_trace), \
+                    mock.patch.object(tts_figures, 'trace_outline', return_value=traced):
+                shape = tts_figures.build_shape(image)
+                v, _vt, faces = _parse_obj(tts_figures.figure_obj(shape))
+                ring = [p[:2] for p in v[:len(shape.outline)]]
+                for face in faces:
+                    if len(face) == 4:
+                        self.assertTrue(_points_outward(v, ring, face, _normal(v, face)))
+
+    def test_normals(self):
+        shape = tts_figures.build_shape(_curved_meeple(aa=True))
+        v, vt, vn, faces = _parse_obj(tts_figures.figure_obj(shape), normals=True)
+        for normal in vn:
+            self.assertAlmostEqual(math.hypot(*normal), 1.0, places=3)
+        # Like the official warriors: one texture coordinate and one normal per vertex.
+        used = {}
+        for face in faces:
+            for vi, ti, ni in face:
+                used.setdefault(vi, set()).add((ti, ni))
+        self.assertTrue(all(len(combos) == 1 for combos in used.values()))
+        n = len(shape.outline)
+        ring = [p[:2] for p in v[:n]]
+        for face in faces:
+            geometric = _normal(v, face)
+            for vi, _ti, ni in face:
+                normal = vn[ni - 1]
+                # Each corner's normal agrees with its face's winding.
+                self.assertGreater(sum(g * c for g, c in zip(geometric, normal)), 0)
+                if len(face) == 3:
+                    self.assertEqual(normal, (0.0, 0.0, 1.0) if vi <= n else (0.0, 0.0, -1.0))
+                else:
+                    self.assertEqual(normal[2], 0.0)
+                    self.assertTrue(_points_outward(v, ring, face, normal))
+
+    def test_sharp_corners_split_and_curves_share(self):
+        square = _shape_from([(0, 0), (10, 0), (10, 10), (0, 10)])
+        v, _vt, vn, _faces = _parse_obj(tts_figures.figure_obj(square), normals=True)
+        # 4 corners at 90 degrees: two side vertex pairs each, four side normals.
+        self.assertEqual(len(v), 2 * 4 + 4 * 2 * 2)
+        self.assertEqual(len(vn), 2 + 4 * 2)
+        circle = _shape_from([(50 + 40 * math.cos(2 * math.pi * i / 32), 50 + 40 * math.sin(2 * math.pi * i / 32))
+                              for i in range(32)])
+        v, _vt, vn, _faces = _parse_obj(tts_figures.figure_obj(circle), normals=True)
+        # Gentle 11-degree turns: one shared side vertex pair and normal per point.
+        self.assertEqual(len(v), 2 * 32 + 2 * 32)
+        self.assertEqual(len(vn), 2 + 32)
 
 
 @override_settings(SITE_URL='https://example.test')
@@ -1633,6 +1834,19 @@ class KeepWarriorExportTests(TestCase):
             self.assertEqual(max(im.size), 400)
             self.assertIn('A', im.getbands())
             self.assertEqual(im.getpixel((0, 0))[3], 0)
+
+    def test_figures_from_an_older_version_regenerate(self):
+        self.assertEqual(tts_figures.FIGURE_VERSION, 2)
+        from the_keep.models import Piece as KeepPiece
+        with mock.patch.object(tts_figures, 'FIGURE_VERSION', 1):
+            tts_figures.ensure_figure(self.piece, '#d2691e')
+        old = KeepPiece.objects.get(pk=self.piece.pk)
+        old_fingerprint = old.figure_fingerprint      # ensure_figure updates the piece it's given
+        os.utime(old.figure_mesh.path, (0, 0))        # so a rewrite shows in the mtime
+        tts_figures.ensure_figure(old, '#d2691e')
+        new = KeepPiece.objects.get(pk=self.piece.pk)
+        self.assertNotEqual(new.figure_fingerprint, old_fingerprint)
+        self.assertGreater(os.path.getmtime(new.figure_mesh.path), 0)   # regenerated
 
     def test_generate_includes_the_supply(self):
         from the_keep.services.tts import build_tts_objects
