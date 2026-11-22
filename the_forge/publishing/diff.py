@@ -164,6 +164,8 @@ class ForgedPostSyncForm(forms.Form):
         if target is None or self.publisher is None:
             return None
 
+        from ..services.sync_timing import sync_stage
+
         applied = []
         for field in sync_fields(self.forged, self.publisher):
             name = field.name
@@ -178,7 +180,8 @@ class ForgedPostSyncForm(forms.Form):
                 setattr(target, name, proposed)
             applied.append(field)
         if applied:
-            target.save()
+            with sync_stage('save: fields'):
+                target.save()
         for field in applied:
             if field.on_applied is not None:
                 field.on_applied(self.forged)
@@ -186,7 +189,8 @@ class ForgedPostSyncForm(forms.Form):
         if self.mode == 'post':
             from ..forms_publish import apply_extra_plans
             apply_extra_plans(self, target)
-            self.publisher.always_sync(self.forged, target)
+            with sync_stage('save: always'):
+                self.publisher.always_sync(self.forged, target)
         return target
 
 

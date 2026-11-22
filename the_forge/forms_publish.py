@@ -936,52 +936,57 @@ ForgedFactionLinkForm = ForgedPostLinkForm
 def apply_extra_plans(form, target):
     """Apply the ticked piece, deck and TTS-asset rows of a sync form (Faction
     only: other components have no such rows)."""
+    from .services.sync_timing import sync_stage
+
     cleaned = form.cleaned_data
-    for entry in form.piece_plan:
-        if entry['in_sync'] or not cleaned.get(f'piece_{entry["forge_piece"].pk}'):
-            continue
-        forge_piece = entry['forge_piece']
-        if entry['action'] == 'create':
-            keep_piece = KeepPiece(
-                parent=target,
-                name=entry['resolved_name'],
-                type=forge_piece.type,
-                quantity=forge_piece.quantity,
-                description='',
-                suited=False,
-            )
-            if forge_piece.small_icon:
-                keep_piece.small_icon = _copy_image_field(forge_piece.small_icon)
-                keep_piece.front_version = forge_piece.front_version or 0
-            if forge_piece.back_image:
-                keep_piece.back_image = _copy_image_field(forge_piece.back_image)
-                keep_piece.back_version = forge_piece.back_version or 0
-            keep_piece.save()
-        else:  # update
-            keep_piece = entry['keep_piece']
-            keep_piece.quantity = forge_piece.quantity
-            if entry['front_changed'] and forge_piece.small_icon:
-                keep_piece.small_icon = _copy_image_field(forge_piece.small_icon)
-                keep_piece.front_version = forge_piece.front_version or 0
-            if entry['back_changed'] and forge_piece.back_image:
-                keep_piece.back_image = _copy_image_field(forge_piece.back_image)
-                keep_piece.back_version = forge_piece.back_version or 0
-            keep_piece.save()
-        # build_deck_plan resolved keep pieces before this save; record the
-        # created/updated one so the deck pass below can attach to it.
-        entry['keep_piece'] = keep_piece
+    with sync_stage('save: pieces'):
+        for entry in form.piece_plan:
+            if entry['in_sync'] or not cleaned.get(f'piece_{entry["forge_piece"].pk}'):
+                continue
+            forge_piece = entry['forge_piece']
+            if entry['action'] == 'create':
+                keep_piece = KeepPiece(
+                    parent=target,
+                    name=entry['resolved_name'],
+                    type=forge_piece.type,
+                    quantity=forge_piece.quantity,
+                    description='',
+                    suited=False,
+                )
+                if forge_piece.small_icon:
+                    keep_piece.small_icon = _copy_image_field(forge_piece.small_icon)
+                    keep_piece.front_version = forge_piece.front_version or 0
+                if forge_piece.back_image:
+                    keep_piece.back_image = _copy_image_field(forge_piece.back_image)
+                    keep_piece.back_version = forge_piece.back_version or 0
+                keep_piece.save()
+            else:  # update
+                keep_piece = entry['keep_piece']
+                keep_piece.quantity = forge_piece.quantity
+                if entry['front_changed'] and forge_piece.small_icon:
+                    keep_piece.small_icon = _copy_image_field(forge_piece.small_icon)
+                    keep_piece.front_version = forge_piece.front_version or 0
+                if entry['back_changed'] and forge_piece.back_image:
+                    keep_piece.back_image = _copy_image_field(forge_piece.back_image)
+                    keep_piece.back_version = forge_piece.back_version or 0
+                keep_piece.save()
+            # build_deck_plan resolved keep pieces before this save; record the
+            # created/updated one so the deck pass below can attach to it.
+            entry['keep_piece'] = keep_piece
 
-    keep_piece_by_forge_pk = {e['forge_piece'].pk: e['keep_piece'] for e in form.piece_plan}
-    for entry in form.deck_plan:
-        pk = entry['forge_piece'].pk
-        if entry['in_sync'] or not cleaned.get(f'deck_{pk}'):
-            continue
-        keep_piece = keep_piece_by_forge_pk.get(pk)
-        if keep_piece is None or keep_piece.pk is None:
-            continue
-        apply_deck_entry(entry, target, keep_piece)
+    with sync_stage('save: decks'):
+        keep_piece_by_forge_pk = {e['forge_piece'].pk: e['keep_piece'] for e in form.piece_plan}
+        for entry in form.deck_plan:
+            pk = entry['forge_piece'].pk
+            if entry['in_sync'] or not cleaned.get(f'deck_{pk}'):
+                continue
+            keep_piece = keep_piece_by_forge_pk.get(pk)
+            if keep_piece is None or keep_piece.pk is None:
+                continue
+            apply_deck_entry(entry, target, keep_piece)
 
-    for entry in form.tts_asset_plan:
-        if entry['in_sync'] or not cleaned.get(f'ttsasset_{entry["role"]}'):
-            continue
-        apply_tts_asset_entry(entry, target)
+    with sync_stage('save: tts assets'):
+        for entry in form.tts_asset_plan:
+            if entry['in_sync'] or not cleaned.get(f'ttsasset_{entry["role"]}'):
+                continue
+            apply_tts_asset_entry(entry, target)
