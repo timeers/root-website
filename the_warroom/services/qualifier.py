@@ -16,7 +16,7 @@ from django.urls import reverse
 
 from the_gatehouse.models import DEFAULT_PROFILE_IMAGE
 from the_warroom.models import (
-    EloParticipant, Effort, Game,
+    EloParticipant, EloSystem, Effort, Game,
     elo_eligibility_q, game_counts_for_elo_system_q, game_counts_for_tournament_q,
 )
 from the_warroom.services.win_rate import points_annotations
@@ -93,11 +93,18 @@ def _compute(qualifier):
     ]
 
     if qualifier.is_elo:
-        ratings = dict(
-            EloParticipant.objects.filter(
-                elo_system=qualifier.elo_system, player_id__in=[r.player_id for r in rows]
-            ).values_list('player_id', 'rating')
-        )
+        system = qualifier.elo_system
+        # RootELO marks players it hasn't ranked yet with rank=NULL; their feed
+        # rating isn't treated as real, so they show a dash and can't qualify.
+        # LOCAL systems never set rank, so the check only applies to RootELO.
+        require_rank = system.calculation_type == EloSystem.CalculationType.ROOTELO
+        participants = EloParticipant.objects.filter(
+            elo_system=system, player_id__in=[r.player_id for r in rows]
+        ).values_list('player_id', 'rating', 'rank')
+        ratings = {
+            pid: rating for pid, rating, elo_rank in participants
+            if not require_rank or elo_rank is not None
+        }
         for r in rows:
             r.score = ratings.get(r.player_id)
 
@@ -109,7 +116,11 @@ def _compute(qualifier):
         if r.games >= qualifier.game_threshold:
             rank += 1
             r.rank = rank
-            r.qualified = rank <= qualifier.qualifier_places
+            # An Elo qualifier also needs a rating: no participant row, or
+            # unranked on RootELO, keeps the rank number but never qualifies.
+            # Unrated players sort last, so their spots simply go unfilled.
+            r.qualified = (rank <= qualifier.qualifier_places
+                           and not (qualifier.is_elo and r.score is None))
     return rows
 
 

@@ -8222,9 +8222,9 @@ class QualifierStandingsTests(TestCase):
         self._game(5, self.b, self.a, test_match=True)
         self._game(5, self.b, self.a, final=False)
 
-        EloParticipant.objects.create(elo_system=self.system, player=self.a, rating=1400)
-        EloParticipant.objects.create(elo_system=self.system, player=self.b, rating=1300)
-        EloParticipant.objects.create(elo_system=self.system, player=self.c, rating=1600)
+        EloParticipant.objects.create(elo_system=self.system, player=self.a, rating=1400, rank=2)
+        EloParticipant.objects.create(elo_system=self.system, player=self.b, rating=1300, rank=3)
+        EloParticipant.objects.create(elo_system=self.system, player=self.c, rating=1600, rank=1)
 
         self.Qualifier = Qualifier
         self.qualifier = Qualifier.objects.create(
@@ -8285,6 +8285,29 @@ class QualifierStandingsTests(TestCase):
         self.assertIsNone(rows['Charlie'].rank)
         self.assertEqual(rows['Alpha'].rank, 1)
         self.assertEqual(rows['Alpha'].score, 1400)
+
+    def test_unranked_rootelo_player_cannot_qualify(self):
+        from the_warroom.models import EloParticipant, EloSystem
+        # RootELO hasn't ranked Alpha yet: rating hidden, can't qualify, sorts last.
+        EloParticipant.objects.filter(elo_system=self.system, player=self.a).update(rank=None)
+        q = self.Qualifier.objects.create(
+            name="Rank Q", start_date=date(2026, 1, 1), end_date=date(2026, 1, 10),
+            game_threshold=3, qualifier_places=2, elo_system=self.system,
+        )
+        rows = self._rows(q)
+        self.assertIsNone(rows['Alpha'].score)
+        self.assertEqual(rows['Alpha'].rank, 2)
+        self.assertFalse(rows['Alpha'].qualified)  # rank 2 is within places, but unranked
+        self.assertEqual(rows['Bravo'].rank, 1)
+        self.assertTrue(rows['Bravo'].qualified)
+
+        # LOCAL systems never set rank, so it isn't required there.
+        self.system.calculation_type = EloSystem.CalculationType.LOCAL
+        self.system.save()
+        q.save()  # new updated_at -> fresh cache key
+        rows = self._rows(q)
+        self.assertEqual(rows['Alpha'].score, 1400)
+        self.assertTrue(rows['Alpha'].qualified)
 
     def test_filters_keep_ranks(self):
         url = self.qualifier.get_absolute_url()
