@@ -10549,7 +10549,9 @@ def qualifier_detail(request, slug):
 
     filtered = rows
     if show == 'threshold':
-        filtered = [r for r in filtered if r.rank]
+        # By games played, not rank: keeps players who have enough games but
+        # still need an Elo rank, so they're visible as near-qualifiers.
+        filtered = [r for r in filtered if r.games >= qualifier.game_threshold]
     if q:
         needle = q.lower()
         filtered = [r for r in filtered if needle in r.name.lower() or needle in r.discord.lower()]

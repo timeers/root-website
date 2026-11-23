@@ -113,14 +113,14 @@ def _compute(qualifier):
 
     rank = 0
     for r in rows:
+        # An Elo qualifier also needs a rating: players with no participant row,
+        # or unranked on RootELO, get no qualifier rank and so can't qualify.
+        if qualifier.is_elo and r.score is None:
+            continue
         if r.games >= qualifier.game_threshold:
             rank += 1
             r.rank = rank
-            # An Elo qualifier also needs a rating: no participant row, or
-            # unranked on RootELO, keeps the rank number but never qualifies.
-            # Unrated players sort last, so their spots simply go unfilled.
-            r.qualified = (rank <= qualifier.qualifier_places
-                           and not (qualifier.is_elo and r.score is None))
+            r.qualified = rank <= qualifier.qualifier_places
     return rows
 
 
