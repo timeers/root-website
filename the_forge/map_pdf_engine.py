@@ -71,7 +71,10 @@ class MapLayoutEngine:
                 self._draw_path(c, {'kind': 'river', 'colour': PATH_COLOURS['river'], 'points': link},
                                 layout['path_width'])
             # Rivers, then special paths, then paths, where they cross (stable within a kind).
-            for path in sorted(layout['paths'], key=lambda p: PATH_DRAW_ORDER.index(p['kind'])):
+            # A river that merges into another is printed cut back where its merge curve begins.
+            for i, path in sorted(enumerate(layout['paths']), key=lambda ip: PATH_DRAW_ORDER.index(ip[1]['kind'])):
+                if i in layout['river_trimmed']:
+                    path = {**path, 'points': layout['river_trimmed'][i]}
                 self._draw_path(c, path, layout['path_width'])
             for circle in layout['clearings']:
                 self._draw_clearing(c, circle, layout['clearing_outline'])

@@ -2087,3 +2087,114 @@ class MapPathTests(TestCase):
         self.assertNotIn('chips', summary['suits'])
         keep_map.tts_builder = self._state([])
         self.assertEqual(map_summary(keep_map)['tiles'][0]['count'], 4)       # the layout's
+
+    # ── Printed rivers: merges and run-offs (print_rivers) ──
+    def _print_rivers(self, paths, clearings=None):
+        from the_keep.services.tts_map import path_shapes, print_rivers
+        state = self._state(paths, clearings=clearings)
+        shapes = path_shapes(self._geometry(), state)
+        return state, shapes, print_rivers(self._geometry(), state, shapes)
+
+    def _on_line(self, point, line):
+        return min(_segment_distance(point, a, b) for a, b in zip(line, line[1:]))
+
+    def _angle(self, u, v):
+        lu, lv = math.hypot(*u), math.hypot(*v)
+        return math.degrees(math.acos(max(-1, min(1, abs(u[0] * v[0] + u[1] * v[1]) / (lu * lv)))))
+
+    def test_a_river_curves_into_another_rivers_middle(self):
+        from the_keep.services.tts_map import MERGE_REACH, PATH_WIDTH, RIVER_WIDTH
+        width = PATH_WIDTH * RIVER_WIDTH * self._geometry().px_per_local
+        # River 1 runs from clearing 3 (below) into river 0's middle (0 -> 2, along the top).
+        for joining in ({'kind': 'river', 'a': {'c': 3}, 'b': {'p': 0}},      # its b end
+                        {'kind': 'river', 'a': {'p': 0}, 'b': {'c': 3}}):     # its a end
+            with self.subTest(joining=joining):
+                state, shapes, rivers = self._print_rivers(
+                    [{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}, joining],
+                    clearings=[(0.2, 0.4), (0.8, 0.4), (0.9, 0.9), (0.5, 0.85)])
+                target = shapes[0]['points']
+                merge = next(l for l in rivers['links'] if self._on_line(l[-1], target) < 1)
+                # Its end lies on the other river, arriving along it.
+                last = (merge[-1][0] - merge[-2][0], merge[-1][1] - merge[-2][1])
+                k = min(range(len(target) - 1), key=lambda n: _segment_distance(merge[-1], target[n], target[n + 1]))
+                along = (target[k + 1][0] - target[k][0], target[k + 1][1] - target[k][1])
+                self.assertLess(self._angle(last, along), 10)
+                # Its own line is cut back where the curve begins.
+                trimmed = rivers['trimmed'][1]
+                full = shapes[1]['points']
+                lost = (math.hypot(*(p - q for p, q in zip(full[-1], trimmed[-1]))) if 'p' in joining['b']
+                        else math.hypot(*(p - q for p, q in zip(full[0], trimmed[0]))))
+                self.assertAlmostEqual(lost, MERGE_REACH * width, delta=width * 0.2)
+                self.assertTrue(any(math.hypot(merge[0][0] - p[0], merge[0][1] - p[1]) < 1e-6
+                                    for p in (trimmed[0], trimmed[-1])))
+
+    def test_a_short_joining_river_keeps_half_its_length(self):
+        from the_keep.services.tts_map import MERGE_REACH, PATH_WIDTH, RIVER_WIDTH, _polyline_length
+        # Clearing 1 sits right beside river 0's middle: a very short river.
+        _state, shapes, rivers = self._print_rivers(
+            [{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 2}}, {'kind': 'river', 'a': {'c': 1}, 'b': {'p': 0}}],
+            clearings=[(0.2, 0.3), (0.5, 0.4), (0.8, 0.3)])
+        full = _polyline_length(shapes[1]['points'])
+        self.assertLess(full, 2 * MERGE_REACH * PATH_WIDTH * RIVER_WIDTH * self._geometry().px_per_local)   # short enough
+        self.assertAlmostEqual(_polyline_length(rivers['trimmed'][1]), full / 2, delta=1)
+
+    def test_a_chain_merges_into_the_printed_line(self):
+        # C (0 -> 1) along the top; B from clearing 2 into C's middle; A from clearing 3 into B's middle.
+        _state, shapes, rivers = self._print_rivers(
+            [{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}},
+             {'kind': 'river', 'a': {'c': 2}, 'b': {'p': 0}},
+             {'kind': 'river', 'a': {'c': 3}, 'b': {'p': 1}}],
+            clearings=[(0.15, 0.2), (0.85, 0.2), (0.5, 0.9), (0.9, 0.6)])
+        b_printed = rivers['trimmed'][1]
+        self.assertTrue(any(self._on_line(link[-1], b_printed) < 1 for link in rivers['links']))
+
+    def test_an_odd_river_at_a_clearing_curves_into_the_pair(self):
+        from the_keep.services.tts_map import CLEARING_OUTLINE_INSET
+        # Clearing 0 in the middle, with rivers to 1 (left), 2 (right) and 3 (below).
+        state, _shapes, rivers = self._print_rivers(
+            [{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}, {'kind': 'river', 'a': {'c': 0}, 'b': {'c': 2}},
+             {'kind': 'river', 'a': {'c': 0}, 'b': {'c': 3}}],
+            clearings=[(0.5, 0.5), (0.15, 0.5), (0.85, 0.5), (0.5, 0.9)])
+        cx, cy, _r = self._circle(state, 0)
+        # Nothing runs to the clearing's centre any more...
+        self.assertFalse(any(math.hypot(l[-1][0] - cx, l[-1][1] - cy) < 1 for l in rivers['links']))
+        # ...the odd one ends on the straight pair's curve through the clearing.
+        pair = next(l for l in rivers['links'] if abs(l[0][1] - cy) < 1 and abs(l[-1][1] - cy) < 1)
+        self.assertTrue(any(self._on_line(l[-1], pair) < 1 for l in rivers['links'] if l is not pair))
+
+    def test_a_river_into_a_path_middle_runs_off_the_map(self):
+        from the_keep.services.tts_map import FORGE_FRAME
+        _state, shapes, rivers = self._print_rivers(
+            [{'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}}, {'kind': 'river', 'a': {'c': 2}, 'b': {'p': 0}}],
+            clearings=[(0.2, 0.3), (0.8, 0.3), (0.5, 0.8)])
+        junction = shapes[1]['points'][-1]
+        run = next(l for l in rivers['links'] if math.hypot(l[0][0] - junction[0], l[0][1] - junction[1]) < 1e-6)
+        x, y = run[-1]
+        self.assertLess(min(x, y, FORGE_FRAME[0] - x, FORGE_FRAME[1] - y), 0)   # past the edge
+        self.assertNotIn(1, rivers['trimmed'])                                  # not cut back
+
+    # ── A river and a path between the same two clearings ──
+    def test_a_river_and_a_path_may_share_two_clearings(self):
+        from the_keep.services.tts_map import clean_paths
+        raw = [{'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},
+               {'kind': 'river', 'a': {'c': 1}, 'b': {'c': 0}},       # the other family: kept
+               {'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}},     # a second land path: dropped
+               {'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}]       # a second river: dropped
+        self.assertEqual([p['kind'] for p in clean_paths(raw, 2)], ['path', 'river'])
+
+    def test_a_shared_river_and_path_bow_apart(self):
+        from the_keep.services.tts_map import PATH_WIDTH, RIVER_WIDTH, path_shapes
+        g = self._geometry()
+        width = PATH_WIDTH * g.px_per_local
+        alone = path_shapes(g, self._state([{'kind': 'path', 'a': {'c': 0}, 'b': {'c': 2}}],
+                                           clearings=[(0.2, 0.3), (0.5, 0.9), (0.8, 0.3)]))
+        path, river = path_shapes(g, self._state(
+            [{'kind': 'path', 'a': {'c': 0}, 'b': {'c': 2}}, {'kind': 'river', 'a': {'c': 2}, 'b': {'c': 0}}],
+            clearings=[(0.2, 0.3), (0.5, 0.9), (0.8, 0.3)]))
+        # Alone it's straight; sharing, the two are apart by more than their half-widths at the middle.
+        self.assertTrue(all(abs(y - alone[0]['points'][0][1]) < 1e-6 for _x, y in alone[0]['points']))
+        gap = math.hypot(path['middle'][0] - river['middle'][0], path['middle'][1] - river['middle'][1])
+        self.assertGreater(gap, width * (RIVER_WIDTH + 1) / 2)
+        # On opposite sides of the straight line between the clearings.
+        y0 = alone[0]['points'][0][1]
+        self.assertLess((path['middle'][1] - y0) * (river['middle'][1] - y0), 0)

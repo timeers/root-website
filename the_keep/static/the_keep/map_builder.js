@@ -49,8 +49,8 @@
   if (config.paths_step) {
     STEPS.splice(STEPS.findIndex(s => s.key === 'forests'), 0,
       { key: 'paths', heading: 'Paths & Rivers', name: 'Paths & Rivers', short: 'Paths',
-        hint: 'Pick what to draw over the item track, then drag from one clearing to another, or to the '
-              + 'middle of a path (a river joining a river). Select a path to change its type, drag one of '
+        hint: 'Pick a path type, then drag from one clearing to another, or to the '
+              + 'middle of a path. Select a path to change its type, drag one of '
               + 'its ends to another clearing, or press x to remove it.' });
   }
   if (config.upload_step) {
@@ -210,9 +210,27 @@
 
   // Each path's {kind, points (its centre line, trimmed to the clearings'
   // circles), middle}, in state order.
+  // A river and a path between the same two ends: bow them apart, the river to
+  // one side and the path to the other (measured from the ends in key order,
+  // so both agree), by PATH.shared_bend half-widths at the middle (_bow_apart).
+  function bowApart(control, a, b, p) {
+    const [from, to] = endKey(p.a) <= endKey(p.b) ? [a, b] : [b, a];
+    const length = Math.hypot(to[0] - from[0], to[1] - from[1]) || 1e-9;
+    const nx = -(to[1] - from[1]) / length, ny = (to[0] - from[0]) / length;
+    const side = p.kind === 'river' ? 1 : -1;
+    const bulge = PATH.shared_bend * PATH.width * (PATH.river_width + 1) / 2;
+    return [control[0] + side * nx * 2 * bulge, control[1] + side * ny * 2 * bulge];
+  }
+
   function pathShapes() {
     const cs = circles();
     const shapes = [];
+    // Paths sharing both ends with one of the other family.
+    const families = new Map();
+    for (const p of state.paths) {
+      const key = pairKey(p.a, p.b);
+      families.set(key, (families.get(key) || new Set()).add(familyOf(p.kind)));
+    }
     const shape = (i, depth) => {
       if (shapes[i]) return shapes[i];
       if (depth > state.paths.length) throw new Error('path attachments loop');
@@ -226,7 +244,8 @@
       // Kept clear of other clearings by half its own width (a river's is wider).
       const clearance = PATH.width * (p.kind === 'river' ? PATH.river_width : 1) / 2;
       const obstacles = cs.filter((c, k) => !own.has(k)).map(([x, y, r]) => [x, y, r + clearance]);
-      const control = route(a, b, obstacles);
+      let control = route(a, b, obstacles);
+      if (families.get(pairKey(p.a, p.b)).size > 1) control = bowApart(control, a, b, p);
       const t0 = 'c' in p.a ? trim(a, control, b, a, cs[p.a.c][2], true) : 0;
       const t1 = Math.max('c' in p.b ? trim(a, control, b, b, cs[p.b.c][2], false) : 1, t0);
       const points = [];
@@ -272,13 +291,17 @@
     return false;
   }
 
-  // Can a path (path `self` when moving one of its ends) join ends a and b?
-  // Not an end to itself, not a second path between the same two ends, and
-  // never attached (through others) to itself (clean_paths in tts_map.py).
-  function canConnect(a, b, self = null) {
+  // Rivers, and paths with special paths: one of each may join the same two ends.
+  const familyOf = (kind) => (kind === 'river' ? 'river' : 'land');
+
+  // Can a path of `kind` (path `self` when moving one of its ends) join ends a
+  // and b? Not an end to itself, not a second of its family between the same
+  // two ends, and never attached (through others) to itself (clean_paths in tts_map.py).
+  function canConnect(a, b, self = null, kind = null) {
     if (!a || !b || endKey(a) === endKey(b)) return false;
     const key = pairKey(a, b);
-    if (state.paths.some((p, k) => k !== self && pairKey(p.a, p.b) === key)) return false;
+    const family = familyOf(kind || (self !== null ? state.paths[self].kind : drawKind));
+    if (state.paths.some((p, k) => k !== self && pairKey(p.a, p.b) === key && familyOf(p.kind) === family)) return false;
     if (self !== null) {
       for (const e of [a, b]) if ('p' in e && (e.p === self || dependsOn(e.p, self))) return false;
     }
@@ -302,6 +325,25 @@
     if (selected && selected.kind === 'path') {
       selected = renumber.has(selected.index) ? { kind: 'path', index: renumber.get(selected.index) } : null;
     }
+  }
+
+  // A path retyped into the other family (a river turned into a path, or back)
+  // replaces the one of that family already between the same two ends: that
+  // one goes, and paths attached to its middle move to this one.
+  function replaceTwin(index) {
+    const path = state.paths[index];
+    const twin = state.paths.findIndex((p, k) => k !== index && pairKey(p.a, p.b) === pairKey(path.a, path.b)
+                                                && familyOf(p.kind) === familyOf(path.kind));
+    if (twin < 0) return;
+    for (const p of state.paths) for (const e of [p.a, p.b]) if ('p' in e && e.p === twin) e.p = index;
+    removePaths(new Set([twin]));
+    // A moved attachment may now duplicate another: the later one goes (as clean_paths keeps the first).
+    const seen = new Set(), dupes = new Set();
+    state.paths.forEach((p, k) => {
+      const key = `${pairKey(p.a, p.b)}|${familyOf(p.kind)}`;
+      if (seen.has(key)) dupes.add(k); else seen.add(key);
+    });
+    if (dupes.size) removePaths(dupes);
   }
 
   const handleRadius = () => Math.max(PATH.width * 0.35, DOT_PX);
@@ -1195,6 +1237,7 @@
         const path = state.paths[selected.index];
         if (path.kind === btn.dataset.pathKind) return;
         path.kind = btn.dataset.pathKind;
+        replaceTwin(selected.index);
         changed();
       });
     });
