@@ -233,6 +233,11 @@ def clean_builder_state(state, *, logo=False):
     paths = clean_paths(state.get('paths'), len(clearings))
     if paths:
         clean['paths'] = paths
+    # What the map's special paths are (Bridges, Mountain Passes...): kept even
+    # while it has none, so drawing one again brings it back.
+    name = state.get('special_path_name')
+    if isinstance(name, str) and name.strip():
+        clean['special_path_name'] = name.strip()[:SPECIAL_PATH_NAME_MAX]
     return clean
 
 
@@ -274,6 +279,7 @@ def builder_config(image_url, width, height, state, *, fixed, expected, save_url
         # Step cards open by themselves until the user's first finished map.
         'show_intros': bool(show_intros),
         'random_icon': static('images/ClearingsRandom.png'),
+        'special_name_max': SPECIAL_PATH_NAME_MAX,
     }
     config.update(extra)
     return config
@@ -420,6 +426,7 @@ PATH_DRAW_ORDER = ('river', 'special', 'path')
 # family may not. Where a river and a path share both ends they bow apart, each
 # by this many (river + path) half-widths at the middle, so they don't overlap.
 SHARED_BEND = 1.0
+SPECIAL_PATH_NAME_MAX = 24       # the name a map gives its special paths (the Paths step's pill)
 
 
 def path_family(kind):
@@ -1021,7 +1028,8 @@ def layout_summary(state, *, fixed=None):
         totals = path_totals(state)
         path_tiles = [tile('path', _('Paths'), totals['path'])]
         if totals['special']:
-            path_tiles.append(tile('special', _('Special Paths'), totals['special']))
+            # Labelled with the map's own name for its special paths, when it has one.
+            path_tiles.append(tile('special', state.get('special_path_name') or _('Special Paths'), totals['special']))
         path_tiles.append(tile('river', _('River Clearings'), totals['river_clearings']))
     fixed = state['fixed'] if isinstance(state.get('fixed'), bool) else bool(fixed)
     if not fixed:

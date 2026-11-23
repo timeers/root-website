@@ -399,17 +399,20 @@ body.mb-dragging, body.mb-dragging * { -webkit-user-select: none !important; use
     text-align: center; box-shadow: 0 8px 24px rgba(0, 0, 0, .18), 0 1px 3px rgba(0, 0, 0, .12);
     transition: width .25s ease;
 }
-/* The 3-way toggle (also in the edit pop-up): a swatch and label per kind and
-   a highlight that slides to the chosen one (--mb-kind: 0, 1 or 2). */
+/* The 3-way toggle (also in the edit pop-up): a swatch and label per kind
+   (special paths just a swatch, so a narrow middle segment) and a highlight
+   that slides to the chosen one, placed on it by map_builder.js
+   (setKindToggle: --mb-kind-x and --mb-kind-w). */
 .mb-kind-toggle {
-    position: relative; display: grid; grid-template-columns: repeat(3, 1fr); background: #e9ecef;
-    border-radius: 999px; padding: 3px; height: 32px; --mb-kind: 0;
+    position: relative; display: grid; grid-template-columns: 1fr auto 1fr; background: #e9ecef;
+    border-radius: 999px; padding: 3px; height: 32px;
 }
 .mb-kind-thumb {
-    position: absolute; top: 3px; bottom: 3px; left: 3px; width: calc((100% - 6px) / 3);
+    position: absolute; top: 3px; bottom: 3px; left: var(--mb-kind-x, 3px); width: var(--mb-kind-w, 33%);
     background: #fff; border-radius: 999px; box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
-    transform: translateX(calc(var(--mb-kind) * 100%)); transition: transform .3s cubic-bezier(.4, 0, .2, 1);
+    transition: left .3s cubic-bezier(.4, 0, .2, 1), width .3s cubic-bezier(.4, 0, .2, 1);
 }
+.mb-kind-toggle button[data-path-kind="special"] { padding: 0 9px; }
 .mb-kind-toggle button {
     position: relative; z-index: 1; border: 0; background: none; border-radius: 999px; padding: 0 6px;
     display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-width: 0;
@@ -444,3 +447,15 @@ body.mb-dragging, body.mb-dragging * { -webkit-user-select: none !important; use
 
 /* The upload area fills the space; "Remove art" sits below it. */
 .mb-art-drop { flex-direction: column; }
+
+/* The special paths' name, in the Paths step's VP-track pill: a small version
+   of the Start step's Map Name input, sized to its text by map_builder.js. */
+#mb-special-name {
+    height: 1.7em; padding: 0 .7em; border: 1px solid rgba(0, 0, 0, .12); border-radius: 999px;
+    font: inherit; color: #212529; background: #fff; min-width: 4em; max-width: 60vw;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, .06); outline: none;
+    transition: box-shadow .15s ease, border-color .15s ease;
+    -webkit-user-select: text; user-select: text;
+}
+#mb-special-name::placeholder { color: #adb5bd; }
+#mb-special-name:focus { border-color: var(--bs-primary, #0d6efd); box-shadow: 0 0 0 3px rgba(13, 110, 253, .25); }

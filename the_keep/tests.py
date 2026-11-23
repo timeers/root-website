@@ -1263,6 +1263,20 @@ class MapBuilderTests(TestCase):
         self.assertTrue(result['generated'], result)
         self.assertEqual(Map.objects.get(pk=self.map.pk).river_clearings, 2)
 
+    def test_the_keep_builder_saves_the_special_path_name(self):
+        from the_keep.models import Map
+        self.client.force_login(self.designer_user)
+        self.assertEqual(self.client.get(self._builder_url()).context['config']['special_name_max'], 24)
+        state = self._state()
+        state['paths'] = [{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}]
+        state['visited'] = ['paths']
+        state['special_path_name'] = 'Bridges'
+        self.client.post(self._builder_url(), json.dumps({'state': state}), content_type='application/json')
+        self.assertEqual(Map.objects.get(pk=self.map.pk).tts_builder['special_path_name'], 'Bridges')
+        # The Map's page shows it, on its summary card.
+        html = self.client.get(reverse('map-detail', kwargs={'slug': self.map.slug})).content.decode()
+        self.assertIn('"label": "Bridges"', html)
+
     def test_map_page_has_the_layout_summary(self):
         from the_keep.models import Map
         url = reverse('map-detail', kwargs={'slug': self.map.slug})
@@ -2198,3 +2212,20 @@ class MapPathTests(TestCase):
         # On opposite sides of the straight line between the clearings.
         y0 = alone[0]['points'][0][1]
         self.assertLess((path['middle'][1] - y0) * (river['middle'][1] - y0), 0)
+
+    # ── The special paths' name ──
+    def test_special_path_name(self):
+        from the_keep.services.tts_map import SPECIAL_PATH_NAME_MAX, clean_builder_state, layout_summary
+        state = self._state([{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}])
+        state['special_path_name'] = '  Mountain Passes  '
+        self.assertEqual(clean_builder_state(state)['special_path_name'], 'Mountain Passes')
+        state['special_path_name'] = 'x' * 40
+        self.assertEqual(len(clean_builder_state(state)['special_path_name']), SPECIAL_PATH_NAME_MAX)
+        state['special_path_name'] = '   '
+        self.assertNotIn('special_path_name', clean_builder_state(state))
+        # The summary's special paths tile is labelled with it.
+        state['special_path_name'] = 'Bridges'
+        labels = [t['label'] for t in layout_summary(state)['path_tiles']]
+        self.assertIn('Bridges', labels)
+        del state['special_path_name']
+        self.assertIn('Special Paths', [t['label'] for t in layout_summary(state)['path_tiles']])

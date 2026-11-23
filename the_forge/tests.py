@@ -2152,3 +2152,20 @@ class ForgedMapPathsTests(TestCase):
         summary = response.context['summary']
         self.assertEqual([(t['kind'], t['count']) for t in summary['path_tiles']], [('path', 1), ('river', 1)])
         self.assertIn('id="map-layout-summary"', response.content.decode())
+
+    def test_the_special_path_name_is_kept_and_published(self):
+        from the_keep.models import Map as KeepMap
+        from .publishing.map import MapPublisher
+        draft = self._create()
+        layout = _paths_layout(special=True)
+        layout['special_path_name'] = 'Bridges'
+        self.assertTrue(self._complete(draft, layout)['ok'])
+        forged_map = ForgedMap.objects.get(faction=draft)
+        self.assertEqual(forged_map.tts_builder['special_path_name'], 'Bridges')
+        summary = self.client.get(reverse('forge-map-detail', args=[draft.pk])).context['summary']
+        self.assertIn('Bridges', [t['label'] for t in summary['path_tiles']])
+        # Published with the rendered layout (what submit and sync carry to the keep Map).
+        forged = ForgedFaction.objects.get(pk=draft.pk)
+        keep_map = KeepMap.objects.create(title='Riverlands', designer=self.designer, clearings=2)
+        MapPublisher().always_sync(forged, keep_map)
+        self.assertEqual(KeepMap.objects.get(pk=keep_map.pk).tts_builder['special_path_name'], 'Bridges')

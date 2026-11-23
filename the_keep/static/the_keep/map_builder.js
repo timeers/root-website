@@ -50,7 +50,7 @@
     STEPS.splice(STEPS.findIndex(s => s.key === 'forests'), 0,
       { key: 'paths', heading: 'Paths & Rivers', name: 'Paths & Rivers', short: 'Paths',
         hint: 'Pick a path type, then drag from one clearing to another, or to the '
-              + 'middle of a path. Select a path to change its type, drag one of '
+              + 'middle of another path. Select a path to change its type, drag one of '
               + 'its ends to another clearing, or press x to remove it.' });
   }
   if (config.upload_step) {
@@ -748,7 +748,7 @@
       // Special paths only when there are some.
       path_tiles: STEP_PATHS < 0 ? [] : [
         tile('path', 'Paths', c.paths, null, STEP_PATHS),
-        ...(c.special ? [tile('special', 'Special Paths', c.special, null, STEP_PATHS)] : []),
+        ...(c.special ? [tile('special', state.special_path_name || 'Special Paths', c.special, null, STEP_PATHS)] : []),
         tile('river', 'River Clearings', c.river_clearings, config.expected.river_clearings, STEP_PATHS),
       ],
       colours: PATH ? PATH.colours : null,
@@ -918,8 +918,12 @@
     if (config.readonly) return;
     activePointer = evt.pointerId;
     // Don't let a press on the board start a text selection or a native drag,
-    // and keep the whole page unselectable until the drag ends.
+    // and keep the whole page unselectable until the drag ends. That also stops
+    // the browser moving focus, so a text field being typed in (the special
+    // paths' name) is let go of here, as a press anywhere else would.
     evt.preventDefault();
+    const typing = document.activeElement;
+    if (typing && ['INPUT', 'TEXTAREA'].includes(typing.tagName)) typing.blur();
     window.getSelection().removeAllRanges();
     document.body.classList.add('mb-dragging');
     const p = pointer(evt);
@@ -986,6 +990,19 @@
         } else {
           drag = { kind: h.kind, index: h.index };
         }
+        render();
+        return;
+      }
+      // A press inside an existing clearing's circle selects it (the nearest
+      // centre, where circles overlap) rather than starting a new one.
+      let inside = null, nearest = Infinity;
+      state.clearings.forEach((c, i) => {
+        if (!c.marker) return;
+        const centre = px(c.centre), d = dist(p, centre);
+        if (d <= dist(centre, px(c.marker)) && d < nearest) { inside = i; nearest = d; }
+      });
+      if (inside !== null) {
+        selected = { kind: 'clearing', index: inside };
         render();
         return;
       }
@@ -1213,11 +1230,17 @@
   const popKindWrap = document.getElementById('mb-pop-kind-wrap');
   const popKind = document.getElementById('mb-pop-kind');
 
-  // Slide the toggle's highlight to `kind` (--mb-kind, map_builder.css).
+  // Slide the toggle's highlight onto `kind`'s button. The segments differ in
+  // width (special paths are just a swatch), so it's placed from the button
+  // itself (--mb-kind-x / --mb-kind-w, map_builder.css).
   function setKindToggle(toggle, kind) {
-    toggle.style.setProperty('--mb-kind', PATH_KINDS.indexOf(kind));
     toggle.querySelectorAll('[data-path-kind]').forEach(btn => {
-      btn.setAttribute('aria-checked', btn.dataset.pathKind === kind ? 'true' : 'false');
+      const on = btn.dataset.pathKind === kind;
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
+      if (on && btn.offsetWidth) {
+        toggle.style.setProperty('--mb-kind-x', `${btn.offsetLeft}px`);
+        toggle.style.setProperty('--mb-kind-w', `${btn.offsetWidth}px`);
+      }
     });
   }
 
@@ -1250,7 +1273,6 @@
     const show = step === STEP_PATHS && !config.readonly;
     pathMode.classList.toggle('d-none', !show);
     if (!show) return;
-    setKindToggle(drawToggle, drawKind);
     const title = document.getElementById('mb-path-title');
     title.textContent = title.dataset[drawKind];
     const box = itemTrackBox();
@@ -1261,6 +1283,8 @@
       ? Math.min(Math.max(box.width, 96), box.area.width - 8)
       : Math.min(Math.max(box.width, 230), 300, box.area.width - 8);
     placeOnItemTrack(pathMode, width);
+    // Last: the highlight is placed from its button's laid-out size.
+    setKindToggle(drawToggle, drawKind);
   }
   window.addEventListener('resize', updatePathMode);
 
@@ -1480,9 +1504,12 @@
       const known = expected !== null && expected !== undefined;
       const off = known && n !== expected ? ' off' : '';
       const figure = known && !brief ? `${n} / ${expected}` : `${n}`;
+      // Paths step, with special paths: their label is the map's name for them,
+      // an input (kept even when the other labels are dropped).
+      const naming = key === 'special' && step === STEP_PATHS && n >= 1;
       return `<div class="mb-count-row"><span class="mb-count-icon">${iconSvg(icon)}</span>`
         + `<span class="mb-count-figure${off}">${figure}</span>`
-        + (compact ? '' : `<span class="mb-count-label">${label}</span>`) + '</div>';
+        + (naming ? specialNameInput() : compact ? '' : `<span class="mb-count-label">${label}</span>`) + '</div>';
     }).join('');
   }
 
@@ -1560,24 +1587,76 @@
       clearingPill.style.height = `${height}px`;
       clearingPill.style.fontSize = `${Math.min(Math.max(height * 0.45, 12), 17)}px`;
       clearingPill.style.setProperty('--mb-pill-icon', `${Math.round(Math.min(Math.max(height * 0.45, 12), 18))}px`);
+      const nameField = document.getElementById('mb-special-name');
+      if (nameField && document.activeElement === nameField) {
+        // Typing the special paths' name: just the numbers, so focus stays put.
+        clearingPill.querySelectorAll('.mb-count-figure').forEach((figure, i) => {
+          figure.textContent = counts()[COUNT_ROWS[step][i][1]];
+        });
+        placePill();
+        return;
+      }
       // The VP track spans nearly the whole board, so the full text fits even on
       // small screens; drop the label only if the pill would be wider than the track.
-      clearingPill.innerHTML = countRowsHtml(COUNT_ROWS[step], false);
+      const fill = (...args) => {
+        clearingPill.innerHTML = countRowsHtml(COUNT_ROWS[step], ...args);
+        fitSpecialName();
+      };
+      fill(false);
       const trackWidth = (Math.max(...cols) - Math.min(...cols)) * box.scale;
-      if (clearingPill.offsetWidth > trackWidth) {
-        clearingPill.innerHTML = countRowsHtml(COUNT_ROWS[step], false, false, true);   // short labels
-      }
-      if (clearingPill.offsetWidth > trackWidth) {
-        clearingPill.innerHTML = countRowsHtml(COUNT_ROWS[step], true);
-      }
-      const cx = (Math.min(...cols) + Math.max(...cols)) / 2 * box.scale;
-      const cy = state.track_y * H * box.scale;
-      const w = clearingPill.offsetWidth;
-      const left = Math.min(Math.max(cx - w / 2, 4), box.area.width - w - 4);
-      clearingPill.style.left = `${left}px`;
-      clearingPill.style.top = `${cy - height / 2}px`;
+      if (clearingPill.offsetWidth > trackWidth) fill(false, false, true);   // short labels
+      if (clearingPill.offsetWidth > trackWidth) fill(true);
+      placePill();
     }
   }
+
+  // The VP track's pill: centred on the track, between its grey rows.
+  function placePill() {
+    const box = itemTrackBox();
+    const cols = trackColumns();
+    const cx = (Math.min(...cols) + Math.max(...cols)) / 2 * box.scale;
+    const cy = state.track_y * H * box.scale;
+    const w = clearingPill.offsetWidth, h = clearingPill.offsetHeight;
+    clearingPill.style.left = `${Math.min(Math.max(cx - w / 2, 4), box.area.width - w - 4)}px`;
+    clearingPill.style.top = `${cy - h / 2}px`;
+  }
+
+  // ── The special paths' name (in the Paths step's pill) ──
+  // What the map's special paths are (Bridges, Mountain Passes...): saved with
+  // the layout, and the label of their summary tile (tts_map.layout_summary).
+  function specialNameInput() {
+    return `<input type="text" id="mb-special-name" maxlength="${config.special_name_max || 24}"`
+      + ' placeholder="Special Paths" aria-label="Special Path Name" autocomplete="off" spellcheck="false">';
+  }
+
+  // Fill the name input (its value set as a property: it's the user's text) and
+  // size it to the text, or to the placeholder when empty.
+  let measureCanvas = null;
+  function fitSpecialName() {
+    const input = document.getElementById('mb-special-name');
+    if (!input) return;
+    if (input.value !== (state.special_path_name || '')) input.value = state.special_path_name || '';
+    const style = getComputedStyle(input);
+    measureCanvas = measureCanvas || document.createElement('canvas');
+    const ctx = measureCanvas.getContext('2d');
+    ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const text = Math.max(ctx.measureText(input.value).width, ctx.measureText(input.placeholder).width);
+    const extra = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+      + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+    input.style.width = `${Math.ceil(text + extra + 2)}px`;
+  }
+
+  clearingPill.addEventListener('input', (evt) => {
+    if (evt.target.id !== 'mb-special-name') return;
+    state.special_path_name = evt.target.value;
+    dirty = true;
+    showSaved(false);
+    fitSpecialName();
+    placePill();
+  });
+  clearingPill.addEventListener('keydown', (evt) => {
+    if (evt.target.id === 'mb-special-name' && evt.key === 'Enter') evt.target.blur();
+  });
 
   countCard.addEventListener('pointerdown', (evt) => evt.stopPropagation());
   countCard.addEventListener('click', (evt) => {
