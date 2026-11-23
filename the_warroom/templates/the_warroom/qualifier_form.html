@@ -42,6 +42,18 @@
   font-weight: 600;
   height: 52px;
 }
+.qf-card textarea.qf-description {
+  height: auto;
+  min-height: 110px;
+  resize: vertical;
+}
+.qf-optional {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #99aab5;
+  margin-left: 4px;
+}
 .qf-hint {
   font-size: 13px;
   color: #99aab5;
@@ -117,6 +129,14 @@
                    value="{{ form.name.value|default:'' }}" maxlength="100" required
                    class="form-control qf-name" placeholder="{{ form.name.field.widget.attrs.placeholder }}">
             {% for e in form.name.errors %}<div class="qf-error">{{ e }}</div>{% endfor %}
+          </div>
+
+          <div>
+            <label class="qf-label" for="{{ form.description.id_for_label }}">{% trans 'Description' %} <span class="qf-optional">{% trans 'Optional' %}</span></label>
+            <textarea name="{{ form.description.html_name }}" id="{{ form.description.id_for_label }}" rows="4"
+                      class="form-control qf-description" placeholder="{{ form.description.field.widget.attrs.placeholder }}">{{ form.description.value|default:'' }}</textarea>
+            <div class="qf-hint">{% trans 'Shown from the info button on the qualifier page. Supports basic Markdown.' %}</div>
+            {% for e in form.description.errors %}<div class="qf-error">{{ e }}</div>{% endfor %}
           </div>
 
           <div>

@@ -1994,7 +1994,7 @@ class QualifierForm(forms.ModelForm):
 
     class Meta:
         model = Qualifier
-        fields = ['name', 'start_date', 'end_date', 'game_threshold', 'qualifier_places',
+        fields = ['name', 'description', 'start_date', 'end_date', 'game_threshold', 'qualifier_places',
                   'elo_system', 'tournament', 'designer']
         labels = {
             'game_threshold': 'Game Threshold',

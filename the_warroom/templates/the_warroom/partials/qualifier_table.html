@@ -16,11 +16,11 @@ faded). Pagination links carry q and show so filters survive paging.
 {% endif %}
 
 <div class="table-responsive">
-  <table class="table elo-table align-middle">
+  <table class="table elo-table q-table align-middle">
     <thead>
       <tr>
         <th>{% trans 'Rank' %}</th>
-        <th>{% trans 'Player' %}</th>
+        <th class="q-player-cell">{% trans 'Player' %}</th>
         <th class="text-end">{{ score_label }}</th>
         <th class="text-end">{% trans 'Games' %}</th>
       </tr>
@@ -29,13 +29,13 @@ faded). Pagination links carry q and show so filters survive paging.
       {% for row in rows %}
       <tr class="{% if row.qualified %}q-qualified{% elif row.rank %}q-ranked{% else %}q-provisional{% endif %}">
         <td class="elo-rank">{% if row.rank %}{{ row.rank }}{% else %}&ndash;{% endif %}</td>
-        <td>
+        <td class="q-player-cell">
           <div class="q-player">
             <img src="{{ row.image_url }}" alt="" class="rounded-circle q-avatar" loading="lazy">
             {% if row.url %}
-              <a class="elo-player-link" href="{{ row.url }}">{{ row.name }}</a>
+              <a class="elo-player-link q-player-name" href="{{ row.url }}" title="{{ row.name }}">{{ row.name }}</a>
             {% else %}
-              <span>{{ row.name }}</span>
+              <span class="q-player-name" title="{{ row.name }}">{{ row.name }}</span>
             {% endif %}
           </div>
         </td>

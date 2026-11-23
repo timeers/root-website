@@ -533,6 +533,7 @@ class Qualifier(models.Model):
 
     name = models.CharField(max_length=100)
     slug = models.SlugField(unique=True, blank=True)
+    description = models.TextField(blank=True, help_text='Supports basic Markdown: **bold**, *italic*, links, lists, headings.')
     designer = models.ForeignKey(
         Profile, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='designed_qualifiers',

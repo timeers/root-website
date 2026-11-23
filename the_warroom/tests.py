@@ -8340,3 +8340,12 @@ class QualifierStandingsTests(TestCase):
         self.assertFalse(form.is_valid())
         self.assertIn('elo_system', form.errors)
         self.assertIn('end_date', form.errors)
+
+    def test_description_modal_only_when_set(self):
+        url = self.qualifier.get_absolute_url()
+        self.assertNotContains(self.client.get(url), 'qualifierInfoModal')
+        self.qualifier.description = 'Top players earn a **seat** at Worlds.'
+        self.qualifier.save()
+        resp = self.client.get(url)
+        self.assertContains(resp, 'qualifierInfoModal')
+        self.assertContains(resp, '<strong>seat</strong>', html=True)

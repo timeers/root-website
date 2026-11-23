@@ -1,5 +1,5 @@
 {% extends 'the_keep/base.html' %}
-{% load static i18n %}
+{% load static i18n markdown_filters %}
 {% block title %}{{ qualifier.name }} | {% endblock %}
 
 {% block meta %}
@@ -42,9 +42,77 @@ a.q-chip:hover {
   background: rgba(255, 255, 255, 0.25);
   color: #fff;
 }
-.q-hero-edit {
+/* Edit / info sit in the hero's top right and never wrap. On desktop they're
+   the last flex item (the text block shrinks around them); on phones the hero
+   stacks into a centred column, so they're pinned to the corner instead. */
+.q-hero {
+  position: relative;
+}
+.q-hero-icon-inline {
+  display: none;
+}
+.q-hero-actions {
   flex-shrink: 0;
   align-self: flex-start;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+.q-hero-info {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  transition: background 0.2s ease;
+}
+.q-hero-info:hover,
+.q-hero-info:focus-visible {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+/* ── Info modal ──────────────────────────────────────────────────── */
+.q-info-modal .modal-content {
+  border: none;
+  border-radius: 16px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.18);
+}
+.q-info-modal .modal-header {
+  border-bottom: none;
+  padding: 22px 24px 8px;
+  gap: 12px;
+}
+.q-info-modal .modal-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #2c2f33;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+.q-info-icon {
+  font-size: 22px;
+  line-height: 1;
+  color: #7289da;
+  flex-shrink: 0;
+}
+.q-info-modal .modal-body {
+  padding: 8px 24px 24px;
+}
+.q-info-body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: #4f5660;
+}
+.q-info-body > :last-child {
+  margin-bottom: 0;
 }
 
 /* ── Toolbar: search + All/Threshold ─────────────────────────────── */
@@ -120,6 +188,25 @@ a.q-chip:hover {
 .elo-table tr.q-qualified .elo-rank {
   color: #5865F2;
 }
+/* Fit all four columns without horizontal scrolling: Rank, score and Games
+   shrink to their content (width 1% + nowrap), and the player column takes
+   whatever is left. max-width: 0 is what lets a table cell shrink below its
+   content so the name can be cut off with an ellipsis. */
+.q-table th,
+.q-table td {
+  width: 1%;
+  white-space: nowrap;
+}
+.q-table .q-player-cell {
+  width: 100%;
+  max-width: 0;
+}
+.q-player-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* Player cell: circle avatar left of the name. */
 .q-player {
   display: flex;
@@ -147,26 +234,108 @@ a.q-chip:hover {
   .q-hero-meta {
     justify-content: center;
   }
+  /* Phones: the trophy and name share one row, centred together as a pair. A
+     long name wraps in its own column with the trophy vertically centred
+     against it; the script in block scripts shrinks the wrapped title to its
+     longest line so the pair stays centred. */
+  .q-hero-icon-side {
+    display: none;
+  }
+  .q-hero-icon-inline {
+    display: flex;
+    width: 46px;
+    height: 46px;
+    border-radius: 12px;
+  }
+  .q-hero-icon-inline i {
+    font-size: 24px;
+  }
+  .q-hero-text {
+    width: 100%;
+  }
+  .q-hero-head {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+  }
+  .q-hero .discord-hero-title {
+    min-width: 0;
+    text-align: left;
+    text-wrap: balance;
+    margin-bottom: 0 !important;
+    overflow-wrap: anywhere;
+  }
+  .q-hero .discord-hero-tagline {
+    margin-top: 12px !important;
+  }
+  /* Room for the pinned Edit / info buttons above the trophy + name row. */
+  .q-hero-has-actions.discord-hero {
+    padding-top: 58px;
+  }
+  .q-hero-actions {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+  }
+  /* Icon-only Edit on phones keeps the corner clear of the centred hero icon. */
+  .q-hero-edit-label {
+    display: none;
+  }
   .q-hero-edit {
-    align-self: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
   .q-toolbar .option-toggle {
     flex: 1 1 100%;
+  }
+  /* Tighter table on phones so the player name keeps as much room as possible. */
+  .q-table th,
+  .q-table td {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  .q-table tbody td {
+    font-size: 15px;
+  }
+  .q-table .elo-rank,
+  .q-table .elo-rating {
+    font-size: 15px;
+  }
+  .q-player {
+    gap: 8px;
+  }
+  .q-avatar {
+    width: 26px;
+    height: 26px;
   }
 }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="container py-5">
+<div class="container py-4">
   <div class="row justify-content-center">
     <div class="col-lg-10">
 
       <!-- Hero -->
-      <div class="discord-hero discord-hero-row mb-4">
-        <div class="discord-hero-icon"><i class="bi bi-trophy"></i></div>
+      <div class="discord-hero discord-hero-row q-hero{% if can_edit or qualifier.description %} q-hero-has-actions{% endif %} mb-4">
+        {% comment %}
+        Two trophies: the side one is the desktop layout (beside the whole text
+        block); the inline one shares a centred row with the name on phones.
+        CSS shows exactly one.
+        {% endcomment %}
+        <div class="discord-hero-icon q-hero-icon-side" aria-hidden="true"><i class="bi bi-trophy"></i></div>
         <div class="q-hero-text">
-          <h1 class="discord-hero-title root-title mb-1">{{ qualifier.name }}</h1>
+          <div class="q-hero-head">
+            <div class="discord-hero-icon q-hero-icon-inline" aria-hidden="true"><i class="bi bi-trophy"></i></div>
+            <h1 class="discord-hero-title root-title mb-1" id="qualifierHeroTitle">{{ qualifier.name }}</h1>
+          </div>
           <p class="discord-hero-tagline mb-0">
             {% blocktrans with places=qualifier.qualifier_places threshold=qualifier.game_threshold %}Top {{ places }} qualify &middot; {{ threshold }} games required to rank{% endblocktrans %}
           </p>
@@ -184,12 +353,39 @@ a.q-chip:hover {
             <span class="q-chip"><i class="bi bi-people"></i>{{ players_count }} {% trans 'player' %}{{ players_count|pluralize }}</span>
           </div>
         </div>
-        {% if can_edit %}
-        <a href="{{ qualifier.get_edit_url }}" class="btn btn-light btn-sm q-hero-edit">
-          <i class="bi bi-pencil me-1"></i>{% trans 'Edit' %}
-        </a>
+        {% if can_edit or qualifier.description %}
+        <div class="q-hero-actions">
+          {% if can_edit %}
+          <a href="{{ qualifier.get_edit_url }}" class="btn btn-light btn-sm q-hero-edit" aria-label="{% trans 'Edit' %}">
+            <i class="bi bi-pencil"></i><span class="q-hero-edit-label ms-1">{% trans 'Edit' %}</span>
+          </a>
+          {% endif %}
+          {% if qualifier.description %}
+          <button type="button" class="q-hero-info" data-bs-toggle="modal" data-bs-target="#qualifierInfoModal"
+                  aria-label="{% trans 'About this qualifier' %}" title="{% trans 'About this qualifier' %}">
+            <i class="bi bi-info-lg"></i>
+          </button>
+          {% endif %}
+        </div>
         {% endif %}
       </div>
+
+      {% if qualifier.description %}
+      <div class="modal fade q-info-modal" id="qualifierInfoModal" tabindex="-1" aria-labelledby="qualifierInfoTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+          <div class="modal-content">
+            <div class="modal-header">
+              <i class="bi bi-info-circle q-info-icon" aria-hidden="true"></i>
+              <h2 class="modal-title" id="qualifierInfoTitle">About {{ qualifier.name }}</h2>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
+            </div>
+            <div class="modal-body">
+              <div class="q-info-body">{{ qualifier.description|render_markdown }}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
 
       <!-- Standings -->
       <div class="info-card">
@@ -235,6 +431,37 @@ a.q-chip:hover {
 
 {% block scripts %}
 <script>
+// Phones: shrink the wrapped hero title to its longest line. A wrapped block is
+// always as wide as its column, which would push the trophy to the far left;
+// sized to the text, the head row can centre trophy + name as one group.
+(function () {
+  var title = document.getElementById('qualifierHeroTitle');
+  if (!title || !document.createRange) return;
+  var mq = window.matchMedia('(max-width: 768px)');
+
+  function fit() {
+    title.style.width = '';
+    if (!mq.matches) return;
+    var range = document.createRange();
+    range.selectNodeContents(title);
+    var widest = 0;
+    Array.prototype.forEach.call(range.getClientRects(), function (r) {
+      widest = Math.max(widest, r.width);
+    });
+    if (widest) title.style.width = Math.ceil(widest) + 1 + 'px';
+  }
+
+  var pending;
+  function schedule() {
+    clearTimeout(pending);
+    pending = setTimeout(fit, 100);
+  }
+
+  fit();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+  window.addEventListener('resize', schedule);
+})();
+
 // All / Threshold toggle: move the slider, set the hidden input, and fire the
 // form's htmx request (the 'showchange' trigger) so search text is kept.
 (function () {
