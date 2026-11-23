@@ -10,7 +10,7 @@ faded). Pagination links carry q and show so filters survive paging.
 {% if players_count %}
 <div class="q-summary">
   {% blocktrans count counter=ranked_count %}{{ counter }} ranked{% plural %}{{ counter }} ranked{% endblocktrans %}
-  &middot; {% blocktrans count counter=provisional_count %}{{ counter }} below threshold{% plural %}{{ counter }} below threshold{% endblocktrans %}
+  &middot; {% blocktrans count counter=provisional_count %}{{ counter }} unranked{% plural %}{{ counter }} unranked{% endblocktrans %}
   {% if is_filtered %}&middot; {% blocktrans count counter=page_obj.paginator.count %}{{ counter }} match{% plural %}{{ counter }} match{% endblocktrans %}{% endif %}
 </div>
 {% endif %}

@@ -8296,10 +8296,14 @@ class QualifierStandingsTests(TestCase):
         )
         rows = self._rows(q)
         self.assertIsNone(rows['Alpha'].score)
-        self.assertEqual(rows['Alpha'].rank, 2)
-        self.assertFalse(rows['Alpha'].qualified)  # rank 2 is within places, but unranked
+        self.assertIsNone(rows['Alpha'].rank)  # met the threshold, but unranked on RootELO
+        self.assertFalse(rows['Alpha'].qualified)
         self.assertEqual(rows['Bravo'].rank, 1)
         self.assertTrue(rows['Bravo'].qualified)
+
+        # The threshold filter goes by games played, so unranked Alpha stays listed.
+        resp = self.client.get(q.get_absolute_url(), {'show': 'threshold'})
+        self.assertEqual(sorted(r.name for r in resp.context['rows']), ['Alpha', 'Bravo'])
 
         # LOCAL systems never set rank, so it isn't required there.
         self.system.calculation_type = EloSystem.CalculationType.LOCAL
