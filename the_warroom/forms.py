@@ -2,7 +2,7 @@ import json
 import re
 from django import forms
 from django.utils import timezone
-from .models import Effort, Game, TurnScore, ScoreCard, Round, Stage, Tournament, Match, MatchSeat, AssetModeChoices, PlatformChoices, EloSystem
+from .models import Effort, Game, TurnScore, ScoreCard, Round, Stage, Tournament, Match, MatchSeat, AssetModeChoices, PlatformChoices, EloSystem, Qualifier
 from the_keep.models import Hireling, Landmark, Deck, Map, Faction, Vagabond, Tweak
 from the_gatehouse.models import Profile
 from django.core.exceptions import ValidationError
@@ -1979,3 +1979,59 @@ class TournamentAssetSettingsForm(forms.ModelForm):
             'asset_mode': 'Asset Mode',
             'include_clockwork': 'Include Clockwork Factions',
         }
+
+
+class QualifierForm(forms.ModelForm):
+    """Create/edit a Qualifier. `source` picks the ONE source; clean() clears the
+    other FK so crafted POST data can't set both."""
+    SOURCE_ELO = 'elo'
+    SOURCE_TOURNAMENT = 'tournament'
+    source = forms.ChoiceField(
+        choices=[(SOURCE_ELO, 'ELO System'), (SOURCE_TOURNAMENT, 'Tournament')],
+        initial=SOURCE_ELO,
+        widget=forms.HiddenInput,
+    )
+
+    class Meta:
+        model = Qualifier
+        fields = ['name', 'start_date', 'end_date', 'game_threshold', 'qualifier_places',
+                  'elo_system', 'tournament', 'designer']
+        labels = {
+            'game_threshold': 'Game Threshold',
+            'qualifier_places': 'Qualifying Places',
+            'elo_system': 'ELO System',
+            'designer': 'Owner',
+        }
+        help_texts = {
+            'game_threshold': 'Games needed within the window to qualify.',
+            'qualifier_places': 'How many players can qualify.',
+        }
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['start_date'].widget = forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}, format='%Y-%m-%d')
+        self.fields['end_date'].widget = forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}, format='%Y-%m-%d')
+        self.fields['name'].widget.attrs['placeholder'] = 'e.g. Winter Tournament Qualifier'
+        self.fields['elo_system'].empty_label = 'Select an ELO system'
+        self.fields['tournament'].empty_label = 'Select a tournament'
+        self.fields['tournament'].queryset = Tournament.objects.order_by('name')
+
+        if self.instance.pk and self.instance.tournament_id:
+            self.fields['source'].initial = self.SOURCE_TOURNAMENT
+
+        if not (user and user.profile.admin):
+            self.fields.pop('designer', None)
+
+    def clean(self):
+        cleaned = super().clean()
+        source = cleaned.get('source')
+        if source == self.SOURCE_ELO:
+            cleaned['tournament'] = None
+            if not cleaned.get('elo_system'):
+                self.add_error('elo_system', 'Choose an ELO system.')
+        elif source == self.SOURCE_TOURNAMENT:
+            cleaned['elo_system'] = None
+            if not cleaned.get('tournament'):
+                self.add_error('tournament', 'Choose a tournament.')
+        return cleaned
+

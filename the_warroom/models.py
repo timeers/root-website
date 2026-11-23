@@ -10,7 +10,7 @@ from django.utils.translation import gettext_lazy
 from django.urls import reverse
 from urllib.parse import urlencode
 from django.core.validators import MinValueValidator, MaxValueValidator
-from django.core.exceptions import ValidationError
+from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 
 from the_gatehouse.models import Profile, DiscordGuild, validate_discord_snowflake
 from the_gatehouse.utils import NameConvention
@@ -521,6 +521,105 @@ class EloRating(models.Model):
 
     def __str__(self):
         return f'{self.player} {self.rating_before:.0f}->{self.rating_after:.0f} ({self.elo_system})'
+
+
+# Qualifier standings: the top players of ONE source (an Elo system or a
+# Tournament) over a date window. Players with game_threshold games in the window
+# are ranked; players with fewer (but at least one) are shown unranked. The
+# standings themselves are computed in services/qualifier.py.
+class Qualifier(models.Model):
+    # Slugs that would be shadowed by a fixed route under qualifier/.
+    RESERVED_SLUGS = {'new'}
+
+    name = models.CharField(max_length=100)
+    slug = models.SlugField(unique=True, blank=True)
+    designer = models.ForeignKey(
+        Profile, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='designed_qualifiers',
+        help_text='Owner can edit and delete this qualifier.'
+    )
+    start_date = models.DateField()
+    end_date = models.DateField()
+    game_threshold = models.PositiveSmallIntegerField(default=5, validators=[MinValueValidator(1)])
+    qualifier_places = models.PositiveSmallIntegerField(default=8, validators=[MinValueValidator(1)])
+
+    # Exactly one source is required by clean(). The DB only forbids BOTH, because
+    # SET_NULL can legitimately clear a source when it is deleted.
+    elo_system = models.ForeignKey(
+        EloSystem, on_delete=models.SET_NULL, null=True, blank=True, related_name='qualifiers'
+    )
+    tournament = models.ForeignKey(
+        'Tournament', on_delete=models.SET_NULL, null=True, blank=True, related_name='qualifiers'
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)  # part of the standings cache key
+
+    class Meta:
+        ordering = ['-start_date']
+        constraints = [
+            models.CheckConstraint(
+                condition=~(Q(elo_system__isnull=False) & Q(tournament__isnull=False)),
+                name='qualifier_single_source',
+            )
+        ]
+
+    def __str__(self):
+        return self.name
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if bool(self.elo_system_id) == bool(self.tournament_id):
+            errors[NON_FIELD_ERRORS] = 'Choose either an ELO system or a tournament.'
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            errors['end_date'] = 'End date must be on or after the start date.'
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            self.slug = self._unique_slug()
+        super().save(*args, **kwargs)
+
+    def _unique_slug(self):
+        from django.utils.text import slugify
+        base = slugify(self.name)[:40] or 'qualifier'
+        slug, n = base, 1
+        taken = Qualifier.objects.exclude(pk=self.pk)
+        while slug in self.RESERVED_SLUGS or taken.filter(slug=slug).exists():
+            n += 1
+            slug = f'{base}-{n}'
+        return slug
+
+    @property
+    def is_elo(self):
+        return self.elo_system_id is not None
+
+    @property
+    def source(self):
+        return self.elo_system if self.is_elo else self.tournament
+
+    def can_edit(self, user):
+        """Designer or admin. Takes the user so anonymous viewers are safe."""
+        profile = getattr(user, 'profile', None) if user.is_authenticated else None
+        if profile is None:
+            return False
+        return profile.admin or (self.designer_id is not None and profile.pk == self.designer_id)
+
+    def window(self):
+        """Aware [start 00:00, day after end 00:00) bounds for Game.date_posted, so
+        the whole end day counts."""
+        from datetime import datetime, time
+        lo = timezone.make_aware(datetime.combine(self.start_date, time.min))
+        hi = timezone.make_aware(datetime.combine(self.end_date + timedelta(days=1), time.min))
+        return lo, hi
+
+    def get_absolute_url(self):
+        return reverse('qualifier-detail', kwargs={'slug': self.slug})
+
+    def get_edit_url(self):
+        return reverse('qualifier-update', kwargs={'slug': self.slug})
 
 
 def first_supported_tab(visible_tabs, supported):

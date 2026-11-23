@@ -1,0 +1,94 @@
+{% load i18n %}
+{% comment %}
+Qualifier standings table + pagination. Rendered inside #qualifierTable on the
+detail page, and on its own for htmx search / toggle / page requests.
+
+Row tiers: q-qualified (rank within qualifier_places, bold), q-ranked (met the
+game threshold, greyed) and q-provisional (under the threshold, no rank,
+faded). Pagination links carry q and show so filters survive paging.
+{% endcomment %}
+{% if players_count %}
+<div class="q-summary">
+  {% blocktrans count counter=ranked_count %}{{ counter }} ranked{% plural %}{{ counter }} ranked{% endblocktrans %}
+  &middot; {% blocktrans count counter=provisional_count %}{{ counter }} below threshold{% plural %}{{ counter }} below threshold{% endblocktrans %}
+  {% if is_filtered %}&middot; {% blocktrans count counter=page_obj.paginator.count %}{{ counter }} match{% plural %}{{ counter }} match{% endblocktrans %}{% endif %}
+</div>
+{% endif %}
+
+<div class="table-responsive">
+  <table class="table elo-table align-middle">
+    <thead>
+      <tr>
+        <th>{% trans 'Rank' %}</th>
+        <th>{% trans 'Player' %}</th>
+        <th class="text-end">{{ score_label }}</th>
+        <th class="text-end">{% trans 'Games' %}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr class="{% if row.qualified %}q-qualified{% elif row.rank %}q-ranked{% else %}q-provisional{% endif %}">
+        <td class="elo-rank">{% if row.rank %}{{ row.rank }}{% else %}&ndash;{% endif %}</td>
+        <td>
+          <div class="q-player">
+            <img src="{{ row.image_url }}" alt="" class="rounded-circle q-avatar" loading="lazy">
+            {% if row.url %}
+              <a class="elo-player-link" href="{{ row.url }}">{{ row.name }}</a>
+            {% else %}
+              <span>{{ row.name }}</span>
+            {% endif %}
+          </div>
+        </td>
+        <td class="elo-rating text-end">
+          {% if row.score is None %}&ndash;{% elif qualifier.is_elo %}{{ row.score|floatformat:0 }}{% else %}{{ row.score|floatformat:1 }}%{% endif %}
+        </td>
+        <td class="text-end">{{ row.games }}<span class="q-games-short">/{{ qualifier.game_threshold }}</span></td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="4" class="text-muted">
+          {% if is_filtered %}{% trans 'No players match.' %}{% else %}{% trans 'No games played in this window yet.' %}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if page_obj.has_previous or page_obj.has_next %}
+<nav aria-label="{% trans 'Standings pages' %}" class="mt-3">
+  <ul class="pagination justify-content-center mb-0">
+    {% if page_obj.has_previous %}
+    <li class="page-item">
+      <a class="page-link" href="?q={{ q|urlencode }}&show={{ show }}&page={{ page_obj.previous_page_number }}"
+         hx-get="?q={{ q|urlencode }}&show={{ show }}&page={{ page_obj.previous_page_number }}"
+         hx-target="#qualifierTable" hx-push-url="true">{% trans 'Previous' %}</a>
+    </li>
+    {% else %}
+    <li class="page-item disabled"><span class="page-link">{% trans 'Previous' %}</span></li>
+    {% endif %}
+
+    {% for num in page_obj.paginator.page_range %}
+      {% if num == page_obj.number %}
+      <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+      {% elif num > page_obj.number|add:'-3' and num < page_obj.number|add:'3' %}
+      <li class="page-item">
+        <a class="page-link" href="?q={{ q|urlencode }}&show={{ show }}&page={{ num }}"
+           hx-get="?q={{ q|urlencode }}&show={{ show }}&page={{ num }}"
+           hx-target="#qualifierTable" hx-push-url="true">{{ num }}</a>
+      </li>
+      {% endif %}
+    {% endfor %}
+
+    {% if page_obj.has_next %}
+    <li class="page-item">
+      <a class="page-link" href="?q={{ q|urlencode }}&show={{ show }}&page={{ page_obj.next_page_number }}"
+         hx-get="?q={{ q|urlencode }}&show={{ show }}&page={{ page_obj.next_page_number }}"
+         hx-target="#qualifierTable" hx-push-url="true">{% trans 'Next' %}</a>
+    </li>
+    {% else %}
+    <li class="page-item disabled"><span class="page-link">{% trans 'Next' %}</span></li>
+    {% endif %}
+  </ul>
+</nav>
+{% endif %}

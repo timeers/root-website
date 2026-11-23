@@ -53,6 +53,7 @@ from .views import (game_list_view, leaderboard_view, draft_statistics,
                     my_scheduled_matches_page, elo_system_leaderboard_view,
                     elo_system_games_page, elo_system_details_page,
                     tournament_elo_page,
+                    qualifier_detail, qualifier_create, qualifier_update, qualifier_delete,
                     tournament_match_analytics_page, tournament_match_analytics_export)
 
 urlpatterns = [
@@ -237,6 +238,12 @@ urlpatterns = [
     path('elo/<slug:slug>/details/', elo_system_details_page, name='elo-system-details-page'),
     path('elo/<slug:slug>/leaderboard/', elo_system_leaderboard_view, name='elo-system-leaderboard-page'),
     path('elo/<slug:slug>/', elo_system_leaderboard_view, name='elo-system-home-page'),
+
+    # Qualifiers (unlisted). 'new/' must stay above '<slug:slug>/'.
+    path('qualifier/new/', qualifier_create, name='qualifier-create'),
+    path('qualifier/<slug:slug>/edit/', qualifier_update, name='qualifier-update'),
+    path('qualifier/<slug:slug>/delete/', qualifier_delete, name='qualifier-delete'),
+    path('qualifier/<slug:slug>/', qualifier_detail, name='qualifier-detail'),
 
     path("hx/games/<int:id>/bookmark/", bookmark_game, name='bookmark-game'),
     path("hx/games/effort/delete/<int:id>/", effort_hx_delete, name='effort-hx-delete'),
