@@ -1996,11 +1996,14 @@ class WarriorBackImageTests(TestCase):
 
 # ── Forge maps: optional art and Paths & Rivers ─────────────────────────────
 
-def _paths_layout():
-    return _fixed_layout(visited=['clearings', 'buildings', 'forests', 'paths'], paths=[
+def _paths_layout(special=False):
+    paths = [
         {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},
         {'kind': 'river', 'a': {'c': 1}, 'b': {'p': 0}},
-    ])
+    ]
+    if special:   # added last, but printed under the plain path
+        paths.append({'kind': 'special', 'a': {'c': 0}, 'b': {'p': 1}})
+    return _fixed_layout(visited=['clearings', 'buildings', 'forests', 'paths'], paths=paths)
 
 
 @override_settings(MEDIA_ROOT=_TTS_MEDIA, SITE_URL='https://example.test')
@@ -2044,7 +2047,7 @@ class ForgedMapPathsTests(TestCase):
         circles, suits, buildings, then item track < VP track < Root logo."""
         from .map_pdf_engine import MapLayoutEngine
         draft = self._create()
-        self.assertTrue(self._complete(draft)['ok'])
+        self.assertTrue(self._complete(draft, _paths_layout(special=True))['ok'])
         forged_map = ForgedMap.objects.get(faction=draft)
         order = []
 
@@ -2063,8 +2066,8 @@ class ForgedMapPathsTests(TestCase):
                 mock.patch.object(MapLayoutEngine, '_draw_clearing', record('clearing')), \
                 mock.patch.object(MapLayoutEngine, '_draw_suit', record('suit')):
             MapLayoutEngine(forged_map).build(BytesIO())
-        firsts = {k: order.index(k) for k in ('river-link', 'river', 'path', 'clearing', 'suit')}
-        self.assertEqual(sorted(firsts, key=firsts.get), ['river-link', 'river', 'path', 'clearing', 'suit'])
+        firsts = {k: order.index(k) for k in ('river-link', 'river', 'special', 'path', 'clearing', 'suit')}
+        self.assertEqual(sorted(firsts, key=firsts.get), ['river-link', 'river', 'special', 'path', 'clearing', 'suit'])
         self.assertGreater(order.index('suit'), max(i for i, k in enumerate(order) if k == 'clearing'))
         self.assertEqual(order[-3:], ['root_map_items', 'root_map_vp', 'root_map_logo'])
 
@@ -2141,3 +2144,11 @@ class ForgedMapPathsTests(TestCase):
         draft = self._create()
         html = self.client.get(reverse('forge-map-builder', args=[draft.pk])).content.decode()
         self.assertIn('"paths_step": true', html)
+
+    def test_detail_page_has_the_layout_summary(self):
+        draft = self._create()
+        self.assertTrue(self._complete(draft)['ok'])
+        response = self.client.get(reverse('forge-map-detail', args=[draft.pk]))
+        summary = response.context['summary']
+        self.assertEqual([(t['kind'], t['count']) for t in summary['path_tiles']], [('path', 1), ('river', 1)])
+        self.assertIn('id="map-layout-summary"', response.content.decode())

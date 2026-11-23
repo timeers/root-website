@@ -1,0 +1,46 @@
+/* A map layout's summary card (map_summary.js): the map builder's review step
+   and the Forge and Keep map detail pages. */
+
+/* The card: rounded and softly shadowed, like the board's cards. */
+.mb-summary-card {
+    border-radius: 16px; border: 1px solid #e9ecef; overflow: hidden;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .08), 0 1px 3px rgba(0, 0, 0, .06);
+}
+.mb-summary-card .card-body { padding: 1.25rem; }
+
+/* Tiles */
+.mb-sum-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+@media (max-width: 575.98px) { .mb-sum-grid { grid-template-columns: repeat(2, 1fr); } }
+.mb-sum-tile {
+    background: #fff; border: 1px solid #e9ecef; border-radius: 12px; padding: 12px 8px 10px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .06); text-align: center;
+    display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+/* Hover shows a border and shadow only: moving the tile (e.g. translateY)
+   animates through fractional pixels and makes the thin-stroked icons wobble. */
+button.mb-sum-tile {
+    width: 100%; font: inherit; cursor: pointer;
+    transition: box-shadow .15s ease, border-color .15s ease;
+}
+button.mb-sum-tile:hover, button.mb-sum-tile:focus-visible {
+    border-color: var(--bs-primary, #0d6efd);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, .12); outline: none;
+}
+.mb-sum-icon { height: 26px; display: flex; align-items: center; justify-content: center; }
+.mb-sum-count { font-size: 1.6rem; font-weight: 700; line-height: 1.1; color: #212529; }
+.mb-sum-label { font-size: .8rem; color: #6c757d; }
+.mb-sum-pill {
+    margin-top: 4px; font-size: .7rem; padding: 1px 8px; border-radius: 999px;
+    background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; cursor: help;
+}
+.mb-sum-suits { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
+.mb-suit-chip {
+    display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 4px;
+    background: #fff; border: 1px solid #dee2e6; border-radius: 999px; font-size: .85rem; color: #212529;
+}
+.mb-suit-chip img { width: 22px; height: 22px; }
+.mb-suit-chip-unset { padding-left: 10px; background: #f8f9fa; color: #6c757d; border-color: #ffc107; }
+.mb-suit-note { display: inline-flex; align-items: center; gap: 8px; font-size: .85rem; color: #6c757d; }
+.mb-suit-note img { width: 28px; height: 25px; object-fit: contain; }
+/* The paths tiles share a row of their own (halves, or thirds with special paths). */
+.mb-sum-paths { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(var(--mb-path-tiles, 2), 1fr); gap: 10px; }

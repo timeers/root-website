@@ -16,7 +16,7 @@ from django.views.decorators.http import require_POST
 
 from the_gatehouse.views import forge_onboard_required
 from the_keep.models import Post
-from the_keep.services.tts_map import check_builder, clean_builder_state
+from the_keep.services.tts_map import check_builder, clean_builder_state, layout_summary
 
 from .models import ForgedFaction, ForgedMap
 from .services.forge_map import (ArtRejected, default_state, map_builder_config, map_library_state,
@@ -112,6 +112,7 @@ def map_detail(request, pk):
     from .publishing.context import publish_context
     context.update(publish_context(request, faction))
     context['config'] = map_builder_config(forged_map, profile=request.user.profile, readonly=True)
+    context['summary'] = layout_summary(forged_map.tts_builder or {}, fixed=forged_map.fixed_clearings)
     return render(request, 'the_forge/map_detail.html', context)
 
 

@@ -17,7 +17,7 @@ from the_gatehouse.views import admin_required
 
 from .models import Post, TTSJsonUpload, post_model_for_component
 from .services.tts_inspect import inspect_tts_json
-from .services.tts_map import (KEEP_STAGES, MapGeometry, visited_stages, apply_builder_counts, builder_config,
+from .services.tts_map import (STAGES, MapGeometry, path_config, visited_stages, apply_builder_counts, builder_config,
                                check_builder, clean_builder_state)
 from .services.tts_store import (clear_tts_json, forge_linked, generate_tts_json,
                                  generate_unavailable_reason, recheck_tts_info, store_tts_json)
@@ -283,7 +283,7 @@ def map_builder(request, slug):
                 result['ok'] = False
             else:
                 result['changes'] = apply_builder_counts(post, state)
-                result['counted'] = list(KEEP_STAGES)
+                result['counted'] = list(STAGES)
                 ok, message = generate_tts_json(post, profile=request.user.profile)
                 result.update(ok=ok, generated=ok, message=message)
                 if ok and not request.user.profile.map_builder_onboard:
@@ -309,10 +309,15 @@ def map_builder(request, slug):
                 # else the Map's.
                 fixed=state['fixed'] if isinstance(state.get('fixed'), bool) else post.fixed_clearings,
                 expected={'clearings': post.clearings, 'forests': post.forests,
-                          'buildings': post.building_slots, 'ruins': post.ruins},
+                          'buildings': post.building_slots, 'ruins': post.ruins,
+                          'river_clearings': post.river_clearings},
                 save_url=request.path,
                 show_intros=not request.user.profile.map_builder_onboard,
                 manage_url=reverse_manage(post),
+                # Paths & Rivers: for the record and the river clearing count
+                # (a Keep map is its own board image: nothing is printed).
+                paths_step=True,
+                path=path_config(geometry),
             ),
             'ratio_warning': not (1.0 <= ratio <= 1.2),
             'errors': errors,

@@ -1,0 +1,20 @@
+{% load i18n static %}
+{% comment %}
+  A map's layout summary card (the map builder's review card), for the Forge
+  and Keep map detail pages. Context: summary (tts_map.layout_summary,
+  figures_summary or map_summary). The card itself is drawn by map_summary.js,
+  the same renderer as the builder's review step.
+{% endcomment %}
+<link rel="stylesheet" href="{% static 'the_keep/map_summary.css' %}">
+<div class="card mb-summary-card mb-3">
+    <div class="card-body">
+        <h4 class="root-title text-center mb-3">{% trans 'Layout Summary' %}</h4>
+        <div id="mb-layout-summary"></div>
+    </div>
+</div>
+{{ summary|json_script:"map-layout-summary" }}
+<script src="{% static 'the_keep/map_summary.js' %}"></script>
+<script>
+    MapSummary.mount(document.getElementById('mb-layout-summary'),
+                     JSON.parse(document.getElementById('map-layout-summary').textContent));
+</script>

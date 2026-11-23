@@ -3,7 +3,8 @@
 The map builder (the_keep/static/the_keep/map_builder.js, styles in
 map_builder.css), shared by the Keep's Map builder and the Forge's map builder
 and map page. Context: config (tts_map.builder_config), board_alt, and optionally
-generate_title. Load map_builder.css and map_builder.js on the page too.
+generate_title. Load map_summary.css, map_builder.css, map_summary.js and map_builder.js
+(in that order) on the page too.
 {% endcomment %}
 <div class="mb-builder{% if config.readonly %} mb-readonly{% endif %}">
 <!-- Progress: a full track with a highlight that slides to the current step -->
@@ -152,11 +153,11 @@ generate_title. Load map_builder.css and map_builder.js on the page too.
 </div>
 
 <!-- Review -->
-<div class="card mb-3 d-none" id="mb-review">
+<div class="card mb-summary-card mb-3 d-none" id="mb-review">
     <div class="card-body">
         <p class="text-muted small text-center mb-2">{% trans "This is how your map will load. Click an element on the map, or a tile below, to edit." %}</p>
-        <div class="mb-sum-grid mb-3" id="mb-review-counts"></div>
-        <div class="mb-sum-suits mb-3" id="mb-review-suits"></div>
+        <!-- The summary card, drawn by map_summary.js (as on the map detail pages) -->
+        <div class="mb-3" id="mb-review-summary"></div>
         <div id="mb-review-problems"></div>
     </div>
 </div>

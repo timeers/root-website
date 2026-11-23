@@ -28,6 +28,11 @@
     <!-- Component Specific Details -->
     {% include 'the_keep/partials/component_data.html' %}
 
+    {% if map_summary %}
+        <!-- Maps: the layout summary card -->
+        {% include 'the_keep/includes/map_layout_summary.html' with summary=map_summary %}
+    {% endif %}
+
 
     {% include 'the_keep/partials/component_leaderboard.html' %}
 

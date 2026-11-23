@@ -49,7 +49,9 @@
   if (config.paths_step) {
     STEPS.splice(STEPS.findIndex(s => s.key === 'forests'), 0,
       { key: 'paths', heading: 'Paths & Rivers', name: 'Paths & Rivers', short: 'Paths',
-        hint: 'Drag from one clearing to another to connect them.' });
+        hint: 'Pick what to draw over the item track, then drag from one clearing to another, or to the '
+              + 'middle of a path (a river joining a river). Select a path to change its type, drag one of '
+              + 'its ends to another clearing, or press x to remove it.' });
   }
   if (config.upload_step) {
     STEPS.unshift({ key: 'upload', heading: 'Map Name & Art', name: 'Start', short: 'Start',
@@ -66,7 +68,6 @@
   const PRINT = config.print || null;   // the Forge's printed art (see print_art in tts_map.py)
   const PATH = config.path || null;     // the Forge's path constants (path_config in tts_map.py)
   const PATH_KINDS = ['path', 'special', 'river'];
-  const PATH_ICON_GREY = '#c4c9ce';   // white paths, as an icon (toggles and counts) on white
   const BLANK_GIF = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
   let drawKind = 'path';      // the kind of path the Paths step draws
 
@@ -333,23 +334,10 @@
     return node;
   }
 
-  // <defs> (the marker symbol) survives redraws; only `content` is cleared.
-  const defs = el('defs', {}, svg);
   const content = el('g', {}, svg);
-  let markerSymbol = false;
-
-  if (config.marker_svg) {
-    fetch(config.marker_svg).then(r => r.ok ? r.text() : Promise.reject()).then(text => {
-      const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
-      const source = doc.documentElement;
-      if (source.nodeName !== 'svg') return;
-      const symbol = el('symbol', { id: 'mb-marker', viewBox: source.getAttribute('viewBox'),
-                                    preserveAspectRatio: 'none', overflow: 'visible' }, defs);
-      for (const child of Array.from(source.childNodes)) symbol.appendChild(document.importNode(child, true));
-      markerSymbol = true;
-      render();
-    }).catch(() => {});   // keep the round dots
-  }
+  // The suit marker's outline, shared with the summary card's clearing icon
+  // (map_summary.js keeps it as <symbol id="mb-marker"> on the page).
+  MapSummary.loadMarker(config.marker_svg).then(ok => { if (ok) render(); });
 
   // A step's pieces appear from that step on: never before it (they'd be in
   // the way of what's being placed now), dimmed on the steps after it, and at
@@ -436,7 +424,12 @@
     }
     const onStep = step === STEP_PATHS && !config.readonly;
     const ending = drag && drag.kind === 'path-end';
-    pathCache.forEach((s, i) => {
+    // Bottom to top where they cross: rivers, special paths, paths
+    // (PATH.draw_order, as printed). Stable within a kind.
+    const rank = (i) => PATH.draw_order.indexOf(pathCache[i].kind);
+    const order = pathCache.map((_s, i) => i).sort((i, j) => rank(i) - rank(j));
+    order.forEach((i) => {
+      const s = pathCache[i];
       const pg = el('g', { opacity: ending && drag.index === i ? 0.35 : 1 }, g);
       const pts = s.points.map(p => p.join(',')).join(' ');
       const width = PATH.width * (s.kind === 'river' ? PATH.river_width : 1);   // as drawn
@@ -620,14 +613,14 @@
   // outline has loaded.
   function drawMarker(g, c, i, centre, m, isSel) {
     const data = { 'data-kind': 'marker', 'data-index': i, style: 'cursor: move' };
-    if (!markerSymbol) {
+    if (!MapSummary.markerReady()) {
       el('circle', { cx: m[0], cy: m[1], r: DOT_PX * 1.3, fill: suitColour(c), stroke: isSel ? '#dc3545' : '#000',
                      'stroke-width': STROKE, ...data }, g);
       return;
     }
     const [w, h] = config.marker_px;
     const angle = Math.atan2(m[1] - centre[1], m[0] - centre[0]) * 180 / Math.PI + 90;
-    const box = viewBoxOf(defs.querySelector('#mb-marker'));
+    const box = viewBoxOf(document.getElementById('mb-marker'));
     // Place the symbol so its (0, 0) -- the marker's spot -- sits on m.
     const x = box[0] / box[2] * w, y = box[1] / box[3] * h;
     el('use', { href: '#mb-marker', x, y, width: w, height: h,
@@ -692,123 +685,45 @@
     if (step === STEP_REVIEW && !config.readonly) renderReview();
   }
 
-  // Review summary: a tile per piece, drawn like the board draws it, plus how
-  // the clearing suits are handled.
+  // A piece's icon (map_summary.js draws them all, for the summary card too).
   function iconSvg(kind) {
-    if (kind === 'clearing') {
-      if (markerSymbol) {
-        // Inset in a slightly larger box: the outline's stroke sits half outside
-        // the shape and would otherwise be cut off at the edges.
-        return '<svg width="40" height="22" viewBox="0 0 40 22" overflow="visible" aria-hidden="true">'
-          + '<use href="#mb-marker" x="3" y="3" width="34" height="17" style="color:#fff;--mb-marker-stroke:#231f20"></use></svg>';
-      }
-      return '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">'
-        + '<circle cx="9" cy="9" r="7" fill="#fff" stroke="#231f20" stroke-width="1.5"/></svg>';
-    }
-    if (PATH_KINDS.includes(kind)) {
-      const colour = kind === 'path' ? PATH_ICON_GREY : (PATH ? PATH.colours[kind] : '#fff');
-      if (kind === 'river') {
-        // One solid line, as rivers are drawn.
-        return '<svg width="30" height="18" viewBox="0 0 30 18" aria-hidden="true">'
-          + `<line x1="4" y1="9" x2="26" y2="9" stroke="${colour}" stroke-width="10" stroke-linecap="round"/></svg>`;
-      }
-      // A little cobblestone path in the kind's colour; white paths in light
-      // grey (PATH_ICON_GREY), so they show on white.
-      return '<svg width="30" height="18" viewBox="0 0 30 18" aria-hidden="true">'
-        + [4.6, 9, 13.4].map((y, i) => `<line x1="${i % 2 ? 6.5 : 4}" y1="${y}" x2="26" y2="${y}" stroke="${colour}"`
-          + ' stroke-width="2.8" stroke-linecap="round" stroke-dasharray="3.2 3.4"/>').join('')
-        + '</svg>';
-    }
-    if (kind === 'forest') {
-      return '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">'
-        + '<circle cx="11" cy="11" r="8" fill="#198754" stroke="#fff" stroke-width="3"/>'
-        + '<circle cx="11" cy="11" r="9.5" fill="none" stroke="rgba(0,0,0,.15)" stroke-width="1"/></svg>';
-    }
-    const ruin = kind === 'ruin';
-    return '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">'
-      + `<rect x="2" y="2" width="20" height="20" rx="4" fill="${ruin ? '#dc3545' : '#fff'}" stroke="#333" stroke-width="1.5"/>`
-      + (ruin
-        ? '<text x="12" y="12.5" fill="#fff" font-size="13" font-weight="700" text-anchor="middle" dominant-baseline="central">R</text>'
-        : '<path d="M12 7v10M7 12h10" stroke="#333" stroke-width="2" stroke-linecap="round"/>')
-      + '</svg>';
+    return MapSummary.icon(kind, PATH ? PATH.colours : null);
   }
 
+  // The review's summary card (map_summary.js draws it, as on the map detail
+  // pages); each tile opens the step where that piece is edited.
+  const SUIT_NAMES = { fox: 'Fox', rabbit: 'Rabbit', mouse: 'Mouse', bird: 'Bird', city: 'Lost City' };
   function renderReview() {
     const c = counts();
-    // Each tile opens the step where that piece is edited.
-    const tiles = [
-      ['clearing', 'Clearings', c.clearings, config.expected.clearings, STEP_CLEARINGS],
-      ['building', 'Building Slots', c.buildings, config.expected.buildings, STEP_BUILDINGS],
-      ['ruin', 'Ruins', c.ruins, config.expected.ruins, STEP_BUILDINGS],
-      ['forest', 'Forests', c.forests, config.expected.forests, STEP_FORESTS],
-    ];
-    // Paths get a row of their own: halves, or thirds with special paths
-    // (which only show when there are some).
-    const pathTiles = STEP_PATHS < 0 ? [] : [
-      ['path', 'Paths', c.paths, null, STEP_PATHS],
-      ...(c.special ? [['special', 'Special Paths', c.special, null, STEP_PATHS]] : []),
-      ['river', 'River Clearings', c.river_clearings, null, STEP_PATHS],
-    ];
-    const grid = document.getElementById('mb-review-counts');
-    grid.innerHTML = '';
-    let pathRow = null;
-    if (pathTiles.length) {
-      pathRow = document.createElement('div');
-      pathRow.className = 'mb-sum-paths';
-      pathRow.style.setProperty('--mb-path-tiles', pathTiles.length);
-    }
-    for (const [kind, label, n, expected, editStep] of [...tiles, ...pathTiles]) {
-      const tile = document.createElement('button');
-      tile.type = 'button';
-      tile.className = 'mb-sum-tile';
-      tile.setAttribute('aria-label', `${label}: ${n}. Edit ${label.toLowerCase()}`);
-      tile.addEventListener('click', () => goTo(editStep));
-      tile.innerHTML = `<div class="mb-sum-icon">${iconSvg(kind)}</div>`
-        + `<div class="mb-sum-count">${n}</div><div class="mb-sum-label"></div>`;
-      tile.querySelector('.mb-sum-label').textContent = label;
-      if (expected !== null && expected !== undefined && expected !== n) {
-        const pill = document.createElement('span');
-        pill.className = 'mb-sum-pill';
-        pill.textContent = `${expected} → ${n}`;
-        pill.title = `The Map currently has ${expected}. Completing the map updates it to ${n}.`;
-        tile.appendChild(pill);
-      }
-      (PATH_KINDS.includes(kind) ? pathRow : grid).appendChild(tile);
-    }
-    if (pathRow) grid.appendChild(pathRow);
-
-    // How the clearing suits are handled.
-    const suits = document.getElementById('mb-review-suits');
-    suits.innerHTML = '';
+    const tile = (kind, label, count, expected, step) => ({ kind, label, count, expected, step });
+    const data = {
+      tiles: [
+        tile('clearing', 'Clearings', c.clearings, config.expected.clearings, STEP_CLEARINGS),
+        tile('building', 'Building Slots', c.buildings, config.expected.buildings, STEP_BUILDINGS),
+        tile('ruin', 'Ruins', c.ruins, config.expected.ruins, STEP_BUILDINGS),
+        tile('forest', 'Forests', c.forests, config.expected.forests, STEP_FORESTS),
+      ],
+      // Special paths only when there are some.
+      path_tiles: STEP_PATHS < 0 ? [] : [
+        tile('path', 'Paths', c.paths, null, STEP_PATHS),
+        ...(c.special ? [tile('special', 'Special Paths', c.special, null, STEP_PATHS)] : []),
+        tile('river', 'River Clearings', c.river_clearings, config.expected.river_clearings, STEP_PATHS),
+      ],
+      colours: PATH ? PATH.colours : null,
+    };
     if (config.fixed) {
       const tally = { fox: 0, rabbit: 0, mouse: 0, bird: 0, city: 0 };
-      const SUIT_NAMES = { fox: 'Fox', rabbit: 'Rabbit', mouse: 'Mouse', bird: 'Bird', city: 'Lost City' };
       let unset = 0;
       for (const cl of state.clearings) {
         if (tally[cl.suit] !== undefined) tally[cl.suit] += 1; else unset += 1;
       }
-      for (const [suit, n] of Object.entries(tally)) {
-        if (!n) continue;
-        const chip = document.createElement('span');
-        chip.className = 'mb-suit-chip';
-        chip.title = SUIT_NAMES[suit];
-        chip.innerHTML = `<img src="${config.suit_icons[suit]}" alt=""><span></span>`;
-        chip.querySelector('span').textContent = `${chip.title} ${n}`;
-        suits.appendChild(chip);
-      }
-      if (unset) {
-        const chip = document.createElement('span');
-        chip.className = 'mb-suit-chip mb-suit-chip-unset';
-        chip.textContent = `No suit ${unset}`;
-        suits.appendChild(chip);
-      }
+      data.suits = { fixed: true, unset, unset_label: 'No suit',
+                     chips: Object.entries(tally).filter(([, n]) => n)
+                       .map(([suit, n]) => ({ suit, name: SUIT_NAMES[suit], count: n, icon: config.suit_icons[suit] })) };
     } else {
-      const note = document.createElement('span');
-      note.className = 'mb-suit-note';
-      note.innerHTML = `<img src="${config.random_icon}" alt=""><span></span>`;
-      note.querySelector('span').textContent = 'Random suits: shuffled each time the map loads.';
-      suits.appendChild(note);
+      data.suits = { fixed: false, note: 'Random Clearing Suits: shuffled each game.', icon: config.random_icon };
     }
+    MapSummary.render(document.getElementById('mb-review-summary'), data, { onTile: t => goTo(t.step) });
 
     const problems = document.getElementById('mb-review-problems');
     problems.innerHTML = '';
@@ -2104,7 +2019,7 @@
     if (button.disabled) return;
     const label = button.innerHTML;
     button.disabled = true;
-    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Completing…';
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Saving…';
     let leaving = false;
     try {
       leaving = await saveNow(true);
@@ -2153,7 +2068,8 @@
     // counters show the Map's new figures.
     if (result.changes && result.changes.length) {
       // Only the stages the server counted now match the Map.
-      const KEYS = { clearings: ['clearings'], buildings: ['buildings', 'ruins'], forests: ['forests'] };
+      const KEYS = { clearings: ['clearings'], buildings: ['buildings', 'ruins'], forests: ['forests'],
+                     paths: ['river_clearings'] };
       for (const stage of result.counted || []) {
         for (const key of KEYS[stage] || []) config.expected[key] = counts()[key];
       }

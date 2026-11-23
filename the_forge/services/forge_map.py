@@ -47,11 +47,6 @@ def step_text():
             'hint': 'Drag the VP track up or down, and the item grid and the Root logo, to where they should be '
                     'printed on your map.',
         },
-        'paths': {
-            'hint': 'Pick what to draw over the item track, then drag from one clearing to another, or to the '
-                    'middle of a path (a river joining a river). Select a path to change its type, drag one of '
-                    'its ends to another clearing, or press x to remove it.',
-        },
         'review': {
             'hint': 'Check the count of each element, then click "Complete" to generate your map.',
         },

@@ -1240,6 +1240,46 @@ class MapBuilderTests(TestCase):
         self.client.force_login(self.designer_user)
         self.assertContains(self.client.get(self._builder_url()), 'no board image')
 
+    def test_paths_step_on_the_keep(self):
+        from the_keep.models import Map
+        from the_keep.services.tts_map import suit_icons
+        Map.objects.filter(pk=self.map.pk).update(river_clearings=5)
+        self.client.force_login(self.designer_user)
+        config = self.client.get(self._builder_url()).context['config']
+        self.assertTrue(config['paths_step'])
+        self.assertEqual(config['expected']['river_clearings'], 5)
+        self.assertEqual(config['suit_icons'], suit_icons())     # one place builds them
+        state = self._state()
+        state['paths'] = [{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}]
+        state['visited'] = ['clearings', 'buildings', 'paths', 'forests']
+        # Save Progress keeps the paths but leaves the Map's figure alone...
+        self.client.post(self._builder_url(), json.dumps({'state': state}), content_type='application/json')
+        stored = Map.objects.get(pk=self.map.pk)
+        self.assertEqual(stored.tts_builder['paths'], state['paths'])
+        self.assertEqual(stored.river_clearings, 5)
+        # ...and Complete writes it.
+        result = self.client.post(self._builder_url(), json.dumps({'state': state, 'generate': True}),
+                                  content_type='application/json').json()
+        self.assertTrue(result['generated'], result)
+        self.assertEqual(Map.objects.get(pk=self.map.pk).river_clearings, 2)
+
+    def test_map_page_has_the_layout_summary(self):
+        from the_keep.models import Map
+        url = reverse('map-detail', kwargs={'slug': self.map.slug})
+        html = self.client.get(url).content.decode()       # no layout yet: the Map's figures
+        self.assertIn('id="map-layout-summary"', html)
+        self.assertIn('"count": 12', html)
+        Map.objects.filter(pk=self.map.pk).update(tts_builder=self._state(clearings=3))
+        html = self.client.get(url).content.decode()
+        self.assertIn('"count": 3', html)
+        self.assertIn('map_summary.js', html)
+        # Other components have no layout card.
+        from the_keep.models import Faction
+        fox = Faction.objects.create(title='Summary Fox', animal='Fox', designer=self.map.designer, component='Faction',
+                                     status=StatusChoices.STABLE)
+        html = self.client.get(reverse('faction-detail', kwargs={'slug': fox.slug})).content.decode()
+        self.assertNotIn('map-layout-summary', html)
+
     def test_builder_config_has_suit_icons_and_marker_outline(self):
         self.client.force_login(self.designer_user)
         config = self.client.get(self._builder_url()).context['config']
@@ -1990,9 +2030,60 @@ class MapPathTests(TestCase):
         runs = [l for l in links if l is not joins[0]]
         self.assertEqual(len(runs), 2)
         for run in runs:
+            # It reaches the edge, then carries on past it (so its flat end is
+            # wholly off the page, whatever the angle).
+            x, y = run[-2]
+            self.assertTrue(min(x, y, FORGE_FRAME[0] - x, FORGE_FRAME[1] - y) < 1e-6, run[-2])
             x, y = run[-1]
-            self.assertTrue(min(x, y, FORGE_FRAME[0] - x, FORGE_FRAME[1] - y) < 1e-6, run[-1])
+            self.assertTrue(min(x, y, FORGE_FRAME[0] - x, FORGE_FRAME[1] - y) < 0, run[-1])
         # Paths don't get links.
         state['paths'][0]['kind'] = 'path'
         state['paths'][1]['kind'] = 'path'
         self.assertEqual(river_links(g, state), [])
+
+    def test_printed_clearing_circles_sit_a_fixed_inset_inside(self):
+        from the_keep.services.tts_map import CLEARING_OUTLINE_INSET, print_layout
+        state = self._state([], clearings=[(0.3, 0.4), (0.7, 0.4)])
+        state['clearings'][1]['marker'] = [0.705, 0.4]            # a tiny clearing (~11 px)
+        big, tiny = print_layout(self._geometry(), state)['clearings']
+        self.assertAlmostEqual(big[2], self._circle(state, 0)[2] - CLEARING_OUTLINE_INSET)
+        self.assertAlmostEqual(tiny[2], self._circle(state, 1)[2] / 2)   # never below half
+
+    # ── The layout summary card's data (map_summary.js draws it) ──
+    def test_layout_summary(self):
+        from the_keep.services.tts_map import layout_summary, suit_icons
+        state = self._state([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}},
+                             {'kind': 'path', 'a': {'c': 1}, 'b': {'c': 2}}])
+        state['clearings'][0]['suit'] = 'fox'
+        state['clearings'][1]['suit'] = 'fox'
+        state['clearings'][2]['suit'] = 'bird'
+        state['buildings'] = [{'at': [0.2, 0.2], 'ruin': True}, {'at': [0.3, 0.2], 'ruin': False}]
+        summary = layout_summary(state, fixed=True)
+        self.assertEqual([(t['kind'], t['count']) for t in summary['tiles']],
+                         [('clearing', 4), ('building', 2), ('ruin', 1), ('forest', 0)])
+        # Special paths only when there are some.
+        self.assertEqual([(t['kind'], t['count']) for t in summary['path_tiles']], [('path', 1), ('river', 2)])
+        self.assertEqual([(c['suit'], c['count']) for c in summary['suits']['chips']], [('fox', 2), ('bird', 1)])
+        self.assertEqual(summary['suits']['chips'][0]['icon'], suit_icons()['fox'])
+        self.assertEqual(summary['suits']['unset'], 1)
+        # The layout's own choice wins over the Map's.
+        state['fixed'] = False
+        self.assertFalse(layout_summary(state, fixed=True)['suits']['fixed'])
+        # No path tiles before the Paths step is reached.
+        state['visited'] = []
+        self.assertEqual(layout_summary(state)['path_tiles'], [])
+
+    def test_figures_summary_and_which_one_a_map_gets(self):
+        from the_keep.models import Map
+        from the_keep.services.tts_map import map_summary
+        designer = Profile.objects.create(discord='summarydesigner')
+        keep_map = Map.objects.create(title='Old Map', designer=designer, clearings=12, forests=None,
+                                      building_slots=22, ruins=4, river_clearings=3, fixed_clearings=True)
+        summary = map_summary(keep_map)    # no layout: the Map's own figures
+        self.assertEqual([(t['kind'], t['count']) for t in summary['tiles']],
+                         [('clearing', 12), ('building', 22), ('ruin', 4)])   # forests not set
+        self.assertEqual([(t['kind'], t['count']) for t in summary['path_tiles']], [('river', 3)])
+        self.assertTrue(summary['suits']['fixed'])
+        self.assertNotIn('chips', summary['suits'])
+        keep_map.tts_builder = self._state([])
+        self.assertEqual(map_summary(keep_map)['tiles'][0]['count'], 4)       # the layout's

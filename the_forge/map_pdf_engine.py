@@ -18,8 +18,8 @@ from reportlab.pdfgen import canvas as rl_canvas
 from svglib.svglib import svg2rlg
 
 from the_keep.services.tts_map import (CLEARING_OUTLINE, FORGE_FRAME, MAP_BLANK, MAX_ART_WIDTH, OFFICIAL_RATIO,
-                                       PATH_COLOURS, PATH_DASH, PATH_GAP, PATH_LANES, PATH_STROKE, PRINT_DIR,
-                                       RIVER_WIDTH, SUIT_LINE_CENTRE_MM, SUIT_LINE_RADIUS_MM, MapGeometry,
+                                       PATH_COLOURS, PATH_DASH, PATH_DRAW_ORDER, PATH_GAP, PATH_LANES, PATH_STROKE,
+                                       PRINT_DIR, RIVER_WIDTH, SUIT_LINE_CENTRE_MM, SUIT_LINE_RADIUS_MM, MapGeometry,
                                        path_lanes, print_art, print_layout)
 
 from .pdf_engine import PRINT_DPI, _scaled_for_canvas, _tag_canvas_dpi
@@ -67,11 +67,11 @@ class MapLayoutEngine:
         else:
             c.setFillColor(HexColor(MAP_BLANK))
             c.rect(0, 0, PAGE_W, PAGE_H, stroke=0, fill=1)
-            rivers = [p for p in layout['paths'] if p['kind'] == 'river']
             for link in layout['river_links']:
                 self._draw_path(c, {'kind': 'river', 'colour': PATH_COLOURS['river'], 'points': link},
                                 layout['path_width'])
-            for path in rivers + [p for p in layout['paths'] if p['kind'] != 'river']:
+            # Rivers, then special paths, then paths, where they cross (stable within a kind).
+            for path in sorted(layout['paths'], key=lambda p: PATH_DRAW_ORDER.index(p['kind'])):
                 self._draw_path(c, path, layout['path_width'])
             for circle in layout['clearings']:
                 self._draw_clearing(c, circle, layout['clearing_outline'])

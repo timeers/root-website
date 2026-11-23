@@ -236,6 +236,11 @@ def clean_builder_state(state, *, logo=False):
     return clean
 
 
+def suit_icons():
+    """{suit: its tag icon's URL}: the builder's suit buttons and the summary card."""
+    return {suit: static(f'images/tags/{suit.capitalize()}_Tag.png') for suit in SUITS}
+
+
 def builder_config(image_url, width, height, state, *, fixed, expected, save_url, show_intros, **extra):
     """The map builder page's config (read by map_builder.js). `width` and
     `height` are the frame the builder draws in: the board image's pixels on
@@ -259,7 +264,7 @@ def builder_config(image_url, width, height, state, *, fixed, expected, save_url
         'item_grid': pieces()['item_grid'],
         'building_size': BUILDING_SIZE,
         'number_radius_px': number_tile_radius_px(geometry),
-        'suit_icons': {suit: static(f'images/tags/{suit.capitalize()}_Tag.png') for suit in SUITS},
+        'suit_icons': suit_icons(),
         # The suit marker's outline (tts/make_marker_svg.py); round dots without it.
         'marker_svg': static(MARKER_SVG) if finders.find(MARKER_SVG) else None,
         # The marker mesh's footprint (mesh units x its 1.3 scale), in pixels.
@@ -392,7 +397,9 @@ def print_layout(geometry, state):
     layout['paths'] = path_shapes(geometry, state)
     layout['path_width'] = _path_px(geometry)['width']
     layout['river_links'] = river_links(geometry, state, layout['paths'])
-    layout['clearings'] = [circle for c, circle in zip(state.get('clearings') or [], _circles(geometry, state))
+    inset = CLEARING_OUTLINE_INSET * geometry.width / FORGE_FRAME[0]
+    layout['clearings'] = [(x, y, max(r - inset, r / 2))     # (never below half a very small clearing)
+                           for c, (x, y, r) in zip(state.get('clearings') or [], _circles(geometry, state))
                            if c.get('marker')]
     layout['clearing_outline'] = CLEARING_OUTLINE_WIDTH * ppl
     return layout
@@ -404,6 +411,9 @@ def print_layout(geometry, state):
 # (map_builder.js) mirrors this geometry, so what's printed is what was drawn.
 
 PATH_KINDS = ('path', 'special', 'river')
+# Bottom to top, where they cross: rivers, then special paths, then paths
+# (the builder draws them the same way, via path_config).
+PATH_DRAW_ORDER = ('river', 'special', 'path')
 PATH_COLOURS = {'path': '#ffffff', 'special': '#ed2731', 'river': '#3e55a5'}
 MAP_BLANK = '#808080'            # a map without art: medium grey under everything
 PATH_WIDTH = 0.05                # local units (~a sixth of a clearing's radius)
@@ -414,6 +424,10 @@ PATH_GAP = 1.4                   # gap (lane widths), before the caps eat into i
 RIVER_WIDTH = 2.0                # a river is one solid line, this share of PATH_WIDTH (twice a path)
 CLEARING_OUTLINE = '#ffffff'     # a map without art prints each clearing's circle as an outline
 CLEARING_OUTLINE_WIDTH = 0.008   # local units
+# The printed circle sits this far inside the clearing's radius: pixels of the
+# Forge frame (FORGE_FRAME, 2180 wide), about 2.3 mm on the 22 in board. (5% of
+# the radius, averaged over a real map's clearings and rounded up.)
+CLEARING_OUTLINE_INSET = 9
 RIVER_LINK_REACH = 0.6           # a river's curve through a clearing: control points this share of its radius in
 DEFAULT_CLEARING_RADIUS = 0.3    # local units, for a clearing without its marker yet
 MAX_PATHS = 300
@@ -504,6 +518,7 @@ def path_config(geometry):
     px = _path_px(geometry)
     return {'colours': PATH_COLOURS, 'width': px['width'], 'lanes': PATH_LANES, 'stroke': PATH_STROKE,
             'dash': PATH_DASH, 'gap': PATH_GAP, 'river_width': RIVER_WIDTH, 'default_radius': px['default_radius'],
+            'draw_order': list(PATH_DRAW_ORDER),
             'samples': PATH_SAMPLES, 'bend_steps': _BEND_STEPS, 'bend_max': _BEND_MAX, 'blank': MAP_BLANK}
 
 
@@ -654,6 +669,21 @@ def _ray_to_edge(p, d, width, height):
     return None if t is None else (p[0] + d[0] * t, p[1] + d[1] * t)
 
 
+def _past_edge(before, edge, half_width, geometry):
+    """A point beyond `edge` (where a river leaves the frame) along its way
+    out, far enough that the river's flat end, square to the line, is wholly
+    off the page at any angle: half its width x tan(the angle to the edge's
+    normal). The page clips the rest."""
+    dx, dy = edge[0] - before[0], edge[1] - before[1]
+    length = math.hypot(dx, dy) or 1e-9
+    dx, dy = dx / length, dy / length
+    on_side = abs(edge[0]) < 1e-6 or abs(edge[0] - geometry.width) < 1e-6
+    cos = abs(dx if on_side else dy) or 1e-9      # against the normal of the edge it crosses
+    extra = half_width * math.sqrt(max(1 - cos * cos, 0)) / cos + half_width
+    extra = min(extra, half_width * 40)           # (an exit almost along the edge)
+    return (edge[0] + dx * extra, edge[1] + dy * extra)
+
+
 def river_links(geometry, state, shapes=None):
     """The printed map's extra river lines, as polylines (pixels): where
     rivers meet at a clearing, a curve through it joining them, continuing
@@ -691,7 +721,8 @@ def river_links(geometry, state, shapes=None):
                 continue
             obstacles = [(x, y, rr + clearance) for j, (x, y, rr) in enumerate(circles) if j != k]
             control = _route(at, edge, obstacles)
-            links.append(sampled(lambda t: _quad(at, control, edge, t)))
+            run = sampled(lambda t: _quad(at, control, edge, t))
+            links.append(run + [_past_edge(run[-2], edge, clearance, geometry)])
             continue
         remaining = list(items)
         while len(remaining) >= 2:
@@ -724,8 +755,6 @@ def path_totals(state):
 
 # The builder's stages whose counts go to the Map, and the Map fields each sets.
 STAGES = ('clearings', 'buildings', 'forests', 'paths')
-# The Keep's builder has no Paths step.
-KEEP_STAGES = ('clearings', 'buildings', 'forests')
 
 
 def check_builder(map_post, state, stages=None, require_buildings=False):
@@ -788,6 +817,89 @@ def layout_counts(state):
     """{Map field: count} for the counts a layout sets (clearings, forests,
     building_slots, ruins, and river_clearings once the Paths step is reached)."""
     return {field: count for _stage, _label, field, count in _counts(state or {})}
+
+
+# ── The layout summary card (map_summary.js) ─────────────────────────────────
+# The builder's review step draws it from the live layout; the Forge and Keep
+# map detail pages draw it from this data (same shape as the builder's).
+
+def _suit_names():
+    from django.utils.translation import gettext as _
+    return {'fox': _('Fox'), 'rabbit': _('Rabbit'), 'mouse': _('Mouse'), 'bird': _('Bird'), 'city': _('Lost City')}
+
+
+def _summary(tiles, path_tiles, suits):
+    from django.contrib.staticfiles import finders
+    return {'tiles': tiles, 'path_tiles': path_tiles, 'suits': suits, 'colours': PATH_COLOURS,
+            'marker_svg': static(MARKER_SVG) if finders.find(MARKER_SVG) else None}
+
+
+def _random_note():
+    from django.utils.translation import gettext as _
+    return {'fixed': False, 'note': _('Random Clearing Suits: shuffled each game.'),
+            'icon': static('images/ClearingsRandom.png')}
+
+
+def layout_summary(state, *, fixed=None):
+    """The summary card's data from a builder layout: a tile per piece, a row
+    for Paths, Special Paths (only when there are some) and River Clearings
+    once the Paths step was reached, and the clearing suits (the layout's
+    fixed / random choice, else `fixed`)."""
+    from django.utils.translation import gettext as _
+    state = state or {}
+    counts = layout_counts(state)
+    tile = lambda kind, label, count: {'kind': kind, 'label': label, 'count': count}  # noqa: E731
+    tiles = [tile('clearing', _('Clearings'), counts['clearings']),
+             tile('building', _('Building Slots'), counts['building_slots']),
+             tile('ruin', _('Ruins'), counts['ruins']),
+             tile('forest', _('Forests'), counts['forests'])]
+    path_tiles = []
+    if 'paths' in visited_stages(state):
+        totals = path_totals(state)
+        path_tiles = [tile('path', _('Paths'), totals['path'])]
+        if totals['special']:
+            path_tiles.append(tile('special', _('Special Paths'), totals['special']))
+        path_tiles.append(tile('river', _('River Clearings'), totals['river_clearings']))
+    fixed = state['fixed'] if isinstance(state.get('fixed'), bool) else bool(fixed)
+    if not fixed:
+        return _summary(tiles, path_tiles, _random_note())
+    clearings = state.get('clearings') or []
+    names, icons = _suit_names(), suit_icons()
+    chips = [{'suit': suit, 'name': names[suit], 'icon': icons[suit],
+              'count': sum(1 for c in clearings if c.get('suit') == suit)} for suit in SUITS]
+    return _summary(tiles, path_tiles, {
+        'fixed': True, 'chips': [chip for chip in chips if chip['count']],
+        'unset': sum(1 for c in clearings if c.get('suit') not in SUITS), 'unset_label': _('No suit'),
+    })
+
+
+def figures_summary(map_post):
+    """The summary card's data for a Map without a builder layout: its own
+    figures (those that are set), and whether its suits are fixed (there's no
+    tally without a layout)."""
+    from django.utils.translation import gettext as _
+    fields = (('clearing', _('Clearings'), 'clearings'), ('building', _('Building Slots'), 'building_slots'),
+              ('ruin', _('Ruins'), 'ruins'), ('forest', _('Forests'), 'forests'))
+    tiles = [{'kind': kind, 'label': label, 'count': getattr(map_post, field)}
+             for kind, label, field in fields if getattr(map_post, field, None) is not None]
+    path_tiles = []
+    if getattr(map_post, 'river_clearings', None) is not None:
+        path_tiles.append({'kind': 'river', 'label': _('River Clearings'), 'count': map_post.river_clearings})
+    if map_post.fixed_clearings:
+        suits = {'fixed': True, 'note': _('Fixed suits: the clearings always load with the same suits.'),
+                 'icon': static('images/ClearingsFixed.png')}
+    else:
+        suits = _random_note()
+    return _summary(tiles, path_tiles, suits)
+
+
+def map_summary(map_post):
+    """A keep Map's summary card: from its builder layout when it has one
+    (with clearings), else from its own figures."""
+    state = getattr(map_post, 'tts_builder', None) or {}
+    if state.get('clearings'):
+        return layout_summary(state, fixed=map_post.fixed_clearings)
+    return figures_summary(map_post)
 
 
 def visited_stages(state):
