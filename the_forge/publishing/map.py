@@ -179,9 +179,14 @@ class MapPublisher(Publisher):
     def prerequisites(self, forged):
         forged_map, state = rendered(forged)
         name_ok = 0 < len(forged.faction_name or '') <= MAX_TITLE
+        has_art = bool(forged_map and forged_map.art)
         reqs = [
             Requirement('Map Name', name_ok, None if name_ok else
                         f'Keep the name to {MAX_TITLE} characters (rename it on the Start step).'),
+            # Art is optional for building and printing a map (a grey board),
+            # but a map submitted to the Root Database needs its own.
+            Requirement('Original Art', has_art, None if has_art else
+                        "Upload your map's art on the builder's Start step."),
         ]
         if state is None:
             reqs.append(Requirement('Completed Map', False,

@@ -8180,3 +8180,172 @@ class EditByesTests(TestCase):
             content_type='application/json').json()
         self.assertIn('Bye Beta', data['byes_html'])
         self.assertNotIn('openByeEditModal()', data['byes_html'])
+
+
+@override_settings(
+    WIN_RATE_MODE='win_share',
+    CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}},
+)
+class QualifierStandingsTests(TestCase):
+    """Qualifier standings: window/threshold counting, interleaved ordering,
+    stable ranks under filters, and edit permissions."""
+
+    def setUp(self):
+        from the_warroom.models import EloSystem, EloParticipant, Qualifier
+        from django.core.cache import cache
+        cache.clear()
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+
+        self.dt = lambda m, d: datetime(2026, m, d, 12, 0, tzinfo=dt_timezone.utc)
+
+        self.system = EloSystem.objects.create(
+            name="Q Elo", slug="q-elo", calculation_type=EloSystem.CalculationType.ROOTELO,
+            min_players=2, max_players=6,
+        )
+        self.tournament = Tournament.objects.create(name="Q Series", elo_system=self.system)
+        stage = Stage.objects.create(tournament=self.tournament, name="S", order=1)
+        self.round = Round.objects.create(stage=stage, round_number=1)
+
+        self.designer = self._make_player("qdesigner")
+        self.other = self._make_player("qother")
+
+        # a: 3 games, 3 wins. b: 3 games, 0 wins. c: 1 game, 1 win (provisional).
+        self.a = Profile.objects.create(discord="alpha", display_name="Alpha")
+        self.b = Profile.objects.create(discord="bravo", display_name="Bravo")
+        self.c = Profile.objects.create(discord="charlie", display_name="Charlie")
+        for day in (2, 3):
+            self._game(day, self.a, self.b)
+        self._game(4, self.a, self.b, self.c)
+        # Outside the window, a test match, and a non-final game: none count.
+        self._game(20, self.b, self.a)
+        self._game(5, self.b, self.a, test_match=True)
+        self._game(5, self.b, self.a, final=False)
+
+        EloParticipant.objects.create(elo_system=self.system, player=self.a, rating=1400)
+        EloParticipant.objects.create(elo_system=self.system, player=self.b, rating=1300)
+        EloParticipant.objects.create(elo_system=self.system, player=self.c, rating=1600)
+
+        self.Qualifier = Qualifier
+        self.qualifier = Qualifier.objects.create(
+            name="Winter Qualifier", designer=self.designer.profile,
+            start_date=date(2026, 1, 1), end_date=date(2026, 1, 10),
+            game_threshold=3, qualifier_places=1, tournament=self.tournament,
+        )
+
+    @staticmethod
+    def _make_player(username):
+        user = User.objects.create_user(username=username, password="x")
+        profile = user.profile
+        profile.group = Profile.GroupChoices.PLAYER
+        profile.player_onboard = True
+        profile.save()
+        return user
+
+    def _game(self, day, winner, *losers, final=True, test_match=False):
+        from the_warroom.services.win_share_service import refresh_game_win_shares
+        game = Game.objects.create(round=self.round, date_posted=self.dt(1, day), final=final,
+                                   test_match=test_match, cached_player_count=1 + len(losers))
+        Effort.objects.create(game=game, player=winner, win=True)
+        for loser in losers:
+            Effort.objects.create(game=game, player=loser, win=False)
+        refresh_game_win_shares(game)
+        return game
+
+    def _rows(self, qualifier=None):
+        from the_warroom.services.qualifier import build_standings
+        return {r.name: r for r in build_standings(qualifier or self.qualifier)}
+
+    def test_window_counts_only_final_non_test_games(self):
+        rows = self._rows()
+        self.assertEqual(rows['Alpha'].games, 3)
+        self.assertEqual(rows['Bravo'].games, 3)
+        self.assertEqual(rows['Charlie'].games, 1)
+
+    def test_tournament_ranks_by_win_rate_and_threshold(self):
+        rows = self._rows()
+        self.assertEqual(rows['Alpha'].rank, 1)
+        self.assertAlmostEqual(rows['Alpha'].score, 100.0)
+        self.assertTrue(rows['Alpha'].qualified)
+        self.assertEqual(rows['Bravo'].rank, 2)
+        self.assertFalse(rows['Bravo'].qualified)  # qualifier_places=1
+        self.assertIsNone(rows['Charlie'].rank)
+        self.assertTrue(rows['Charlie'].provisional)
+
+    def test_elo_source_uses_current_rating_interleaved(self):
+        from the_warroom.services.qualifier import build_standings
+        q = self.Qualifier.objects.create(
+            name="Elo Q", start_date=date(2026, 1, 1), end_date=date(2026, 1, 10),
+            game_threshold=3, qualifier_places=2, elo_system=self.system,
+        )
+        order = [r.name for r in build_standings(q)]
+        # Charlie has the top rating but is provisional: listed first, unranked.
+        self.assertEqual(order, ['Charlie', 'Alpha', 'Bravo'])
+        rows = self._rows(q)
+        self.assertIsNone(rows['Charlie'].rank)
+        self.assertEqual(rows['Alpha'].rank, 1)
+        self.assertEqual(rows['Alpha'].score, 1400)
+
+    def test_filters_keep_ranks(self):
+        url = self.qualifier.get_absolute_url()
+        resp = self.client.get(url, {'q': 'brav'})
+        rows = list(resp.context['rows'])
+        self.assertEqual([r.name for r in rows], ['Bravo'])
+        self.assertEqual(rows[0].rank, 2)
+
+        resp = self.client.get(url, {'show': 'threshold'})
+        self.assertEqual([r.name for r in resp.context['rows']], ['Alpha', 'Bravo'])
+
+        resp = self.client.get(url)  # default is all
+        self.assertEqual(resp.context['show'], 'all')
+        self.assertEqual(len(resp.context['rows']), 3)
+
+        resp = self.client.get(url, {'q': 'bravo'}, HTTP_HX_REQUEST='true')
+        self.assertTemplateUsed(resp, 'the_warroom/partials/qualifier_table.html')
+        self.assertTemplateNotUsed(resp, 'the_warroom/qualifier_detail.html')
+
+    def test_anonymous_can_view(self):
+        resp = self.client.get(self.qualifier.get_absolute_url())
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.context['can_edit'])
+        self.assertContains(resp, 'noindex')
+
+    def test_edit_permissions(self):
+        url = self.qualifier.get_edit_url()
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.client.force_login(self.designer)
+        self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_create_sets_designer_and_single_source(self):
+        self.client.force_login(self.other)
+        resp = self.client.post(reverse('qualifier-create'), {
+            'name': 'New', 'source': 'tournament',
+            'tournament': self.tournament.pk, 'elo_system': self.system.pk,
+            'start_date': '2026-01-01', 'end_date': '2026-01-31',
+            'game_threshold': 3, 'qualifier_places': 4,
+        })
+        q = self.Qualifier.objects.get(name='New')
+        self.assertRedirects(resp, q.get_absolute_url(), fetch_redirect_response=False)
+        self.assertEqual(q.designer, self.other.profile)
+        self.assertEqual(q.tournament, self.tournament)
+        self.assertIsNone(q.elo_system)  # the unselected source is cleared
+        self.assertNotEqual(q.slug, 'new')
+
+    def test_form_validation(self):
+        from the_warroom.forms import QualifierForm
+        base = {'name': 'X', 'start_date': '2026-02-01', 'end_date': '2026-01-01',
+                'game_threshold': 3, 'qualifier_places': 4}
+        form = QualifierForm({**base, 'source': 'elo'}, user=self.other)
+        self.assertFalse(form.is_valid())
+        self.assertIn('elo_system', form.errors)
+        self.assertIn('end_date', form.errors)
+
+    def test_description_modal_only_when_set(self):
+        url = self.qualifier.get_absolute_url()
+        self.assertNotContains(self.client.get(url), 'qualifierInfoModal')
+        self.qualifier.description = 'Top players earn a **seat** at Worlds.'
+        self.qualifier.save()
+        resp = self.client.get(url)
+        self.assertContains(resp, 'qualifierInfoModal')
+        self.assertContains(resp, '<strong>seat</strong>', html=True)

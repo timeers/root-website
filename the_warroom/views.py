@@ -34,7 +34,7 @@ from urllib.parse import quote, urlencode
 from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, AssetModeChoices,
                      TournamentPlayer, PlayerGroup, Stage, StageParticipant, FormatChoices,
                      Match, MatchSeries, MatchSeat, CompetitionStatus, EditPermission,
-                     EloSystem, EloParticipant, ASSET_TYPES,
+                     EloSystem, EloParticipant, Qualifier, ASSET_TYPES,
                      effort_counts_for_round_q, effort_counts_for_stage_q,
                      effort_counts_for_tournament_q,
                      game_counts_for_round_q, game_counts_for_stage_q,
@@ -42,6 +42,7 @@ from .models import (Game, Effort, TurnScore, ScoreCard, Round, Tournament, Asse
                      first_supported_tab)
 from .services.grouping import GroupingService, build_opponent_history
 from .services.win_rate import annotate_roster, effort_points, win_rate_mode, win_rate_pct
+from .services.qualifier import build_standings
 from .services.box_score_import import (
     BoxScoreImportError, grid_cells_from_turns, parse_box_score_json, resolve_import)
 from .forms import (GameCreateForm, GameCreateFormV2, EffortCreateForm,
@@ -49,6 +50,7 @@ from .forms import (GameCreateForm, GameCreateFormV2, EffortCreateForm,
                     RoundCreateForm, StageCreateForm,
                     TournamentDynamicCreateForm, TournamentDynamicUpdateForm,
                     TournamentPlayerSettingsForm, TournamentAssetSettingsForm,
+                    QualifierForm,
                     )
 from .filters import (GameFilter, PlayerGameFilter, TournamentGameFilter, EloSystemGameFilter,
                       DraftStatsFilter, DRAFT_STATS_DEFAULT_PLAYER_COUNT)
@@ -10521,3 +10523,94 @@ def elo_system_details_page(request, slug):
         'games_count': Game.objects.eligible_for_elo_system(elo_system).count(),
     })
     return render(request, 'the_warroom/elo_system_details.html', context)
+
+
+# ── Qualifiers ───────────────────────────────────────────────────────────────
+# Unlisted: nothing on the site links here, the pages are noindex, and you need
+# the exact URL. Standings come from services/qualifier.py.
+
+QUALIFIER_SHOW_CHOICES = ('all', 'threshold')
+
+
+def qualifier_detail(request, slug):
+    """Public standings page. Search (q) and the all/threshold toggle (show) run
+    after ranks are assigned, so filtering never renumbers players."""
+    qualifier = get_object_or_404(
+        Qualifier.objects.select_related('elo_system', 'tournament', 'designer'), slug=slug
+    )
+    rows = build_standings(qualifier)
+    ranked_count = sum(1 for r in rows if r.rank)
+    qualified_count = sum(1 for r in rows if r.qualified)
+
+    show = request.GET.get('show', 'all')
+    if show not in QUALIFIER_SHOW_CHOICES:
+        show = 'all'
+    q = request.GET.get('q', '').strip()
+
+    filtered = rows
+    if show == 'threshold':
+        filtered = [r for r in filtered if r.rank]
+    if q:
+        needle = q.lower()
+        filtered = [r for r in filtered if needle in r.name.lower() or needle in r.discord.lower()]
+
+    page_obj = Paginator(filtered, settings.PAGE_SIZE).get_page(request.GET.get('page'))
+
+    context = {
+        'qualifier': qualifier,
+        'rows': page_obj,
+        'page_obj': page_obj,
+        'q': q,
+        'show': show,
+        'is_filtered': bool(q) or show != 'all',
+        'can_edit': qualifier.can_edit(request.user),
+        'players_count': len(rows),
+        'ranked_count': ranked_count,
+        'provisional_count': len(rows) - ranked_count,
+        'qualified_count': qualified_count,
+        'score_label': _('ELO') if qualifier.is_elo else _('Win Rate'),
+    }
+    # Full page on history restore, so Back/refresh after hx-push-url isn't a bare table.
+    if request.htmx and not request.htmx.history_restore_request:
+        return render(request, 'the_warroom/partials/qualifier_table.html', context)
+    return render(request, 'the_warroom/qualifier_detail.html', context)
+
+
+@player_onboard_required
+def qualifier_create(request):
+    form = QualifierForm(request.POST or None, user=request.user)
+    if request.method == 'POST' and form.is_valid():
+        qualifier = form.save(commit=False)
+        # Non-admins have no designer field; they always own what they create.
+        if not request.user.profile.admin or not qualifier.designer:
+            qualifier.designer = request.user.profile
+        qualifier.save()
+        messages.success(request, f"Qualifier '{qualifier.name}' created.")
+        return redirect(qualifier.get_absolute_url())
+    return render(request, 'the_warroom/qualifier_form.html', {'form': form, 'action': 'Create'})
+
+
+@player_onboard_required
+def qualifier_update(request, slug):
+    qualifier = get_object_or_404(Qualifier, slug=slug)
+    if not qualifier.can_edit(request.user):
+        raise PermissionDenied()
+    form = QualifierForm(request.POST or None, instance=qualifier, user=request.user)
+    if request.method == 'POST' and form.is_valid():
+        qualifier = form.save()
+        messages.success(request, f"Qualifier '{qualifier.name}' updated.")
+        return redirect(qualifier.get_absolute_url())
+    return render(request, 'the_warroom/qualifier_form.html',
+                  {'form': form, 'action': 'Edit', 'qualifier': qualifier})
+
+
+@player_onboard_required
+@require_http_methods(['POST'])
+def qualifier_delete(request, slug):
+    qualifier = get_object_or_404(Qualifier, slug=slug)
+    if not qualifier.can_edit(request.user):
+        raise PermissionDenied()
+    name = qualifier.name
+    qualifier.delete()
+    messages.success(request, f"Qualifier '{name}' deleted.")
+    return redirect('tournaments-home')

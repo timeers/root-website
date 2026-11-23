@@ -4354,6 +4354,19 @@ tr.clickable-row:hover {
   box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
 
+/* 2-option slider (50% width per option) */
+.option-toggle-2 .option-slider {
+  width: calc(50% - 4px);
+}
+
+.option-toggle-2 .option-slider.position-1 {
+  transform: translateX(0);
+}
+
+.option-toggle-2 .option-slider.position-2 {
+  transform: translateX(100%);
+}
+
 /* 3-option slider (33.333% width per option) */
 .asset-mode-slider,
 .option-toggle-3 .option-slider {

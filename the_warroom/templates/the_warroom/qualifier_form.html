@@ -1,0 +1,291 @@
+{% extends 'the_keep/base.html' %}
+{% load i18n %}
+{% block title %}{{ action }} Qualifier | {% endblock %}
+
+{% block meta %}
+<meta name="robots" content="noindex, nofollow">
+{% endblock meta %}
+
+{% block main_width_class %}col-md-12{% endblock %}
+
+{% block styles %}{{ block.super }}
+<style>
+.qf-card .info-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.qf-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #7289da;
+  margin-bottom: 8px;
+}
+.qf-card .form-control,
+.qf-card .form-select {
+  border-radius: 10px;
+  border: 1px solid #e3e5e8;
+  background: #f6f7fb;
+  height: 44px;
+}
+.qf-card .form-control:focus,
+.qf-card .form-select:focus {
+  background: #fff;
+  border-color: #7289da;
+  box-shadow: 0 0 0 3px rgba(114, 137, 218, 0.15);
+}
+.qf-name.form-control {
+  font-size: 18px;
+  font-weight: 600;
+  height: 52px;
+}
+.qf-card textarea.qf-description {
+  height: auto;
+  min-height: 110px;
+  resize: vertical;
+}
+.qf-optional {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #99aab5;
+  margin-left: 4px;
+}
+.qf-hint {
+  font-size: 13px;
+  color: #99aab5;
+  margin-top: 6px;
+}
+.qf-error {
+  font-size: 13px;
+  color: #ed4245;
+  margin-top: 6px;
+}
+.qf-card .option-toggle {
+  max-width: none;
+}
+.qf-source-select {
+  margin-top: 12px;
+}
+.qf-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-top: 1px solid #f0f1f3;
+  padding-top: 22px;
+}
+.qf-footer .btn {
+  border-radius: 50px;
+  padding: 8px 22px;
+  font-weight: 600;
+}
+.qf-save {
+  background: linear-gradient(135deg, #5865F2 0%, #7289da 100%);
+  border: none;
+  color: #fff;
+}
+.qf-save:hover {
+  color: #fff;
+  filter: brightness(1.05);
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+  <div class="row justify-content-center">
+    <div class="col-lg-7 col-md-9">
+
+      <div class="discord-hero discord-hero-row mb-4">
+        <div class="discord-hero-icon"><i class="bi bi-trophy"></i></div>
+        <div>
+          <h1 class="discord-hero-title root-title mb-1">
+            {% if qualifier %}{{ qualifier.name }}{% else %}{% trans 'New Qualifier' %}{% endif %}
+          </h1>
+          <p class="discord-hero-tagline mb-0">
+            {% trans 'Rank the top players from an ELO System or Series within a date range.' %}
+          </p>
+        </div>
+      </div>
+
+      <form method="POST" class="info-card qf-card" novalidate>
+        {% csrf_token %}
+        <div class="info-card-body">
+
+          {% comment %}
+          Model-level source errors duplicate the field errors under the
+          selects, so non-field errors only show when those are clean.
+          {% endcomment %}
+          {% if form.non_field_errors and not form.elo_system.errors and not form.tournament.errors %}
+          <div class="alert alert-danger mb-0">{{ form.non_field_errors|join:' ' }}</div>
+          {% endif %}
+
+          <div>
+            <label class="qf-label" for="{{ form.name.id_for_label }}">{% trans 'Name' %}</label>
+            <input type="text" name="{{ form.name.html_name }}" id="{{ form.name.id_for_label }}"
+                   value="{{ form.name.value|default:'' }}" maxlength="100" required
+                   class="form-control qf-name" placeholder="{{ form.name.field.widget.attrs.placeholder }}">
+            {% for e in form.name.errors %}<div class="qf-error">{{ e }}</div>{% endfor %}
+          </div>
+
+          <div>
+            <label class="qf-label" for="{{ form.description.id_for_label }}">{% trans 'Description' %} <span class="qf-optional">{% trans 'Optional' %}</span></label>
+            <textarea name="{{ form.description.html_name }}" id="{{ form.description.id_for_label }}" rows="4"
+                      class="form-control qf-description" placeholder="{{ form.description.field.widget.attrs.placeholder }}">{{ form.description.value|default:'' }}</textarea>
+            <div class="qf-hint">{% trans 'Shown from the info button on the qualifier page. Supports basic Markdown.' %}</div>
+            {% for e in form.description.errors %}<div class="qf-error">{{ e }}</div>{% endfor %}
+          </div>
+
+          <div>
+            <span class="qf-label">{% trans 'Source' %}</span>
+            {{ form.source }}
+            <div class="option-toggle option-toggle-2" id="qfSourceToggle" role="group" aria-label="{% trans 'Source' %}">
+              <div class="option-slider {% if form.source.value == 'tournament' %}position-2{% else %}position-1{% endif %}"></div>
+              <div class="option-item {% if form.source.value != 'tournament' %}active{% endif %}" data-value="elo" data-position="1" role="button" tabindex="0">
+                <i class="bi bi-graph-up-arrow me-2"></i>{% trans 'ELO System' %}
+              </div>
+              <div class="option-item {% if form.source.value == 'tournament' %}active{% endif %}" data-value="tournament" data-position="2" role="button" tabindex="0">
+                <i class="bi bi-diagram-3 me-2"></i>{% trans 'Series' %}
+              </div>
+            </div>
+
+            <div class="qf-source-select" data-source="elo" {% if form.source.value == 'tournament' %}hidden{% endif %}>
+              <select name="{{ form.elo_system.html_name }}" id="{{ form.elo_system.id_for_label }}" class="form-select">
+                {% for value, label in form.elo_system.field.choices %}
+                <option value="{{ value }}" {% if value|stringformat:'s' == form.elo_system.value|stringformat:'s' %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              <div class="qf-hint">{% trans 'Players are ordered by their current ELO Rating.' %}</div>
+              {% for e in form.elo_system.errors %}<div class="qf-error">{{ e }}</div>{% endfor %}
+            </div>
+
+            <div class="qf-source-select" data-source="tournament" {% if form.source.value != 'tournament' %}hidden{% endif %}>
+              <select name="{{ form.tournament.html_name }}" id="{{ form.tournament.id_for_label }}" class="form-select">
+                {% for value, label in form.tournament.field.choices %}
+                <option value="{{ value }}" {% if value|stringformat:'s' == form.tournament.value|stringformat:'s' %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              <div class="qf-hint">{% trans 'Players are ordered by their win rate in this Series.' %}</div>
+              {% for e in form.tournament.errors %}<div class="qf-error">{{ e }}</div>{% endfor %}
+            </div>
+          </div>
+
+          <div class="row g-3">
+            <div class="col-sm-6">
+              <label class="qf-label" for="{{ form.start_date.id_for_label }}">{% trans 'Start Date' %}</label>
+              {{ form.start_date }}
+              {% for e in form.start_date.errors %}<div class="qf-error">{{ e }}</div>{% endfor %}
+            </div>
+            <div class="col-sm-6">
+              <label class="qf-label" for="{{ form.end_date.id_for_label }}">{% trans 'End Date' %}</label>
+              {{ form.end_date }}
+              {% for e in form.end_date.errors %}<div class="qf-error">{{ e }}</div>{% endfor %}
+            </div>
+            <div class="col-12"><div class="qf-hint mt-0">{% trans 'Only games played between these dates (inclusive) count.' %}</div></div>
+          </div>
+
+          <div class="row g-3">
+            <div class="col-sm-6">
+              <label class="qf-label" for="{{ form.game_threshold.id_for_label }}">{{ form.game_threshold.label }}</label>
+              <input type="number" min="1" name="{{ form.game_threshold.html_name }}" id="{{ form.game_threshold.id_for_label }}"
+                     value="{{ form.game_threshold.value|default:'' }}" class="form-control" required>
+              <div class="qf-hint">{{ form.game_threshold.help_text }}</div>
+              {% for e in form.game_threshold.errors %}<div class="qf-error">{{ e }}</div>{% endfor %}
+            </div>
+            <div class="col-sm-6">
+              <label class="qf-label" for="{{ form.qualifier_places.id_for_label }}">{{ form.qualifier_places.label }}</label>
+              <input type="number" min="1" name="{{ form.qualifier_places.html_name }}" id="{{ form.qualifier_places.id_for_label }}"
+                     value="{{ form.qualifier_places.value|default:'' }}" class="form-control" required>
+              <div class="qf-hint">{{ form.qualifier_places.help_text }}</div>
+              {% for e in form.qualifier_places.errors %}<div class="qf-error">{{ e }}</div>{% endfor %}
+            </div>
+          </div>
+
+          {% if form.designer %}
+          <div>
+            <label class="qf-label" for="{{ form.designer.id_for_label }}"><i class="bi bi-shield-lock me-1"></i>{{ form.designer.label }}</label>
+            <select name="{{ form.designer.html_name }}" id="{{ form.designer.id_for_label }}" class="form-select">
+              {% for value, label in form.designer.field.choices %}
+              <option value="{{ value }}" {% if value|stringformat:'s' == form.designer.value|stringformat:'s' %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <div class="qf-hint">{% trans 'Admin only. Leave blank to own it yourself.' %}</div>
+            {% for e in form.designer.errors %}<div class="qf-error">{{ e }}</div>{% endfor %}
+          </div>
+          {% endif %}
+
+          <div class="qf-footer">
+            <button type="submit" class="btn qf-save">
+              {% if qualifier %}{% trans 'Save Changes' %}{% else %}{% trans 'Create Qualifier' %}{% endif %}
+            </button>
+            <a href="{% if qualifier %}{{ qualifier.get_absolute_url }}{% else %}{% url 'tournaments-home' %}{% endif %}"
+               class="btn btn-light">{% trans 'Cancel' %}</a>
+            {% if qualifier %}
+            <button type="submit" form="qfDeleteForm" class="btn btn-outline-danger ms-auto"
+                    onclick="return confirm('{% trans 'Delete this qualifier? This cannot be undone.' %}');">
+              <i class="bi bi-trash me-1"></i>{% trans 'Delete' %}
+            </button>
+            {% endif %}
+          </div>
+        </div>
+      </form>
+
+      {% if qualifier %}
+      <form id="qfDeleteForm" method="POST" action="{% url 'qualifier-delete' slug=qualifier.slug %}" hidden>
+        {% csrf_token %}
+      </form>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script>
+(function () {
+  var toggle = document.getElementById('qfSourceToggle');
+  var input = document.getElementById('{{ form.source.id_for_label }}');
+  var slider = toggle.querySelector('.option-slider');
+  var panels = document.querySelectorAll('.qf-source-select');
+
+  // Source picker: show only the chosen select and clear the other, so the
+  // form never posts both (the server clears it too).
+  function select(item) {
+    input.value = item.dataset.value;
+    toggle.querySelectorAll('.option-item').forEach(function (el) {
+      el.classList.toggle('active', el === item);
+    });
+    slider.className = 'option-slider position-' + item.dataset.position;
+    panels.forEach(function (panel) {
+      var on = panel.dataset.source === item.dataset.value;
+      panel.hidden = !on;
+      if (!on) $(panel).find('select').val('').trigger('change');
+    });
+  }
+
+  toggle.querySelectorAll('.option-item').forEach(function (item) {
+    item.addEventListener('click', function () { select(item); });
+    item.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(item); }
+    });
+  });
+
+  $('#{{ form.elo_system.id_for_label }}').select2({ theme: 'bootstrap-5', placeholder: '{% trans "Select an ELO System" %}', allowClear: true, width: '100%' });
+  $('#{{ form.tournament.id_for_label }}').select2({ theme: 'bootstrap-5', placeholder: '{% trans "Select a Series" %}', allowClear: true, width: '100%' });
+  {% if form.designer %}
+  $('#{{ form.designer.id_for_label }}').select2({ theme: 'bootstrap-5', allowClear: true, width: '100%', placeholder: '{% trans "Owner" %}' });
+  {% endif %}
+
+  // Keep the end date from preceding the start date.
+  var start = document.getElementById('{{ form.start_date.id_for_label }}');
+  var end = document.getElementById('{{ form.end_date.id_for_label }}');
+  function syncMin() { end.min = start.value || ''; }
+  start.addEventListener('change', syncMin);
+  syncMin();
+})();
+</script>
+{% endblock scripts %}

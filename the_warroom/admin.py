@@ -17,7 +17,7 @@ from the_gatehouse.models import Profile
 from .models import (
     Game, Effort, Tournament, GameBookmark, ScoreCard, TurnScore, Round,
     PlayerGroup, TournamentPlayer, Stage, StageParticipant, Match, MatchSeries,
-    EloSystem, EloSeason, EloParticipant, EloRating
+    EloSystem, EloSeason, EloParticipant, EloRating, Qualifier
 )
 from .services.root_league_api import get_game_round
 
@@ -96,6 +96,11 @@ class EloRatingAdmin(admin.ModelAdmin):
     search_fields = ('player__discord', 'player__name', 'elo_system__name')
     raw_id_fields = ('player', 'elo_system', 'game')
     ordering = ('-played_at',)
+
+class QualifierAdmin(admin.ModelAdmin):
+    list_display = ('name', 'slug', 'designer', 'elo_system', 'tournament', 'start_date', 'end_date')
+    search_fields = ('name', 'slug')
+    raw_id_fields = ('designer', 'elo_system', 'tournament')
 
 class RoundAdmin(admin.ModelAdmin):
     list_display = ('name', 'stage', 'stage__tournament', 'round_number', 'is_active', 'start_date', 'end_date', 'status')
@@ -574,6 +579,7 @@ admin.site.register(Game, GameAdmin)
 # admin.site.register(Effort, EffortAdmin)
 admin.site.register(Tournament, TournamentAdmin)
 admin.site.register(EloSystem, EloSystemAdmin)
+admin.site.register(Qualifier, QualifierAdmin)
 admin.site.register(EloSeason, EloSeasonAdmin)
 admin.site.register(EloParticipant, EloParticipantAdmin)
 admin.site.register(EloRating, EloRatingAdmin)

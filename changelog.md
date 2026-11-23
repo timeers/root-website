@@ -1,5 +1,13 @@
 # Changelog
 
+## [20] - 2026-11-23 Qualifiers
+
+### New Features
+- Qualifiers for upcoming events display players who have played at least one game in a specific system within a date range
+
+### Improvements
+- Maps now list a layout summary of the known elements of the map
+
 ## [1.13.19] - 2026-11-5 Grouping Bug Fixes
 
 ### New Features

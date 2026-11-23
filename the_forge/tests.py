@@ -2111,13 +2111,17 @@ class ForgedMapPathsTests(TestCase):
         self.assertGreater(forged_map.art_version, before[1])
         self.assertNotEqual(fingerprint_map(forged_map), before[0])   # re-renders
 
-    def test_publishing_without_art_and_with_river_clearings(self):
+    def test_publishing_needs_original_art_and_carries_river_clearings(self):
         from .publishing.map import MapPublisher, MapSubmitForm
         draft = self._create()
         self.assertTrue(self._complete(draft)['ok'])
         forged = ForgedFaction.objects.get(pk=draft.pk)
         publisher = MapPublisher()
-        self.assertNotIn('Map Art', [r.label for r in publisher.prerequisites(forged)])
+        # Submitting needs the map's own art ("Original Art"), though building and printing don't.
+        missing = [r.label for r in publisher.prerequisites(forged) if not r.done]
+        self.assertEqual(missing, ['Original Art'])
+        ForgedMap.objects.filter(faction=draft).update(art='forge/maps/art.webp')
+        forged = ForgedFaction.objects.get(pk=draft.pk)
         self.assertTrue(all(r.done for r in publisher.prerequisites(forged)), publisher.prerequisites(forged))
         # River clearings come from the rivers (clearing 1 only: the river's
         # other end is a path's middle), read-only on submit, and synced.
