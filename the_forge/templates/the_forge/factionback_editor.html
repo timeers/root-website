@@ -336,6 +336,26 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   document.querySelectorAll('[data-piece-section]').forEach(updatePieceAddVisibility);
 
+  // Warriors' "Use image on Faction Back": only possible with an image, and
+  // its hidden flag (one per row, like the clear flags) carries the value.
+  function syncUseImage(row) {
+    const box = row.querySelector('input[data-use-image]');
+    const flag = row.querySelector('input[data-use-image-flag]');
+    if (!box) {
+      if (flag) flag.value = '0';
+      return;
+    }
+    const fileInput = row.querySelector('input[data-piece-icon]');
+    const clearBox = row.querySelector('input[data-clear-icon]');
+    const saved = row.querySelector('[data-use-image-row]')?.dataset.savedImage === '1';
+    const hasNewFile = !!(fileInput && fileInput.files && fileInput.files.length);
+    // The saved image survives unless "Clear" is ticked (which is undoable).
+    const hasImage = hasNewFile || (saved && !(clearBox && clearBox.checked));
+    box.disabled = !hasImage;
+    if (!hasImage) box.checked = false;
+    if (flag) flag.value = (hasImage && box.checked) ? '1' : '0';
+  }
+
   document.querySelectorAll('.piece-add-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const type = btn.dataset.type;
@@ -351,6 +371,10 @@ document.addEventListener('DOMContentLoaded', () => {
         row.querySelector('input[name="piece_type"]').value = type;
         if (type === 'W') {
           row.querySelector('[data-back-row]')?.remove();
+          row.querySelector('[data-use-image-row]')?.removeAttribute('hidden');
+          syncUseImage(row);
+        } else {
+          row.querySelector('[data-use-image-row]')?.remove();
         }
       }
       list.appendChild(frag);
@@ -379,6 +403,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (clearFlag) clearFlag.value = '0';
         if (clearCheckbox) clearCheckbox.checked = false;
+        syncUseImage(row);
         markDirty();
         return;
       }
@@ -414,6 +439,14 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
           if (clearFlag) clearFlag.value = '0';
         }
+        syncUseImage(row);
+        markDirty();
+        return;
+      }
+      const useImageBox = ev.target.closest('input[data-use-image]');
+      if (useImageBox) {
+        const row = useImageBox.closest('[data-row]');
+        if (row) syncUseImage(row);
         markDirty();
         return;
       }

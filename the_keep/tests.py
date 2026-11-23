@@ -1240,6 +1240,60 @@ class MapBuilderTests(TestCase):
         self.client.force_login(self.designer_user)
         self.assertContains(self.client.get(self._builder_url()), 'no board image')
 
+    def test_paths_step_on_the_keep(self):
+        from the_keep.models import Map
+        from the_keep.services.tts_map import suit_icons
+        Map.objects.filter(pk=self.map.pk).update(river_clearings=5)
+        self.client.force_login(self.designer_user)
+        config = self.client.get(self._builder_url()).context['config']
+        self.assertTrue(config['paths_step'])
+        self.assertEqual(config['expected']['river_clearings'], 5)
+        self.assertEqual(config['suit_icons'], suit_icons())     # one place builds them
+        state = self._state()
+        state['paths'] = [{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}]
+        state['visited'] = ['clearings', 'buildings', 'paths', 'forests']
+        # Save Progress keeps the paths but leaves the Map's figure alone...
+        self.client.post(self._builder_url(), json.dumps({'state': state}), content_type='application/json')
+        stored = Map.objects.get(pk=self.map.pk)
+        self.assertEqual(stored.tts_builder['paths'], state['paths'])
+        self.assertEqual(stored.river_clearings, 5)
+        # ...and Complete writes it.
+        result = self.client.post(self._builder_url(), json.dumps({'state': state, 'generate': True}),
+                                  content_type='application/json').json()
+        self.assertTrue(result['generated'], result)
+        self.assertEqual(Map.objects.get(pk=self.map.pk).river_clearings, 2)
+
+    def test_the_keep_builder_saves_the_special_path_name(self):
+        from the_keep.models import Map
+        self.client.force_login(self.designer_user)
+        self.assertEqual(self.client.get(self._builder_url()).context['config']['special_name_max'], 24)
+        state = self._state()
+        state['paths'] = [{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}]
+        state['visited'] = ['paths']
+        state['special_path_name'] = 'Bridges'
+        self.client.post(self._builder_url(), json.dumps({'state': state}), content_type='application/json')
+        self.assertEqual(Map.objects.get(pk=self.map.pk).tts_builder['special_path_name'], 'Bridges')
+        # The Map's page shows it, on its summary card.
+        html = self.client.get(reverse('map-detail', kwargs={'slug': self.map.slug})).content.decode()
+        self.assertIn('"label": "Bridges"', html)
+
+    def test_map_page_has_the_layout_summary(self):
+        from the_keep.models import Map
+        url = reverse('map-detail', kwargs={'slug': self.map.slug})
+        html = self.client.get(url).content.decode()       # no layout yet: the Map's figures
+        self.assertIn('id="map-layout-summary"', html)
+        self.assertIn('"count": 12', html)
+        Map.objects.filter(pk=self.map.pk).update(tts_builder=self._state(clearings=3))
+        html = self.client.get(url).content.decode()
+        self.assertIn('"count": 3', html)
+        self.assertIn('map_summary.js', html)
+        # Other components have no layout card.
+        from the_keep.models import Faction
+        fox = Faction.objects.create(title='Summary Fox', animal='Fox', designer=self.map.designer, component='Faction',
+                                     status=StatusChoices.STABLE)
+        html = self.client.get(reverse('faction-detail', kwargs={'slug': fox.slug})).content.decode()
+        self.assertNotIn('map-layout-summary', html)
+
     def test_builder_config_has_suit_icons_and_marker_outline(self):
         self.client.force_login(self.designer_user)
         config = self.client.get(self._builder_url()).context['config']
@@ -1262,61 +1316,56 @@ class MapBuilderTests(TestCase):
         self.assertTrue(x < 0 < x + w and y < 0 < y + h)
         self.assertGreater(-y, y + h)
 
-    def test_saving_only_updates_counts_for_stages_reached(self):
+    def test_save_progress_only_stores_the_layout(self):
         from the_keep.models import Map
         Map.objects.filter(pk=self.map.pk).update(forests=6, building_slots=22)
         self.client.force_login(self.designer_user)
-        # Clearings reached; Buildings & Ruins and Forests not yet (nothing marked there).
         state = self._state(clearings=3, forests=0, buildings=0, ruins=0)
-        state['visited'] = ['clearings']
+        state['visited'] = ['clearings', 'forests', 'not-a-stage']
+        state['fixed'] = True
         result = self.client.post(self._builder_url(), json.dumps({'state': state}),
                                   content_type='application/json').json()
         stored = Map.objects.get(pk=self.map.pk)
-        self.assertEqual((stored.clearings, stored.forests, stored.building_slots, stored.ruins), (3, 6, 22, 4))
-        self.assertEqual(result['counted'], ['clearings'])
-        self.assertEqual(stored.tts_builder['visited'], ['clearings'])
-        # No "Saving updates the Map to 0" warning for a stage not reached.
-        self.assertFalse(any('forests' in w for w in result['warnings']))
-
-        # Reaching Forests (still none marked) does write its count.
-        state['visited'] = ['clearings', 'forests', 'not-a-stage']
-        self.client.post(self._builder_url(), json.dumps({'state': state}), content_type='application/json')
-        stored = Map.objects.get(pk=self.map.pk)
-        self.assertEqual((stored.forests, stored.building_slots), (0, 22))
+        # The layout is saved; the Map's own figures aren't touched.
         self.assertEqual(stored.tts_builder['visited'], ['clearings', 'forests'])
+        self.assertEqual((stored.clearings, stored.forests, stored.building_slots, stored.ruins), (12, 6, 22, 4))
+        self.assertFalse(stored.fixed_clearings)
+        self.assertEqual((result['changes'], result['counted']), ([], []))
+        # Count differences are only warnings, for the stages reached, about Complete.
+        self.assertTrue(any('Completing the map updates it to 3' in w for w in result['warnings']), result)
+        self.assertFalse(any('building slots' in w for w in result['warnings']))
+        # Coming back later: the page reopens with the saved (not yet completed) choice.
+        self.assertTrue(self.client.get(self._builder_url()).context['config']['fixed'])
 
-    def test_switching_to_fixed_clearings_saves_to_the_map(self):
+    def test_complete_writes_the_maps_figures(self):
         from the_keep.models import Map
         from the_keep.tts_views import _clean_state
         self.client.force_login(self.designer_user)
-        state = self._state()
+        state = self._state(clearings=3, forests=2, buildings=5, ruins=2)
         state['fixed'] = True
-        # Not saved to the Map before the Clearings step is reached.
-        self.client.post(self._builder_url(), json.dumps({'state': state}), content_type='application/json')
-        self.assertFalse(Map.objects.get(pk=self.map.pk).fixed_clearings)
-        # Saved once it is.
-        state['visited'] = ['clearings']
-        result = self.client.post(self._builder_url(), json.dumps({'state': state}),
-                                  content_type='application/json').json()
-        self.assertTrue(Map.objects.get(pk=self.map.pk).fixed_clearings)
-        self.assertIn('fixed clearings No → Yes', result['changes'])
-
-        # Generating is blocked until every clearing has a suit; then the markers are fixed.
+        # A Complete that fails its checks (fixed suits, but none chosen) writes nothing.
         result = self.client.post(self._builder_url(), json.dumps({'state': state, 'generate': True}),
                                   content_type='application/json').json()
         self.assertFalse(result['ok'])
-        state = self._state(fixed_suits=['fox', 'bird', 'mouse'])
+        self.assertIn('This Map has fixed clearings: choose a suit for each clearing before generating.',
+                      result['errors'])
+        stored = Map.objects.get(pk=self.map.pk)
+        self.assertEqual((stored.clearings, stored.fixed_clearings), (12, False))
+        # Once it passes, Complete writes every figure and the fixed suits.
+        state = self._state(clearings=3, forests=2, buildings=5, ruins=2, fixed_suits=['fox', 'bird', 'mouse'])
         state['fixed'] = True
         result = self.client.post(self._builder_url(), json.dumps({'state': state, 'generate': True}),
                                   content_type='application/json').json()
         self.assertTrue(result['generated'], result)
         stored = Map.objects.get(pk=self.map.pk)
+        self.assertEqual((stored.clearings, stored.forests, stored.building_slots, stored.ruins, stored.fixed_clearings),
+                         (3, 2, 5, 2, True))
+        self.assertIn('fixed clearings No → Yes', result['changes'])
         markers = [o for o in stored.tts_json['ObjectStates'] if any(t.startswith('Suit: ') for t in o.get('Tags') or [])]
         self.assertTrue(all('Clearing Marker' not in m['Tags'] for m in markers))
-
-        # The Map is the source of truth for the page, even over an older saved layout.
-        Map.objects.filter(pk=self.map.pk).update(fixed_clearings=False)
-        self.assertFalse(self.client.get(self._builder_url()).context['config']['fixed'])
+        # A layout without a saved choice falls back to the Map's setting.
+        Map.objects.filter(pk=self.map.pk).update(tts_builder={'clearings': []}, fixed_clearings=True)
+        self.assertTrue(self.client.get(self._builder_url()).context['config']['fixed'])
         self.assertTrue(_clean_state({'fixed': True})['fixed'])
         self.assertNotIn('fixed', _clean_state({'fixed': 'yes'}))
 
@@ -1395,6 +1444,7 @@ class MapBuilderTests(TestCase):
 # ── TTS warrior figures and supplies (tts_figures.py, tts_supply.py) ────────
 
 import io as _io
+import math
 
 from PIL import ImageDraw
 
@@ -1423,16 +1473,19 @@ def _poly_area(points):
     return abs(sum(a[0] * b[1] - b[0] * a[1] for a, b in zip(points, points[1:] + points[:1]))) / 2
 
 
-def _parse_obj(text):
+def _parse_obj(text, normals=False):
+    """(v, vt, faces), plus vn when `normals`. Face corners are index tuples:
+    (v, vt) or (v, vt, vn)."""
     v = [tuple(map(float, l.split()[1:])) for l in text.splitlines() if l.startswith('v ')]
     vt = [tuple(map(float, l.split()[1:])) for l in text.splitlines() if l.startswith('vt ')]
+    vn = [tuple(map(float, l.split()[1:])) for l in text.splitlines() if l.startswith('vn ')]
     faces = [[tuple(int(x) for x in p.split('/')) for p in l.split()[1:]]
              for l in text.splitlines() if l.startswith('f ')]
-    return v, vt, faces
+    return (v, vt, vn, faces) if normals else (v, vt, faces)
 
 
 def _normal(v, face):
-    a, b, c = (v[i - 1] for i, _t in face[:3])
+    a, b, c = (v[corner[0] - 1] for corner in face[:3])
     u = [b[i] - a[i] for i in range(3)]
     w = [c[i] - a[i] for i in range(3)]
     return (u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0])
@@ -1458,21 +1511,22 @@ class TTSFigureTests(TestCase):
 
     def test_obj_indexes_winding_and_side_uv(self):
         shape = tts_figures.build_shape(_meeple())
-        v, vt, faces = _parse_obj(tts_figures.figure_obj(shape))
+        v, vt, vn, faces = _parse_obj(tts_figures.figure_obj(shape), normals=True)
         for face in faces:
-            for vi, ti in face:
-                self.assertTrue(1 <= vi <= len(v) and 1 <= ti <= len(vt))
+            for vi, ti, ni in face:
+                self.assertTrue(1 <= vi <= len(v) and 1 <= ti <= len(vt) and 1 <= ni <= len(vn))
         n = len(shape.outline)
         caps = [f for f in faces if len(f) == 3]
-        front = [_normal(v, f)[2] for f in caps if all(i <= n for i, _ in f)]
-        back = [_normal(v, f)[2] for f in caps if all(i > n for i, _ in f)]
+        front = [_normal(v, f)[2] for f in caps if all(c[0] <= n for c in f)]
+        back = [_normal(v, f)[2] for f in caps if all(n < c[0] <= 2 * n for c in f)]
         self.assertTrue(front and all(z > 0 for z in front))
         self.assertTrue(back and all(z < 0 for z in back))
+        self.assertEqual(len(front) + len(back), len(caps))
         side_uv = len(vt)
         self.assertEqual(vt[side_uv - 1], tts_figures.SIDE_UV)
         for face in faces:
             if len(face) == 4:
-                self.assertTrue(all(t == side_uv for _v, t in face))
+                self.assertTrue(all(c[1] == side_uv and c[0] > 2 * n for c in face))
         # Base on the ground, centred across.
         self.assertAlmostEqual(min(p[1] for p in v), 0.0, places=4)
         xs = [p[0] for p in v]
@@ -1496,6 +1550,202 @@ class TTSFigureTests(TestCase):
         self.assertEqual(tts_figures.warrior_nickname('Cat Warriors', 'Marquise'), 'Cat Warrior')
         self.assertEqual(tts_figures.warrior_nickname('Warriors', 'Marquise'), 'Marquise Warrior')
         self.assertEqual(tts_figures.warrior_nickname('', 'Marquise'), 'Marquise Warrior')
+
+
+def _curved_meeple(size=(240, 300), aa=False, patch=False):
+    """A meeple with curves (a round body) and a sharp feature (a pointed ear,
+    its tip the topmost point). `aa`: drawn at 4x and downsampled, so its edge
+    is anti-aliased. `patch`: a translucent patch inside the art."""
+    scale = 4 if aa else 1
+    w, h = size[0] * scale, size[1] * scale
+    im = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    colour = (40, 120, 200, 255)
+    d.ellipse([w * 0.1, h * 0.25, w * 0.9, h * 0.95], fill=colour)
+    d.rectangle([w * 0.2, h * 0.6, w * 0.8, h - 1], fill=colour)
+    d.polygon([(w * 0.55, h * 0.35), (w * 0.7, 0), (w * 0.8, h * 0.4)], fill=colour)
+    if patch:
+        d.ellipse([w * 0.35, h * 0.55, w * 0.6, h * 0.75], fill=(255, 255, 255, 120))
+    return im.resize(size, Image.LANCZOS) if aa else im
+
+
+def _turns(outline):
+    """The turn at each vertex, in degrees."""
+    n = len(outline)
+    out = []
+    for i in range(n):
+        a, b, c = outline[i - 1], outline[i], outline[(i + 1) % n]
+        turn = math.atan2(c[1] - b[1], c[0] - b[0]) - math.atan2(b[1] - a[1], b[0] - a[0])
+        out.append(abs(math.degrees((turn + math.pi) % (2 * math.pi) - math.pi)))
+    return out
+
+
+def _segment_distance(p, a, b):
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    t = max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / ((dx * dx + dy * dy) or 1e-9)))
+    return math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy)
+
+
+def _max_deviation(points, outline):
+    edges = list(zip(outline, outline[1:] + outline[:1]))
+    return max(min(_segment_distance(p, a, b) for a, b in edges) for p in points)
+
+
+def _bbox(points):
+    xs, ys = [p[0] for p in points], [p[1] for p in points]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _inside(point, polygon):
+    """Ray casting: is `point` inside `polygon`?"""
+    x, y = point
+    inside = False
+    for (x0, y0), (x1, y1) in zip(polygon, polygon[1:] + polygon[:1]):
+        if (y0 > y) != (y1 > y) and x < x0 + (y - y0) * (x1 - x0) / (y1 - y0):
+            inside = not inside
+    return inside
+
+
+def _points_outward(v, ring, face, normal):
+    """Whether `normal` (x, y) points out of the shape at side `face`: a point
+    a little way along it from the face's middle is outside the outline."""
+    a, b = v[face[0][0] - 1], v[face[1][0] - 1]
+    mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+    length = math.hypot(normal[0], normal[1]) or 1e-9
+    step = 1e-3
+    return not _inside((mid[0] + normal[0] / length * step, mid[1] + normal[1] / length * step), ring)
+
+
+def _shape_from(outline):
+    outline = list(outline)
+    return tts_figures.FigureShape(outline=outline, triangles=tts_figures.triangulate(outline),
+                                   image_size=(100, 100), width=1.0, height=1.55, depth=0.56,
+                                   art_box=tts_figures.art_box((100, 100)))
+
+
+class TTSFigureSmoothingTests(TestCase):
+    """The outline is traced between pixels and, for hard-edged art, smoothed;
+    the mesh carries its own normals."""
+
+    def test_both_kinds_of_edge_give_a_smooth_detailed_outline(self):
+        for aa in (False, True):
+            with self.subTest(antialiased=aa):
+                outline = tts_figures.build_shape(_curved_meeple(aa=aa)).outline
+                turns = sorted(_turns(outline))
+                self.assertLess(turns[len(turns) // 2], 12)
+                self.assertGreaterEqual(len(outline), 60)     # the old tracer gave 36 on Meeple1
+                # No pixel stairs: 3+ consecutive axis-aligned ~1 px edges.
+                run = longest = 0
+                for a, b in zip(outline, outline[1:] + outline[:1]):
+                    dx, dy = abs(b[0] - a[0]), abs(b[1] - a[1])
+                    stair = (dx < 1e-6 or dy < 1e-6) and 0.9 <= dx + dy <= 1.1
+                    run = run + 1 if stair else 0
+                    longest = max(longest, run)
+                self.assertLess(longest, 3)
+
+    def test_hard_edges_are_read_from_the_outline(self):
+        hard = tts_figures.trace_outline(_curved_meeple())
+        patched_image = _curved_meeple(patch=True)
+        patched = tts_figures.trace_outline(patched_image)
+        soft = tts_figures.trace_outline(_curved_meeple(aa=True))
+        self.assertLess(hard.soft_share, tts_figures.HARD_EDGE_SHARE)
+        self.assertGreater(soft.soft_share, tts_figures.HARD_EDGE_SHARE)
+        # Translucent detail inside the art doesn't make the outline soft,
+        # though the image is full of partly transparent pixels.
+        partial = sum(patched_image.getchannel('A').histogram()[1:255])
+        self.assertGreater(partial / len(patched.points), 1)
+        self.assertLess(patched.soft_share, tts_figures.HARD_EDGE_SHARE)
+
+    def test_antialiased_art_is_not_smoothed(self):
+        image = _curved_meeple(aa=True)
+        raw = tts_figures.trace_outline(image).points
+        outline = tts_figures.build_shape(image).outline
+        self.assertLessEqual(_max_deviation(raw[::3], outline), 0.35)
+        # The ear's tip (the topmost point) is still a sharp vertex.
+        tip = min(range(len(outline)), key=lambda i: outline[i][1])
+        self.assertGreater(_turns(outline)[tip], 30)
+
+    def test_smoothing_keeps_the_shape(self):
+        image = _curved_meeple()
+        raw = tts_figures.trace_outline(image).points
+        outline = tts_figures.build_shape(image).outline
+        self.assertAlmostEqual(_poly_area(outline), _poly_area(raw), delta=_poly_area(raw) * 0.01)
+        for got, want in zip(_bbox(outline), _bbox(raw)):
+            self.assertAlmostEqual(got, want, delta=1.5)      # the pointed ear loses ~1 px
+
+    def test_detail_doesnt_depend_on_resolution(self):
+        small = tts_figures.build_shape(_curved_meeple(size=(160, 200)))
+        large = tts_figures.build_shape(_curved_meeple(size=(320, 400)))
+        self.assertAlmostEqual(len(large.outline) / len(small.outline), 1.0, delta=0.3)
+        self.assertAlmostEqual(large.width, small.width, delta=small.width * 0.01)
+
+    def test_intricate_shapes_are_capped(self):
+        import random
+        rng = random.Random(7)
+        im = Image.new('RGBA', (400, 400), (0, 0, 0, 0))
+        points = []
+        for i in range(720):
+            angle = 2 * math.pi * i / 720
+            radius = 150 + rng.uniform(-25, 25)
+            points.append((200 + radius * math.cos(angle), 200 + radius * math.sin(angle)))
+        ImageDraw.Draw(im).polygon(points, fill=(0, 0, 0, 255))
+        shape = tts_figures.build_shape(im)
+        self.assertLessEqual(len(shape.outline), tts_figures.MAX_OUTLINE_POINTS)
+        area = _poly_area(shape.outline)
+        tri_area = sum(_poly_area([shape.outline[i] for i in t]) for t in shape.triangles)
+        self.assertAlmostEqual(tri_area, area, delta=area * 0.01)
+
+    def test_sides_face_outward_whatever_order_the_trace_gives(self):
+        image = _curved_meeple(aa=True)
+        trace = tts_figures.trace_outline(image)
+        reversed_trace = tts_figures.Trace(list(reversed(trace.points)), trace.soft_share)
+        for traced in (trace, reversed_trace):
+            with self.subTest(reversed=traced is reversed_trace), \
+                    mock.patch.object(tts_figures, 'trace_outline', return_value=traced):
+                shape = tts_figures.build_shape(image)
+                v, _vt, faces = _parse_obj(tts_figures.figure_obj(shape))
+                ring = [p[:2] for p in v[:len(shape.outline)]]
+                for face in faces:
+                    if len(face) == 4:
+                        self.assertTrue(_points_outward(v, ring, face, _normal(v, face)))
+
+    def test_normals(self):
+        shape = tts_figures.build_shape(_curved_meeple(aa=True))
+        v, vt, vn, faces = _parse_obj(tts_figures.figure_obj(shape), normals=True)
+        for normal in vn:
+            self.assertAlmostEqual(math.hypot(*normal), 1.0, places=3)
+        # Like the official warriors: one texture coordinate and one normal per vertex.
+        used = {}
+        for face in faces:
+            for vi, ti, ni in face:
+                used.setdefault(vi, set()).add((ti, ni))
+        self.assertTrue(all(len(combos) == 1 for combos in used.values()))
+        n = len(shape.outline)
+        ring = [p[:2] for p in v[:n]]
+        for face in faces:
+            geometric = _normal(v, face)
+            for vi, _ti, ni in face:
+                normal = vn[ni - 1]
+                # Each corner's normal agrees with its face's winding.
+                self.assertGreater(sum(g * c for g, c in zip(geometric, normal)), 0)
+                if len(face) == 3:
+                    self.assertEqual(normal, (0.0, 0.0, 1.0) if vi <= n else (0.0, 0.0, -1.0))
+                else:
+                    self.assertEqual(normal[2], 0.0)
+                    self.assertTrue(_points_outward(v, ring, face, normal))
+
+    def test_sharp_corners_split_and_curves_share(self):
+        square = _shape_from([(0, 0), (10, 0), (10, 10), (0, 10)])
+        v, _vt, vn, _faces = _parse_obj(tts_figures.figure_obj(square), normals=True)
+        # 4 corners at 90 degrees: two side vertex pairs each, four side normals.
+        self.assertEqual(len(v), 2 * 4 + 4 * 2 * 2)
+        self.assertEqual(len(vn), 2 + 4 * 2)
+        circle = _shape_from([(50 + 40 * math.cos(2 * math.pi * i / 32), 50 + 40 * math.sin(2 * math.pi * i / 32))
+                              for i in range(32)])
+        v, _vt, vn, _faces = _parse_obj(tts_figures.figure_obj(circle), normals=True)
+        # Gentle 11-degree turns: one shared side vertex pair and normal per point.
+        self.assertEqual(len(v), 2 * 32 + 2 * 32)
+        self.assertEqual(len(vn), 2 + 32)
 
 
 @override_settings(SITE_URL='https://example.test')
@@ -1634,6 +1884,19 @@ class KeepWarriorExportTests(TestCase):
             self.assertIn('A', im.getbands())
             self.assertEqual(im.getpixel((0, 0))[3], 0)
 
+    def test_figures_from_an_older_version_regenerate(self):
+        self.assertEqual(tts_figures.FIGURE_VERSION, 2)
+        from the_keep.models import Piece as KeepPiece
+        with mock.patch.object(tts_figures, 'FIGURE_VERSION', 1):
+            tts_figures.ensure_figure(self.piece, '#d2691e')
+        old = KeepPiece.objects.get(pk=self.piece.pk)
+        old_fingerprint = old.figure_fingerprint      # ensure_figure updates the piece it's given
+        os.utime(old.figure_mesh.path, (0, 0))        # so a rewrite shows in the mtime
+        tts_figures.ensure_figure(old, '#d2691e')
+        new = KeepPiece.objects.get(pk=self.piece.pk)
+        self.assertNotEqual(new.figure_fingerprint, old_fingerprint)
+        self.assertGreater(os.path.getmtime(new.figure_mesh.path), 0)   # regenerated
+
     def test_generate_includes_the_supply(self):
         from the_keep.services.tts import build_tts_objects
         objects = build_tts_objects(self.post)
@@ -1648,3 +1911,321 @@ class KeepWarriorExportTests(TestCase):
         self.assertTrue(self.piece.figure_mesh.name.startswith('uploads/posts/cats/warriors/'))
         with Image.open(self.piece.figure_texture.path) as tex:
             self.assertEqual(tex.getpixel((1000, 1000)), (0xd2, 0x69, 0x1e))
+
+
+# ── Map builder: Paths & Rivers (tts_map.path_shapes, clean_paths) ──────────
+
+class MapPathTests(TestCase):
+    """The Forge builder's Paths step: its data rules and geometry (the
+    builder's JS mirrors these)."""
+
+    def _state(self, paths, clearings=None, visited=('paths',)):
+        from the_keep.services.tts_map import FORGE_FRAME
+        if clearings is None:
+            # Three clearings in a row (the middle one in the way of 0-2), one below.
+            clearings = [(0.2, 0.5), (0.5, 0.5), (0.8, 0.5), (0.5, 0.85)]
+        return {'clearings': [{'centre': [u, v], 'marker': [u + 0.06, v], 'number': i + 1}
+                              for i, (u, v) in enumerate(clearings)],
+                'paths': paths, 'visited': list(visited), 'frame': FORGE_FRAME}
+
+    def _geometry(self):
+        from the_keep.services.tts_map import FORGE_FRAME, MapGeometry
+        return MapGeometry(*FORGE_FRAME)
+
+    def _circle(self, state, i):
+        g = self._geometry()
+        c = state['clearings'][i]
+        cx, cy = g.to_pixels(*c['centre'])
+        mx, my = g.to_pixels(*c['marker'])
+        return cx, cy, math.hypot(mx - cx, my - cy)
+
+    def test_cleaning_drops_bad_paths(self):
+        from the_keep.services.tts_map import clean_paths
+        raw = [
+            {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},        # kept: 0
+            {'kind': 'road', 'a': {'c': 0}, 'b': {'c': 2}},        # unknown kind
+            {'kind': 'river', 'a': {'p': 0}, 'b': {'c': 2}},       # kept: 1 (joins path 0)
+            {'kind': 'special', 'a': {'c': 1}, 'b': {'c': 0}},     # same ends as path 0
+            {'kind': 'path', 'a': {'p': 4}, 'b': {'c': 0}},        # attached to itself
+            {'kind': 'path', 'a': {'p': 1}, 'b': {'c': 9}},        # clearing out of range
+            {'kind': 'path', 'a': {'c': 2}, 'b': {'c': 2}},        # an end to itself
+        ]
+        self.assertEqual(clean_paths(raw, 3), [
+            {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},
+            {'kind': 'river', 'a': {'p': 0}, 'b': {'c': 2}},
+        ])
+
+    def test_cleaning_renumbers_and_cascades(self):
+        from the_keep.services.tts_map import clean_paths
+        raw = [
+            {'kind': 'road', 'a': {'c': 0}, 'b': {'c': 1}},        # dropped...
+            {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},
+            {'kind': 'river', 'a': {'p': 1}, 'b': {'c': 2}},       # ...so this now joins path 0
+            {'kind': 'river', 'a': {'p': 0}, 'b': {'c': 2}},       # joined the dropped one: goes too
+        ]
+        self.assertEqual(clean_paths(raw, 3), [
+            {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},
+            {'kind': 'river', 'a': {'p': 0}, 'b': {'c': 2}},
+        ])
+        # Two paths attached to each other's middles: a loop, both dropped.
+        loop = [{'kind': 'path', 'a': {'p': 1}, 'b': {'c': 0}}, {'kind': 'path', 'a': {'p': 0}, 'b': {'c': 1}}]
+        self.assertEqual(clean_paths(loop, 3), [])
+
+    def test_clean_builder_state_keeps_paths(self):
+        from the_keep.services.tts_map import clean_builder_state
+        state = self._state([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 3}}, {'kind': 'x'}])
+        self.assertEqual(clean_builder_state(state)['paths'], [{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 3}}])
+        self.assertEqual(clean_builder_state(state)['visited'], ['paths'])
+
+    def test_paths_start_at_the_circles_and_bend_around_clearings(self):
+        from the_keep.services.tts_map import PATH_WIDTH, path_shapes
+        state = self._state([{'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},
+                             {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 2}}])
+        straight, bent = path_shapes(self._geometry(), state)
+        for shape, (first, last) in ((straight, (0, 1)), (bent, (0, 2))):
+            for point, i in ((shape['points'][0], first), (shape['points'][-1], last)):
+                cx, cy, r = self._circle(state, i)
+                self.assertAlmostEqual(math.hypot(point[0] - cx, point[1] - cy), r, delta=1)
+        # Nothing in the way: a straight line.
+        self.assertTrue(all(abs(y - straight['points'][0][1]) < 1e-6 for _x, y in straight['points']))
+        # Clearing 1 sits between 0 and 2: the path bends round it, keeping half a width clear.
+        cx, cy, r = self._circle(state, 1)
+        clearance = r + PATH_WIDTH * self._geometry().px_per_local / 2
+        self.assertTrue(all(math.hypot(x - cx, y - cy) >= clearance - 1e-6 for x, y in bent['points']))
+
+    def test_a_path_can_join_another_paths_middle(self):
+        from the_keep.services.tts_map import path_shapes
+        state = self._state([{'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},
+                             {'kind': 'river', 'a': {'c': 3}, 'b': {'p': 0}}])
+        path, river = path_shapes(self._geometry(), state)
+        self.assertEqual(river['points'][-1], path['middle'])
+        # The middle is halfway along the drawn line.
+        points = path['points']
+        lengths = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(points, points[1:])]
+        mx = path['middle'][0]
+        before = sum(l for (a, _b), l in zip(zip(points, points[1:]), lengths) if a[0] < mx)
+        self.assertAlmostEqual(before, sum(lengths) / 2, delta=max(lengths))
+
+    def test_river_clearings_count_once_and_only_once_visited(self):
+        from the_keep.services.tts_map import layout_counts, path_totals
+        state = self._state([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}},
+                             {'kind': 'river', 'a': {'c': 1}, 'b': {'c': 2}},
+                             {'kind': 'special', 'a': {'c': 0}, 'b': {'c': 3}},
+                             {'kind': 'path', 'a': {'c': 2}, 'b': {'c': 3}}])
+        self.assertEqual(path_totals(state), {'path': 1, 'special': 1, 'river': 2, 'river_clearings': 3})
+        self.assertEqual(layout_counts(state)['river_clearings'], 3)
+        state['visited'] = []
+        self.assertNotIn('river_clearings', layout_counts(state))
+
+    def test_river_clearings_update_the_map(self):
+        from the_keep.models import Map
+        from the_keep.services.tts_map import apply_builder_counts
+        designer = Profile.objects.create(discord='riverdesigner')
+        keep_map = Map.objects.create(title='River Map', designer=designer, clearings=4, river_clearings=7)
+        state = self._state([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}], visited=())
+        apply_builder_counts(keep_map, state)
+        self.assertEqual(Map.objects.get(pk=keep_map.pk).river_clearings, 7)   # Paths step not reached
+        state['visited'] = ['paths']
+        apply_builder_counts(keep_map, state)
+        self.assertEqual(Map.objects.get(pk=keep_map.pk).river_clearings, 2)
+
+    def test_rivers_join_through_clearings_and_run_off_the_edge(self):
+        from the_keep.services.tts_map import FORGE_FRAME, path_shapes, river_links
+        g = self._geometry()
+        state = self._state([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 3}},
+                             {'kind': 'river', 'a': {'c': 3}, 'b': {'c': 2}}])
+        shapes = path_shapes(g, state)
+        links = river_links(g, state, shapes)
+        # Clearing 3 has two rivers: one curve joins their ends through it.
+        ends = {shapes[0]['points'][-1], shapes[1]['points'][0]}
+        joins = [l for l in links if {tuple(l[0]), tuple(l[-1])} == ends]
+        self.assertEqual(len(joins), 1)
+        # Clearings 0 and 2 have one river each: it runs on to the map's edge.
+        runs = [l for l in links if l is not joins[0]]
+        self.assertEqual(len(runs), 2)
+        for run in runs:
+            # It reaches the edge, then carries on past it (so its flat end is
+            # wholly off the page, whatever the angle).
+            x, y = run[-2]
+            self.assertTrue(min(x, y, FORGE_FRAME[0] - x, FORGE_FRAME[1] - y) < 1e-6, run[-2])
+            x, y = run[-1]
+            self.assertTrue(min(x, y, FORGE_FRAME[0] - x, FORGE_FRAME[1] - y) < 0, run[-1])
+        # Paths don't get links.
+        state['paths'][0]['kind'] = 'path'
+        state['paths'][1]['kind'] = 'path'
+        self.assertEqual(river_links(g, state), [])
+
+    def test_printed_clearing_circles_sit_a_fixed_inset_inside(self):
+        from the_keep.services.tts_map import CLEARING_OUTLINE_INSET, print_layout
+        state = self._state([], clearings=[(0.3, 0.4), (0.7, 0.4)])
+        state['clearings'][1]['marker'] = [0.705, 0.4]            # a tiny clearing (~11 px)
+        big, tiny = print_layout(self._geometry(), state)['clearings']
+        self.assertAlmostEqual(big[2], self._circle(state, 0)[2] - CLEARING_OUTLINE_INSET)
+        self.assertAlmostEqual(tiny[2], self._circle(state, 1)[2] / 2)   # never below half
+
+    # ── The layout summary card's data (map_summary.js draws it) ──
+    def test_layout_summary(self):
+        from the_keep.services.tts_map import layout_summary, suit_icons
+        state = self._state([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}},
+                             {'kind': 'path', 'a': {'c': 1}, 'b': {'c': 2}}])
+        state['clearings'][0]['suit'] = 'fox'
+        state['clearings'][1]['suit'] = 'fox'
+        state['clearings'][2]['suit'] = 'bird'
+        state['buildings'] = [{'at': [0.2, 0.2], 'ruin': True}, {'at': [0.3, 0.2], 'ruin': False}]
+        summary = layout_summary(state, fixed=True)
+        self.assertEqual([(t['kind'], t['count']) for t in summary['tiles']],
+                         [('clearing', 4), ('building', 2), ('ruin', 1), ('forest', 0)])
+        # Special paths only when there are some.
+        self.assertEqual([(t['kind'], t['count']) for t in summary['path_tiles']], [('path', 1), ('river', 2)])
+        self.assertEqual([(c['suit'], c['count']) for c in summary['suits']['chips']], [('fox', 2), ('bird', 1)])
+        self.assertEqual(summary['suits']['chips'][0]['icon'], suit_icons()['fox'])
+        self.assertEqual(summary['suits']['unset'], 1)
+        # The layout's own choice wins over the Map's.
+        state['fixed'] = False
+        self.assertFalse(layout_summary(state, fixed=True)['suits']['fixed'])
+        # No path tiles before the Paths step is reached.
+        state['visited'] = []
+        self.assertEqual(layout_summary(state)['path_tiles'], [])
+
+    def test_figures_summary_and_which_one_a_map_gets(self):
+        from the_keep.models import Map
+        from the_keep.services.tts_map import map_summary
+        designer = Profile.objects.create(discord='summarydesigner')
+        keep_map = Map.objects.create(title='Old Map', designer=designer, clearings=12, forests=None,
+                                      building_slots=22, ruins=4, river_clearings=3, fixed_clearings=True)
+        summary = map_summary(keep_map)    # no layout: the Map's own figures
+        self.assertEqual([(t['kind'], t['count']) for t in summary['tiles']],
+                         [('clearing', 12), ('building', 22), ('ruin', 4)])   # forests not set
+        self.assertEqual([(t['kind'], t['count']) for t in summary['path_tiles']], [('river', 3)])
+        self.assertTrue(summary['suits']['fixed'])
+        self.assertNotIn('chips', summary['suits'])
+        keep_map.tts_builder = self._state([])
+        self.assertEqual(map_summary(keep_map)['tiles'][0]['count'], 4)       # the layout's
+
+    # ── Printed rivers: merges and run-offs (print_rivers) ──
+    def _print_rivers(self, paths, clearings=None):
+        from the_keep.services.tts_map import path_shapes, print_rivers
+        state = self._state(paths, clearings=clearings)
+        shapes = path_shapes(self._geometry(), state)
+        return state, shapes, print_rivers(self._geometry(), state, shapes)
+
+    def _on_line(self, point, line):
+        return min(_segment_distance(point, a, b) for a, b in zip(line, line[1:]))
+
+    def _angle(self, u, v):
+        lu, lv = math.hypot(*u), math.hypot(*v)
+        return math.degrees(math.acos(max(-1, min(1, abs(u[0] * v[0] + u[1] * v[1]) / (lu * lv)))))
+
+    def test_a_river_curves_into_another_rivers_middle(self):
+        from the_keep.services.tts_map import MERGE_REACH, PATH_WIDTH, RIVER_WIDTH
+        width = PATH_WIDTH * RIVER_WIDTH * self._geometry().px_per_local
+        # River 1 runs from clearing 3 (below) into river 0's middle (0 -> 2, along the top).
+        for joining in ({'kind': 'river', 'a': {'c': 3}, 'b': {'p': 0}},      # its b end
+                        {'kind': 'river', 'a': {'p': 0}, 'b': {'c': 3}}):     # its a end
+            with self.subTest(joining=joining):
+                state, shapes, rivers = self._print_rivers(
+                    [{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}, joining],
+                    clearings=[(0.2, 0.4), (0.8, 0.4), (0.9, 0.9), (0.5, 0.85)])
+                target = shapes[0]['points']
+                merge = next(l for l in rivers['links'] if self._on_line(l[-1], target) < 1)
+                # Its end lies on the other river, arriving along it.
+                last = (merge[-1][0] - merge[-2][0], merge[-1][1] - merge[-2][1])
+                k = min(range(len(target) - 1), key=lambda n: _segment_distance(merge[-1], target[n], target[n + 1]))
+                along = (target[k + 1][0] - target[k][0], target[k + 1][1] - target[k][1])
+                self.assertLess(self._angle(last, along), 10)
+                # Its own line is cut back where the curve begins.
+                trimmed = rivers['trimmed'][1]
+                full = shapes[1]['points']
+                lost = (math.hypot(*(p - q for p, q in zip(full[-1], trimmed[-1]))) if 'p' in joining['b']
+                        else math.hypot(*(p - q for p, q in zip(full[0], trimmed[0]))))
+                self.assertAlmostEqual(lost, MERGE_REACH * width, delta=width * 0.2)
+                self.assertTrue(any(math.hypot(merge[0][0] - p[0], merge[0][1] - p[1]) < 1e-6
+                                    for p in (trimmed[0], trimmed[-1])))
+
+    def test_a_short_joining_river_keeps_half_its_length(self):
+        from the_keep.services.tts_map import MERGE_REACH, PATH_WIDTH, RIVER_WIDTH, _polyline_length
+        # Clearing 1 sits right beside river 0's middle: a very short river.
+        _state, shapes, rivers = self._print_rivers(
+            [{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 2}}, {'kind': 'river', 'a': {'c': 1}, 'b': {'p': 0}}],
+            clearings=[(0.2, 0.3), (0.5, 0.4), (0.8, 0.3)])
+        full = _polyline_length(shapes[1]['points'])
+        self.assertLess(full, 2 * MERGE_REACH * PATH_WIDTH * RIVER_WIDTH * self._geometry().px_per_local)   # short enough
+        self.assertAlmostEqual(_polyline_length(rivers['trimmed'][1]), full / 2, delta=1)
+
+    def test_a_chain_merges_into_the_printed_line(self):
+        # C (0 -> 1) along the top; B from clearing 2 into C's middle; A from clearing 3 into B's middle.
+        _state, shapes, rivers = self._print_rivers(
+            [{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}},
+             {'kind': 'river', 'a': {'c': 2}, 'b': {'p': 0}},
+             {'kind': 'river', 'a': {'c': 3}, 'b': {'p': 1}}],
+            clearings=[(0.15, 0.2), (0.85, 0.2), (0.5, 0.9), (0.9, 0.6)])
+        b_printed = rivers['trimmed'][1]
+        self.assertTrue(any(self._on_line(link[-1], b_printed) < 1 for link in rivers['links']))
+
+    def test_an_odd_river_at_a_clearing_curves_into_the_pair(self):
+        from the_keep.services.tts_map import CLEARING_OUTLINE_INSET
+        # Clearing 0 in the middle, with rivers to 1 (left), 2 (right) and 3 (below).
+        state, _shapes, rivers = self._print_rivers(
+            [{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}, {'kind': 'river', 'a': {'c': 0}, 'b': {'c': 2}},
+             {'kind': 'river', 'a': {'c': 0}, 'b': {'c': 3}}],
+            clearings=[(0.5, 0.5), (0.15, 0.5), (0.85, 0.5), (0.5, 0.9)])
+        cx, cy, _r = self._circle(state, 0)
+        # Nothing runs to the clearing's centre any more...
+        self.assertFalse(any(math.hypot(l[-1][0] - cx, l[-1][1] - cy) < 1 for l in rivers['links']))
+        # ...the odd one ends on the straight pair's curve through the clearing.
+        pair = next(l for l in rivers['links'] if abs(l[0][1] - cy) < 1 and abs(l[-1][1] - cy) < 1)
+        self.assertTrue(any(self._on_line(l[-1], pair) < 1 for l in rivers['links'] if l is not pair))
+
+    def test_a_river_into_a_path_middle_runs_off_the_map(self):
+        from the_keep.services.tts_map import FORGE_FRAME
+        _state, shapes, rivers = self._print_rivers(
+            [{'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}}, {'kind': 'river', 'a': {'c': 2}, 'b': {'p': 0}}],
+            clearings=[(0.2, 0.3), (0.8, 0.3), (0.5, 0.8)])
+        junction = shapes[1]['points'][-1]
+        run = next(l for l in rivers['links'] if math.hypot(l[0][0] - junction[0], l[0][1] - junction[1]) < 1e-6)
+        x, y = run[-1]
+        self.assertLess(min(x, y, FORGE_FRAME[0] - x, FORGE_FRAME[1] - y), 0)   # past the edge
+        self.assertNotIn(1, rivers['trimmed'])                                  # not cut back
+
+    # ── A river and a path between the same two clearings ──
+    def test_a_river_and_a_path_may_share_two_clearings(self):
+        from the_keep.services.tts_map import clean_paths
+        raw = [{'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},
+               {'kind': 'river', 'a': {'c': 1}, 'b': {'c': 0}},       # the other family: kept
+               {'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}},     # a second land path: dropped
+               {'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}]       # a second river: dropped
+        self.assertEqual([p['kind'] for p in clean_paths(raw, 2)], ['path', 'river'])
+
+    def test_a_shared_river_and_path_bow_apart(self):
+        from the_keep.services.tts_map import PATH_WIDTH, RIVER_WIDTH, path_shapes
+        g = self._geometry()
+        width = PATH_WIDTH * g.px_per_local
+        alone = path_shapes(g, self._state([{'kind': 'path', 'a': {'c': 0}, 'b': {'c': 2}}],
+                                           clearings=[(0.2, 0.3), (0.5, 0.9), (0.8, 0.3)]))
+        path, river = path_shapes(g, self._state(
+            [{'kind': 'path', 'a': {'c': 0}, 'b': {'c': 2}}, {'kind': 'river', 'a': {'c': 2}, 'b': {'c': 0}}],
+            clearings=[(0.2, 0.3), (0.5, 0.9), (0.8, 0.3)]))
+        # Alone it's straight; sharing, the two are apart by more than their half-widths at the middle.
+        self.assertTrue(all(abs(y - alone[0]['points'][0][1]) < 1e-6 for _x, y in alone[0]['points']))
+        gap = math.hypot(path['middle'][0] - river['middle'][0], path['middle'][1] - river['middle'][1])
+        self.assertGreater(gap, width * (RIVER_WIDTH + 1) / 2)
+        # On opposite sides of the straight line between the clearings.
+        y0 = alone[0]['points'][0][1]
+        self.assertLess((path['middle'][1] - y0) * (river['middle'][1] - y0), 0)
+
+    # ── The special paths' name ──
+    def test_special_path_name(self):
+        from the_keep.services.tts_map import SPECIAL_PATH_NAME_MAX, clean_builder_state, layout_summary
+        state = self._state([{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}])
+        state['special_path_name'] = '  Mountain Passes  '
+        self.assertEqual(clean_builder_state(state)['special_path_name'], 'Mountain Passes')
+        state['special_path_name'] = 'x' * 40
+        self.assertEqual(len(clean_builder_state(state)['special_path_name']), SPECIAL_PATH_NAME_MAX)
+        state['special_path_name'] = '   '
+        self.assertNotIn('special_path_name', clean_builder_state(state))
+        # The summary's special paths tile is labelled with it.
+        state['special_path_name'] = 'Bridges'
+        labels = [t['label'] for t in layout_summary(state)['path_tiles']]
+        self.assertIn('Bridges', labels)
+        del state['special_path_name']
+        self.assertIn('Special Paths', [t['label'] for t in layout_summary(state)['path_tiles']])

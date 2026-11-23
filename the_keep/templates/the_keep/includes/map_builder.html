@@ -3,7 +3,8 @@
 The map builder (the_keep/static/the_keep/map_builder.js, styles in
 map_builder.css), shared by the Keep's Map builder and the Forge's map builder
 and map page. Context: config (tts_map.builder_config), board_alt, and optionally
-generate_title. Load map_builder.css and map_builder.js on the page too.
+generate_title. Load map_summary.css, map_builder.css, map_summary.js and map_builder.js
+(in that order) on the page too.
 {% endcomment %}
 <div class="mb-builder{% if config.readonly %} mb-readonly{% endif %}">
 <!-- Progress: a full track with a highlight that slides to the current step -->
@@ -29,7 +30,7 @@ generate_title. Load map_builder.css and map_builder.js on the page too.
 <div class="position-relative border rounded mb-3" id="mb-board" style="touch-action: pinch-zoom; user-select: none;">
     <img src="{% if config.image %}{{ config.image }}{% else %}data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=={% endif %}"
          alt="{{ board_alt }}" class="w-100 d-block" id="mb-image" draggable="false"
-         style="aspect-ratio: {{ config.width }} / {{ config.height }};">
+         style="aspect-ratio: {{ config.width }} / {{ config.height }};{% if config.blank %} background: {{ config.blank }};{% endif %}">
     <svg id="mb-svg" class="position-absolute top-0 start-0 w-100 h-100"
          viewBox="0 0 {{ config.width }} {{ config.height }}" preserveAspectRatio="none"></svg>
 
@@ -58,6 +59,10 @@ generate_title. Load map_builder.css and map_builder.js on the page too.
                 <span class="mb-upload-title" data-upload="{% trans "Upload Art" %}"
                       data-replace="{% trans "Replace Art" %}">{% trans "Upload Art" %}</span>
                 <span class="mb-upload-note">{% trans "Click or drop an image here (PNG, JPG or WebP)." %}</span>
+                {% if config.paths_step %}<span class="mb-upload-note">{% trans "Optional: without art, your map is printed on a grey board." %}</span>{% endif %}
+            </button>
+            <button type="button" id="mb-remove-art" class="btn btn-sm btn-danger mb-remove-art d-none">
+                <i class="bi bi-x-circle me-1"></i>{% trans "Remove art" %}
             </button>
         </div>
     </div>
@@ -100,6 +105,16 @@ generate_title. Load map_builder.css and map_builder.js on the page too.
         </div>
     </div>
 
+    {% if config.paths_step %}
+    <!-- Paths step: which kind of path to draw, where the item track sits -->
+    <div id="mb-path-mode" class="d-none">
+        <div class="mb-mode-title" id="mb-path-title"
+             data-path="{% trans 'Draw Paths' %}" data-special="{% trans 'Draw Special Paths' %}"
+             data-river="{% trans 'Draw Rivers' %}">{% trans 'Draw Paths' %}</div>
+        {% include 'the_keep/includes/map_path_kind_toggle.html' with toggle_id='mb-draw-kind' %}
+    </div>
+    {% endif %}
+
     <!-- Counts for the step: a card over the item track, or a pill on the VP track -->
     <div id="mb-count-card" class="d-none" aria-live="polite"></div>
     <div id="mb-clearing-count" class="d-none" aria-live="polite"></div>
@@ -120,6 +135,11 @@ generate_title. Load map_builder.css and map_builder.js on the page too.
                 <button type="button" data-suit="bird" title="{% trans 'Bird' %}" aria-label="{% trans 'Bird' %}" aria-pressed="false"><img alt=""></button>
                 <button type="button" data-suit="city" title="{% trans 'Lost City' %}" aria-label="{% trans 'Lost City' %}" aria-pressed="false"><img alt=""></button>
             </div>
+            {% if config.paths_step %}
+            <div id="mb-pop-kind-wrap" class="d-none">
+                {% include 'the_keep/includes/map_path_kind_toggle.html' with toggle_id='mb-pop-kind' singular=True %}
+            </div>
+            {% endif %}
             <button type="button" id="mb-pop-ruin" class="mb-pop-ruin d-none" title="{% trans 'Ruin' %}"
                     aria-label="{% trans 'Ruin' %}" aria-pressed="false"
                     style="background-image: url('{% static 'images/tts/assets/ruin.png' %}');"></button>
@@ -133,11 +153,11 @@ generate_title. Load map_builder.css and map_builder.js on the page too.
 </div>
 
 <!-- Review -->
-<div class="card mb-3 d-none" id="mb-review">
+<div class="card mb-summary-card mb-3 d-none" id="mb-review">
     <div class="card-body">
         <p class="text-muted small text-center mb-2">{% trans "This is how your map will load. Click an element on the map, or a tile below, to edit." %}</p>
-        <div class="mb-sum-grid mb-3" id="mb-review-counts"></div>
-        <div class="mb-sum-suits mb-3" id="mb-review-suits"></div>
+        <!-- The summary card, drawn by map_summary.js (as on the map detail pages) -->
+        <div class="mb-3" id="mb-review-summary"></div>
         <div id="mb-review-problems"></div>
     </div>
 </div>

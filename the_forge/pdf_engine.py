@@ -7475,6 +7475,10 @@ class FactionBackLayoutEngine:
 
         icon_path = _resolve_image(getattr(piece, 'small_icon', None))
         back_path = _resolve_image(getattr(piece, 'back_image', None))
+        # A warrior's image is only drawn here when the designer asked for it
+        # ("Use image on Faction Back"); otherwise it gets the coloured meeple.
+        if getattr(piece, 'type', None) == 'W' and not (icon_path and getattr(piece, 'use_image_on_back', False)):
+            icon_path = back_path = None
         # Back image only stacks when there's also a front; on its own it falls
         # through into the existing single-image path.
         if back_path and not icon_path:

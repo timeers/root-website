@@ -9,6 +9,11 @@ here), 0.50-0.64 deep (0.56 here), as wide as the art's shape, and most use
 the scale (2.34, 2.34, 2.93), which the mesh units below follow. Ours bake the
 colour into the texture (as the Knaves do) and keep ColorDiffuse white.
 
+The outline is traced between pixels (marching squares), so anti-aliased art
+gives a smooth curve; hard-edged art, which only cuts each pixel step at 45
+degrees, is smoothed along the outline first. The mesh carries its own normals:
+flat faces, smooth sides, crisp ear tips and rim.
+
 The builder only works on images, numbers and URLs: no models, so any
 component can use it (supplies, the pieces of other posts, ...). The storage
 helper `ensure_figure` works on any piece-like model with the figure fields.
@@ -29,10 +34,26 @@ FIGURE_SCALE = (2.34, 2.34, 2.93)
 FIGURE_HEIGHT = 1.55
 FIGURE_DEPTH = 0.56
 # Bump when the mesh or texture output changes, so stored figures regenerate.
-FIGURE_VERSION = 1
+FIGURE_VERSION = 2
 TEXTURE_SIZE = 1024
 # Where the sides sample the texture: inside its plain colour area.
 SIDE_UV = (0.75, 0.25)
+
+# Outline detail, per 256 px of image (build_shape scales them with the image,
+# so a 256 px and a 400 px warrior get about the same detail). Tuned on two
+# meeples: a hard-edged one gives ~90 points, an anti-aliased one ~110; the
+# official warriors' meshes have 56-462 vertices.
+OUTLINE_TOLERANCE = 0.15      # px: how far the simplified outline may stray
+MAX_OUTLINE_POINTS = 300      # an intricate shape simplifies harder to stay under
+SMOOTH_RADIUS = 2             # points either side (traced points are ~1 px apart)
+SMOOTH_PASSES = 2
+# An outline is hard-edged (no anti-aliasing: smooth it) when fewer than this
+# share of its points cross a partly transparent pixel. Measured on the outline,
+# not the whole image, so translucent detail inside the art doesn't count.
+HARD_EDGE_SHARE = 0.25
+# Neighbouring side faces turning less than this share a smoothed normal;
+# sharper corners (ear tips, the base) stay crisp.
+SIDE_SMOOTH_ANGLE = 60.0
 
 
 class FigureError(ValueError):
@@ -56,44 +77,95 @@ class FigureShape:
 
 # ── Outline ──────────────────────────────────────────────────────────────────
 
-def trace_outline(image, threshold=128):
-    """The largest outer loop of opaque pixels, along the pixel edges (corner
-    points, clockwise on screen). Holes are ignored: a figure is one piece."""
+# Marching squares: for each cell's corner pattern (top-left, top-right,
+# bottom-right, bottom-left bits), the segments it adds, from one cell edge to
+# another, oriented so the shape is on the right (clockwise on screen). The
+# saddles (5, 10) are decided by the cell's mean.
+_CELL_SEGMENTS = {
+    1: (('L', 'B'),), 2: (('B', 'R'),), 3: (('L', 'R'),), 4: (('R', 'T'),),
+    6: (('B', 'T'),), 7: (('L', 'T'),), 8: (('T', 'L'),), 9: (('T', 'B'),),
+    11: (('T', 'R'),), 12: (('R', 'L'),), 13: (('R', 'B'),), 14: (('B', 'L'),),
+}
+_SADDLES = {
+    (5, True): (('L', 'T'), ('R', 'B')), (5, False): (('L', 'B'), ('R', 'T')),
+    (10, True): (('T', 'R'), ('B', 'L')), (10, False): (('T', 'L'), ('B', 'R')),
+}
+
+
+@dataclass
+class Trace:
+    points: List[Tuple[float, float]]     # image pixels, a closed loop
+    soft_share: float                     # share of points crossing a partly transparent pixel
+
+
+def trace_outline(image, level=128):
+    """The largest outer loop of the shape, traced between pixels (marching
+    squares on the alpha, sampled at pixel centres): each point sits where the
+    alpha crosses `level`, so anti-aliased art gives a smooth outline. Holes
+    and separate parts are ignored: a figure is one piece."""
     alpha = image.getchannel('A')
+    box = alpha.getbbox()
+    if box is None:
+        raise FigureError("The image has no opaque shape to trace.")
     w, h = alpha.size
     px = alpha.load()
 
-    def solid(x, y):
-        return 0 <= x < w and 0 <= y < h and px[x, y] >= threshold
+    def a(x, y):
+        return px[x, y] if 0 <= x < w and 0 <= y < h else 0
 
-    edges = {}
-    for y in range(h):
-        for x in range(w):
-            if not solid(x, y):
+    def cross(v0, v1):
+        return (level - v0) / (v1 - v0) if v1 != v0 else 0.5
+
+    points, soft, links = {}, {}, {}
+    left, top, right, bottom = box
+    for y in range(top - 1, bottom):
+        for x in range(left - 1, right):
+            tl, tr, br, bl = a(x, y), a(x + 1, y), a(x + 1, y + 1), a(x, y + 1)
+            case = (tl >= level) << 3 | (tr >= level) << 2 | (br >= level) << 1 | (bl >= level)
+            if case in (0, 15):
                 continue
-            if not solid(x, y - 1):
-                edges[(x, y)] = (x + 1, y)
-            if not solid(x + 1, y):
-                edges[(x + 1, y)] = (x + 1, y + 1)
-            if not solid(x, y + 1):
-                edges[(x + 1, y + 1)] = (x, y + 1)
-            if not solid(x - 1, y):
-                edges[(x, y + 1)] = (x, y)
+            edges = {
+                'T': (('h', x, y), x + cross(tl, tr), y, tl, tr),
+                'R': (('v', x + 1, y), x + 1, y + cross(tr, br), tr, br),
+                'B': (('h', x, y + 1), x + cross(bl, br), y + 1, bl, br),
+                'L': (('v', x, y), x, y + cross(tl, bl), tl, bl),
+            }
+            segments = _CELL_SEGMENTS.get(case) or _SADDLES[(case, (tl + tr + br + bl) / 4 >= level)]
+            for start, end in segments:
+                for key, ex, ey, v0, v1 in (edges[start], edges[end]):
+                    if key not in points:
+                        points[key] = (ex + 0.5, ey + 0.5)       # pixel centres
+                        soft[key] = 0 < v0 < 255 or 0 < v1 < 255
+                links[edges[start][0]] = edges[end][0]
+
     loops = []
-    while edges:
-        start = next(iter(edges))
-        point, loop = start, []
+    while links:
+        first = next(iter(links))
+        key, loop = first, []
         while True:
-            loop.append(point)
-            nxt = edges.pop(point, None)
-            if nxt is None or nxt == start:
+            loop.append(key)
+            key = links.pop(key, None)
+            if key is None or key == first:
                 break
-            point = nxt
         if len(loop) >= 3:
             loops.append(loop)
     if not loops:
         raise FigureError("The image has no opaque shape to trace.")
-    return max(loops, key=lambda loop: abs(_area(loop)))
+    best = max(loops, key=lambda keys: abs(_area([points[k] for k in keys])))
+    return Trace([points[k] for k in best], sum(soft[k] for k in best) / len(best))
+
+
+def smooth_outline(loop, radius, passes):
+    """A moving average along a closed loop: each point becomes the mean of
+    itself and `radius` neighbours either side, `passes` times. Rounds off
+    the 45-degree steps a hard-edged image leaves."""
+    n = len(loop)
+    span = 2 * radius + 1
+    for _ in range(passes):
+        loop = [(sum(loop[(i + j) % n][0] for j in range(-radius, radius + 1)) / span,
+                 sum(loop[(i + j) % n][1] for j in range(-radius, radius + 1)) / span)
+                for i in range(n)]
+    return loop
 
 
 def _area(points):
@@ -186,11 +258,20 @@ def build_shape(image, height=FIGURE_HEIGHT, depth=FIGURE_DEPTH):
             image = image.convert('RGBA')
         else:
             raise FigureError("The image has no transparency, so it has no shape to trace.")
-    loop = trace_outline(image)
-    tolerance = max(image.size) / 256
+    trace = trace_outline(image)
+    s = max(image.size) / 256
+    loop = trace.points
+    if trace.soft_share < HARD_EDGE_SHARE:
+        loop = smooth_outline(loop, max(1, round(SMOOTH_RADIUS * s)), SMOOTH_PASSES)
+    tolerance = OUTLINE_TOLERANCE * s
     outline = simplify(loop, tolerance)
+    while len(outline) > MAX_OUTLINE_POINTS:
+        tolerance *= 2
+        outline = simplify(loop, tolerance)
     if len(outline) < 3:
         raise FigureError("The image's shape is too small to trace.")
+    if _area(outline) < 0:
+        outline.reverse()          # clockwise on screen: figure_obj's side faces rely on it
     xs = [p[0] for p in outline]
     ys = [p[1] for p in outline]
     shape_h = max(ys) - min(ys)
@@ -207,7 +288,12 @@ def build_shape(image, height=FIGURE_HEIGHT, depth=FIGURE_DEPTH):
 def figure_obj(shape, scale=FIGURE_SCALE):
     """The figure's OBJ, in mesh units (world / scale): base at y = 0, centred
     across, depth along z. Front (+z) and back faces show the art, the sides
-    the texture's colour area."""
+    the texture's colour area.
+
+    Like the official warriors, every vertex has one texture coordinate and
+    one normal: the caps and the sides have their own vertices, so the rim
+    where they meet stays sharp. Side normals are smoothed across gentle turns
+    and split at sharp corners (SIDE_SMOOTH_ANGLE)."""
     xs = [p[0] for p in shape.outline]
     ys = [p[1] for p in shape.outline]
     x_mid = (min(xs) + max(xs)) / 2
@@ -216,24 +302,59 @@ def figure_obj(shape, scale=FIGURE_SCALE):
     half_z = shape.depth / 2 / scale[2]
     w, h = shape.image_size
     left, top, bw, bh = shape.art_box
+    ring = [((px - x_mid) * k / scale[0], (y_base - py) * k / scale[1]) for px, py in shape.outline]
+    n = len(ring)
+
+    # Outward normal of each side face i (ring[i] -> ring[i+1]). The ring is the
+    # picture the same way up (image top = mesh top), so the outline is still
+    # clockwise here: outward is (-dy, dx).
+    face_normals = []
+    for i in range(n):
+        (x0, y0), (x1, y1) = ring[i], ring[(i + 1) % n]
+        length = math.hypot(x1 - x0, y1 - y0) or 1e-9
+        face_normals.append((-(y1 - y0) / length, (x1 - x0) / length))
+
+    vertices = [(x, y, z) for z in (half_z, -half_z) for x, y in ring]       # caps
+    normals = [(0.0, 0.0, 1.0), (0.0, 0.0, -1.0)]
+    # Side vertices per outline point: (ends face i-1, starts face i), as
+    # (front, back, normal) indexes. One shared pair on a gentle turn, two pairs
+    # on a sharp one.
+    side = []
+    for i in range(n):
+        before, after = face_normals[i - 1], face_normals[i]
+        dot = max(-1.0, min(1.0, before[0] * after[0] + before[1] * after[1]))
+        x, y = ring[i]
+
+        def pair(normal):
+            normals.append((normal[0], normal[1], 0.0))
+            vertices.extend([(x, y, half_z), (x, y, -half_z)])
+            return (len(vertices) - 1, len(vertices), len(normals))
+
+        if math.degrees(math.acos(dot)) < SIDE_SMOOTH_ANGLE:
+            mx, my = before[0] + after[0], before[1] + after[1]
+            length = math.hypot(mx, my) or 1e-9
+            shared = pair((mx / length, my / length))
+            side.append((shared, shared))
+        else:
+            side.append((pair(before), pair(after)))
 
     lines = ['# Root Database figure (the_keep/services/tts_figures.py)']
-    for z in (half_z, -half_z):
-        for px, py in shape.outline:
-            lines.append(f'v {(px - x_mid) * k / scale[0]:.5f} {(y_base - py) * k / scale[1]:.5f} {z:.5f}')
+    lines += [f'v {x:.5f} {y:.5f} {z:.5f}' for x, y, z in vertices]
     for px, py in shape.outline:
         lines.append(f'vt {left + px / w * bw:.5f} {1 - (top + py / h * bh):.5f}')
     lines.append(f'vt {SIDE_UV[0]} {SIDE_UV[1]}')
-    n = len(shape.outline)
-    side = n + 1
+    lines += [f'vn {x:.5f} {y:.5f} {z:.5f}' for x, y, z in normals]
+    side_uv = n + 1
     # Image y runs down, so the outline's winding is mirrored in mesh space:
     # the front cap takes the triangles reversed, the back cap as they are.
     for a, b, c in shape.triangles:
-        lines.append(f'f {c + 1}/{c + 1} {b + 1}/{b + 1} {a + 1}/{a + 1}')
-        lines.append(f'f {a + 1 + n}/{a + 1} {b + 1 + n}/{b + 1} {c + 1 + n}/{c + 1}')
+        lines.append(f'f {c + 1}/{c + 1}/1 {b + 1}/{b + 1}/1 {a + 1}/{a + 1}/1')
+        lines.append(f'f {a + 1 + n}/{a + 1}/2 {b + 1 + n}/{b + 1}/2 {c + 1 + n}/{c + 1}/2')
     for i in range(n):
         j = (i + 1) % n
-        lines.append(f'f {i + 1}/{side} {j + 1}/{side} {j + 1 + n}/{side} {i + 1 + n}/{side}')
+        fi, bi, ni = side[i][1]          # starts face i
+        fj, bj, nj = side[j][0]          # ends face i
+        lines.append(f'f {fi}/{side_uv}/{ni} {fj}/{side_uv}/{nj} {bj}/{side_uv}/{nj} {bi}/{side_uv}/{ni}')
     return '\n'.join(lines) + '\n'
 
 

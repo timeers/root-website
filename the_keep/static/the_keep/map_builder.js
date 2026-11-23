@@ -9,6 +9,8 @@
 //   print        art printed on the map (VP track, items, logo), drawn under
 //                the pieces so the layout is built around it
 //   readonly     just the board, as on the review step, with no editing
+//   paths_step   a Paths & Rivers step after Buildings & Ruins (path: the
+//                path constants from tts_map.path_config)
 (function () {
   'use strict';
 
@@ -27,6 +29,7 @@
   state.clearings = state.clearings || [];
   state.forests = state.forests || [];
   state.buildings = state.buildings || [];
+  state.paths = state.paths || [];
   state.fixed = !!config.fixed;   // the Map's setting; saved back with the layout
 
   // name: the progress bar's label (short: at medium widths, when the name is
@@ -43,6 +46,13 @@
     { key: 'review', heading: 'Review', name: 'Review',
       hint: 'Check the count of each element, then click "Complete" to generate the final JSON.' },
   ];
+  if (config.paths_step) {
+    STEPS.splice(STEPS.findIndex(s => s.key === 'forests'), 0,
+      { key: 'paths', heading: 'Paths & Rivers', name: 'Paths & Rivers', short: 'Paths',
+        hint: 'Pick a path type, then drag from one clearing to another, or to the '
+              + 'middle of another path. Select a path to change its type, drag one of '
+              + 'its ends to another clearing, or press x to remove it.' });
+  }
   if (config.upload_step) {
     STEPS.unshift({ key: 'upload', heading: 'Map Name & Art', name: 'Start', short: 'Start',
                     hint: 'Choose a name for your map and upload your art.' });
@@ -54,7 +64,12 @@
   const stepOf = (key) => STEPS.findIndex(s => s.key === key);
   const STEP_UPLOAD = stepOf('upload'), STEP_TRACK = stepOf('track'), STEP_CLEARINGS = stepOf('clearings'),
         STEP_BUILDINGS = stepOf('buildings'), STEP_FORESTS = stepOf('forests'), STEP_REVIEW = STEPS.length - 1;
+  const STEP_PATHS = stepOf('paths');   // -1 on the Keep
   const PRINT = config.print || null;   // the Forge's printed art (see print_art in tts_map.py)
+  const PATH = config.path || null;     // the Forge's path constants (path_config in tts_map.py)
+  const PATH_KINDS = ['path', 'special', 'river'];
+  const BLANK_GIF = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+  let drawKind = 'path';      // the kind of path the Paths step draws
 
   let step = config.readonly ? STEP_REVIEW : 0;
   let selected = null;        // {kind: 'clearing'|'forest'|'building', index}
@@ -112,6 +127,247 @@
     return [centre[0] + d * Math.cos(a), centre[1] + d * Math.sin(a)];
   }
 
+  // ── Paths & Rivers geometry ───────────────────────────────────────────────
+  // Mirrors path_shapes in tts_map.py, so the printed map matches the builder.
+  // A path end is {c: clearing index} or {p: path index} (that path's middle).
+
+  // [x, y, radius] of each clearing (radius: centre to marker).
+  function circles() {
+    return state.clearings.map(c => {
+      const centre = px(c.centre);
+      const r = c.marker ? dist(centre, px(c.marker)) : 0;
+      return [centre[0], centre[1], r || PATH.default_radius];
+    });
+  }
+
+  function quad(a, c, b, t) {
+    const u = 1 - t;
+    return [u * u * a[0] + 2 * u * t * c[0] + t * t * b[0], u * u * a[1] + 2 * u * t * c[1] + t * t * b[1]];
+  }
+
+  function segmentDistance(p, a, b) {
+    const dx = b[0] - a[0], dy = b[1] - a[1];
+    const length2 = dx * dx + dy * dy;
+    const t = length2 ? Math.min(Math.max(((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / length2, 0), 1) : 0;
+    return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy);
+  }
+
+  // The control point of a curve from a to b clear of every obstacle
+  // ([x, y, clearance]): straight when that's clear, else bent sideways as
+  // little as works (away from the worst obstacle first); straight if nothing does.
+  function route(a, b, obstacles) {
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const blocking = obstacles.filter(o => segmentDistance(o, a, b) < o[2]);
+    if (!blocking.length) return mid;
+    const length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1e-9;
+    const nx = -(b[1] - a[1]) / length, ny = (b[0] - a[0]) / length;
+    let worst = blocking[0];
+    for (const o of blocking) if (segmentDistance(o, a, b) - o[2] < segmentDistance(worst, a, b) - worst[2]) worst = o;
+    const side = (worst[0] - mid[0]) * nx + (worst[1] - mid[1]) * ny > 0 ? -1 : 1;
+    for (let step = 1; step <= PATH.bend_steps; step++) {
+      const bulge = PATH.bend_max * length * step / PATH.bend_steps;
+      for (const s of [side, -side]) {
+        // A quadratic's middle sits halfway to its control point.
+        const control = [mid[0] + s * nx * 2 * bulge, mid[1] + s * ny * 2 * bulge];
+        let clear = true;
+        for (let i = 0; i <= PATH.samples && clear; i++) {
+          const p = quad(a, control, b, i / PATH.samples);
+          clear = obstacles.every(o => Math.hypot(p[0] - o[0], p[1] - o[1]) >= o[2]);
+        }
+        if (clear) return control;
+      }
+    }
+    return mid;
+  }
+
+  // t where the curve crosses the circle around its start (or end).
+  function trim(a, control, b, centre, radius, start) {
+    let lo = start ? 0 : 0.5, hi = start ? 0.5 : 1;
+    const inside = (t) => { const p = quad(a, control, b, t); return Math.hypot(p[0] - centre[0], p[1] - centre[1]) < radius; };
+    if ((start && !inside(lo)) || (!start && !inside(hi))) return start ? lo : hi;
+    if ((start && inside(hi)) || (!start && inside(lo))) return start ? hi : lo;   // the circles overlap
+    for (let i = 0; i < 30; i++) {
+      const m = (lo + hi) / 2;
+      if (inside(m) === start) lo = m; else hi = m;
+    }
+    return (lo + hi) / 2;
+  }
+
+  // The point halfway along a polyline, by length.
+  function middleOf(points) {
+    const lengths = [];
+    for (let i = 1; i < points.length; i++) lengths.push(dist(points[i - 1], points[i]));
+    let half = lengths.reduce((s, l) => s + l, 0) / 2;
+    for (let i = 0; i < lengths.length; i++) {
+      if (half <= lengths[i] && lengths[i]) {
+        const t = half / lengths[i], a = points[i], b = points[i + 1];
+        return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+      }
+      half -= lengths[i];
+    }
+    return points[Math.floor(points.length / 2)];
+  }
+
+  // Each path's {kind, points (its centre line, trimmed to the clearings'
+  // circles), middle}, in state order.
+  // A river and a path between the same two ends: bow them apart, the river to
+  // one side and the path to the other (measured from the ends in key order,
+  // so both agree), by PATH.shared_bend half-widths at the middle (_bow_apart).
+  function bowApart(control, a, b, p) {
+    const [from, to] = endKey(p.a) <= endKey(p.b) ? [a, b] : [b, a];
+    const length = Math.hypot(to[0] - from[0], to[1] - from[1]) || 1e-9;
+    const nx = -(to[1] - from[1]) / length, ny = (to[0] - from[0]) / length;
+    const side = p.kind === 'river' ? 1 : -1;
+    const bulge = PATH.shared_bend * PATH.width * (PATH.river_width + 1) / 2;
+    return [control[0] + side * nx * 2 * bulge, control[1] + side * ny * 2 * bulge];
+  }
+
+  function pathShapes() {
+    const cs = circles();
+    const shapes = [];
+    // Paths sharing both ends with one of the other family.
+    const families = new Map();
+    for (const p of state.paths) {
+      const key = pairKey(p.a, p.b);
+      families.set(key, (families.get(key) || new Set()).add(familyOf(p.kind)));
+    }
+    const shape = (i, depth) => {
+      if (shapes[i]) return shapes[i];
+      if (depth > state.paths.length) throw new Error('path attachments loop');
+      const p = state.paths[i];
+      const own = new Set();
+      const ends = [p.a, p.b].map(e => {
+        if ('c' in e) { own.add(e.c); return cs[e.c].slice(0, 2); }
+        return shape(e.p, depth + 1).middle;
+      });
+      const [a, b] = ends;
+      // Kept clear of other clearings by half its own width (a river's is wider).
+      const clearance = PATH.width * (p.kind === 'river' ? PATH.river_width : 1) / 2;
+      const obstacles = cs.filter((c, k) => !own.has(k)).map(([x, y, r]) => [x, y, r + clearance]);
+      let control = route(a, b, obstacles);
+      if (families.get(pairKey(p.a, p.b)).size > 1) control = bowApart(control, a, b, p);
+      const t0 = 'c' in p.a ? trim(a, control, b, a, cs[p.a.c][2], true) : 0;
+      const t1 = Math.max('c' in p.b ? trim(a, control, b, b, cs[p.b.c][2], false) : 1, t0);
+      const points = [];
+      for (let k = 0; k <= PATH.samples; k++) points.push(quad(a, control, b, t0 + (t1 - t0) * k / PATH.samples));
+      shapes[i] = { kind: p.kind, points, middle: middleOf(points) };
+      return shapes[i];
+    };
+    state.paths.forEach((_p, i) => shape(i, 0));
+    return shapes;
+  }
+
+  // The PATH.lanes polylines a path is drawn with: its centre line offset
+  // across its width (path_lanes in tts_map.py).
+  function laneLines(points) {
+    const lane = PATH.width / PATH.lanes;
+    const normals = points.map((_p, k) => {
+      const a = points[Math.max(k - 1, 0)], b = points[Math.min(k + 1, points.length - 1)];
+      const length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1e-9;
+      return [-(b[1] - a[1]) / length, (b[0] - a[0]) / length];
+    });
+    const lines = [];
+    for (let i = 0; i < PATH.lanes; i++) {
+      const off = (i - (PATH.lanes - 1) / 2) * lane;
+      lines.push(points.map((p, k) => [p[0] + normals[k][0] * off, p[1] + normals[k][1] * off]));
+    }
+    return lines;
+  }
+
+  // ── Path ends and rules ──
+  const endKey = (e) => ('c' in e ? `c${e.c}` : `p${e.p}`);
+  const pairKey = (a, b) => [endKey(a), endKey(b)].sort().join('|');
+
+  // Does path j lead (through the paths its ends attach to) to path i?
+  function dependsOn(j, i) {
+    const stack = [j], seen = new Set();
+    while (stack.length) {
+      const k = stack.pop();
+      if (k === i) return true;
+      if (seen.has(k) || !state.paths[k]) continue;
+      seen.add(k);
+      for (const e of [state.paths[k].a, state.paths[k].b]) if ('p' in e) stack.push(e.p);
+    }
+    return false;
+  }
+
+  // Rivers, and paths with special paths: one of each may join the same two ends.
+  const familyOf = (kind) => (kind === 'river' ? 'river' : 'land');
+
+  // Can a path of `kind` (path `self` when moving one of its ends) join ends a
+  // and b? Not an end to itself, not a second of its family between the same
+  // two ends, and never attached (through others) to itself (clean_paths in tts_map.py).
+  function canConnect(a, b, self = null, kind = null) {
+    if (!a || !b || endKey(a) === endKey(b)) return false;
+    const key = pairKey(a, b);
+    const family = familyOf(kind || (self !== null ? state.paths[self].kind : drawKind));
+    if (state.paths.some((p, k) => k !== self && pairKey(p.a, p.b) === key && familyOf(p.kind) === family)) return false;
+    if (self !== null) {
+      for (const e of [a, b]) if ('p' in e && (e.p === self || dependsOn(e.p, self))) return false;
+    }
+    return true;
+  }
+
+  // Remove paths (a Set of indexes), and the paths attached to their middles,
+  // renumbering the rest and the references to them.
+  function removePaths(drop) {
+    let grew = true;
+    while (grew) {
+      grew = false;
+      state.paths.forEach((p, k) => {
+        if (!drop.has(k) && [p.a, p.b].some(e => 'p' in e && drop.has(e.p))) { drop.add(k); grew = true; }
+      });
+    }
+    const renumber = new Map(), kept = [];
+    state.paths.forEach((p, k) => { if (!drop.has(k)) { renumber.set(k, kept.length); kept.push(p); } });
+    for (const p of kept) for (const e of [p.a, p.b]) if ('p' in e) e.p = renumber.get(e.p);
+    state.paths = kept;
+    if (selected && selected.kind === 'path') {
+      selected = renumber.has(selected.index) ? { kind: 'path', index: renumber.get(selected.index) } : null;
+    }
+  }
+
+  // A path retyped into the other family (a river turned into a path, or back)
+  // replaces the one of that family already between the same two ends: that
+  // one goes, and paths attached to its middle move to this one.
+  function replaceTwin(index) {
+    const path = state.paths[index];
+    const twin = state.paths.findIndex((p, k) => k !== index && pairKey(p.a, p.b) === pairKey(path.a, path.b)
+                                                && familyOf(p.kind) === familyOf(path.kind));
+    if (twin < 0) return;
+    for (const p of state.paths) for (const e of [p.a, p.b]) if ('p' in e && e.p === twin) e.p = index;
+    removePaths(new Set([twin]));
+    // A moved attachment may now duplicate another: the later one goes (as clean_paths keeps the first).
+    const seen = new Set(), dupes = new Set();
+    state.paths.forEach((p, k) => {
+      const key = `${pairKey(p.a, p.b)}|${familyOf(p.kind)}`;
+      if (seen.has(key)) dupes.add(k); else seen.add(key);
+    });
+    if (dupes.size) removePaths(dupes);
+  }
+
+  const handleRadius = () => Math.max(PATH.width * 0.35, DOT_PX);
+
+  // The end under a point: a path's middle handle first, then a clearing's circle.
+  function anchorAt(p) {
+    let best = null, bestD = handleRadius() * 1.6;
+    pathCache.forEach((s, j) => {
+      const d = dist(p, s.middle);
+      if (d < bestD) { best = { p: j }; bestD = d; }
+    });
+    if (best) return best;
+    const cs = circles();
+    for (let i = 0; i < cs.length; i++) if (dist(p, cs[i]) <= cs[i][2]) return { c: i };
+    return null;
+  }
+
+  function anchorPoint(e) {
+    if ('c' in e) return px(state.clearings[e.c].centre);
+    return pathCache[e.p] ? pathCache[e.p].middle : null;
+  }
+
+  let pathCache = [];   // the shapes drawn last (render), for hit-testing
+
   // ── Drawing ───────────────────────────────────────────────────────────────
   function el(name, attrs, parent) {
     const node = document.createElementNS(NS, name);
@@ -120,23 +376,10 @@
     return node;
   }
 
-  // <defs> (the marker symbol) survives redraws; only `content` is cleared.
-  const defs = el('defs', {}, svg);
   const content = el('g', {}, svg);
-  let markerSymbol = false;
-
-  if (config.marker_svg) {
-    fetch(config.marker_svg).then(r => r.ok ? r.text() : Promise.reject()).then(text => {
-      const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
-      const source = doc.documentElement;
-      if (source.nodeName !== 'svg') return;
-      const symbol = el('symbol', { id: 'mb-marker', viewBox: source.getAttribute('viewBox'),
-                                    preserveAspectRatio: 'none', overflow: 'visible' }, defs);
-      for (const child of Array.from(source.childNodes)) symbol.appendChild(document.importNode(child, true));
-      markerSymbol = true;
-      render();
-    }).catch(() => {});   // keep the round dots
-  }
+  // The suit marker's outline, shared with the summary card's clearing icon
+  // (map_summary.js keeps it as <symbol id="mb-marker"> on the page).
+  MapSummary.loadMarker(config.marker_svg).then(ok => { if (ok) render(); });
 
   // A step's pieces appear from that step on: never before it (they'd be in
   // the way of what's being placed now), dimmed on the steps after it, and at
@@ -190,8 +433,103 @@
     }
   }
 
+  // A path: PATH.lanes rows of pill-shaped dashes, every other row shifted
+  // half a dash, which makes cobblestones. A river: one solid line. (As the
+  // PDF prints them.)
+  function drawLanes(g, points, kind) {
+    const colour = PATH.colours[kind];
+    if (kind === 'river') {
+      el('polyline', { points: points.map(p => p.join(',')).join(' '), fill: 'none', stroke: colour,
+                       'stroke-width': PATH.width * PATH.river_width, 'stroke-linecap': 'butt',   // ends at the clearing's edge
+                       'stroke-linejoin': 'round', 'pointer-events': 'none' }, g);
+      return;
+    }
+    const lane = PATH.width / PATH.lanes;
+    const dash = PATH.dash * lane, gap = PATH.gap * lane;
+    laneLines(points).forEach((line, i) => {
+      el('polyline', { points: line.map(p => p.join(',')).join(' '), fill: 'none', stroke: colour,
+                       'stroke-width': PATH.stroke * lane, 'stroke-linecap': 'round',
+                       'stroke-dasharray': `${dash} ${gap}`, 'stroke-dashoffset': i % 2 ? (dash + gap) / 2 : 0,
+                       'pointer-events': 'none' }, g);
+    });
+  }
+
+  // Paths & Rivers, drawn first: under the printed art and every piece.
+  function drawPaths() {
+    pathCache = [];
+    if (STEP_PATHS < 0) return;
+    const g = layer(STEP_PATHS);
+    try {
+      pathCache = pathShapes();
+    } catch (err) {
+      return;   // a loop can't happen (canConnect); draw nothing rather than break the board
+    }
+    const onStep = step === STEP_PATHS && !config.readonly;
+    const ending = drag && drag.kind === 'path-end';
+    // Bottom to top where they cross: rivers, special paths, paths
+    // (PATH.draw_order, as printed). Stable within a kind.
+    const rank = (i) => PATH.draw_order.indexOf(pathCache[i].kind);
+    const order = pathCache.map((_s, i) => i).sort((i, j) => rank(i) - rank(j));
+    order.forEach((i) => {
+      const s = pathCache[i];
+      const pg = el('g', { opacity: ending && drag.index === i ? 0.35 : 1 }, g);
+      const pts = s.points.map(p => p.join(',')).join(' ');
+      const width = PATH.width * (s.kind === 'river' ? PATH.river_width : 1);   // as drawn
+      if (selected && selected.kind === 'path' && selected.index === i) {
+        el('polyline', { points: pts, fill: 'none', stroke: '#dc3545', 'stroke-opacity': 0.6,
+                         'stroke-width': width + STROKE * 6, 'stroke-linecap': 'round', 'pointer-events': 'none' }, pg);
+      }
+      drawLanes(pg, s.points, s.kind);
+      // The click target: the path's whole width, and never too thin to hit.
+      el('polyline', { points: pts, fill: 'none', stroke: 'transparent', 'stroke-width': Math.max(width * 1.3, DOT_PX * 2.5),
+                       'pointer-events': 'stroke', 'data-kind': 'path', 'data-index': i, style: 'cursor: pointer' }, pg);
+    });
+    if (!onStep) return;
+    // Each path's middle: another path can start or end there.
+    for (const s of pathCache) {
+      el('circle', { cx: s.middle[0], cy: s.middle[1], r: handleRadius(), fill: 'rgba(255,255,255,0.85)',
+                     stroke: '#231f20', 'stroke-width': STROKE, 'pointer-events': 'none' }, g);
+    }
+    // The selected path's ends: drag one to another clearing or path middle.
+    if (selected && selected.kind === 'path' && pathCache[selected.index] && !ending) {
+      const pts = pathCache[selected.index].points;
+      for (const [end, pt] of [['a', pts[0]], ['b', pts[pts.length - 1]]]) {
+        el('circle', { cx: pt[0], cy: pt[1], r: handleRadius() * 1.15, fill: '#dc3545', stroke: '#fff',
+                       'stroke-width': STROKE * 1.5, 'data-kind': 'path-end', 'data-index': selected.index,
+                       'data-end': end, style: 'cursor: grab' }, g);
+      }
+    }
+    // Drawing a path, or moving an end: a band from the fixed end to the
+    // pointer, and a ring on the end it would join.
+    if (drag && (drag.kind === 'new-path' || ending)) {
+      const fixed = anchorPoint(drag.kind === 'new-path' ? drag.from : drag.other);
+      if (!fixed) return;
+      const kind = drag.kind === 'new-path' ? drawKind : state.paths[drag.index].kind;
+      const band = { x1: fixed[0], y1: fixed[1], x2: drag.at[0], y2: drag.at[1], 'stroke-linecap': 'round',
+                     'pointer-events': 'none' };
+      el('line', { ...band, stroke: '#231f20', 'stroke-opacity': 0.6, 'stroke-width': PATH.width * 0.45 }, g);
+      el('line', { ...band, stroke: PATH.colours[kind], 'stroke-width': PATH.width * 0.3,
+                   'stroke-dasharray': `${PATH.width * 0.4} ${PATH.width * 0.3}` }, g);
+      const target = anchorAt(drag.at);
+      if (target && dragTargetOk(target)) {
+        const at = anchorPoint(target);
+        const r = 'c' in target ? circles()[target.c][2] : handleRadius() * 1.4;
+        el('circle', { cx: at[0], cy: at[1], r, fill: 'none', stroke: '#20c997', 'stroke-width': STROKE * 4,
+                       'pointer-events': 'none' }, g);
+      }
+    }
+  }
+
+  // Whether releasing the current path drag on `target` joins it.
+  function dragTargetOk(target) {
+    if (drag.kind === 'new-path') return canConnect(drag.from, target);
+    const p = state.paths[drag.index];
+    return canConnect(drag.end === 'a' ? target : p.a, drag.end === 'b' ? target : p.b, drag.index);
+  }
+
   function render() {
     content.innerHTML = '';
+    drawPaths();
     drawPrinted();
     // Track and items.
     const g0 = layer(STEP_TRACK);
@@ -226,7 +564,7 @@
     const xs = slots.map(s => s[0]), ys = slots.map(s => s[1]);
     // On the Clearings, Buildings & Ruins and Forests steps a card sits over
     // the item grid instead.
-    if (![STEP_CLEARINGS, STEP_BUILDINGS, STEP_FORESTS].includes(step)) {
+    if (![STEP_CLEARINGS, STEP_BUILDINGS, STEP_FORESTS, STEP_PATHS].includes(step)) {
     el('rect', {
       x: Math.min(...xs) - size * 0.65, y: Math.min(...ys) - size * 0.65,
       width: Math.max(...xs) - Math.min(...xs) + size * 1.3, height: Math.max(...ys) - Math.min(...ys) + size * 1.3,
@@ -236,6 +574,18 @@
       el('rect', { x: x - size / 2, y: y - size / 2, width: size, height: size, rx: size * 0.15,
                    fill: 'none', stroke: '#ffc107', 'stroke-width': STROKE * 1.5, 'pointer-events': 'none' }, g0);
     }
+    }
+
+    // The Paths step connects clearings: their circles (only) at full
+    // strength, under the dimmed markers and numbers. Inert: paths find clearings by position.
+    if (step === STEP_PATHS) {
+      const rings = el('g', { 'pointer-events': 'none' });
+      for (const c of state.clearings) {
+        if (!c.marker) continue;
+        const centre = px(c.centre);
+        el('circle', { cx: centre[0], cy: centre[1], r: dist(centre, px(c.marker)), fill: 'rgba(255,255,255,0.12)',
+                       stroke: '#ffffff', 'stroke-width': STROKE }, rings);
+      }
     }
 
     // Clearings (step 1).
@@ -248,8 +598,11 @@
       const colour = isSel ? '#dc3545' : '#ffffff';
       if (c.marker) {
         const m = px(c.marker);
-        el('circle', { cx: centre[0], cy: centre[1], r: dist(centre, m), fill: 'rgba(255,255,255,0.12)',
-                       stroke: colour, 'stroke-width': STROKE, 'pointer-events': 'none' }, g);
+        // On the Paths step the circle is drawn at full strength below instead.
+        if (step !== STEP_PATHS) {
+          el('circle', { cx: centre[0], cy: centre[1], r: dist(centre, m), fill: 'rgba(255,255,255,0.12)',
+                         stroke: colour, 'stroke-width': STROKE, 'pointer-events': 'none' }, g);
+        }
         el('line', { x1: centre[0], y1: centre[1], x2: m[0], y2: m[1], stroke: colour,
                      'stroke-width': STROKE, 'stroke-dasharray': `${STROKE * 4} ${STROKE * 3}`, 'pointer-events': 'none' }, g);
         drawMarker(g, c, i, centre, m, isSel);
@@ -302,14 +655,14 @@
   // outline has loaded.
   function drawMarker(g, c, i, centre, m, isSel) {
     const data = { 'data-kind': 'marker', 'data-index': i, style: 'cursor: move' };
-    if (!markerSymbol) {
+    if (!MapSummary.markerReady()) {
       el('circle', { cx: m[0], cy: m[1], r: DOT_PX * 1.3, fill: suitColour(c), stroke: isSel ? '#dc3545' : '#000',
                      'stroke-width': STROKE, ...data }, g);
       return;
     }
     const [w, h] = config.marker_px;
     const angle = Math.atan2(m[1] - centre[1], m[0] - centre[0]) * 180 / Math.PI + 90;
-    const box = viewBoxOf(defs.querySelector('#mb-marker'));
+    const box = viewBoxOf(document.getElementById('mb-marker'));
     // Place the symbol so its (0, 0) -- the marker's spot -- sits on m.
     const x = box[0] / box[2] * w, y = box[1] / box[3] * h;
     el('use', { href: '#mb-marker', x, y, width: w, height: h,
@@ -329,11 +682,16 @@
 
   // ── Counters, tools, review ───────────────────────────────────────────────
   function counts() {
+    // River clearings: clearings at the end of at least one river.
+    const riverEnds = state.paths.filter(p => p.kind === 'river').flatMap(p => [p.a, p.b]).filter(e => 'c' in e);
     return {
       clearings: state.clearings.length,
       forests: state.forests.length,
       buildings: state.buildings.length,
       ruins: state.buildings.filter(b => b.ruin).length,
+      paths: state.paths.filter(p => p.kind === 'path').length,
+      special: state.paths.filter(p => p.kind === 'special').length,
+      river_clearings: new Set(riverEnds.map(e => e.c)).size,
     };
   }
 
@@ -347,11 +705,12 @@
       btn.disabled = n > STEP_UPLOAD && artStepLocked();
       if (n === step) btn.setAttribute('aria-current', 'step'); else btn.removeAttribute('aria-current');
     });
-    document.getElementById('mb-progress-thumb').style.transform = `translateX(${step * 100}%)`;
+    placeProgressThumb();
     document.getElementById('mb-heading').textContent = STEPS[step].heading;
 
     updatePopover();
     updateSuitMode();
+    updatePathMode();
     updateCountCards();
     updateUpload();
 
@@ -368,95 +727,45 @@
     if (step === STEP_REVIEW && !config.readonly) renderReview();
   }
 
-  // Review summary: a tile per piece, drawn like the board draws it, plus how
-  // the clearing suits are handled.
+  // A piece's icon (map_summary.js draws them all, for the summary card too).
   function iconSvg(kind) {
-    if (kind === 'clearing') {
-      if (markerSymbol) {
-        // Inset in a slightly larger box: the outline's stroke sits half outside
-        // the shape and would otherwise be cut off at the edges.
-        return '<svg width="40" height="22" viewBox="0 0 40 22" overflow="visible" aria-hidden="true">'
-          + '<use href="#mb-marker" x="3" y="3" width="34" height="17" style="color:#fff;--mb-marker-stroke:#231f20"></use></svg>';
-      }
-      return '<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">'
-        + '<circle cx="9" cy="9" r="7" fill="#fff" stroke="#231f20" stroke-width="1.5"/></svg>';
-    }
-    if (kind === 'forest') {
-      return '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">'
-        + '<circle cx="11" cy="11" r="8" fill="#198754" stroke="#fff" stroke-width="3"/>'
-        + '<circle cx="11" cy="11" r="9.5" fill="none" stroke="rgba(0,0,0,.15)" stroke-width="1"/></svg>';
-    }
-    const ruin = kind === 'ruin';
-    return '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">'
-      + `<rect x="2" y="2" width="20" height="20" rx="4" fill="${ruin ? '#dc3545' : '#fff'}" stroke="#333" stroke-width="1.5"/>`
-      + (ruin
-        ? '<text x="12" y="12.5" fill="#fff" font-size="13" font-weight="700" text-anchor="middle" dominant-baseline="central">R</text>'
-        : '<path d="M12 7v10M7 12h10" stroke="#333" stroke-width="2" stroke-linecap="round"/>')
-      + '</svg>';
+    return MapSummary.icon(kind, PATH ? PATH.colours : null);
   }
 
+  // The review's summary card (map_summary.js draws it, as on the map detail
+  // pages); each tile opens the step where that piece is edited.
+  const SUIT_NAMES = { fox: 'Fox', rabbit: 'Rabbit', mouse: 'Mouse', bird: 'Bird', city: 'Lost City' };
   function renderReview() {
     const c = counts();
-    // Each tile opens the step where that piece is edited.
-    const tiles = [
-      ['clearing', 'Clearings', c.clearings, config.expected.clearings, STEP_CLEARINGS],
-      ['building', 'Building Slots', c.buildings, config.expected.buildings, STEP_BUILDINGS],
-      ['ruin', 'Ruins', c.ruins, config.expected.ruins, STEP_BUILDINGS],
-      ['forest', 'Forests', c.forests, config.expected.forests, STEP_FORESTS],
-    ];
-    const grid = document.getElementById('mb-review-counts');
-    grid.innerHTML = '';
-    for (const [kind, label, n, expected, editStep] of tiles) {
-      const tile = document.createElement('button');
-      tile.type = 'button';
-      tile.className = 'mb-sum-tile';
-      tile.setAttribute('aria-label', `${label}: ${n}. Edit ${label.toLowerCase()}`);
-      tile.addEventListener('click', () => goTo(editStep));
-      tile.innerHTML = `<div class="mb-sum-icon">${iconSvg(kind)}</div>`
-        + `<div class="mb-sum-count">${n}</div><div class="mb-sum-label"></div>`;
-      tile.querySelector('.mb-sum-label').textContent = label;
-      if (expected !== null && expected !== undefined && expected !== n) {
-        const pill = document.createElement('span');
-        pill.className = 'mb-sum-pill';
-        pill.textContent = `${expected} → ${n}`;
-        pill.title = `The Map currently has ${expected}. Completing the map updates it to ${n}.`;
-        tile.appendChild(pill);
-      }
-      grid.appendChild(tile);
-    }
-
-    // How the clearing suits are handled.
-    const suits = document.getElementById('mb-review-suits');
-    suits.innerHTML = '';
+    const tile = (kind, label, count, expected, step) => ({ kind, label, count, expected, step });
+    const data = {
+      tiles: [
+        tile('clearing', 'Clearings', c.clearings, config.expected.clearings, STEP_CLEARINGS),
+        tile('building', 'Building Slots', c.buildings, config.expected.buildings, STEP_BUILDINGS),
+        tile('ruin', 'Ruins', c.ruins, config.expected.ruins, STEP_BUILDINGS),
+        tile('forest', 'Forests', c.forests, config.expected.forests, STEP_FORESTS),
+      ],
+      // Special paths only when there are some.
+      path_tiles: STEP_PATHS < 0 ? [] : [
+        tile('path', 'Paths', c.paths, null, STEP_PATHS),
+        ...(c.special ? [tile('special', state.special_path_name || 'Special Paths', c.special, null, STEP_PATHS)] : []),
+        tile('river', 'River Clearings', c.river_clearings, config.expected.river_clearings, STEP_PATHS),
+      ],
+      colours: PATH ? PATH.colours : null,
+    };
     if (config.fixed) {
       const tally = { fox: 0, rabbit: 0, mouse: 0, bird: 0, city: 0 };
-      const SUIT_NAMES = { fox: 'Fox', rabbit: 'Rabbit', mouse: 'Mouse', bird: 'Bird', city: 'Lost City' };
       let unset = 0;
       for (const cl of state.clearings) {
         if (tally[cl.suit] !== undefined) tally[cl.suit] += 1; else unset += 1;
       }
-      for (const [suit, n] of Object.entries(tally)) {
-        if (!n) continue;
-        const chip = document.createElement('span');
-        chip.className = 'mb-suit-chip';
-        chip.title = SUIT_NAMES[suit];
-        chip.innerHTML = `<img src="${config.suit_icons[suit]}" alt=""><span></span>`;
-        chip.querySelector('span').textContent = `${chip.title} ${n}`;
-        suits.appendChild(chip);
-      }
-      if (unset) {
-        const chip = document.createElement('span');
-        chip.className = 'mb-suit-chip mb-suit-chip-unset';
-        chip.textContent = `No suit ${unset}`;
-        suits.appendChild(chip);
-      }
+      data.suits = { fixed: true, unset, unset_label: 'No suit',
+                     chips: Object.entries(tally).filter(([, n]) => n)
+                       .map(([suit, n]) => ({ suit, name: SUIT_NAMES[suit], count: n, icon: config.suit_icons[suit] })) };
     } else {
-      const note = document.createElement('span');
-      note.className = 'mb-suit-note';
-      note.innerHTML = `<img src="${config.random_icon}" alt=""><span></span>`;
-      note.querySelector('span').textContent = 'Random suits: shuffled each time the map loads.';
-      suits.appendChild(note);
+      data.suits = { fixed: false, note: 'Random Clearing Suits: shuffled each game.', icon: config.random_icon };
     }
+    MapSummary.render(document.getElementById('mb-review-summary'), data, { onTile: t => goTo(t.step) });
 
     const problems = document.getElementById('mb-review-problems');
     problems.innerHTML = '';
@@ -526,6 +835,11 @@
     const removed = state.clearings.splice(index, 1)[0];
     if (!removed) return;
     for (const c of state.clearings) if (c.number > removed.number) c.number -= 1;
+    // Its paths go too (and those attached to them); the rest point past the gap.
+    const touching = new Set();
+    state.paths.forEach((p, k) => { if (p.a.c === index || p.b.c === index) touching.add(k); });
+    if (touching.size) removePaths(touching);
+    for (const p of state.paths) for (const e of [p.a, p.b]) if ('c' in e && e.c > index) e.c -= 1;
     if (pendingMarker === index) pendingMarker = null;
     else if (pendingMarker !== null && pendingMarker > index) pendingMarker -= 1;
     if (selected && selected.kind === 'clearing') {
@@ -542,6 +856,8 @@
       state.forests.splice(selected.index, 1);
     } else if (selected.kind === 'building') {
       state.buildings.splice(selected.index, 1);
+    } else if (selected.kind === 'path') {
+      removePaths(new Set([selected.index]));
     }
     selected = null;
     changed();
@@ -560,7 +876,7 @@
   function hit(evt) {
     const target = evt.target;
     if (!target.dataset || !target.dataset.kind) return null;
-    return { kind: target.dataset.kind, index: Number(target.dataset.index) };
+    return { kind: target.dataset.kind, index: Number(target.dataset.index), end: target.dataset.end };
   }
 
   // Only one finger edits: a second finger is the start of a pinch-zoom, so it's
@@ -602,8 +918,12 @@
     if (config.readonly) return;
     activePointer = evt.pointerId;
     // Don't let a press on the board start a text selection or a native drag,
-    // and keep the whole page unselectable until the drag ends.
+    // and keep the whole page unselectable until the drag ends. That also stops
+    // the browser moving focus, so a text field being typed in (the special
+    // paths' name) is let go of here, as a press anywhere else would.
     evt.preventDefault();
+    const typing = document.activeElement;
+    if (typing && ['INPUT', 'TEXTAREA'].includes(typing.tagName)) typing.blur();
     window.getSelection().removeAllRanges();
     document.body.classList.add('mb-dragging');
     const p = pointer(evt);
@@ -629,6 +949,30 @@
       return;
     }
 
+    if (step === STEP_PATHS) {
+      // Drag a selected path's end to reconnect it.
+      if (h && h.kind === 'path-end') {
+        const path = state.paths[h.index];
+        drag = { kind: 'path-end', index: h.index, end: h.end, other: h.end === 'a' ? path.b : path.a, at: p };
+        render();
+        return;
+      }
+      // A press on a clearing or a path's middle starts a new path from it.
+      const from = anchorAt(p);
+      if (from) {
+        // A new path: the one selected before isn't any more. (A click on a
+        // path's middle, with no drag, selects that path on release.)
+        selected = null;
+        drag = { kind: 'new-path', from, at: p, start: p };
+        render();
+        return;
+      }
+      // A press on a path selects it (its pop-up: type and delete).
+      selected = h && h.kind === 'path' ? { kind: 'path', index: h.index } : null;
+      render();
+      return;
+    }
+
     if (step === STEP_CLEARINGS) {
       if (pendingMarker !== null && !h) {
         state.clearings[pendingMarker].marker = norm(...p);
@@ -646,6 +990,19 @@
         } else {
           drag = { kind: h.kind, index: h.index };
         }
+        render();
+        return;
+      }
+      // A press inside an existing clearing's circle selects it (the nearest
+      // centre, where circles overlap) rather than starting a new one.
+      let inside = null, nearest = Infinity;
+      state.clearings.forEach((c, i) => {
+        if (!c.marker) return;
+        const centre = px(c.centre), d = dist(p, centre);
+        if (d <= dist(centre, px(c.marker)) && d < nearest) { inside = i; nearest = d; }
+      });
+      if (inside !== null) {
+        selected = { kind: 'clearing', index: inside };
         render();
         return;
       }
@@ -697,6 +1054,7 @@
       track: [STEP_TRACK, null], items: [STEP_TRACK, null], logo: [STEP_TRACK, null],
       centre: [STEP_CLEARINGS, 'clearing'], marker: [STEP_CLEARINGS, 'clearing'], number: [STEP_CLEARINGS, 'clearing'],
       building: [STEP_BUILDINGS, 'building'], forest: [STEP_FORESTS, 'forest'],
+      path: [STEP_PATHS, 'path'],
     }[h.kind];
     if (!target || target[0] < 0) return;
     activePointer = null;
@@ -717,6 +1075,11 @@
   svg.addEventListener('pointermove', (evt) => {
     if (!drag || evt.pointerId !== activePointer) return;
     const p = pointer(evt);
+    if (drag.kind === 'new-path' || drag.kind === 'path-end') {
+      drag.at = p;    // nothing changes until it's dropped on an end
+      render();
+      return;
+    }
     if (drag.kind === 'track') {
       state.track_y = Math.min(Math.max((p[1] - drag.offset) / H, 0), 1);
     } else if (drag.kind === 'items') {
@@ -754,9 +1117,29 @@
       // A click, not a drag: the next click places the marker.
       pendingMarker = drag.index;
     }
+    let edited = false;
+    if (drag && drag.kind === 'new-path') {
+      const target = anchorAt(drag.at);
+      if (target && canConnect(drag.from, target)) {
+        state.paths.push({ kind: drawKind, a: drag.from, b: target });
+        edited = true;
+      } else if ('p' in drag.from && dist(drag.at, drag.start) < DOT_PX) {
+        // A click on a path's middle (no drag): select that path.
+        selected = { kind: 'path', index: drag.from.p };
+      }
+    }
+    if (drag && drag.kind === 'path-end') {
+      // Dropped on an end it can join: reconnect. Anywhere else: it snaps back.
+      const target = anchorAt(drag.at);
+      if (target && dragTargetOk(target)) {
+        state.paths[drag.index][drag.end] = target;
+        edited = true;
+      }
+    }
     const wasDragging = drag !== null;
     drag = null;
-    if (wasDragging) render();   // the edit pop-up hides while dragging
+    if (edited) changed();
+    else if (wasDragging) render();   // the edit pop-up hides while dragging
   }
   svg.addEventListener('pointerup', (evt) => {
     pressed.delete(evt.pointerId);
@@ -841,6 +1224,70 @@
   // The pop-up sits over the board: keep its clicks away from the board.
   popover.addEventListener('pointerdown', (evt) => evt.stopPropagation());
 
+  // ── Path kinds: the Draw card's toggle and the pop-up's ──────────────────
+  const pathMode = document.getElementById('mb-path-mode');
+  const drawToggle = document.getElementById('mb-draw-kind');
+  const popKindWrap = document.getElementById('mb-pop-kind-wrap');
+  const popKind = document.getElementById('mb-pop-kind');
+
+  // Slide the toggle's highlight onto `kind`'s button. The segments differ in
+  // width (special paths are just a swatch), so it's placed from the button
+  // itself (--mb-kind-x / --mb-kind-w, map_builder.css).
+  function setKindToggle(toggle, kind) {
+    toggle.querySelectorAll('[data-path-kind]').forEach(btn => {
+      const on = btn.dataset.pathKind === kind;
+      btn.setAttribute('aria-checked', on ? 'true' : 'false');
+      if (on && btn.offsetWidth) {
+        toggle.style.setProperty('--mb-kind-x', `${btn.offsetLeft}px`);
+        toggle.style.setProperty('--mb-kind-w', `${btn.offsetWidth}px`);
+      }
+    });
+  }
+
+  if (drawToggle) {
+    drawToggle.querySelectorAll('[data-path-kind]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        drawKind = btn.dataset.pathKind;
+        updatePathMode();
+      });
+    });
+    pathMode.addEventListener('pointerdown', (evt) => evt.stopPropagation());
+  }
+  if (popKind) {
+    popKind.querySelectorAll('[data-path-kind]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!selected || selected.kind !== 'path') return;
+        const path = state.paths[selected.index];
+        if (path.kind === btn.dataset.pathKind) return;
+        path.kind = btn.dataset.pathKind;
+        replaceTwin(selected.index);
+        changed();
+      });
+    });
+  }
+
+  // The Draw card, where the item track sits (unused on this step). Very
+  // small screens: just the three swatches.
+  function updatePathMode() {
+    if (!pathMode) return;
+    const show = step === STEP_PATHS && !config.readonly;
+    pathMode.classList.toggle('d-none', !show);
+    if (!show) return;
+    const title = document.getElementById('mb-path-title');
+    title.textContent = title.dataset[drawKind];
+    const box = itemTrackBox();
+    setCompactSizes(box);
+    const compact = box.width < COMPACT_BELOW;
+    pathMode.classList.toggle('compact', compact);
+    const width = compact
+      ? Math.min(Math.max(box.width, 96), box.area.width - 8)
+      : Math.min(Math.max(box.width, 230), 300, box.area.width - 8);
+    placeOnItemTrack(pathMode, width);
+    // Last: the highlight is placed from its button's laid-out size.
+    setKindToggle(drawToggle, drawKind);
+  }
+  window.addEventListener('resize', updatePathMode);
+
   function selectedNode() {
     if (!selected) return null;
     if (selected.kind === 'clearing') return content.querySelector(`[data-clearing="${selected.index}"]`);
@@ -850,7 +1297,7 @@
   function updatePopover() {
     const editable = selected && !drag && (
       (step === STEP_CLEARINGS && selected.kind === 'clearing') || (step === STEP_FORESTS && selected.kind === 'forest')
-      || (step === STEP_BUILDINGS && selected.kind === 'building'));
+      || (step === STEP_BUILDINGS && selected.kind === 'building') || (step === STEP_PATHS && selected.kind === 'path'));
     const node = editable && selectedNode();
     if (!node) {
       popover.classList.remove('show');
@@ -868,6 +1315,11 @@
     document.getElementById('mb-pop-prompt').classList.toggle('d-none', !(isClearing && pendingMarker === selected.index));
     document.getElementById('mb-pop-clearing').classList.toggle('d-none', !isClearing);
     popSuits.classList.toggle('d-none', !(isClearing && config.fixed));
+    // A path: its kind (the same toggle as the Draw card) and delete.
+    if (popKindWrap) {
+      popKindWrap.classList.toggle('d-none', selected.kind !== 'path');
+      if (selected.kind === 'path') setKindToggle(popKind, state.paths[selected.index].kind);
+    }
     if (isClearing) {
       const c = state.clearings[selected.index];
       popNumber.textContent = c.number || '?';
@@ -1038,6 +1490,9 @@
     // An optional 4th entry is a shorter label for when the full one doesn't fit.
     [STEP_BUILDINGS]: [['building', 'buildings', 'Building Slots', 'Buildings'], ['ruin', 'ruins', 'Ruins']],
     [STEP_FORESTS]: [['forest', 'forests', 'Forests']],
+    // On the VP track, like Clearings.
+    [STEP_PATHS]: [['path', 'paths', 'Paths'], ['special', 'special', 'Special Paths', 'Special'],
+                   ['river', 'river_clearings', 'River Clearings', 'Rivers']],
   };
 
   // compact: no labels. brief: just the current number (no "/ expected").
@@ -1049,9 +1504,12 @@
       const known = expected !== null && expected !== undefined;
       const off = known && n !== expected ? ' off' : '';
       const figure = known && !brief ? `${n} / ${expected}` : `${n}`;
+      // Paths step, with special paths: their label is the map's name for them,
+      // an input (kept even when the other labels are dropped).
+      const naming = key === 'special' && step === STEP_PATHS && n >= 1;
       return `<div class="mb-count-row"><span class="mb-count-icon">${iconSvg(icon)}</span>`
         + `<span class="mb-count-figure${off}">${figure}</span>`
-        + (compact ? '' : `<span class="mb-count-label">${label}</span>`) + '</div>';
+        + (naming ? specialNameInput() : compact ? '' : `<span class="mb-count-label">${label}</span>`) + '</div>';
     }).join('');
   }
 
@@ -1115,35 +1573,90 @@
     const compact = box.width < COMPACT_BELOW;
 
     // Buildings & Ruins / Forests card.
-    const rows = step === STEP_CLEARINGS ? null : COUNT_ROWS[step];
+    const onPill = step === STEP_CLEARINGS || (STEP_PATHS >= 0 && step === STEP_PATHS);
+    const rows = onPill ? null : COUNT_ROWS[step];
     countCard.classList.toggle('d-none', !rows);
     if (rows) updateCountCard(rows, box, compact);
 
-    // Clearings pill, centred on the VP track and kept between its grey rows.
-    const onClearings = step === STEP_CLEARINGS;
-    clearingPill.classList.toggle('d-none', !onClearings);
-    if (onClearings) {
+    // Clearings (and Paths) pill, centred on the VP track and kept between its grey rows.
+    clearingPill.classList.toggle('d-none', !onPill);
+    if (onPill) {
       const cols = trackColumns();
       const gap = config.track.row_gap * PPL * box.scale;
       const height = Math.min(Math.max(gap * 1.8, 24), 40);
       clearingPill.style.height = `${height}px`;
       clearingPill.style.fontSize = `${Math.min(Math.max(height * 0.45, 12), 17)}px`;
       clearingPill.style.setProperty('--mb-pill-icon', `${Math.round(Math.min(Math.max(height * 0.45, 12), 18))}px`);
+      const nameField = document.getElementById('mb-special-name');
+      if (nameField && document.activeElement === nameField) {
+        // Typing the special paths' name: just the numbers, so focus stays put.
+        clearingPill.querySelectorAll('.mb-count-figure').forEach((figure, i) => {
+          figure.textContent = counts()[COUNT_ROWS[step][i][1]];
+        });
+        placePill();
+        return;
+      }
       // The VP track spans nearly the whole board, so the full text fits even on
       // small screens; drop the label only if the pill would be wider than the track.
-      clearingPill.innerHTML = countRowsHtml(COUNT_ROWS[STEP_CLEARINGS], false);
+      const fill = (...args) => {
+        clearingPill.innerHTML = countRowsHtml(COUNT_ROWS[step], ...args);
+        fitSpecialName();
+      };
+      fill(false);
       const trackWidth = (Math.max(...cols) - Math.min(...cols)) * box.scale;
-      if (clearingPill.offsetWidth > trackWidth) {
-        clearingPill.innerHTML = countRowsHtml(COUNT_ROWS[STEP_CLEARINGS], true);
-      }
-      const cx = (Math.min(...cols) + Math.max(...cols)) / 2 * box.scale;
-      const cy = state.track_y * H * box.scale;
-      const w = clearingPill.offsetWidth;
-      const left = Math.min(Math.max(cx - w / 2, 4), box.area.width - w - 4);
-      clearingPill.style.left = `${left}px`;
-      clearingPill.style.top = `${cy - height / 2}px`;
+      if (clearingPill.offsetWidth > trackWidth) fill(false, false, true);   // short labels
+      if (clearingPill.offsetWidth > trackWidth) fill(true);
+      placePill();
     }
   }
+
+  // The VP track's pill: centred on the track, between its grey rows.
+  function placePill() {
+    const box = itemTrackBox();
+    const cols = trackColumns();
+    const cx = (Math.min(...cols) + Math.max(...cols)) / 2 * box.scale;
+    const cy = state.track_y * H * box.scale;
+    const w = clearingPill.offsetWidth, h = clearingPill.offsetHeight;
+    clearingPill.style.left = `${Math.min(Math.max(cx - w / 2, 4), box.area.width - w - 4)}px`;
+    clearingPill.style.top = `${cy - h / 2}px`;
+  }
+
+  // ── The special paths' name (in the Paths step's pill) ──
+  // What the map's special paths are (Bridges, Mountain Passes...): saved with
+  // the layout, and the label of their summary tile (tts_map.layout_summary).
+  function specialNameInput() {
+    return `<input type="text" id="mb-special-name" maxlength="${config.special_name_max || 24}"`
+      + ' placeholder="Special Paths" aria-label="Special Path Name" autocomplete="off" spellcheck="false">';
+  }
+
+  // Fill the name input (its value set as a property: it's the user's text) and
+  // size it to the text, or to the placeholder when empty.
+  let measureCanvas = null;
+  function fitSpecialName() {
+    const input = document.getElementById('mb-special-name');
+    if (!input) return;
+    if (input.value !== (state.special_path_name || '')) input.value = state.special_path_name || '';
+    const style = getComputedStyle(input);
+    measureCanvas = measureCanvas || document.createElement('canvas');
+    const ctx = measureCanvas.getContext('2d');
+    ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const text = Math.max(ctx.measureText(input.value).width, ctx.measureText(input.placeholder).width);
+    const extra = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+      + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+    input.style.width = `${Math.ceil(text + extra + 2)}px`;
+  }
+
+  clearingPill.addEventListener('input', (evt) => {
+    if (evt.target.id !== 'mb-special-name') return;
+    state.special_path_name = evt.target.value;
+    dirty = true;
+    showSaved(false);
+    fitSpecialName();
+    placePill();
+  });
+  clearingPill.addEventListener('keydown', (evt) => {
+    if (evt.target.id === 'mb-special-name' && evt.key === 'Enter') evt.target.blur();
+  });
 
   countCard.addEventListener('pointerdown', (evt) => evt.stopPropagation());
   countCard.addEventListener('click', (evt) => {
@@ -1197,6 +1710,7 @@
   const uploadInput = document.getElementById('mb-upload-input');
   const nameInput = document.getElementById('mb-name');
   const languageInput = document.getElementById('mb-language');
+  const removeArtButton = document.getElementById('mb-remove-art');
 
   // The Start step's name and language go with every save, unless the map is
   // linked to a keep post (then they're the post's and locked).
@@ -1226,10 +1740,11 @@
     return !nameInput || nameInput.value.trim() !== '';
   }
 
-  // The Art step is done with a name and art; a new map must also be created
-  // (by Next) before the later steps open.
+  // The Start step is done with a name (the art is optional: without it the
+  // map is printed on a grey board); a new map must also be created (by Next)
+  // before the later steps open.
   function artStepDone() {
-    return hasArt() && hasName();
+    return hasName();
   }
 
   function artStepLocked() {
@@ -1237,8 +1752,7 @@
   }
 
   function artStepMissing() {
-    if (!hasName() && !hasArt()) return 'Name your map and upload its art first.';
-    return hasName() ? "Upload your map's art first." : 'Name your map first.';
+    return 'Name your map first.';
   }
 
   function updateUpload() {
@@ -1248,6 +1762,7 @@
     // The art is there but the name isn't: show what's left.
     nameInput.classList.toggle('mb-missing', hasArt() && !hasName());
     uploadButton.classList.toggle('mb-has-art', hasArt());
+    if (removeArtButton) removeArtButton.classList.toggle('d-none', !config.image);
     const title = uploadButton.querySelector('.mb-upload-title');
     title.textContent = hasArt() ? title.dataset.replace : title.dataset.upload;
   }
@@ -1339,7 +1854,7 @@
           previousArt = null;
           config.image = null;
           config.art_cropped = false;
-          document.getElementById('mb-image').src = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+          document.getElementById('mb-image').src = BLANK_GIF;
         }
         render();
         return false;
@@ -1383,11 +1898,11 @@
         if (previousArt) {
           config.image = previousArt.image;
           config.art_cropped = previousArt.cropped;
-          document.getElementById('mb-image').src = config.image || 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+          document.getElementById('mb-image').src = config.image || BLANK_GIF;
           previousArt = null;
         }
         artStatus('danger', result.error || "That image couldn't be used. Try another file.");
-        if (!hasArt()) goTo(STEP_UPLOAD); else render();
+        render();
         return false;
       }
       artStatus('warning', 'Art not uploaded yet — retrying.');
@@ -1402,8 +1917,33 @@
     return uploading;
   }
 
+  // The art is optional: take it away (the map is then printed on grey).
+  async function removeArt() {
+    clearTimeout(retryTimer);
+    pendingArt = null;
+    previousArt = null;
+    if (uploading) await uploading.catch(() => {});   // don't let an upload in flight bring it back
+    if (!isNew() && config.upload_url) {
+      try {
+        const body = new FormData();
+        body.append('remove', '1');
+        const response = await fetch(config.upload_url, { method: 'POST', headers: { 'X-CSRFToken': csrfToken() }, body });
+        if (!response.ok) throw new Error(String(response.status));
+      } catch (err) {
+        artStatus('danger', "Couldn't remove the art — check your connection and try again.");
+        return;
+      }
+    }
+    config.image = null;
+    config.art_cropped = false;
+    document.getElementById('mb-image').src = BLANK_GIF;
+    artStatus(null);
+    render();
+  }
+
   if (artStep) {
     artStep.addEventListener('pointerdown', (evt) => evt.stopPropagation());
+    if (removeArtButton) removeArtButton.addEventListener('click', removeArt);
     uploadButton.addEventListener('click', () => uploadInput.click());
     document.querySelector('#mb-art-status .mb-art-status-close').addEventListener('click', () => artStatus(null));
     // The name is saved with the layout (Save Progress or Complete).
@@ -1442,6 +1982,39 @@
     });
     window.addEventListener('online', () => { if (pendingArt) uploadArt(); });
   }
+
+  // The progress bar's highlight: over the current step's number and name,
+  // centred on them. A long name can be wider than its share of the bar (it
+  // spills over both sides, centred), so the highlight is measured from the
+  // text, never narrower than the step's own share.
+  const THUMB_PAD = 12;     // px either side of the text
+  const THUMB_INSET = 3;    // the bar's padding
+  function placeProgressThumb() {
+    const bar = document.getElementById('mb-progress');
+    const thumb = document.getElementById('mb-progress-thumb');
+    const btn = bar && bar.querySelector(`[data-step="${step}"]`);
+    if (!thumb || !btn) return;
+    const area = bar.getBoundingClientRect();
+    if (!area.width) return;   // hidden (read-only): nothing to place
+    const cell = btn.getBoundingClientRect();
+    let left = Infinity, right = -Infinity;
+    for (const child of btn.children) {   // the number and the name (whichever of its labels shows)
+      const r = child.getBoundingClientRect();
+      if (!r.width) continue;
+      left = Math.min(left, r.left);
+      right = Math.max(right, r.right);
+    }
+    const centre = left < right ? (left + right) / 2 : cell.left + cell.width / 2;
+    const textWidth = left < right ? right - left + 2 * THUMB_PAD : 0;
+    const width = Math.min(Math.max(cell.width, textWidth), area.width - 2 * THUMB_INSET);
+    // Centred on the text, but kept inside the bar (the first and last steps).
+    const x = Math.min(Math.max(centre - area.left - width / 2, THUMB_INSET), area.width - THUMB_INSET - width);
+    thumb.style.left = `${x}px`;
+    thumb.style.width = `${width}px`;
+  }
+  window.addEventListener('resize', placeProgressThumb);
+  // The step names' font (and so their widths) may load after the first layout.
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(placeProgressThumb);
 
   // ── Steps and saving ──────────────────────────────────────────────────────
   function goTo(n) {
@@ -1490,6 +2063,7 @@
   // Stages reached so far (saved with the layout): a save only updates the
   // Map's counts for these, so an unvisited stage never overwrites them with 0.
   const STAGE_OF_STEP = { [STEP_CLEARINGS]: 'clearings', [STEP_BUILDINGS]: 'buildings', [STEP_FORESTS]: 'forests' };
+  if (STEP_PATHS >= 0) STAGE_OF_STEP[STEP_PATHS] = 'paths';
   const visited = new Set(state.visited || []);
 
   function introduceStep() {
@@ -1567,7 +2141,7 @@
     if (button.disabled) return;
     const label = button.innerHTML;
     button.disabled = true;
-    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Completing…';
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>Saving…';
     let leaving = false;
     try {
       leaving = await saveNow(true);
@@ -1583,7 +2157,7 @@
   async function saveNow(generate) {
     const box = document.getElementById('mb-messages');
     box.innerHTML = '';
-    // A new map is created first (Save is only enabled once it has a name and art).
+    // A new map is created first (Save is only enabled once it has a name).
     if (isNew() && !(await createMap())) return;
     // Art picked but not stored yet (the upload failed): send it again first.
     // Generating needs it on the server; a plain save goes ahead anyway.
@@ -1616,7 +2190,8 @@
     // counters show the Map's new figures.
     if (result.changes && result.changes.length) {
       // Only the stages the server counted now match the Map.
-      const KEYS = { clearings: ['clearings'], buildings: ['buildings', 'ruins'], forests: ['forests'] };
+      const KEYS = { clearings: ['clearings'], buildings: ['buildings', 'ruins'], forests: ['forests'],
+                     paths: ['river_clearings'] };
       for (const stage of result.counted || []) {
         for (const key of KEYS[stage] || []) config.expected[key] = counts()[key];
       }

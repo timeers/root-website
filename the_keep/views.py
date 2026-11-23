@@ -1471,6 +1471,10 @@ def ultimate_component_view(request, slug, component):
     if request.htmx:
             return render(request, 'the_keep/partials/game_list.html', context)
 
+    if post.component == Post.ComponentChoices.MAP:
+        # The layout summary card (as on the map builder's review step).
+        from .services.tts_map import map_summary
+        context['map_summary'] = map_summary(obj)
     return render(request, 'the_keep/post_detail.html', context)
 
 

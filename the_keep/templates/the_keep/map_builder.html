@@ -4,6 +4,7 @@
 {% block title %}{% trans 'Map Builder' %} - {{ object.title }}{% endblock %}
 
 {% block styles %}
+<link rel="stylesheet" href="{% static 'the_keep/map_summary.css' %}">
 <link rel="stylesheet" href="{% static 'the_keep/map_builder.css' %}">
 {% endblock %}
 
@@ -43,6 +44,7 @@
 
 {% block scripts %}
 {% if has_image %}
+<script src="{% static 'the_keep/map_summary.js' %}"></script>
 <script src="{% static 'the_keep/map_builder.js' %}"></script>
 {% endif %}
 {% endblock %}

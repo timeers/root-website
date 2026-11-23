@@ -4,6 +4,7 @@
 {% block title %}Map Builder - {{ faction.faction_name|default:'New Map' }} | {% endblock %}
 
 {% block styles %}
+<link rel="stylesheet" href="{% static 'the_keep/map_summary.css' %}">
 <link rel="stylesheet" href="{% static 'the_keep/map_builder.css' %}">
 {% endblock %}
 
@@ -27,5 +28,6 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{% static 'the_keep/map_summary.js' %}"></script>
 <script src="{% static 'the_keep/map_builder.js' %}"></script>
 {% endblock %}

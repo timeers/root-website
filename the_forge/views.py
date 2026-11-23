@@ -959,6 +959,12 @@ def factionback_create(request, faction_pk):
     return redirect('forge-back-edit', pk=back.pk)
 
 
+def _use_image_on_back(piece, ptype, flag):
+    """A warrior's "Use image on Faction Back", from its row's hidden flag.
+    Only ever on when the warrior actually has an image."""
+    return flag == '1' and ptype == Piece.TypeChoices.WARRIOR and bool(piece.small_icon)
+
+
 @forge_onboard_required
 def factionback_edit(request, pk):
     back = get_object_or_404(FactionBack, pk=pk)
@@ -973,15 +979,17 @@ def factionback_edit(request, pk):
         piece_quantities = request.POST.getlist('piece_quantity')
         piece_clear_flags = request.POST.getlist('piece_clear_icon')
         piece_clear_back_flags = request.POST.getlist('piece_clear_back')
+        # One per row (card rows post 0): warriors' "Use image on Faction Back".
+        piece_use_image_flags = request.POST.getlist('piece_use_image')
         step_ids = request.POST.getlist('step_id')
         step_texts = request.POST.getlist('step_text')
 
         rows = list(zip(
             piece_ids, piece_types, piece_names, piece_quantities,
-            piece_clear_flags, piece_clear_back_flags,
+            piece_clear_flags, piece_clear_back_flags, piece_use_image_flags,
         ))
         type_counts = {t: 0 for t in valid_piece_types}
-        for sid, ptype, _name, _qty, _cf, _cb in rows:
+        for sid, ptype, _name, _qty, _cf, _cb, _ui in rows:
             if ptype in valid_piece_types:
                 type_counts[ptype] += 1
         for ptype, count in type_counts.items():
@@ -1004,7 +1012,7 @@ def factionback_edit(request, pk):
 
                 existing_pieces = {p.pk: p for p in back.faction.pieces.all()}
                 kept_piece_ids = set()
-                for index, (sid, ptype, name, qty, clear_front, clear_back) in enumerate(rows):
+                for index, (sid, ptype, name, qty, clear_front, clear_back, use_image) in enumerate(rows):
                     front_upload = request.FILES.get(f'piece_icon_{index}')
                     back_upload = request.FILES.get(f'piece_back_{index}')
                     name = (name or '').strip()
@@ -1041,6 +1049,7 @@ def factionback_edit(request, pk):
                                 piece.back_image = back_upload
                             elif should_clear_back:
                                 piece.back_image = None
+                            piece.use_image_on_back = _use_image_on_back(piece, ptype, use_image)
                             piece.save()
                     else:
                         new_piece = Piece(
@@ -1059,6 +1068,7 @@ def factionback_edit(request, pk):
                                 new_piece.small_icon = front_upload
                             if has_new_back:
                                 new_piece.back_image = back_upload
+                            new_piece.use_image_on_back = _use_image_on_back(new_piece, ptype, use_image)
                             new_piece.save()
                 stale_piece_ids = set(existing_pieces) - kept_piece_ids
                 if stale_piece_ids:

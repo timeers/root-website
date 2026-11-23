@@ -4,6 +4,7 @@
   <input type="hidden" name="piece_type" value="{% firstof piece.type type_code '' %}">
   <input type="hidden" name="piece_clear_icon" value="0" data-clear-flag>
   <input type="hidden" name="piece_clear_back" value="0" data-clear-back-flag>
+  <input type="hidden" name="piece_use_image" value="{% if piece.type == 'W' and piece.use_image_on_back and piece.small_icon %}1{% else %}0{% endif %}" data-use-image-flag>
 
   <div class="d-flex gap-2 align-items-center">
     <div class="piece-icon-cell d-flex align-items-center" style="flex-shrink:0;">
@@ -37,6 +38,24 @@
   </div>
 
   {% with effective_type=piece.type|default:type_code %}
+  {% comment %}
+    Warriors: whether the Faction Back draws the image (else the coloured
+    meeple). Hidden in the blank row template: the Faction Back editor reveals
+    it for new warrior rows, and the cardboard editor (which reuses this
+    template for buildings and tokens) never does.
+  {% endcomment %}
+  {% if effective_type == 'W' or not piece %}
+  <div class="mt-1 ps-4" data-use-image-row data-saved-image="{% if piece.small_icon %}1{% else %}0{% endif %}"
+       {% if not piece %}hidden{% endif %}>
+    <label class="form-check-label small d-inline-flex align-items-center gap-1"
+           title="Draw this image on the Faction Back. Without it, the back shows a meeple in the faction's colour.">
+      <input type="checkbox" class="form-check-input mt-0" data-use-image
+             {% if piece.use_image_on_back and piece.small_icon %}checked{% endif %}
+             {% if not piece.small_icon %}disabled{% endif %}>
+      <span>Use image on Faction Back</span>
+    </label>
+  </div>
+  {% endif %}
   {% if effective_type != 'W' %}
   <div class="d-flex gap-2 align-items-center mt-1 ps-4" data-back-row>
     <span class="text-muted small" title="Back icon (optional)">
