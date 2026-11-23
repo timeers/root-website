@@ -115,6 +115,28 @@ a.q-chip:hover {
 .q-info-body > :last-child {
   margin-bottom: 0;
 }
+.q-info-updated {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #72767d;
+}
+.q-info-updated i {
+  font-size: 15px;
+  line-height: 1.3;
+  color: #99aab5;
+}
+.q-info-updated-divided {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid #f0f1f3;
+}
+.q-info-updated-date {
+  display: block;
+  color: #99aab5;
+}
 
 /* ── Toolbar: search + All/Threshold ─────────────────────────────── */
 .q-toolbar {
@@ -325,7 +347,7 @@ a.q-chip:hover {
     <div class="col-lg-10">
 
       <!-- Hero -->
-      <div class="discord-hero discord-hero-row q-hero{% if can_edit or qualifier.description %} q-hero-has-actions{% endif %} mb-4">
+      <div class="discord-hero discord-hero-row q-hero{% if can_edit or has_info %} q-hero-has-actions{% endif %} mb-4">
         {% comment %}
         Two trophies: the side one is the desktop layout (beside the whole text
         block); the inline one shares a centred row with the name on phones.
@@ -354,14 +376,14 @@ a.q-chip:hover {
             <span class="q-chip"><i class="bi bi-people"></i>{{ players_count }} {% trans 'player' %}{{ players_count|pluralize }}</span>
           </div>
         </div>
-        {% if can_edit or qualifier.description %}
+        {% if can_edit or has_info %}
         <div class="q-hero-actions">
           {% if can_edit %}
           <a href="{{ qualifier.get_edit_url }}" class="btn btn-light btn-sm q-hero-edit" aria-label="{% trans 'Edit' %}">
             <i class="bi bi-pencil"></i><span class="q-hero-edit-label ms-1">{% trans 'Edit' %}</span>
           </a>
           {% endif %}
-          {% if qualifier.description %}
+          {% if has_info %}
           <button type="button" class="q-hero-info" data-bs-toggle="modal" data-bs-target="#qualifierInfoModal"
                   aria-label="{% trans 'About this qualifier' %}" title="{% trans 'About this qualifier' %}">
             <i class="bi bi-info-lg"></i>
@@ -371,7 +393,7 @@ a.q-chip:hover {
         {% endif %}
       </div>
 
-      {% if qualifier.description %}
+      {% if has_info %}
       <div class="modal fade q-info-modal" id="qualifierInfoModal" tabindex="-1" aria-labelledby="qualifierInfoTitle" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
           <div class="modal-content">
@@ -381,7 +403,24 @@ a.q-chip:hover {
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="{% trans 'Close' %}"></button>
             </div>
             <div class="modal-body">
+              {% if qualifier.description %}
               <div class="q-info-body">{{ qualifier.description|render_markdown }}</div>
+              {% endif %}
+              {% if qualifier.elo_system %}
+              {% with calculated=qualifier.elo_system.last_calculated_at %}
+              <div class="q-info-updated{% if qualifier.description %} q-info-updated-divided{% endif %}">
+                <i class="bi bi-clock-history" aria-hidden="true"></i>
+                {% if calculated %}
+                <span>
+                  {% blocktrans with system=qualifier.elo_system.name ago=calculated|timesince %}{{ system }} ratings last updated {{ ago }} ago{% endblocktrans %}
+                  <span class="q-info-updated-date">{{ calculated|date:"M j, Y, g:i A T" }}</span>
+                </span>
+                {% else %}
+                <span>{% blocktrans with system=qualifier.elo_system.name %}{{ system }} ratings haven't been calculated yet.{% endblocktrans %}</span>
+                {% endif %}
+              </div>
+              {% endwith %}
+              {% endif %}
             </div>
           </div>
         </div>

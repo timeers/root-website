@@ -8222,9 +8222,9 @@ class QualifierStandingsTests(TestCase):
         self._game(5, self.b, self.a, test_match=True)
         self._game(5, self.b, self.a, final=False)
 
-        EloParticipant.objects.create(elo_system=self.system, player=self.a, rating=1400)
-        EloParticipant.objects.create(elo_system=self.system, player=self.b, rating=1300)
-        EloParticipant.objects.create(elo_system=self.system, player=self.c, rating=1600)
+        EloParticipant.objects.create(elo_system=self.system, player=self.a, rating=1400, rank=2)
+        EloParticipant.objects.create(elo_system=self.system, player=self.b, rating=1300, rank=3)
+        EloParticipant.objects.create(elo_system=self.system, player=self.c, rating=1600, rank=1)
 
         self.Qualifier = Qualifier
         self.qualifier = Qualifier.objects.create(
@@ -8285,6 +8285,29 @@ class QualifierStandingsTests(TestCase):
         self.assertIsNone(rows['Charlie'].rank)
         self.assertEqual(rows['Alpha'].rank, 1)
         self.assertEqual(rows['Alpha'].score, 1400)
+
+    def test_unranked_rootelo_player_cannot_qualify(self):
+        from the_warroom.models import EloParticipant, EloSystem
+        # RootELO hasn't ranked Alpha yet: rating hidden, can't qualify, sorts last.
+        EloParticipant.objects.filter(elo_system=self.system, player=self.a).update(rank=None)
+        q = self.Qualifier.objects.create(
+            name="Rank Q", start_date=date(2026, 1, 1), end_date=date(2026, 1, 10),
+            game_threshold=3, qualifier_places=2, elo_system=self.system,
+        )
+        rows = self._rows(q)
+        self.assertIsNone(rows['Alpha'].score)
+        self.assertEqual(rows['Alpha'].rank, 2)
+        self.assertFalse(rows['Alpha'].qualified)  # rank 2 is within places, but unranked
+        self.assertEqual(rows['Bravo'].rank, 1)
+        self.assertTrue(rows['Bravo'].qualified)
+
+        # LOCAL systems never set rank, so it isn't required there.
+        self.system.calculation_type = EloSystem.CalculationType.LOCAL
+        self.system.save()
+        q.save()  # new updated_at -> fresh cache key
+        rows = self._rows(q)
+        self.assertEqual(rows['Alpha'].score, 1400)
+        self.assertTrue(rows['Alpha'].qualified)
 
     def test_filters_keep_ranks(self):
         url = self.qualifier.get_absolute_url()
@@ -8349,3 +8372,55 @@ class QualifierStandingsTests(TestCase):
         resp = self.client.get(url)
         self.assertContains(resp, 'qualifierInfoModal')
         self.assertContains(resp, '<strong>seat</strong>', html=True)
+
+    def test_elo_modal_shows_last_calculated(self):
+        q = self.Qualifier.objects.create(
+            name="Elo Info Q", start_date=date(2026, 1, 1), end_date=date(2026, 1, 10),
+            elo_system=self.system,
+        )
+        resp = self.client.get(q.get_absolute_url())
+        self.assertContains(resp, 'qualifierInfoModal')  # no description, still has info
+        self.assertContains(resp, "haven't been calculated yet")
+
+        self.system.last_calculated_at = timezone.now() - timedelta(hours=3)
+        self.system.save()
+        resp = self.client.get(q.get_absolute_url())
+        self.assertContains(resp, 'ratings last updated 3')
+
+
+class EloLastCalculatedTests(TestCase):
+    """EloSystem.last_calculated_at is stamped by successful calculations only."""
+
+    def setUp(self):
+        from the_warroom.models import EloSystem
+        self.EloSystem = EloSystem
+
+    def test_local_replay_stamps(self):
+        from the_warroom.services.elo_service import recompute_system_from
+        system = self.EloSystem.objects.create(
+            name="Stamp Local", calculation_type=self.EloSystem.CalculationType.LOCAL)
+        self.assertIsNone(system.last_calculated_at)
+        recompute_system_from(system, datetime(2026, 1, 1, tzinfo=dt_timezone.utc))
+        system.refresh_from_db()
+        self.assertIsNotNone(system.last_calculated_at)
+
+    def test_rootelo_refresh_stamps_only_on_success(self):
+        import requests
+        from the_warroom.tasks import _refresh_one_rootelo_system
+        system = self.EloSystem.objects.create(
+            name="Stamp Root", api_url="https://example.com/feed.json")
+
+        with mock.patch('the_warroom.tasks.requests.get',
+                        side_effect=requests.RequestException("down")):
+            _refresh_one_rootelo_system(system)
+        system.refresh_from_db()
+        self.assertIsNone(system.last_calculated_at)
+
+        with mock.patch('the_warroom.tasks.requests.get') as get:
+            get.return_value.json.return_value = {'players': {}}
+            _refresh_one_rootelo_system(system, dry_run=True)
+            system.refresh_from_db()
+            self.assertIsNone(system.last_calculated_at)
+            _refresh_one_rootelo_system(system)
+        system.refresh_from_db()
+        self.assertIsNotNone(system.last_calculated_at)
