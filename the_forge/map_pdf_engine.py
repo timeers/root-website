@@ -51,7 +51,10 @@ class MapLayoutEngine:
         # Builder pixels (FORGE_FRAME) -> points.
         self.k = PAGE_W / FORGE_FRAME[0]
 
-    def build(self, output_path, target_dpi=PRINT_DPI):
+    def build(self, output_path, target_dpi=PRINT_DPI, with_card=False):
+        """The map, then (with_card: the PDF download only) its setup card's
+        front and back on pages of their own. The map's image is page 0 of
+        this, so it never draws the card."""
         c = rl_canvas.Canvas(output_path, pagesize=(PAGE_W, PAGE_H))
         c.setTitle(self.map.title)
         _tag_canvas_dpi(c, target_dpi)
@@ -88,7 +91,23 @@ class MapLayoutEngine:
         self._draw_image(c, art['vp']['path'], layout['vp'])
         self._draw_image(c, art['logo']['path'], layout['logo'])
         c.showPage()
+        if with_card:
+            self._draw_setup_card(c)
         c.save()
+
+    def _draw_setup_card(self, c):
+        """The setup card as vectors, from the same layout as the map page."""
+        from the_keep.services.map_setup_card import MapSetupCardEngine
+
+        from .pdf_engine import _lang_code_for
+        card = MapSetupCardEngine(self.map.title, self.map.tts_builder or {}, self.map.map_card,
+                                  frame=FORGE_FRAME, lang_code=_lang_code_for(self.map))
+        c.setPageSize((card.width, card.height))
+        card.draw_front(c)
+        c.showPage()
+        if card.has_back:
+            card.draw_back(c)
+            c.showPage()
 
     def _rect(self, box):
         """A (x, y, w, h) box in builder pixels (y down) -> PDF points (y up)."""

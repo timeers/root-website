@@ -9,6 +9,7 @@ from django.utils import timezone
 from django.utils.translation import gettext as _
 
 from the_gatehouse.models import Profile, Language
+from the_keep.services import map_setup_card as msc
 from the_keep.utils import generate_abbreviation_choices
 
 from .models import (
@@ -1649,3 +1650,63 @@ class CardForm(forms.ModelForm):
     class Meta:
         model = Card
         fields = ["name", "front_image"]
+
+
+class MapSetupCardForm(forms.Form):
+    """A map's setup card text (the_keep/services/map_setup_card.py), for any
+    map with a layout: the Forge's setup card page now, a Keep one later.
+    Its rules come as repeated rule_name / rule_text inputs.
+
+    cleaned_data['map_card'] is the cleaned card; a card that won't fit is
+    refused (self.overflow says which side), so the page can suggest a Law
+    entry."""
+    special_path_rule = forms.CharField(required=False, max_length=msc.SPECIAL_RULE_MAX,
+                                        widget=forms.Textarea(attrs={'rows': 2}))
+    modifications = forms.CharField(required=False, max_length=msc.MODIFICATIONS_MAX,
+                                    widget=forms.Textarea(attrs={'rows': 3}))
+    raging_river = forms.ChoiceField(required=False, choices=[('no', 'No'), ('yes', 'Yes')],
+                                     widget=forms.RadioSelect)
+    limits = {'special': msc.SPECIAL_RULE_MAX, 'modifications': msc.MODIFICATIONS_MAX, 'rules': msc.RULES_MAX,
+              'rule_name': msc.RULE_NAME_MAX, 'rule_text': msc.RULE_TEXT_MAX}
+
+    def __init__(self, *args, title, layout, frame, lang_code, map_card=None, **kwargs):
+        self.title, self.layout, self.frame, self.lang_code = title, layout or {}, frame, lang_code
+        card = msc.clean_setup_card(map_card)
+        kwargs.setdefault('initial', {
+            'special_path_rule': card['special_path_rule'],
+            'modifications': card['modifications'],
+            'raging_river': 'yes' if card['raging_river'] else 'no',
+        })
+        super().__init__(*args, **kwargs)
+        self.rules = card['rules']
+        self.overflow = None
+
+    def clean(self):
+        cleaned = super().clean()
+        names, texts = self.data.getlist('rule_name'), self.data.getlist('rule_text')
+        rules = [{'name': n, 'text': t} for n, t in zip(names, texts)]
+        self.rules = [r for r in rules if (r['name'] or '').strip() or (r['text'] or '').strip()]
+        if len(self.rules) > msc.RULES_MAX:
+            raise ValidationError(f"A setup card has room for {msc.RULES_MAX} rules at most.")
+        for rule in self.rules:
+            if len(rule['name'].strip()) > msc.RULE_NAME_MAX:
+                raise ValidationError(f"Keep each rule's name to {msc.RULE_NAME_MAX} characters.")
+            if len(rule['text'].strip()) > msc.RULE_TEXT_MAX:
+                raise ValidationError(f"Keep each rule's text to {msc.RULE_TEXT_MAX} characters.")
+        card = msc.clean_setup_card({
+            'special_path_rule': cleaned.get('special_path_rule'),
+            'modifications': cleaned.get('modifications'),
+            'raging_river': cleaned.get('raging_river') == 'yes',
+            'rules': self.rules,
+        })
+        fits = msc.setup_card_fits(self.title, self.layout, card, frame=self.frame, lang_code=self.lang_code)
+        if not fits['front']:
+            self.overflow = 'front'
+            raise ValidationError("That's too much text for the card: it would leave no room for the map, even with "
+                                  "the setup modifications moved to the back. Shorten them, the special paths' rule "
+                                  "or the rules.")
+        if not fits['back']:
+            self.overflow = 'back'
+            raise ValidationError("The rules don't fit on the card's back. Shorten them, or move some to a Law entry.")
+        cleaned['map_card'] = card
+        return cleaned

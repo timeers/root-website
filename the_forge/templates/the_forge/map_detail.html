@@ -66,6 +66,41 @@
 
   {% include 'the_keep/includes/map_layout_summary.html' %}
 
+  {% if forged_map.image_preview %}
+  <!-- The setup card (the_keep/services/map_setup_card.py) -->
+  <div class="card p-3 mb-3">
+    <div class="position-relative mb-2">
+      <h4 class="root-title text-center mb-0">Setup Card</h4>
+      {% if can_edit %}
+        <a href="{% url 'forge-map-setup-card' pk=faction.pk %}" class="btn btn-sm btn-warning position-absolute top-50 end-0 translate-middle-y">
+          <i class="bi bi-pencil-square me-1"></i>{% if forged_map.map_card %}Edit{% else %}Add rules{% endif %}
+        </a>
+      {% endif %}
+    </div>
+    {% if forged_map.card_image %}
+      <div class="d-flex flex-wrap justify-content-center gap-3">
+        {% for image, version, side in card_sides %}
+          <figure class="mb-0 text-center" style="width: 220px;">
+            <img src="{{ image.url }}?v={{ version }}" alt="{{ faction.faction_name }} setup card ({{ side }})"
+                 class="w-100 rounded shadow-sm zoomable" data-full="{{ image.url }}?v={{ version }}" onclick="openLightbox(this)">
+            <figcaption class="small text-muted mt-1">{{ side|capfirst }}</figcaption>
+          </figure>
+        {% endfor %}
+      </div>
+    {% else %}
+      <p class="text-muted small text-center mb-0">Not rendered yet.</p>
+    {% endif %}
+    {% if card_stale and can_edit %}
+      <form method="post" action="{% url 'forge-map-setup-card-render' pk=faction.pk %}"
+            class="d-flex flex-wrap justify-content-center align-items-center gap-2 mt-2">
+        {% csrf_token %}
+        <span class="text-muted small">The setup card is out of date.</span>
+        <button type="submit" class="btn btn-sm btn-outline-primary"><i class="bi bi-arrow-repeat me-1"></i>Re-render</button>
+      </form>
+    {% endif %}
+  </div>
+  {% endif %}
+
   {% include 'the_forge/partials/_publish_card.html' %}
 
   {% include 'the_forge/partials/_tts_library_card.html' with noun='map' %}

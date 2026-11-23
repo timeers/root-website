@@ -26,6 +26,8 @@ from .services.upload_paths import (
     forged_card_upload_path,
     map_art_upload_path,
     map_preview_upload_path,
+    map_card_front_upload_path,
+    map_card_back_upload_path,
 )
 
 
@@ -1372,6 +1374,17 @@ class ForgedMap(models.Model):
     last_updated = models.DateTimeField(auto_now=True)
     last_generated = models.DateTimeField(blank=True, null=True)
 
+    # Its setup card (the_keep/services/map_setup_card.py): the text from the
+    # setup card editor, and the card's images, named as on a keep post so the
+    # shared code and the sync treat both alike. card_2_image (the back) only
+    # when the card has rules.
+    map_card = models.JSONField(default=dict, blank=True)
+    card_fingerprint = models.CharField(max_length=32, blank=True, default='')
+    card_image = models.ImageField(upload_to=map_card_front_upload_path, blank=True, null=True)
+    card_2_image = models.ImageField(upload_to=map_card_back_upload_path, blank=True, null=True)
+    card_image_version = models.PositiveIntegerField(default=0)
+    card_2_image_version = models.PositiveIntegerField(default=0)
+
     def __str__(self):
         return f'{self.faction.faction_name} Map'
 
@@ -1388,6 +1401,13 @@ class ForgedMap(models.Model):
     def preview_stale(self):
         from .pdf_cache import fingerprint_map
         return not self.image_preview or self.preview_fingerprint != fingerprint_map(self)
+
+    @property
+    def card_stale(self):
+        """The setup card's images are missing or out of date (a completed map only)."""
+        from .services.forge_map import setup_card_fingerprint
+        return bool(self.image_preview) and (not self.card_image
+                                             or self.card_fingerprint != setup_card_fingerprint(self))
 
 
 # ForgedFaction drafts every keep Post type (see ForgedFaction.component); the

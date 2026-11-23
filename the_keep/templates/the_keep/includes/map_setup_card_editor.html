@@ -1,0 +1,142 @@
+{% comment %}
+A map's setup card editor (the_keep/forms.py MapSetupCardForm), for any map
+with a layout: the Forge's setup card page now, a Keep page later.
+
+Context: form; features ({special, river}: which sections the layout has);
+special_name (the special paths' name, or the default); named (the map named
+them); text (the card's fixed wording, in the map's language); post_url;
+cancel_url; rename_url (where the special paths are named, optional);
+law_url ("Add a Law entry" for the map's keep post, optional).
+{% endcomment %}
+<form method="post" action="{{ post_url }}" id="msc-form" data-rules-max="{{ form.limits.rules }}">
+  {% csrf_token %}
+
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger">
+      {% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
+      {% if form.overflow %}{% include 'the_keep/includes/map_setup_card_law_note.html' %}{% endif %}
+    </div>
+  {% endif %}
+
+  <div class="card p-3 mb-3">
+    <h5 class="root-title mb-1"><span class="badge text-bg-secondary me-2">1</span>{{ text.modifications }}</h5>
+    <p class="small text-muted mb-2">How is setup up on this map different from the usual setup?</p>
+    <textarea name="modifications" rows="3" class="form-control" maxlength="{{ form.limits.modifications }}"
+              data-counter>{{ form.modifications.value|default:'' }}</textarea>
+    <div class="form-text text-end" data-count-for="modifications"></div>
+    {% for error in form.modifications.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+  </div>
+
+  {% if features.special %}
+  <div class="card p-3 mb-3">
+    <h5 class="root-title mb-1"><span class="badge text-bg-secondary me-2">2</span>{{ special_name }}</h5>
+    <p class="small text-muted mb-2">
+      What do your special paths do?
+      {% if rename_url %}{% if named %}Rename them{% else %}Name them{% endif %} on the builder's <a href="{{ rename_url }}">Paths &amp; Rivers step</a>.{% endif %}
+    </p>
+    <textarea name="special_path_rule" rows="2" class="form-control" maxlength="{{ form.limits.special }}"
+              data-counter placeholder="e.g. Warriors may only move along these if you rule both clearings.">{{ form.special_path_rule.value|default:'' }}</textarea>
+    <div class="form-text text-end" data-count-for="special_path_rule"></div>
+    {% for error in form.special_path_rule.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if features.river %}
+  <div class="card p-3 mb-3">
+    <h5 class="root-title mb-1"><span class="badge text-bg-secondary me-2">{% if features.special %}3{% else %}2{% endif %}</span>{{ text.raging_river }}</h5>
+    <p class="small text-muted mb-2">Does the River divide forests on this map? Of the official maps only Winter has this special rule.</p>
+    <div class="btn-group mb-2" role="group" aria-label="{{ text.raging_river }}">
+      {% for choice in form.raging_river %}
+        <input type="radio" class="btn-check" name="raging_river" id="msc-raging-{{ choice.data.value }}"
+               value="{{ choice.data.value }}" autocomplete="off" {% if choice.data.selected %}checked{% endif %}>
+        <label class="btn btn-outline-primary" for="msc-raging-{{ choice.data.value }}">{{ choice.choice_label }}</label>
+      {% endfor %}
+    </div>
+    <p class="small mb-0 msc-stock-rule" data-raging-preview>
+      Adds this rule to the card's back: <strong>{{ text.raging_river }}.</strong> {{ text.raging_river_text }}
+    </p>
+  </div>
+  {% endif %}
+
+  <div class="card p-3 mb-3">
+    <h5 class="root-title mb-1"><span class="badge text-bg-secondary me-2">{% if features.special and features.river %}4{% elif features.special or features.river %}3{% else %}2{% endif %}</span>Special Rules</h5>
+    <p class="small text-muted mb-2">The map's own rules (up to {{ form.limits.rules }}).</p>
+    {% if features.river %}
+      <div class="border rounded p-2 mb-2 bg-body-tertiary small" data-raging-preview>
+        <strong>{{ text.raging_river }}.</strong> {{ text.raging_river_text }}
+        <span class="text-muted">(from Raging River)</span>
+      </div>
+    {% endif %}
+    <div id="msc-rules">
+      {% for rule in form.rules %}
+        {% include 'the_keep/includes/map_setup_card_rule_row.html' %}
+      {% endfor %}
+    </div>
+    <template id="msc-rule-template">
+      {% include 'the_keep/includes/map_setup_card_rule_row.html' with rule=None %}
+    </template>
+    <div>
+      <button type="button" class="btn btn-sm btn-outline-primary" id="msc-add-rule"><i class="bi bi-plus-lg me-1"></i>Add a rule</button>
+    </div>
+    <div class="small text-muted mt-2" id="msc-law-note" hidden>
+      {% include 'the_keep/includes/map_setup_card_law_note.html' %}
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-end gap-2">
+    <a href="{{ cancel_url }}" class="btn btn-outline-secondary">Cancel</a>
+    <button type="submit" class="btn btn-primary"><i class="bi bi-save me-1"></i>Save Setup Card</button>
+  </div>
+</form>
+
+<script>
+(function () {
+  'use strict';
+  const form = document.getElementById('msc-form');
+  if (!form) return;
+  const rules = document.getElementById('msc-rules');
+  const template = document.getElementById('msc-rule-template');
+  const addButton = document.getElementById('msc-add-rule');
+  const lawNote = document.getElementById('msc-law-note');
+  const rulesMax = parseInt(form.dataset.rulesMax, 10);
+
+  // Characters left, and the Law-entry note near any limit (or at the last rule).
+  function counter(field) {
+    const max = parseInt(field.getAttribute('maxlength'), 10);
+    let out = field.parentElement.querySelector(`[data-count-for="${field.name}"]`)
+      || field.closest('[data-rule-row]')?.querySelector('[data-count]');
+    if (out) out.textContent = `${field.value.length} / ${max}`;
+    return field.value.length >= max * 0.9;
+  }
+  function refresh() {
+    let near = false;
+    form.querySelectorAll('[data-counter]').forEach(field => { if (counter(field)) near = true; });
+    const count = rules.querySelectorAll('[data-rule-row]').length;
+    addButton.disabled = count >= rulesMax;
+    if (lawNote) lawNote.hidden = !(near || count >= rulesMax);
+  }
+  form.addEventListener('input', refresh);
+
+  addButton.addEventListener('click', () => {
+    if (rules.querySelectorAll('[data-rule-row]').length >= rulesMax) return;
+    rules.appendChild(template.content.cloneNode(true));
+    rules.lastElementChild.querySelector('input')?.focus();
+    refresh();
+  });
+  rules.addEventListener('click', event => {
+    const remove = event.target.closest('[data-remove-rule]');
+    if (!remove) return;
+    remove.closest('[data-rule-row]').remove();
+    refresh();
+  });
+
+  // The stock Raging River rule shows while Raging River is Yes.
+  function raging() {
+    const yes = form.querySelector('input[name="raging_river"][value="yes"]');
+    form.querySelectorAll('[data-raging-preview]').forEach(node => { node.hidden = !(yes && yes.checked); });
+  }
+  form.addEventListener('change', raging);
+  raging();
+  refresh();
+})();
+</script>

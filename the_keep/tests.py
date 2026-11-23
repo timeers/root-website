@@ -2229,3 +2229,257 @@ class MapPathTests(TestCase):
         self.assertIn('Bridges', labels)
         del state['special_path_name']
         self.assertIn('Special Paths', [t['label'] for t in layout_summary(state)['path_tiles']])
+
+
+# ── Map setup cards (services/map_setup_card.py) ────────────────────────────
+from the_keep.services import map_setup_card as msc
+from the_keep.services.tts_map import FORGE_FRAME
+
+
+def _card_layout(paths=(), forests=((0.45, 0.45),), clearings=None, **extra):
+    clearings = clearings or [
+        {'centre': [0.2, 0.3], 'marker': [0.2, 0.36], 'number': 1},
+        {'centre': [0.8, 0.3], 'marker': [0.8, 0.36], 'number': 2},
+        {'centre': [0.2, 0.8], 'marker': [0.2, 0.86], 'number': 3},
+        {'centre': [0.8, 0.8], 'marker': [0.8, 0.86], 'number': 4},
+    ]
+    return {'clearings': clearings, 'forests': [list(f) for f in forests], 'paths': list(paths), **extra}
+
+
+class MapSetupCardDataTests(TestCase):
+    def test_clean_setup_card(self):
+        card = msc.clean_setup_card({
+            'special_path_rule': '  Cross\x07 only by day.  ', 'modifications': 'x' * 999, 'raging_river': 'yes',
+            'rules': [{'name': ' Ferry ', 'text': 'Sail.'}, {'name': '', 'text': '  '}, 'junk']
+                     + [{'name': f'R{n}', 'text': 't'} for n in range(9)],
+        })
+        self.assertEqual(card['special_path_rule'], 'Cross only by day.')
+        self.assertEqual(len(card['modifications']), msc.MODIFICATIONS_MAX)
+        self.assertIs(card['raging_river'], False)          # only a real True
+        self.assertEqual(card['rules'][0], {'name': 'Ferry', 'text': 'Sail.'})
+        self.assertEqual(len(card['rules']), msc.RULES_MAX)
+        self.assertEqual(msc.clean_setup_card(None)['rules'], [])
+
+    def test_sections_the_layout_lacks_are_kept_but_not_drawn(self):
+        card = {'special_path_rule': 'Bridges.', 'raging_river': True}
+        self.assertEqual(msc.applicable(_card_layout(), card)['special_path_rule'], '')
+        self.assertFalse(msc.applicable(_card_layout(), card)['raging_river'])
+        rivers = _card_layout(paths=[{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}])
+        self.assertTrue(msc.applicable(rivers, card)['raging_river'])
+        # ...and don't change the fingerprint while they don't apply.
+        fp = lambda c: msc.card_fingerprint('Map', _card_layout(), c, frame=FORGE_FRAME, lang_code='en')  # noqa: E731
+        self.assertEqual(fp(card), fp({}))
+
+    def test_the_fingerprint_ignores_what_the_card_doesnt_draw(self):
+        fp = lambda layout, title='Map', lang='en': msc.card_fingerprint(  # noqa: E731
+            title, layout, {}, frame=FORGE_FRAME, lang_code=lang)
+        base = fp(_card_layout())
+        self.assertEqual(base, fp(_card_layout(logo=[0.1, 0.1], track_y=0.5, buildings=[{'at': [0.5, 0.5]}])))
+        self.assertNotEqual(base, fp(_card_layout(forests=[(0.5, 0.6)])))
+        self.assertNotEqual(base, fp(_card_layout(), title='Other'))
+        self.assertNotEqual(base, fp(_card_layout(), lang='fr'))
+        self.assertEqual(len(base), 32)
+
+    def test_translations_fall_back_to_english_per_string(self):
+        from the_forge import pdf_engine
+        with mock.patch.dict(pdf_engine.PDF_TEXT, {'xx': {'map_setup_card': {'raging_river': 'Fleuve'}}}):
+            text = msc.card_text('xx')
+        self.assertEqual(text['raging_river'], 'Fleuve')
+        self.assertEqual(text['modifications'], 'Setup Modifications')
+        self.assertEqual(msc.card_text('zz')['special_paths'], 'Special Paths')
+
+    def test_run_in_escapes_and_italicises(self):
+        self.assertEqual(msc.run_in('Ferry', 'Sail <b>now</b> (spend a card) & go'),
+                         '<b>Ferry.</b> Sail &lt;b&gt;now&lt;/b&gt; <i>(spend a card)</i> &amp; go')
+        self.assertEqual(msc.run_in('A & B?', ''), '<b>A &amp; B?</b>')
+
+
+class ForestTreesTests(TestCase):
+    FRAME = (160.0, 120.0)
+
+    def test_a_forest_fills_only_its_own_area(self):
+        wall = ([(80.0, -10.0), (80.0, 130.0)], 1.0)     # a path down the middle
+        left = msc.forest_trees(self.FRAME, [], [wall], [(40.0, 60.0)])
+        self.assertTrue(left)
+        self.assertTrue(all(x < 80 for x, _y in left))
+        reach = msc.TREE_GAP + msc.TREE_H / 2 + 1.0
+        self.assertTrue(all(abs(x - 80) >= reach for x, _y in left))
+
+    def test_trees_keep_clear_of_clearings(self):
+        clearing = (80.0, 60.0, 13.0)
+        trees = msc.forest_trees(self.FRAME, [clearing], [], [(20.0, 20.0)])
+        self.assertTrue(all(math.hypot(x - 80, y - 60) >= 13 + msc.TREE_GAP for x, y in trees))
+
+    def test_a_narrow_passage_still_joins_a_forest(self):
+        # A suit icon all but closing the frame: too narrow for a tree on
+        # either side of it, but it doesn't bound the forest.
+        icon = (80.0, 20.0, 15.0)
+        trees = msc.forest_trees((160.0, 40.0), [], [], [(20.0, 20.0)], avoid=[icon])
+        self.assertTrue(any(x > 100 for x, _y in trees))
+        self.assertTrue(all(math.hypot(x - 80, y - 20) >= 15 + msc.TREE_GAP for x, y in trees))
+        # A path there does bound it.
+        wall = ([(80.0, -10.0), (80.0, 50.0)], 1.0)
+        trees = msc.forest_trees((160.0, 40.0), [], [wall], [(20.0, 20.0)])
+        self.assertFalse(any(x > 80 for x, _y in trees))
+
+    def test_two_forests_in_one_area_fill_it_once(self):
+        one = msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0)])
+        two = msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0), (120.0, 60.0)])
+        self.assertEqual(len(one), len(two))
+
+    def test_evenly_spaced_with_a_little_variation(self):
+        trees = msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0)])
+        nearest = [min(math.dist(a, b) for b in trees if b is not a) for a in trees]
+        self.assertGreaterEqual(min(nearest), msc.TREE_SPACING - 2 * msc.TREE_JITTER - 1e-6)
+        self.assertGreater(len(set(round(n, 1) for n in nearest)), 5)        # not a plain grid
+        self.assertEqual(trees, msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0)]))   # but always the same
+
+
+class MapSetupCardEngineTests(TestCase):
+    RIVER = {'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}
+
+    def _engine(self, layout=None, card=None, **kwargs):
+        return msc.MapSetupCardEngine('Highlands', layout or _card_layout(), card or {}, frame=FORGE_FRAME, **kwargs)
+
+    def _diagram(self, layout, raging=False):
+        engine = self._engine(layout)
+        return msc._Diagram(layout, FORGE_FRAME, (engine.text_w, 150.0), raging)
+
+    def test_pages(self):
+        import fitz
+        front, back = self._engine().render()
+        self.assertIsNone(back)
+        self.assertEqual(fitz.open(stream=front, filetype='pdf').page_count, 1)
+        self.assertIn('Highlands', fitz.open(stream=front, filetype='pdf')[0].get_text())
+        _front, back = self._engine(card={'rules': [{'name': 'Ferry', 'text': 'Sail.'}]}).render()
+        self.assertIn('Ferry.', fitz.open(stream=back, filetype='pdf')[0].get_text())
+        # Raging River alone makes a back, its stock rule first.
+        rivers = _card_layout(paths=[self.RIVER])
+        engine = self._engine(rivers, card={'raging_river': True, 'rules': [{'name': 'Ferry', 'text': 'Sail.'}]})
+        self.assertEqual([h for h, _t in engine.back_items()], ['Raging River', 'Ferry'])
+        text = fitz.open(stream=engine.render()[1], filetype='pdf')[0].get_text()
+        self.assertLess(text.index('Raging River'), text.index('Ferry'))
+
+    def test_lines_end_on_the_clearing_circles(self):
+        path = {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}}
+        diagram = self._diagram(_card_layout(paths=[path]))
+        (a, b), ((ax, ay, r), (bx, by, _r)) = diagram.paths[0]['points'][::32], diagram.clearings[:2]
+        self.assertAlmostEqual(math.hypot(a[0] - ax, a[1] - ay), r, places=3)
+        self.assertAlmostEqual(math.hypot(b[0] - bx, b[1] - by), r, places=3)
+
+    def test_a_lone_river_runs_off_the_frame(self):
+        river = {'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}
+        diagram = self._diagram(_card_layout(paths=[river]))
+        ends = [points[-1] for points in diagram.rivers[1:]]      # the run-offs
+        self.assertEqual(len(ends), 2)
+        for x, y in ends:
+            self.assertTrue(x <= 0 or x >= diagram.box_w or y <= 0 or y >= diagram.height)
+
+    def test_a_river_merges_into_another(self):
+        rivers = [self.RIVER, {'kind': 'river', 'a': {'c': 2}, 'b': {'p': 0}}]
+        diagram = self._diagram(_card_layout(paths=rivers))
+        main = diagram.rivers[0]
+        merge = min(diagram.rivers[2:], key=lambda pts: min(math.dist(pts[-1], q) for q in main))
+        # It ends on the main river's line.
+        self.assertLess(min(msc._seg_distance(merge[-1], a, b) for a, b in zip(main, main[1:])), 0.5)
+
+    def test_a_raging_river_is_twice_as_wide_and_bounds_forests(self):
+        across = {'kind': 'river', 'a': {'c': 0}, 'b': {'c': 3}}
+        calm, raging = self._diagram(_card_layout(paths=[across])), self._diagram(_card_layout(paths=[across]), True)
+        self.assertEqual(raging.river_width, 2 * calm.river_width)
+        self.assertGreater(len(calm.trees), len(raging.trees))
+        main = raging.rivers[0]
+        for p in raging.trees:
+            self.assertGreaterEqual(min(msc._seg_distance(p, a, b) for a, b in zip(main, main[1:])),
+                                    raging.river_width / 2)
+
+    def test_the_legend_only_with_special_paths(self):
+        self.assertIsNone(self._engine()._legend())
+        special = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}], special_path_name='Bridges')
+        engine = self._engine(special, card={'special_path_rule': 'Cross by day.'})
+        # The key is just the name; what they do is a rule on the back.
+        self.assertEqual(engine._legend().text, 'Bridges')
+        self.assertEqual(engine.back_items(), [('Bridges', 'Cross by day.')])
+        self.assertTrue(engine.has_back)
+        self.assertFalse(self._engine(special).has_back)        # no rule: no back
+        unnamed = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}])
+        self.assertIn('Special Paths', self._engine(unnamed)._legend().text)
+
+    def test_the_diagram_keeps_the_maps_shape_within_its_stretch(self):
+        wide = _card_layout(clearings=[{'centre': [0.1, 0.45], 'number': 1}, {'centre': [0.9, 0.55], 'number': 2}],
+                            forests=())
+        diagram = self._diagram(wide)
+        (ax, ay, _r), (bx, by, _r2) = diagram.clearings
+        sx = (bx - ax) / (0.8 * FORGE_FRAME[0])
+        sy = (by - ay) / (0.1 * FORGE_FRAME[1])
+        self.assertLessEqual(sy / sx, msc.DIAGRAM_MAX_STRETCH + 1e-6)
+
+    def test_fixed_suits_get_their_icons(self):
+        layout = _card_layout(fixed=True)
+        for clearing, suit in zip(layout['clearings'], ('fox', 'rabbit', 'city')):
+            clearing['suit'] = suit
+        diagram = self._diagram(layout)
+        self.assertEqual(diagram.suits, ['fox', 'rabbit', 'city', None])
+        # Room above the top clearings for their icons.
+        top = min(y - r for _x, y, r in diagram.clearings)
+        self.assertGreaterEqual(top, msc.SUIT_ICON_H * msc.SUIT_ICON_SCALE['city'] / 2)
+        self.assertEqual(self._diagram({**layout, 'fixed': False}).suits, [])
+        fp = lambda l: msc.card_fingerprint('Map', l, {}, frame=FORGE_FRAME, lang_code='en')  # noqa: E731
+        self.assertNotEqual(fp(layout), fp({**layout, 'fixed': False}))
+        self.assertTrue(self._engine(layout).render()[0])   # draws
+
+    def test_crowded_modifications_move_to_the_back(self):
+        short = self._engine(card={'modifications': 'Skip ruins.'})
+        self.assertFalse(short.modifications_on_back)
+        self.assertFalse(short.has_back)
+        special = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}])
+        crowded = self._engine(special, card={'modifications': 'word ' * 59, 'special_path_rule': 'word ' * 39,
+                                              'rules': [{'name': 'Ferry', 'text': 'Sail.'}]})
+        self.assertTrue(crowded.modifications_on_back)
+        self.assertEqual(crowded._front_top(), [])
+        self.assertEqual([h for h, _t in crowded.back_items()], ['Setup Modifications', 'Special Paths', 'Ferry'])
+        self.assertEqual(crowded.fits(), {'front': True, 'back': True})
+        import fitz
+        front, back = crowded.render()
+        self.assertNotIn('Setup Modifications', fitz.open(stream=front, filetype='pdf')[0].get_text())
+        self.assertIn('Setup Modifications', fitz.open(stream=back, filetype='pdf')[0].get_text())
+        # A back too full to take them: they stay, and the front is reported.
+        full = self._engine(special, card={**crowded.card, 'rules': [
+            {'name': f'R{n}', 'text': 'word ' * 30} for n in range(2)]})
+        self.assertFalse(full.modifications_on_back)
+        self.assertEqual(full.fits(), {'front': False, 'back': True})
+
+    def test_fits(self):
+        self.assertEqual(self._engine().fits(), {'front': True, 'back': True})
+        crowded = {'modifications': 'word ' * 60, 'rules': [{'name': f'R{n}', 'text': 'word ' * 58} for n in range(6)]}
+        fits = self._engine(card=crowded).fits()
+        self.assertFalse(fits['back'])
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='map-card-test-'))
+class RefreshSetupCardTests(TestCase):
+    """refresh_setup_card works on any map with the card fields: a keep Map here."""
+    def test_a_keep_map(self):
+        from django.contrib.auth.models import User
+        from the_gatehouse.models import Language, Profile
+        from the_keep.models import Map
+        english, _ = Language.objects.get_or_create(code='en', defaults={'name': 'English'})
+        designer = Profile.objects.get(user=User.objects.create_user(username='cartographer', password='pw'))
+        keep_map = Map.objects.create(title='Highlands', designer=designer, language=english,
+                                      map_card={'rules': [{'name': 'Ferry', 'text': 'Sail.'}]})
+        args = {'title': 'Highlands', 'layout': _card_layout(), 'lang_code': 'en', 'frame': (1000, 900)}
+        self.assertTrue(msc.refresh_setup_card(keep_map, **args))
+        keep_map.refresh_from_db()
+        self.assertTrue(keep_map.card_image and keep_map.card_2_image)
+        versions = (keep_map.card_image_version, keep_map.card_2_image_version)
+        self.assertFalse(msc.refresh_setup_card(keep_map, **args))           # up to date
+        # A new title redraws both sides; the same back is the same file.
+        keep_map.map_card = {'rules': [{'name': 'Ferry', 'text': 'Sail.'}]}
+        self.assertTrue(msc.refresh_setup_card(keep_map, **{**args, 'title': 'Lowlands'}))
+        keep_map.refresh_from_db()
+        self.assertEqual(keep_map.card_image_version, versions[0] + 1)
+        # No rules: the back goes.
+        keep_map.map_card = {}
+        msc.refresh_setup_card(keep_map, **{**args, 'title': 'Lowlands'})
+        keep_map.refresh_from_db()
+        self.assertFalse(keep_map.card_2_image)

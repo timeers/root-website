@@ -646,9 +646,14 @@ def _bow_apart(control, a, b, path, width):
 def path_shapes(geometry, state):
     """Each path's kind, colour and centre line (a polyline in pixels,
     trimmed to the clearings' circles) and its middle, in state order."""
-    paths = state.get('paths') or []
-    circles = _circles(geometry, state)
-    width = _path_px(geometry)['width']
+    return route_paths(state.get('paths') or [], _circles(geometry, state), _path_px(geometry)['width'])
+
+
+def route_paths(paths, circles, width):
+    """path_shapes' work, from its inputs: the paths (state['paths']), the
+    clearings' (x, y, r) and a path's width (a river's is RIVER_WIDTH times
+    it), in the same units. A map setup card (map_setup_card.py) draws its
+    diagram with it too."""
     shapes = {}
     # Paths that share both ends with one of the other family (a river and a path).
     pairs = {}
@@ -793,7 +798,8 @@ def _merge(start, d, target, at, reach):
 def _run_off(start, d, geometry, obstacles, half_width):
     """A river carried on from `start`, the way it was flowing (d), to the
     map's edge and just past it, bending round `obstacles` like a path. None
-    if it's already leaving the frame."""
+    if it's already leaving the frame. (`geometry`: anything with the frame's
+    width and height, its corner at 0, 0.)"""
     edge = _ray_to_edge(start, d, geometry.width, geometry.height)
     if edge is None:
         return None
@@ -814,10 +820,19 @@ def print_rivers(geometry, state, shapes=None):
       on, the way it was flowing, to the map's edge (round other clearings).
     - A river ending on another river's middle: cut back a little and curved
       into that river (its printed line), flowing the way it was heading."""
-    paths = state.get('paths') or []
     shapes = shapes if shapes is not None else path_shapes(geometry, state)
-    circles = _circles(geometry, state)
-    width = _path_px(geometry)['width'] * RIVER_WIDTH
+    return river_extras(state.get('paths') or [], shapes, _circles(geometry, state),
+                        _path_px(geometry)['width'] * RIVER_WIDTH, geometry)
+
+
+def river_extras(paths, shapes, circles, width, frame, join_clearings=True):
+    """print_rivers' work, from its inputs: the paths (state['paths']), their
+    shapes ({'points', ...} each, as path_shapes), the clearings' (x, y, r),
+    the river's width and the frame (anything with width and height, its
+    corner at 0, 0), all in the same units. Also draws a map setup card's
+    rivers (map_setup_card.py), which stop at the clearings: with
+    join_clearings=False, two rivers at a clearing aren't joined through it
+    (nor is an odd one out merged), but a lone river there still runs off."""
     half = width / 2
     reach_base = MERGE_REACH * width
     rivers = [i for i, p in enumerate(paths) if p['kind'] == 'river']
@@ -857,7 +872,7 @@ def print_rivers(geometry, state, shapes=None):
             else:
                 at, d = arriving(printed[i], end)
                 obstacles = [(x, y, r + half) for x, y, r in circles]
-                run = _run_off(at, d, geometry, obstacles, half)
+                run = _run_off(at, d, frame, obstacles, half)
                 if run:
                     links.append(run)
         done.add(i)
@@ -882,9 +897,11 @@ def print_rivers(geometry, state, shapes=None):
         if len(items) == 1:
             at, d = items[0]
             obstacles = [(x, y, rr + half) for j, (x, y, rr) in enumerate(circles) if j != k]
-            run = _run_off(at, d, geometry, obstacles, half)
+            run = _run_off(at, d, frame, obstacles, half)
             if run:
                 links.append(run)
+            continue
+        if not join_clearings:
             continue
         remaining, pairs = list(items), []
         while len(remaining) >= 2:
@@ -1162,6 +1179,34 @@ def track_snaps(geometry, state):
             for row in (-1, 0, 1) for i in range(TRACK_CELLS)]
 
 
+SETUP_CARD_DECK_ID = 90          # no other object in a map's save has a CustomDeck
+SETUP_CARD_GAP = 0.6             # table units between the board's edge and its setup card
+
+
+def _setup_card_object(map_post, geometry):
+    """The map's setup card (any map with a card_image: a keep Map's upload, or
+    a Forge map's generated card), beside the board's right edge at its top:
+    its back is the rules side, or the front again when it has none."""
+    from .tts import DEFAULT_CARD_TRANSFORM, TTSSingleCardDeck
+
+    front = getattr(map_post, 'card_image', None)
+    if not front:
+        return None
+    back = getattr(map_post, 'card_2_image', None) or front
+    # A card at scale 2.3 is about 5 x 7 table units.
+    half_w, half_h = 2.3 * 1.1, 2.3 * 1.55
+    (left_x, top_z), (right_x, bottom_z) = geometry.to_table(0.0, 0.0), geometry.to_table(1.0, 1.0)
+    out = 1 if right_x > left_x else -1
+    down = 1 if bottom_z > top_z else -1
+    transform = {**DEFAULT_CARD_TRANSFORM, 'posX': right_x + out * (half_w + SETUP_CARD_GAP),
+                 'posZ': top_z + down * half_h}
+    card = TTSSingleCardDeck(front, back, SETUP_CARD_DECK_ID, request=SiteURLRequest(),
+                             card_name=f'{map_post.title} Setup Card', transform=transform).to_object()
+    card['Tags'] = ['Map Object']
+    card['HideWhenFaceDown'] = False     # its back is the rules, for everyone to read
+    return card
+
+
 def build_map_tts_json(map_post, state):
     """The Map post's TTS save from its builder layout."""
     geometry = MapGeometry(map_post.board_image.width, map_post.board_image.height)
@@ -1248,6 +1293,10 @@ def build_map_tts_json(map_post, state):
         'XmlUI': '',
         'AttachedSnapPoints': snaps,
     }
+
+    card = _setup_card_object(map_post, geometry)
+    if card is not None:
+        objects.append(card)
 
     save = wrap_tts_save([board] + objects, save_name=map_post.title)
     save['BoardLayout'] = {

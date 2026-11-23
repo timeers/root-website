@@ -15,13 +15,15 @@ from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from the_gatehouse.views import forge_onboard_required
+from the_keep.forms import MapSetupCardForm
 from the_keep.models import Post
 from the_keep.services.tts_map import check_builder, clean_builder_state, layout_summary
 
 from .models import ForgedFaction, ForgedMap
 from .services.forge_map import (ArtRejected, default_state, map_builder_config, map_library_state,
-                                 map_name_max, name_locked_note, refresh_map_image, remove_art, save_art,
-                                 set_language, store_map_tts)
+                                 map_name_max, name_locked_note, refresh_forge_setup_card, refresh_map_image,
+                                 remove_art, save_art, set_language, setup_card_args, setup_card_fingerprint,
+                                 store_map_tts)
 from .views import _forbid_if_not_editor, user_can_edit_forge, user_can_view_forge
 
 
@@ -113,6 +115,10 @@ def map_detail(request, pk):
     context.update(publish_context(request, faction))
     context['config'] = map_builder_config(forged_map, profile=request.user.profile, readonly=True)
     context['summary'] = layout_summary(forged_map.tts_builder or {}, fixed=forged_map.fixed_clearings)
+    context['card_stale'] = forged_map.card_stale
+    context['card_sides'] = [(image, version, side) for image, version, side in (
+        (forged_map.card_image, forged_map.card_image_version, 'front'),
+        (forged_map.card_2_image, forged_map.card_2_image_version, 'back')) if image]
     return render(request, 'the_forge/map_detail.html', context)
 
 
@@ -164,6 +170,8 @@ def map_builder(request, pk):
             try:
                 with render_slot():
                     refresh_map_image(forged_map)
+                    # The setup card draws the layout just rendered.
+                    refresh_forge_setup_card(forged_map)
             except RenderBusy:
                 result.update(ok=False, message="The map generator is busy. Your layout is saved: try Complete again in a moment.")
                 return JsonResponse(result, status=503)
@@ -208,12 +216,21 @@ def map_pdf(request, pk):
     faction, forged_map = _forged_map(pk)
     if (resp := _forbid_if_not_editor(request, faction)):
         return resp
+    from the_keep.services.map_setup_card import card_fingerprint
+
     from .map_pdf_engine import MapLayoutEngine
     from .pdf_cache import cache_key, fingerprint_map, render_pdf
     from .render_guard import RenderBusy, busy_503, render_slot
+    # The PDF ends with the setup card, drawn from the same (live) layout as
+    # its map page: its key covers the card too (name and language included,
+    # which fingerprint_map doesn't).
+    args = {**setup_card_args(forged_map), 'layout': forged_map.tts_builder or {}}
+    card = card_fingerprint(args['title'], args['layout'], forged_map.map_card, frame=args['frame'],
+                            lang_code=args['lang_code'])
     try:
         with render_slot():
-            pdf = render_pdf(MapLayoutEngine, forged_map, cache_key('map', forged_map.pk, fingerprint_map(forged_map)))
+            pdf = render_pdf(MapLayoutEngine, forged_map,
+                             cache_key('map', forged_map.pk, f'{fingerprint_map(forged_map)}-{card}'), with_card=True)
     except RenderBusy:
         return busy_503()
     response = HttpResponse(pdf, content_type='application/pdf')
@@ -245,10 +262,11 @@ def map_tts(request, pk):
         return resp
     from .render_guard import RenderBusy, busy_503, render_slot
     # The JSON shows the generated image: bring both up to date first.
-    if forged_map.preview_stale or not faction.tts_json:
+    if forged_map.preview_stale or forged_map.card_stale or not faction.tts_json:
         try:
             with render_slot():
                 refresh_map_image(forged_map)
+                refresh_forge_setup_card(forged_map)
         except RenderBusy:
             return busy_503()
         ok, errors = store_map_tts(forged_map)
@@ -259,3 +277,74 @@ def map_tts(request, pk):
                             content_type='application/json')
     response['Content-Disposition'] = f'attachment; filename="{_filename(faction, "json")}"'
     return response
+
+
+def _setup_card_form(request, forged_map):
+    args = setup_card_args(forged_map)
+    return MapSetupCardForm(request.POST if request.method == 'POST' else None, title=args['title'],
+                            layout=args['layout'], frame=args['frame'], lang_code=args['lang_code'],
+                            map_card=forged_map.map_card)
+
+
+@forge_onboard_required
+def map_setup_card(request, pk):
+    """The map's setup card: what its special paths do, its setup
+    modifications, Raging River and its special rules. Saving renders the card."""
+    faction, forged_map = _forged_map(pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if not forged_map.image_preview:
+        messages.info(request, "Complete the map in the builder first: its setup card shows the finished map.")
+        return redirect('forge-map-detail', pk=faction.pk)
+    form = _setup_card_form(request, forged_map)
+    if request.method == 'POST' and form.is_valid():
+        forged_map.map_card = form.cleaned_data['map_card']
+        forged_map.save(update_fields=['map_card', 'last_updated'])
+        _render_setup_card(request, forged_map)
+        return redirect('forge-map-detail', pk=faction.pk)
+
+    from the_keep.services.map_setup_card import card_text, layout_features, special_path_name
+    from .pdf_engine import _lang_code_for
+    layout = setup_card_args(forged_map)['layout']
+    post = faction.published_keep_post if faction.published_post_id else None
+    return render(request, 'the_forge/map_setup_card.html', {
+        'faction': faction,
+        'forged_map': forged_map,
+        'form': form,
+        'features': layout_features(layout),
+        'special_name': special_path_name(layout, _lang_code_for(forged_map)),
+        'named': bool(layout.get('special_path_name')),
+        'text': card_text(_lang_code_for(forged_map)),
+        'law_url': reverse('post-law-group-create', kwargs={'slug': post.slug}) if post else None,
+        'post_url': reverse('forge-map-setup-card', kwargs={'pk': faction.pk}),
+        'cancel_url': reverse('forge-map-detail', kwargs={'pk': faction.pk}),
+    })
+
+
+def _render_setup_card(request, forged_map):
+    """Render the card (and the TTS JSON, which carries it) now, if the
+    renderer's free; else the detail page says it's out of date."""
+    from .render_guard import RenderBusy, render_slot
+    try:
+        with render_slot():
+            changed = refresh_forge_setup_card(forged_map)
+    except RenderBusy:
+        messages.warning(request, "Saved. The card generator is busy: re-render the card from the map's page "
+                                  "in a moment.")
+        return False
+    if changed and forged_map.faction.tts_json:
+        store_map_tts(forged_map)
+    messages.success(request, "Updated the setup card.")
+    return True
+
+
+@login_required
+@require_POST
+def map_setup_card_render(request, pk):
+    """Re-render an out-of-date setup card (after a rename, say)."""
+    faction, forged_map = _forged_map(pk)
+    if (resp := _forbid_if_not_editor(request, faction)):
+        return resp
+    if forged_map.image_preview:
+        _render_setup_card(request, forged_map)
+    return redirect('forge-map-detail', pk=faction.pk)

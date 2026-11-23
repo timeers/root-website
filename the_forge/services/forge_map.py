@@ -216,6 +216,33 @@ def refresh_map_image(forged_map):
     return True
 
 
+def setup_card_args(forged_map):
+    """What a Forge map's setup card images are drawn from: its name, the
+    layout its published image shows (else the live one), its language and
+    the Forge's frame."""
+    from the_forge.pdf_engine import _lang_code_for
+    layout = forged_map.rendered_builder if forged_map.rendered_builder is not None else forged_map.tts_builder
+    return {'title': forged_map.title, 'layout': layout or {}, 'lang_code': _lang_code_for(forged_map),
+            'frame': FORGE_FRAME}
+
+
+def setup_card_fingerprint(forged_map):
+    from the_keep.services.map_setup_card import card_fingerprint
+    args = setup_card_args(forged_map)
+    return card_fingerprint(args['title'], args['layout'], forged_map.map_card, frame=args['frame'],
+                            lang_code=args['lang_code'])
+
+
+def refresh_forge_setup_card(forged_map):
+    """Render the map's setup card if it's out of date (a completed map only:
+    the card draws the layout its image shows). Call it inside render_slot().
+    Returns True if it changed."""
+    from the_keep.services.map_setup_card import refresh_setup_card
+    if not forged_map.image_preview:
+        return False
+    return refresh_setup_card(forged_map, **setup_card_args(forged_map))
+
+
 def store_map_tts(forged_map):
     """Build the map's TTS JSON from its layout (on the generated image) and
     store it on the draft. Returns (ok, errors)."""
@@ -247,6 +274,7 @@ def refresh_map_snapshot(faction):
     try:
         with render_slot():
             refresh_map_image(forged_map)
+            refresh_forge_setup_card(forged_map)
     except RenderBusy:
         return "The map generator is busy. Try again in a moment."
     ok, errors = store_map_tts(forged_map)
