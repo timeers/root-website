@@ -10570,6 +10570,9 @@ def qualifier_detail(request, slug):
         'show': show,
         'is_filtered': bool(q) or show != 'all',
         'can_edit': qualifier.can_edit(request.user),
+        # The info modal holds the description and, for Elo qualifiers, when the
+        # system's ratings were last calculated.
+        'has_info': bool(qualifier.description) or qualifier.is_elo,
         'players_count': len(rows),
         'ranked_count': ranked_count,
         'provisional_count': len(rows) - ranked_count,

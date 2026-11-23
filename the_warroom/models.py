@@ -344,6 +344,10 @@ class EloSystem(models.Model):
     # replays eligible games from this date_posted forward, then clears the field. Set by
     # mark-dirty signals to min(existing value, earliest affected game's date_posted).
     recompute_from = models.DateTimeField(null=True, blank=True, db_index=True)
+    # When this system's ratings last finished calculating: a successful LOCAL
+    # replay or a successful ROOTELO feed refresh (dry runs and failed fetches
+    # don't count). Null until the first one.
+    last_calculated_at = models.DateTimeField(null=True, blank=True, editable=False)
 
     # Field groups — a change to any field in EITHER group requires a full-history replay.
     # A future EloSystem form uses these to warn the user what kind of change they're making:

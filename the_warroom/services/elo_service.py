@@ -15,6 +15,7 @@ task, which replays each dirty system from its `recompute_from` watermark.
 
 from bisect import bisect_right
 
+from django.utils import timezone
 from django.db import transaction
 from django.db.models import Min, Q
 
@@ -397,3 +398,6 @@ def recompute_system_from(elo_system, cutoff_dt):
 
         # 4. Upsert current standings for all touched players.
         _write_participants(elo_system, working)
+
+        # Inside the transaction, so the stamp lands only if the replay commits.
+        EloSystem.objects.filter(pk=elo_system.pk).update(last_calculated_at=timezone.now())

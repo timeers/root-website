@@ -861,6 +861,8 @@ def _refresh_one_rootelo_system(system, dry_run=False):
                      'icon_url', 'win_rate', 'feed_key'],
                     batch_size=500,
                 )
+            # Stamped even when nothing changed: the feed was fetched and applied.
+            EloSystem.objects.filter(pk=system.pk).update(last_calculated_at=timezone.now())
     return {'system': system.name, 'matched': matched,
             'created': len(to_create), 'updated': len(to_update)}
 
