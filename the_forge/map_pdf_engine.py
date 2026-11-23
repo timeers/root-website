@@ -1,4 +1,5 @@
-"""Print a Forge map: the map's art with the VP track, items, Root logo,
+"""Print a Forge map: the map's art (or, without art, a grey board with its
+rivers, paths and clearing circles) with the VP track, items, Root logo,
 buildings, ruins and (fixed-suit maps) each clearing's suit printed on it, where
 the map builder placed them.
 
@@ -11,12 +12,15 @@ from functools import lru_cache
 from pathlib import Path
 
 from reportlab.graphics import renderPDF
+from reportlab.lib.colors import HexColor
 from reportlab.lib.units import inch, mm
 from reportlab.pdfgen import canvas as rl_canvas
 from svglib.svglib import svg2rlg
 
-from the_keep.services.tts_map import (FORGE_FRAME, MAX_ART_WIDTH, OFFICIAL_RATIO, PRINT_DIR, SUIT_LINE_CENTRE_MM,
-                                       SUIT_LINE_RADIUS_MM, MapGeometry, print_art, print_layout)
+from the_keep.services.tts_map import (CLEARING_OUTLINE, FORGE_FRAME, MAP_BLANK, MAX_ART_WIDTH, OFFICIAL_RATIO,
+                                       PATH_COLOURS, PATH_DASH, PATH_GAP, PATH_LANES, PATH_STROKE, PRINT_DIR,
+                                       RIVER_WIDTH, SUIT_LINE_CENTRE_MM, SUIT_LINE_RADIUS_MM, MapGeometry,
+                                       path_lanes, print_art, print_layout)
 
 from .pdf_engine import PRINT_DPI, _scaled_for_canvas, _tag_canvas_dpi
 
@@ -54,15 +58,32 @@ class MapLayoutEngine:
         layout = print_layout(self.geometry, self.map.tts_builder or {})
         art = print_art()
 
-        self._draw_image(c, self.map.art.path, (0, 0) + FORGE_FRAME)
-        self._draw_image(c, art['vp']['path'], layout['vp'])
-        self._draw_image(c, art['items']['path'], layout['items'])
-        self._draw_image(c, art['logo']['path'], layout['logo'])
+        # Bottom to top. A map's own art already shows its clearings, paths
+        # and rivers; without art they're printed on a grey board: rivers
+        # (joined through their clearings, or run off the map's edge), then
+        # paths, then the clearings' circles.
+        if self.map.art:
+            self._draw_image(c, self.map.art.path, (0, 0) + FORGE_FRAME)
+        else:
+            c.setFillColor(HexColor(MAP_BLANK))
+            c.rect(0, 0, PAGE_W, PAGE_H, stroke=0, fill=1)
+            rivers = [p for p in layout['paths'] if p['kind'] == 'river']
+            for link in layout['river_links']:
+                self._draw_path(c, {'kind': 'river', 'colour': PATH_COLOURS['river'], 'points': link},
+                                layout['path_width'])
+            for path in rivers + [p for p in layout['paths'] if p['kind'] != 'river']:
+                self._draw_path(c, path, layout['path_width'])
+            for circle in layout['clearings']:
+                self._draw_clearing(c, circle, layout['clearing_outline'])
         for suit in layout['suits']:
             self._draw_suit(c, suit)
         for building in layout['buildings']:
             name = 'root_map_ruin.png' if building['ruin'] else 'root_map_building.png'
             self._draw_image(c, str(Path(PRINT_DIR) / name), building['box'])
+        # Always on top, Root logo highest: item track < VP track < logo.
+        self._draw_image(c, art['items']['path'], layout['items'])
+        self._draw_image(c, art['vp']['path'], layout['vp'])
+        self._draw_image(c, art['logo']['path'], layout['logo'])
         c.showPage()
         c.save()
 
@@ -74,6 +95,46 @@ class MapLayoutEngine:
     def _draw_image(self, c, path, box):
         x, y, w, h = self._rect(box)
         c.drawImage(_scaled_for_canvas(c, path, w, h), x, y, w, h, mask='auto')
+
+    def _draw_path(self, c, path, width):
+        """A path as PATH_LANES rows of pill-shaped dashes, every other row
+        shifted half a dash: cobblestones. A river is one solid line. (As the
+        builder draws them.)"""
+        c.saveState()
+        c.setStrokeColor(HexColor(path['colour']))
+        c.setLineCap(1)                     # round
+        c.setLineJoin(1)
+        if path['kind'] == 'river':
+            # Flat ends: a river starts right at the clearing's edge.
+            c.setLineCap(0)
+            c.setLineWidth(RIVER_WIDTH * width * self.k)
+            self._polyline(c, path['points'])
+        else:
+            lane = width / PATH_LANES * self.k
+            dash, gap = PATH_DASH * lane, PATH_GAP * lane
+            c.setLineWidth(PATH_STROKE * lane)
+            for i, points in enumerate(path_lanes(path['points'], width)):
+                c.setDash([dash, gap], (dash + gap) / 2 if i % 2 else 0)
+                self._polyline(c, points)
+        c.restoreState()
+
+    def _draw_clearing(self, c, circle, width):
+        """A clearing's circle (centre to marker), as an outline: rivers and
+        paths show through it."""
+        x, y, r = circle
+        c.saveState()
+        c.setStrokeColor(HexColor(CLEARING_OUTLINE))
+        c.setLineWidth(width * self.k)
+        c.circle(x * self.k, PAGE_H - y * self.k, r * self.k, stroke=1, fill=0)
+        c.restoreState()
+
+    def _polyline(self, c, points):
+        line = c.beginPath()
+        x, y = points[0]
+        line.moveTo(x * self.k, PAGE_H - y * self.k)
+        for x, y in points[1:]:
+            line.lineTo(x * self.k, PAGE_H - y * self.k)
+        c.drawPath(line, stroke=1, fill=0)
 
     def _draw_suit(self, c, suit):
         """The suit's arc around the clearing, turned to the marker's side and

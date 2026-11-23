@@ -19,18 +19,16 @@
       <a href="{% url 'forge-map-builder' pk=faction.pk %}" class="btn btn-warning">
         <i class="bi bi-pencil-square me-1"></i>Edit
       </a>
-      {% if forged_map.art %}
-        <div class="btn-group">
-          <button type="button" class="btn btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-            <i class="bi bi-download me-1"></i>Download
-          </button>
-          <ul class="dropdown-menu dropdown-menu-end">
-            <li><a class="dropdown-item forge-async-download" href="{% url 'forge-map-pdf' pk=faction.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
-            <li><a class="dropdown-item forge-async-download" href="{% url 'forge-map-webp' pk=faction.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
-            <li><a class="dropdown-item forge-async-download" href="{% url 'forge-map-tts' pk=faction.pk %}"><i class="bi bi-pc-display"></i> Tabletop Simulator (JSON)</a></li>
-          </ul>
-        </div>
-      {% endif %}
+      <div class="btn-group">
+        <button type="button" class="btn btn-primary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+          <i class="bi bi-download me-1"></i>Download
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li><a class="dropdown-item forge-async-download" href="{% url 'forge-map-pdf' pk=faction.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-pdf"></i> PDF</a></li>
+          <li><a class="dropdown-item forge-async-download" href="{% url 'forge-map-webp' pk=faction.pk %}" target="_blank" rel="noopener"><i class="bi bi-file-earmark-image"></i> WebP Image</a></li>
+          <li><a class="dropdown-item forge-async-download" href="{% url 'forge-map-tts' pk=faction.pk %}"><i class="bi bi-pc-display"></i> Tabletop Simulator (JSON)</a></li>
+        </ul>
+      </div>
 
 
 
@@ -52,12 +50,12 @@
     {% else %}
       <div class="bg-body-secondary rounded d-flex flex-column align-items-center justify-content-center text-muted text-center p-3" style="aspect-ratio: 1.09;">
         <i class="bi bi-map fs-1 mb-2"></i>
-        {% if forged_map.art %}Not generated yet: finish the map in the builder and click Complete.{% else %}No art yet: open the builder to upload your map's art.{% endif %}
+        Not generated yet: finish the map in the builder and click Complete.
       </div>
     {% endif %}
   </div>
 
-  <!-- The art with the builder's layout over it -->
+  <!-- The art (or the grey board) with the builder's layout over it -->
   {% if config %}
     <div class="card p-3 mb-3">
       <h4 class="root-title text-center mb-2">Layout</h4>

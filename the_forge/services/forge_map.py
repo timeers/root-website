@@ -7,9 +7,9 @@ from django.core.files.base import ContentFile
 from django.urls import reverse
 from django.utils import timezone
 
-from the_keep.services.tts_map import (DEFAULT_LOGO, FORGE_FRAME, OFFICIAL_RATIO, RATIO_TOLERANCE, MapGeometry,
-                                       build_map_tts_json, builder_config, check_builder, crop_to_official,
-                                       print_art)
+from the_keep.services.tts_map import (DEFAULT_LOGO, FORGE_FRAME, MAP_BLANK, OFFICIAL_RATIO, RATIO_TOLERANCE,
+                                       MapGeometry, build_map_tts_json, builder_config, check_builder,
+                                       crop_to_official, path_config, print_art)
 from the_keep.utils import validate_tts_save
 
 MAX_ART_BYTES = 25 * 1024 * 1024
@@ -35,7 +35,8 @@ def step_text():
     """The Forge's wording for the builder's steps (the rest is the keep's)."""
     return {
         'upload': {
-            'hint': "Here we'll walk you through creating a Root map. All you need is to name your map and upload its art. "
+            'hint': "Here we'll walk you through creating a Root map. All you need is a name: your own art is optional "
+                    "(without it, the map is printed on a grey board with its paths and rivers). "
                     "Please don't use AI-generated art.",
             'link': {'before': 'If you already have a finished map, ',
                      'label': 'submit it to the Database',
@@ -45,6 +46,11 @@ def step_text():
         'track': {
             'hint': 'Drag the VP track up or down, and the item grid and the Root logo, to where they should be '
                     'printed on your map.',
+        },
+        'paths': {
+            'hint': 'Pick what to draw over the item track, then drag from one clearing to another, or to the '
+                    'middle of a path (a river joining a river). Select a path to change its type, drag one of '
+                    'its ends to another clearing, or press x to remove it.',
         },
         'review': {
             'hint': 'Check the count of each element, then click "Complete" to generate your map.',
@@ -90,6 +96,10 @@ def map_builder_config(forged_map, *, profile, readonly=False):
         show_intros=not getattr(profile, 'map_builder_onboard', True),
         upload_step=not readonly,
         upload_url=upload_url,
+        # Paths & Rivers: drawn in the builder (and printed on a map without art).
+        paths_step=True,
+        path=path_config(MapGeometry(*FORGE_FRAME)),
+        blank=MAP_BLANK,
         create_url=reverse('forge-map-create') if forged_map is None else None,
         art_cropped=cropped,
         official_ratio=OFFICIAL_RATIO,
@@ -169,6 +179,18 @@ def save_art(forged_map, upload):
     return cropped
 
 
+def remove_art(forged_map):
+    """Take the map's art away (it's optional): the map is then printed on a
+    grey board, with its paths and rivers. The art's name is in the map's
+    fingerprint, so the image re-renders on the next Complete or download."""
+    if forged_map.art:
+        forged_map.art.delete(save=False)
+    forged_map.art = None
+    forged_map.art_cropped = False
+    forged_map.art_version = (forged_map.art_version or 0) + 1
+    forged_map.save(update_fields=['art', 'art_cropped', 'art_version', 'last_updated'])
+
+
 def refresh_map_image(forged_map):
     """Render the map's image (the art with everything printed on it) if it's
     out of date. Runs the PDF engine: call it inside render_slot()."""
@@ -224,8 +246,8 @@ def refresh_map_snapshot(faction):
     from the_forge.render_guard import RenderBusy, render_slot
 
     forged_map = ForgedMap.objects.filter(faction=faction).first()
-    if forged_map is None or not forged_map.art:
-        return "Upload the map's art and complete the map first."
+    if forged_map is None:
+        return "Complete the map in the builder first."
     forged_map.faction = faction
     try:
         with render_slot():

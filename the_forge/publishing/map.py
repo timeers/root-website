@@ -49,7 +49,8 @@ def rendered_errors(state):
 def _count(field):
     def source(forged):
         _forged_map, state = rendered(forged)
-        return layout_counts(state)[field] if state else None
+        # .get: river_clearings is only counted once the Paths step was reached.
+        return layout_counts(state).get(field) if state else None
     return source
 
 
@@ -94,11 +95,12 @@ class MapSubmitForm(MapCreateForm):
             raise ValueError('MapSubmitForm requires forged')
         self.forged = forged
         forged_map, state = rendered(forged)
+        counts = layout_counts(state) if state else {}
         initial = kwargs.setdefault('initial', {})
         initial.setdefault('title', forged.faction_name)
         initial.setdefault('language', forged.language_id)
         if state:
-            initial.update(layout_counts(state))
+            initial.update(counts)
             initial['fixed_clearings'] = bool(state.get('fixed'))
         super().__init__(*args, **kwargs)
 
@@ -127,6 +129,10 @@ class MapSubmitForm(MapCreateForm):
         for name, field in self.fields.items():
             if name not in self.EDITABLE_FIELDS:
                 field.disabled = True
+        # River clearings come from the map's rivers once its Paths step has
+        # been reached; older maps (no Paths step yet) still enter them here.
+        if 'river_clearings' in counts and 'river_clearings' in self.fields:
+            self.fields['river_clearings'].disabled = True
 
         # The details card's inputs (map_submit.html).
         details = {
@@ -176,7 +182,6 @@ class MapPublisher(Publisher):
         reqs = [
             Requirement('Map Name', name_ok, None if name_ok else
                         f'Keep the name to {MAX_TITLE} characters (rename it on the Start step).'),
-            Requirement('Map Art', bool(forged_map and forged_map.art)),
         ]
         if state is None:
             reqs.append(Requirement('Completed Map', False,
@@ -239,6 +244,7 @@ class MapPublisher(Publisher):
             SyncField('building_slots', 'Building Slots', _count('building_slots'), kind='int'),
             SyncField('ruins', 'Ruins', _count('ruins'), kind='int'),
             SyncField('forests', 'Forests', _count('forests'), kind='int'),
+            SyncField('river_clearings', 'River Clearings', _count('river_clearings'), kind='int'),
             SyncField('fixed_clearings', 'Fixed Clearing Suits', _fixed, kind='bool'),
         ]
 

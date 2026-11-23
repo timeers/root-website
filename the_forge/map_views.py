@@ -20,8 +20,8 @@ from the_keep.services.tts_map import check_builder, clean_builder_state
 
 from .models import ForgedFaction, ForgedMap
 from .services.forge_map import (ArtRejected, default_state, map_builder_config, map_library_state,
-                                 map_name_max, name_locked_note, refresh_map_image, save_art, set_language,
-                                 store_map_tts)
+                                 map_name_max, name_locked_note, refresh_map_image, remove_art, save_art,
+                                 set_language, store_map_tts)
 from .views import _forbid_if_not_editor, user_can_edit_forge, user_can_view_forge
 
 
@@ -65,9 +65,7 @@ def map_create(request):
     name = (request.POST.get('name') or '').strip()[:map_name_max()]
     if not name:
         return JsonResponse({'ok': False, 'field': 'name', 'error': 'Name your map.'}, status=400)
-    upload = request.FILES.get('art')
-    if upload is None:
-        return JsonResponse({'ok': False, 'field': 'art', 'error': "Upload your map's art."}, status=400)
+    upload = request.FILES.get('art')    # optional: without art, the map is printed on grey
     try:
         state = clean_builder_state(json.loads(request.POST.get('state') or ''), logo=True)
     except (ValueError, TypeError):
@@ -80,15 +78,17 @@ def map_create(request):
             set_language(faction, request.POST.get('language'))   # else the default (English)
             faction.save()
             forged_map = ForgedMap.objects.create(faction=faction, tts_builder=state)
-            try:
-                cropped = save_art(forged_map, upload)
-            except ArtRejected as err:
-                raise _NotCreated(str(err))
+            cropped = False
+            if upload is not None:
+                try:
+                    cropped = save_art(forged_map, upload)
+                except ArtRejected as err:
+                    raise _NotCreated(str(err))
     except _NotCreated as err:
         return JsonResponse({'ok': False, 'field': 'art', 'error': str(err)}, status=400)
     return JsonResponse({
         'ok': True, 'pk': faction.pk, 'name': faction.faction_name,
-        'image': f'{forged_map.art.url}?v={forged_map.art_version}', 'cropped': cropped,
+        'image': f'{forged_map.art.url}?v={forged_map.art_version}' if forged_map.art else None, 'cropped': cropped,
         'save_url': reverse('forge-map-builder', kwargs={'pk': faction.pk}),
         'upload_url': reverse('forge-map-art', kwargs={'pk': faction.pk}),
         'builder_url': reverse('forge-map-builder', kwargs={'pk': faction.pk}),
@@ -111,8 +111,7 @@ def map_detail(request, pk):
     }
     from .publishing.context import publish_context
     context.update(publish_context(request, faction))
-    if forged_map.art:
-        context['config'] = map_builder_config(forged_map, profile=request.user.profile, readonly=True)
+    context['config'] = map_builder_config(forged_map, profile=request.user.profile, readonly=True)
     return render(request, 'the_forge/map_detail.html', context)
 
 
@@ -157,8 +156,6 @@ def map_builder(request, pk):
         result = {'ok': True, 'saved': True, 'changes': [], 'errors': errors, 'warnings': warnings, 'counted': [],
                   'name': faction.faction_name}
         if payload.get('generate'):
-            if not forged_map.art:
-                errors.append("Upload your map's art first.")
             if errors:
                 result['ok'] = False
                 return JsonResponse(result)
@@ -190,6 +187,10 @@ def map_art(request, pk):
     faction, forged_map = _forged_map(pk)
     if not user_can_edit_forge(request, faction):
         return JsonResponse({'ok': False, 'error': "You can't edit this map."}, status=403)
+    if request.POST.get('remove') == '1':
+        # The art is optional: without it the map is printed on a grey board.
+        remove_art(forged_map)
+        return JsonResponse({'ok': True, 'image': None, 'cropped': False})
     upload = request.FILES.get('art')
     if upload is None:
         return JsonResponse({'ok': False, 'error': "Choose an image to upload."}, status=400)
@@ -201,16 +202,10 @@ def map_art(request, pk):
                          'width': forged_map.art.width, 'height': forged_map.art.height, 'cropped': cropped})
 
 
-def _need_art(forged_map):
-    if not forged_map.art:
-        return HttpResponse("Upload the map's art first.", status=400, content_type='text/plain')
-    return None
-
-
 @login_required
 def map_pdf(request, pk):
     faction, forged_map = _forged_map(pk)
-    if (resp := _forbid_if_not_editor(request, faction)) or (resp := _need_art(forged_map)):
+    if (resp := _forbid_if_not_editor(request, faction)):
         return resp
     from .map_pdf_engine import MapLayoutEngine
     from .pdf_cache import cache_key, fingerprint_map, render_pdf
@@ -228,7 +223,7 @@ def map_pdf(request, pk):
 @login_required
 def map_webp(request, pk):
     faction, forged_map = _forged_map(pk)
-    if (resp := _forbid_if_not_editor(request, faction)) or (resp := _need_art(forged_map)):
+    if (resp := _forbid_if_not_editor(request, faction)):
         return resp
     from .render_guard import RenderBusy, busy_503, render_slot
     if forged_map.preview_stale:
@@ -245,7 +240,7 @@ def map_webp(request, pk):
 @login_required
 def map_tts(request, pk):
     faction, forged_map = _forged_map(pk)
-    if (resp := _forbid_if_not_editor(request, faction)) or (resp := _need_art(forged_map)):
+    if (resp := _forbid_if_not_editor(request, faction)):
         return resp
     from .render_guard import RenderBusy, busy_503, render_slot
     # The JSON shows the generated image: bring both up to date first.

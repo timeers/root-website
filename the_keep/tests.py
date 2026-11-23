@@ -1262,61 +1262,56 @@ class MapBuilderTests(TestCase):
         self.assertTrue(x < 0 < x + w and y < 0 < y + h)
         self.assertGreater(-y, y + h)
 
-    def test_saving_only_updates_counts_for_stages_reached(self):
+    def test_save_progress_only_stores_the_layout(self):
         from the_keep.models import Map
         Map.objects.filter(pk=self.map.pk).update(forests=6, building_slots=22)
         self.client.force_login(self.designer_user)
-        # Clearings reached; Buildings & Ruins and Forests not yet (nothing marked there).
         state = self._state(clearings=3, forests=0, buildings=0, ruins=0)
-        state['visited'] = ['clearings']
+        state['visited'] = ['clearings', 'forests', 'not-a-stage']
+        state['fixed'] = True
         result = self.client.post(self._builder_url(), json.dumps({'state': state}),
                                   content_type='application/json').json()
         stored = Map.objects.get(pk=self.map.pk)
-        self.assertEqual((stored.clearings, stored.forests, stored.building_slots, stored.ruins), (3, 6, 22, 4))
-        self.assertEqual(result['counted'], ['clearings'])
-        self.assertEqual(stored.tts_builder['visited'], ['clearings'])
-        # No "Saving updates the Map to 0" warning for a stage not reached.
-        self.assertFalse(any('forests' in w for w in result['warnings']))
-
-        # Reaching Forests (still none marked) does write its count.
-        state['visited'] = ['clearings', 'forests', 'not-a-stage']
-        self.client.post(self._builder_url(), json.dumps({'state': state}), content_type='application/json')
-        stored = Map.objects.get(pk=self.map.pk)
-        self.assertEqual((stored.forests, stored.building_slots), (0, 22))
+        # The layout is saved; the Map's own figures aren't touched.
         self.assertEqual(stored.tts_builder['visited'], ['clearings', 'forests'])
+        self.assertEqual((stored.clearings, stored.forests, stored.building_slots, stored.ruins), (12, 6, 22, 4))
+        self.assertFalse(stored.fixed_clearings)
+        self.assertEqual((result['changes'], result['counted']), ([], []))
+        # Count differences are only warnings, for the stages reached, about Complete.
+        self.assertTrue(any('Completing the map updates it to 3' in w for w in result['warnings']), result)
+        self.assertFalse(any('building slots' in w for w in result['warnings']))
+        # Coming back later: the page reopens with the saved (not yet completed) choice.
+        self.assertTrue(self.client.get(self._builder_url()).context['config']['fixed'])
 
-    def test_switching_to_fixed_clearings_saves_to_the_map(self):
+    def test_complete_writes_the_maps_figures(self):
         from the_keep.models import Map
         from the_keep.tts_views import _clean_state
         self.client.force_login(self.designer_user)
-        state = self._state()
+        state = self._state(clearings=3, forests=2, buildings=5, ruins=2)
         state['fixed'] = True
-        # Not saved to the Map before the Clearings step is reached.
-        self.client.post(self._builder_url(), json.dumps({'state': state}), content_type='application/json')
-        self.assertFalse(Map.objects.get(pk=self.map.pk).fixed_clearings)
-        # Saved once it is.
-        state['visited'] = ['clearings']
-        result = self.client.post(self._builder_url(), json.dumps({'state': state}),
-                                  content_type='application/json').json()
-        self.assertTrue(Map.objects.get(pk=self.map.pk).fixed_clearings)
-        self.assertIn('fixed clearings No → Yes', result['changes'])
-
-        # Generating is blocked until every clearing has a suit; then the markers are fixed.
+        # A Complete that fails its checks (fixed suits, but none chosen) writes nothing.
         result = self.client.post(self._builder_url(), json.dumps({'state': state, 'generate': True}),
                                   content_type='application/json').json()
         self.assertFalse(result['ok'])
-        state = self._state(fixed_suits=['fox', 'bird', 'mouse'])
+        self.assertIn('This Map has fixed clearings: choose a suit for each clearing before generating.',
+                      result['errors'])
+        stored = Map.objects.get(pk=self.map.pk)
+        self.assertEqual((stored.clearings, stored.fixed_clearings), (12, False))
+        # Once it passes, Complete writes every figure and the fixed suits.
+        state = self._state(clearings=3, forests=2, buildings=5, ruins=2, fixed_suits=['fox', 'bird', 'mouse'])
         state['fixed'] = True
         result = self.client.post(self._builder_url(), json.dumps({'state': state, 'generate': True}),
                                   content_type='application/json').json()
         self.assertTrue(result['generated'], result)
         stored = Map.objects.get(pk=self.map.pk)
+        self.assertEqual((stored.clearings, stored.forests, stored.building_slots, stored.ruins, stored.fixed_clearings),
+                         (3, 2, 5, 2, True))
+        self.assertIn('fixed clearings No → Yes', result['changes'])
         markers = [o for o in stored.tts_json['ObjectStates'] if any(t.startswith('Suit: ') for t in o.get('Tags') or [])]
         self.assertTrue(all('Clearing Marker' not in m['Tags'] for m in markers))
-
-        # The Map is the source of truth for the page, even over an older saved layout.
-        Map.objects.filter(pk=self.map.pk).update(fixed_clearings=False)
-        self.assertFalse(self.client.get(self._builder_url()).context['config']['fixed'])
+        # A layout without a saved choice falls back to the Map's setting.
+        Map.objects.filter(pk=self.map.pk).update(tts_builder={'clearings': []}, fixed_clearings=True)
+        self.assertTrue(self.client.get(self._builder_url()).context['config']['fixed'])
         self.assertTrue(_clean_state({'fixed': True})['fixed'])
         self.assertNotIn('fixed', _clean_state({'fixed': 'yes'}))
 
@@ -1862,3 +1857,142 @@ class KeepWarriorExportTests(TestCase):
         self.assertTrue(self.piece.figure_mesh.name.startswith('uploads/posts/cats/warriors/'))
         with Image.open(self.piece.figure_texture.path) as tex:
             self.assertEqual(tex.getpixel((1000, 1000)), (0xd2, 0x69, 0x1e))
+
+
+# ── Map builder: Paths & Rivers (tts_map.path_shapes, clean_paths) ──────────
+
+class MapPathTests(TestCase):
+    """The Forge builder's Paths step: its data rules and geometry (the
+    builder's JS mirrors these)."""
+
+    def _state(self, paths, clearings=None, visited=('paths',)):
+        from the_keep.services.tts_map import FORGE_FRAME
+        if clearings is None:
+            # Three clearings in a row (the middle one in the way of 0-2), one below.
+            clearings = [(0.2, 0.5), (0.5, 0.5), (0.8, 0.5), (0.5, 0.85)]
+        return {'clearings': [{'centre': [u, v], 'marker': [u + 0.06, v], 'number': i + 1}
+                              for i, (u, v) in enumerate(clearings)],
+                'paths': paths, 'visited': list(visited), 'frame': FORGE_FRAME}
+
+    def _geometry(self):
+        from the_keep.services.tts_map import FORGE_FRAME, MapGeometry
+        return MapGeometry(*FORGE_FRAME)
+
+    def _circle(self, state, i):
+        g = self._geometry()
+        c = state['clearings'][i]
+        cx, cy = g.to_pixels(*c['centre'])
+        mx, my = g.to_pixels(*c['marker'])
+        return cx, cy, math.hypot(mx - cx, my - cy)
+
+    def test_cleaning_drops_bad_paths(self):
+        from the_keep.services.tts_map import clean_paths
+        raw = [
+            {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},        # kept: 0
+            {'kind': 'road', 'a': {'c': 0}, 'b': {'c': 2}},        # unknown kind
+            {'kind': 'river', 'a': {'p': 0}, 'b': {'c': 2}},       # kept: 1 (joins path 0)
+            {'kind': 'special', 'a': {'c': 1}, 'b': {'c': 0}},     # same ends as path 0
+            {'kind': 'path', 'a': {'p': 4}, 'b': {'c': 0}},        # attached to itself
+            {'kind': 'path', 'a': {'p': 1}, 'b': {'c': 9}},        # clearing out of range
+            {'kind': 'path', 'a': {'c': 2}, 'b': {'c': 2}},        # an end to itself
+        ]
+        self.assertEqual(clean_paths(raw, 3), [
+            {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},
+            {'kind': 'river', 'a': {'p': 0}, 'b': {'c': 2}},
+        ])
+
+    def test_cleaning_renumbers_and_cascades(self):
+        from the_keep.services.tts_map import clean_paths
+        raw = [
+            {'kind': 'road', 'a': {'c': 0}, 'b': {'c': 1}},        # dropped...
+            {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},
+            {'kind': 'river', 'a': {'p': 1}, 'b': {'c': 2}},       # ...so this now joins path 0
+            {'kind': 'river', 'a': {'p': 0}, 'b': {'c': 2}},       # joined the dropped one: goes too
+        ]
+        self.assertEqual(clean_paths(raw, 3), [
+            {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},
+            {'kind': 'river', 'a': {'p': 0}, 'b': {'c': 2}},
+        ])
+        # Two paths attached to each other's middles: a loop, both dropped.
+        loop = [{'kind': 'path', 'a': {'p': 1}, 'b': {'c': 0}}, {'kind': 'path', 'a': {'p': 0}, 'b': {'c': 1}}]
+        self.assertEqual(clean_paths(loop, 3), [])
+
+    def test_clean_builder_state_keeps_paths(self):
+        from the_keep.services.tts_map import clean_builder_state
+        state = self._state([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 3}}, {'kind': 'x'}])
+        self.assertEqual(clean_builder_state(state)['paths'], [{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 3}}])
+        self.assertEqual(clean_builder_state(state)['visited'], ['paths'])
+
+    def test_paths_start_at_the_circles_and_bend_around_clearings(self):
+        from the_keep.services.tts_map import PATH_WIDTH, path_shapes
+        state = self._state([{'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},
+                             {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 2}}])
+        straight, bent = path_shapes(self._geometry(), state)
+        for shape, (first, last) in ((straight, (0, 1)), (bent, (0, 2))):
+            for point, i in ((shape['points'][0], first), (shape['points'][-1], last)):
+                cx, cy, r = self._circle(state, i)
+                self.assertAlmostEqual(math.hypot(point[0] - cx, point[1] - cy), r, delta=1)
+        # Nothing in the way: a straight line.
+        self.assertTrue(all(abs(y - straight['points'][0][1]) < 1e-6 for _x, y in straight['points']))
+        # Clearing 1 sits between 0 and 2: the path bends round it, keeping half a width clear.
+        cx, cy, r = self._circle(state, 1)
+        clearance = r + PATH_WIDTH * self._geometry().px_per_local / 2
+        self.assertTrue(all(math.hypot(x - cx, y - cy) >= clearance - 1e-6 for x, y in bent['points']))
+
+    def test_a_path_can_join_another_paths_middle(self):
+        from the_keep.services.tts_map import path_shapes
+        state = self._state([{'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},
+                             {'kind': 'river', 'a': {'c': 3}, 'b': {'p': 0}}])
+        path, river = path_shapes(self._geometry(), state)
+        self.assertEqual(river['points'][-1], path['middle'])
+        # The middle is halfway along the drawn line.
+        points = path['points']
+        lengths = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(points, points[1:])]
+        mx = path['middle'][0]
+        before = sum(l for (a, _b), l in zip(zip(points, points[1:]), lengths) if a[0] < mx)
+        self.assertAlmostEqual(before, sum(lengths) / 2, delta=max(lengths))
+
+    def test_river_clearings_count_once_and_only_once_visited(self):
+        from the_keep.services.tts_map import layout_counts, path_totals
+        state = self._state([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}},
+                             {'kind': 'river', 'a': {'c': 1}, 'b': {'c': 2}},
+                             {'kind': 'special', 'a': {'c': 0}, 'b': {'c': 3}},
+                             {'kind': 'path', 'a': {'c': 2}, 'b': {'c': 3}}])
+        self.assertEqual(path_totals(state), {'path': 1, 'special': 1, 'river': 2, 'river_clearings': 3})
+        self.assertEqual(layout_counts(state)['river_clearings'], 3)
+        state['visited'] = []
+        self.assertNotIn('river_clearings', layout_counts(state))
+
+    def test_river_clearings_update_the_map(self):
+        from the_keep.models import Map
+        from the_keep.services.tts_map import apply_builder_counts
+        designer = Profile.objects.create(discord='riverdesigner')
+        keep_map = Map.objects.create(title='River Map', designer=designer, clearings=4, river_clearings=7)
+        state = self._state([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}], visited=())
+        apply_builder_counts(keep_map, state)
+        self.assertEqual(Map.objects.get(pk=keep_map.pk).river_clearings, 7)   # Paths step not reached
+        state['visited'] = ['paths']
+        apply_builder_counts(keep_map, state)
+        self.assertEqual(Map.objects.get(pk=keep_map.pk).river_clearings, 2)
+
+    def test_rivers_join_through_clearings_and_run_off_the_edge(self):
+        from the_keep.services.tts_map import FORGE_FRAME, path_shapes, river_links
+        g = self._geometry()
+        state = self._state([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 3}},
+                             {'kind': 'river', 'a': {'c': 3}, 'b': {'c': 2}}])
+        shapes = path_shapes(g, state)
+        links = river_links(g, state, shapes)
+        # Clearing 3 has two rivers: one curve joins their ends through it.
+        ends = {shapes[0]['points'][-1], shapes[1]['points'][0]}
+        joins = [l for l in links if {tuple(l[0]), tuple(l[-1])} == ends]
+        self.assertEqual(len(joins), 1)
+        # Clearings 0 and 2 have one river each: it runs on to the map's edge.
+        runs = [l for l in links if l is not joins[0]]
+        self.assertEqual(len(runs), 2)
+        for run in runs:
+            x, y = run[-1]
+            self.assertTrue(min(x, y, FORGE_FRAME[0] - x, FORGE_FRAME[1] - y) < 1e-6, run[-1])
+        # Paths don't get links.
+        state['paths'][0]['kind'] = 'path'
+        state['paths'][1]['kind'] = 'path'
+        self.assertEqual(river_links(g, state), [])

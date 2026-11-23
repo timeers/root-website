@@ -17,7 +17,7 @@ from the_gatehouse.views import admin_required
 
 from .models import Post, TTSJsonUpload, post_model_for_component
 from .services.tts_inspect import inspect_tts_json
-from .services.tts_map import (STAGES, MapGeometry, visited_stages, apply_builder_counts, builder_config,
+from .services.tts_map import (KEEP_STAGES, MapGeometry, visited_stages, apply_builder_counts, builder_config,
                                check_builder, clean_builder_state)
 from .services.tts_store import (clear_tts_json, forge_linked, generate_tts_json,
                                  generate_unavailable_reason, recheck_tts_info, store_tts_json)
@@ -271,18 +271,19 @@ def map_builder(request, slug):
         state = _clean_state(state)
         post.tts_builder = state
         type(post).objects.filter(pk=post.pk).update(tts_builder=state)
-        # A save only updates the Map's counts for stages the builder has
-        # reached; generating is final, so it updates them all.
+        # Save Progress only stores the layout, to come back to. The Map's own
+        # figures (clearings, buildings, ruins, forests, fixed suits) are only
+        # written by Complete, and only when the layout passes the checks.
         generate = bool(payload.get('generate'))
         stages = None if generate else visited_stages(state)
-        changes = apply_builder_counts(post, state, stages)
         errors, warnings = check_builder(post, state, stages)
-        result = {'ok': True, 'saved': True, 'changes': changes, 'errors': errors, 'warnings': warnings,
-                  'counted': sorted(stages if stages is not None else STAGES)}
+        result = {'ok': True, 'saved': True, 'changes': [], 'errors': errors, 'warnings': warnings, 'counted': []}
         if generate:
             if errors:
                 result['ok'] = False
             else:
+                result['changes'] = apply_builder_counts(post, state)
+                result['counted'] = list(KEEP_STAGES)
                 ok, message = generate_tts_json(post, profile=request.user.profile)
                 result.update(ok=ok, generated=ok, message=message)
                 if ok and not request.user.profile.map_builder_onboard:
@@ -304,7 +305,9 @@ def map_builder(request, slug):
         context.update({
             'config': builder_config(
                 post.board_image.url, width, height, state,
-                fixed=post.fixed_clearings,
+                # The saved layout's choice (saved but maybe not completed yet),
+                # else the Map's.
+                fixed=state['fixed'] if isinstance(state.get('fixed'), bool) else post.fixed_clearings,
                 expected={'clearings': post.clearings, 'forests': post.forests,
                           'buildings': post.building_slots, 'ruins': post.ruins},
                 save_url=request.path,

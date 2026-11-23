@@ -1012,18 +1012,21 @@ class ForgedMapTests(TestCase):
         draft.refresh_from_db()
         self.assertEqual(draft.slug, 'highlands')
 
-    def test_new_map_needs_a_name_and_usable_art(self):
+    def test_new_map_needs_a_name_and_only_usable_art(self):
         url = reverse('forge-map-create')
         response = self.client.post(url, {'name': '  ', 'art': _image_upload(1090, 1000)})
         self.assertEqual((response.status_code, response.json()['field']), (400, 'name'))
-        response = self.client.post(url, {'name': 'Highlands'})
-        self.assertEqual((response.status_code, response.json()['field']), (400, 'art'))
         bad = SimpleUploadedFile('art.png', b'not an image', content_type='image/png')
         response = self.client.post(url, {'name': 'Highlands', 'art': bad})
         self.assertEqual((response.status_code, response.json()['field']), (400, 'art'))
         # Nothing half-made is left behind.
         self.assertFalse(ForgedFaction.objects.filter(component='Map').exists())
         self.assertFalse(ForgedMap.objects.exists())
+        # The art is optional: a name is enough.
+        result = self.client.post(url, {'name': 'Highlands'}).json()
+        self.assertTrue(result['ok'], result)
+        self.assertIsNone(result['image'])
+        self.assertFalse(ForgedMap.objects.get(faction_id=result['pk']).art)
 
     def test_art_is_cropped_to_the_official_shape(self):
         draft = self._create()
@@ -1064,18 +1067,18 @@ class ForgedMapTests(TestCase):
         self.assertNotIn('extra', forged_map.tts_builder)
         self.assertTrue(forged_map.fixed_clearings)
 
-    def test_complete_needs_art_and_a_finished_layout(self):
+    def test_complete_needs_a_finished_layout_not_art(self):
         draft = self._create()
-        ForgedMap.objects.filter(faction=draft).update(art=None)   # e.g. a map made before art was required
-        result = self._save(draft, _fixed_layout(), generate=True).json()
-        self.assertFalse(result['ok'])
-        self.assertIn("Upload your map's art first.", result['errors'])
-        self._upload(draft)
         layout = _fixed_layout()
         del layout['clearings'][0]['suit']
         result = self._save(draft, layout, generate=True).json()
         self.assertFalse(result['ok'])
         self.assertFalse(ForgedMap.objects.get(faction=draft).image_preview)
+        # Without art (it's optional), a finished layout completes.
+        ForgedMap.objects.filter(faction=draft).update(art=None)
+        result = self._save(draft, _fixed_layout(), generate=True).json()
+        self.assertTrue(result['ok'], result)
+        self.assertTrue(ForgedMap.objects.get(faction=draft).image_preview)
 
     def test_complete_generates_the_map_image_and_tts_json(self):
         draft = self._create()
@@ -1989,3 +1992,152 @@ class WarriorBackImageTests(TestCase):
         # The blank template row (shared with the cardboard editor) starts hidden.
         template = html.split('id="piece-row-template"', 1)[1].split('</template>', 1)[0]
         self.assertRegex(template, r'data-use-image-row[^>]*\bhidden\b')
+
+
+# ── Forge maps: optional art and Paths & Rivers ─────────────────────────────
+
+def _paths_layout():
+    return _fixed_layout(visited=['clearings', 'buildings', 'forests', 'paths'], paths=[
+        {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},
+        {'kind': 'river', 'a': {'c': 1}, 'b': {'p': 0}},
+    ])
+
+
+@override_settings(MEDIA_ROOT=_TTS_MEDIA, SITE_URL='https://example.test')
+class ForgedMapPathsTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+        Language.objects.get_or_create(code='en', defaults={'name': 'English'})
+        self.user = User.objects.create_user(username='riverbuilder', password='pw')
+        self.designer = Profile.objects.get(user=self.user)
+        Profile.objects.filter(pk=self.designer.pk).update(group='D', player_onboard=True, forge_onboard=True)
+        self.client.force_login(self.user)
+
+    def _create(self, art=False):
+        data = {'name': 'Riverlands'}
+        if art:
+            data['art'] = _image_upload(1090, 1000)
+        result = self.client.post(reverse('forge-map-create'), data).json()
+        self.assertTrue(result['ok'], result)
+        return ForgedFaction.objects.get(pk=result['pk'])
+
+    def _complete(self, draft, layout=None):
+        response = self.client.post(reverse('forge-map-builder', args=[draft.pk]),
+                                    json.dumps({'state': layout or _paths_layout(), 'generate': True}),
+                                    content_type='application/json')
+        return response.json()
+
+    def _printed_paths(self, draft):
+        """How many of the map's paths the PDF engine prints (not counting the
+        river links through clearings and to the edge)."""
+        from .map_pdf_engine import MapLayoutEngine
+        forged_map = ForgedMap.objects.get(faction=draft)
+        with mock.patch.object(MapLayoutEngine, '_draw_path') as draw_path:
+            MapLayoutEngine(forged_map).build(BytesIO())
+        return sum(1 for call in draw_path.call_args_list if 'middle' in call.args[1])
+
+    def test_print_order(self):
+        """Without art, bottom to top: rivers (links first), paths, clearing
+        circles, suits, buildings, then item track < VP track < Root logo."""
+        from .map_pdf_engine import MapLayoutEngine
+        draft = self._create()
+        self.assertTrue(self._complete(draft)['ok'])
+        forged_map = ForgedMap.objects.get(faction=draft)
+        order = []
+
+        def record(name):
+            def fn(_self, _c, item, *_rest):
+                if name == 'image':
+                    order.append(_os.path.basename(str(item)).split('.')[0])
+                elif name == 'path':
+                    order.append(item['kind'] if 'middle' in item else 'river-link')
+                else:
+                    order.append(name)
+            return fn
+
+        with mock.patch.object(MapLayoutEngine, '_draw_image', record('image')), \
+                mock.patch.object(MapLayoutEngine, '_draw_path', record('path')), \
+                mock.patch.object(MapLayoutEngine, '_draw_clearing', record('clearing')), \
+                mock.patch.object(MapLayoutEngine, '_draw_suit', record('suit')):
+            MapLayoutEngine(forged_map).build(BytesIO())
+        firsts = {k: order.index(k) for k in ('river-link', 'river', 'path', 'clearing', 'suit')}
+        self.assertEqual(sorted(firsts, key=firsts.get), ['river-link', 'river', 'path', 'clearing', 'suit'])
+        self.assertGreater(order.index('suit'), max(i for i, k in enumerate(order) if k == 'clearing'))
+        self.assertEqual(order[-3:], ['root_map_items', 'root_map_vp', 'root_map_logo'])
+
+    def test_a_map_without_art_completes_with_its_paths_printed(self):
+        draft = self._create()
+        result = self._complete(draft)
+        self.assertTrue(result['ok'], result)
+        forged_map = ForgedMap.objects.get(faction=draft)
+        self.assertTrue(forged_map.image_preview)
+        self.assertEqual(len(forged_map.tts_builder['paths']), 2)
+        self.assertEqual(self._printed_paths(draft), 2)
+        # The grey board: the rendered image's corner is MAP_BLANK.
+        from PIL import Image
+        from the_keep.services.tts_map import MAP_BLANK
+        with Image.open(forged_map.image_preview.path) as im:
+            corner = im.convert('RGB').getpixel((5, im.height // 2))
+        self.assertEqual('#%02x%02x%02x' % corner, MAP_BLANK)
+
+    def test_a_map_with_art_doesnt_print_its_paths(self):
+        draft = self._create(art=True)
+        self.assertTrue(self._complete(draft)['ok'])
+        self.assertEqual(self._printed_paths(draft), 0)
+
+    def test_downloads_work_without_art(self):
+        draft = self._create()
+        self.assertTrue(self._complete(draft)['ok'])
+        for name in ('forge-map-pdf', 'forge-map-webp', 'forge-map-tts'):
+            with self.subTest(name):
+                self.assertEqual(self.client.get(reverse(name, args=[draft.pk])).status_code, 200)
+        self.assertEqual(self.client.get(reverse('forge-map-detail', args=[draft.pk])).status_code, 200)
+
+    def test_removing_the_art(self):
+        from .pdf_cache import fingerprint_map
+        draft = self._create(art=True)
+        forged_map = ForgedMap.objects.get(faction=draft)
+        before = (fingerprint_map(forged_map), forged_map.art_version)
+        result = self.client.post(reverse('forge-map-art', args=[draft.pk]), {'remove': '1'}).json()
+        self.assertTrue(result['ok'])
+        forged_map = ForgedMap.objects.get(faction=draft)
+        self.assertFalse(forged_map.art)
+        self.assertGreater(forged_map.art_version, before[1])
+        self.assertNotEqual(fingerprint_map(forged_map), before[0])   # re-renders
+
+    def test_publishing_without_art_and_with_river_clearings(self):
+        from .publishing.map import MapPublisher, MapSubmitForm
+        draft = self._create()
+        self.assertTrue(self._complete(draft)['ok'])
+        forged = ForgedFaction.objects.get(pk=draft.pk)
+        publisher = MapPublisher()
+        self.assertNotIn('Map Art', [r.label for r in publisher.prerequisites(forged)])
+        self.assertTrue(all(r.done for r in publisher.prerequisites(forged)), publisher.prerequisites(forged))
+        # River clearings come from the rivers (clearing 1 only: the river's
+        # other end is a path's middle), read-only on submit, and synced.
+        form = MapSubmitForm(forged=forged, user=self.user)
+        self.assertTrue(form.fields['river_clearings'].disabled)
+        self.assertEqual(form.initial['river_clearings'], 1)
+        field = next(f for f in publisher.post_fields(forged) if f.name == 'river_clearings')
+        self.assertEqual(field.source(forged), 1)
+
+    def test_older_maps_keep_entering_river_clearings(self):
+        from .publishing.map import MapPublisher, MapSubmitForm
+        draft = self._create()
+        self.assertTrue(self._complete(draft, _fixed_layout())['ok'])   # never reached the Paths step
+        forged = ForgedFaction.objects.get(pk=draft.pk)
+        self.assertFalse(MapSubmitForm(forged=forged, user=self.user).fields['river_clearings'].disabled)
+        field = next(f for f in MapPublisher().post_fields(forged) if f.name == 'river_clearings')
+        self.assertIsNone(field.source(forged))
+
+    def test_the_builder_page_has_the_paths_step(self):
+        html = self.client.get(reverse('forge-map-create')).content.decode()
+        for marker in ('id="mb-path-mode"', 'id="mb-draw-kind"', 'id="mb-pop-kind"', 'id="mb-remove-art"',
+                       '"paths_step": true', 'background: #808080'):
+            self.assertIn(marker, html)
+        draft = self._create()
+        html = self.client.get(reverse('forge-map-builder', args=[draft.pk])).content.decode()
+        self.assertIn('"paths_step": true', html)

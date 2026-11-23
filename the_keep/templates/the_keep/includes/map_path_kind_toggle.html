@@ -1,0 +1,31 @@
+{% load i18n %}
+{% comment %}
+  The Paths step's 3-way toggle (map_builder.js): which kind of path to draw
+  (the item track's card: "Paths"), or the selected path's kind (the edit
+  pop-up, with singular=True: "Path"). A swatch and a label per kind, with a
+  highlight that slides to the chosen one.
+{% endcomment %}
+<div class="mb-kind-toggle" id="{{ toggle_id }}" role="radiogroup" aria-label="{% trans 'Path type' %}">
+    <span class="mb-kind-thumb" aria-hidden="true"></span>
+    {% if singular %}
+    <button type="button" role="radio" aria-checked="true" data-path-kind="path" title="{% trans 'Path' %}" aria-label="{% trans 'Path' %}">
+        <span class="mb-kind-swatch" style="--mb-swatch: #c4c9ce;"></span><span class="mb-kind-label">{% trans 'Path' %}</span>
+    </button>
+    <button type="button" role="radio" aria-checked="false" data-path-kind="special" title="{% trans 'Special Path' %}" aria-label="{% trans 'Special Path' %}">
+        <span class="mb-kind-swatch" style="--mb-swatch: #ed2731;"></span><span class="mb-kind-label">{% trans 'Special' %}</span>
+    </button>
+    <button type="button" role="radio" aria-checked="false" data-path-kind="river" title="{% trans 'River' %}" aria-label="{% trans 'River' %}">
+        <span class="mb-kind-swatch" style="--mb-swatch: #3e55a5;"></span><span class="mb-kind-label">{% trans 'River' %}</span>
+    </button>
+    {% else %}
+    <button type="button" role="radio" aria-checked="true" data-path-kind="path" title="{% trans 'Paths' %}" aria-label="{% trans 'Paths' %}">
+        <span class="mb-kind-swatch" style="--mb-swatch: #c4c9ce;"></span><span class="mb-kind-label">{% trans 'Paths' %}</span>
+    </button>
+    <button type="button" role="radio" aria-checked="false" data-path-kind="special" title="{% trans 'Special Paths' %}" aria-label="{% trans 'Special Paths' %}">
+        <span class="mb-kind-swatch" style="--mb-swatch: #ed2731;"></span><span class="mb-kind-label">{% trans 'Special' %}</span>
+    </button>
+    <button type="button" role="radio" aria-checked="false" data-path-kind="river" title="{% trans 'Rivers' %}" aria-label="{% trans 'Rivers' %}">
+        <span class="mb-kind-swatch" style="--mb-swatch: #3e55a5;"></span><span class="mb-kind-label">{% trans 'Rivers' %}</span>
+    </button>
+    {% endif %}
+</div>
