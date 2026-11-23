@@ -1,6 +1,6 @@
 # Changelog
 
-## [20] - 2026-11-23 Qualifiers
+## [1.13.20] - 2026-11-23 Qualifiers
 
 ### New Features
 - Qualifiers for upcoming events display players who have played at least one game in a specific system within a date range

@@ -10556,6 +10556,12 @@ def qualifier_detail(request, slug):
 
     page_obj = Paginator(filtered, settings.PAGE_SIZE).get_page(request.GET.get('page'))
 
+    meta_title = qualifier.name
+    if qualifier.description:
+        meta_description = qualifier.description
+    else:
+        meta_description = f"Ranking of the top {qualifier.qualifier_places} players from {qualifier.source} within the qualification window."
+
     context = {
         'qualifier': qualifier,
         'rows': page_obj,
@@ -10569,6 +10575,8 @@ def qualifier_detail(request, slug):
         'provisional_count': len(rows) - ranked_count,
         'qualified_count': qualified_count,
         'score_label': _('ELO') if qualifier.is_elo else _('Win Rate'),
+        'meta_title': meta_title,
+        'meta_description': meta_description,
     }
     # Full page on history restore, so Back/refresh after hx-push-url isn't a bare table.
     if request.htmx and not request.htmx.history_restore_request:
