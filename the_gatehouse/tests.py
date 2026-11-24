@@ -2402,6 +2402,25 @@ class AvailabilityNavigatorRenderTests(_NoLoginSignalMixin, TestCase):
         self.assertTrue(tabs_idx < nav_idx < grid_idx)
 
 
+# A zone changes clocks once or twice a year, so no window fixed to today's date
+# reliably holds a DST week: the tests that need one scan forward a full year and
+# widen the page's navigable window (the views read it at call time) to reach it.
+_DST_WEEKS_FORWARD = 53
+
+
+def _first_week_from(start_week, predicate):
+    """The first week within _DST_WEEKS_FORWARD of `start_week` satisfying `predicate`."""
+    for i in range(_DST_WEEKS_FORWARD + 1):
+        candidate = start_week + timedelta(weeks=i)
+        if predicate(candidate):
+            return candidate
+    raise AssertionError("no qualifying week in the forward window")
+
+
+def _is_us_fallback_week(week):
+    return any(len(v) == 2 for v in week_grid_cells(week, 'America/New_York').values())
+
+
 class WeekSpecificGridRenderTests(_NoLoginSignalMixin, TestCase):
     """The week-specific grid actually renders the UTC-week-direct model:
     real dated columns, disabled boundary cells, DST split cells -- and the
@@ -2453,8 +2472,13 @@ class WeekSpecificGridRenderTests(_NoLoginSignalMixin, TestCase):
         legend_tag_end = body.index('>', legend_start)
         self.assertIn('hidden', body[legend_start:legend_tag_end])
 
+    def _get_fallback_week(self):
+        fallback_week = _first_week_from(self.current_week, _is_us_fallback_week)
+        with mock.patch('the_gatehouse.views.AVAILABILITY_WEEKS_FORWARD', _DST_WEEKS_FORWARD):
+            return self.client.get(self.url, {'week': fallback_week.isoformat()})
+
     def test_dst_fallback_week_renders_split_cells(self):
-        response = self.client.get(self.url, {'week': '2026-10-26'})
+        response = self._get_fallback_week()
         self.assertContains(response, 'avail-cell--split')
 
     def test_dst_split_cells_carry_two_distinct_data_how_values(self):
@@ -2466,7 +2490,7 @@ class WeekSpecificGridRenderTests(_NoLoginSignalMixin, TestCase):
         instead of recomputing it), but the two real UTC hours must already
         be distinct in the server-rendered HTML for that fix to have anything
         correct to preserve -- assert that here."""
-        response = self.client.get(self.url, {'week': '2026-10-26'})
+        response = self._get_fallback_week()
         body = response.content.decode()
         split_start = body.index('avail-cell-split')
         split_end = body.index('</div>', body.index('</div>', split_start) + 1)
@@ -2657,7 +2681,12 @@ class GeneralAvailabilityPreviewTests(_NoLoginSignalMixin, TestCase):
         general.available_hours = [9]
         general.save(update_fields=['available_hours'])
 
-        target = self.current_week + timedelta(weeks=1)
+        # The previews only differ in a week whose New York DST state differs from
+        # the (winter) reference week -- Tokyo has no DST.
+        target = _first_week_from(
+            self.current_week + timedelta(weeks=1),
+            lambda week: copy_from_general_utc_hours([9], week, 'America/New_York')
+            != copy_from_general_utc_hours([9], week, 'Asia/Tokyo'))
         ny_expected = copy_from_general_utc_hours(general.available_hours, target, 'America/New_York')
         tokyo_expected = copy_from_general_utc_hours(general.available_hours, target, 'Asia/Tokyo')
         self.assertNotEqual(sorted(ny_expected), sorted(tokyo_expected),
@@ -2667,12 +2696,13 @@ class GeneralAvailabilityPreviewTests(_NoLoginSignalMixin, TestCase):
         # change_timezone straight to Asia/Tokyo -- the bug reused whatever
         # copy_from_general_hours had been computed for at the TOP of this
         # same request (the OLD profile.timezone, UTC), not the new one.
-        response = self.client.post(self.url, {
-            'timezone': 'Asia/Tokyo', 'drawn_timezone': 'UTC',
-            'available_hours': '',
-            'week_start': target.isoformat(),
-            'action': 'change_timezone',
-        })
+        with mock.patch('the_gatehouse.views.AVAILABILITY_WEEKS_FORWARD', _DST_WEEKS_FORWARD):
+            response = self.client.post(self.url, {
+                'timezone': 'Asia/Tokyo', 'drawn_timezone': 'UTC',
+                'available_hours': '',
+                'week_start': target.isoformat(),
+                'action': 'change_timezone',
+            })
         body = response.content.decode()
         import re
         cell_tags = re.findall(r'<button[^>]*class="[^"]*avail-cell[^"]*"[^>]*>', body)

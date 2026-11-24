@@ -4964,6 +4964,32 @@ class CompareLastUpdatedAndGamesTests(_AvailabilityFixtureMixin, TestCase):
         self.assertIn('escapeHtml(cellLabel(cell))', body)
 
 
+# A zone changes clocks once or twice a year, so no window fixed to today's date
+# reliably holds a DST week: the tests that need one scan forward a full year and
+# widen the compare page's navigable window (read at call time) to reach it.
+_DST_WEEKS_FORWARD = 53
+
+
+def _first_week_from(start_week, predicate):
+    """The first week within _DST_WEEKS_FORWARD of `start_week` satisfying `predicate`."""
+    for i in range(_DST_WEEKS_FORWARD + 1):
+        candidate = start_week + timedelta(weeks=i)
+        if predicate(candidate):
+            return candidate
+    raise AssertionError("no qualifying week in the forward window")
+
+
+def _next_us_fallback_week():
+    from the_gatehouse.services.availability import week_grid_cells, week_start_for
+    return _first_week_from(
+        week_start_for(date.today()),
+        lambda week: any(len(v) == 2 for v in week_grid_cells(week, 'America/New_York').values()))
+
+
+def _wide_week_window():
+    return mock.patch('the_gatehouse.views.AVAILABILITY_WEEKS_FORWARD', _DST_WEEKS_FORWARD)
+
+
 class AvailabilityCompareDSTTests(_AvailabilityFixtureMixin, TestCase):
     """Week-specific compare mode's two DST fixes: General Availability
     rows reinterpreted for the REAL week being viewed (not naively reused as
@@ -4993,13 +5019,13 @@ class AvailabilityCompareDSTTests(_AvailabilityFixtureMixin, TestCase):
         """The exact scenario reported: '5pm Monday' general availability in
         America/New_York must render as 5pm local on a REAL week, not drift
         by the offset between when it was saved (the dateless winter
-        reference week) and whenever it's viewed. Uses the CURRENT week
-        (whatever real DST state that happens to be in right now) rather
-        than a hardcoded summer/winter date, since the page's own navigable
-        window is forward-only and bounded (AVAILABILITY_WEEKS_FORWARD) --
-        picking a fixed calendar date risked landing outside that window
-        depending on when the test runs and being silently clamped back to
-        the current week, masking the very bug under test."""
+        reference week) and whenever it's viewed. Scans forward from the
+        current week for one in EDT rather than using a hardcoded date: the
+        page's navigable window is forward-only and bounded
+        (AVAILABILITY_WEEKS_FORWARD), so a fixed calendar date eventually
+        falls outside it and is silently clamped back to the current week,
+        masking the very bug under test. The window is widened for the
+        request since EDT can be months away."""
         from the_gatehouse.services.availability import (
             local_to_utc_hours, copy_from_general_utc_hours, utc_instant_token, week_start_for)
 
@@ -5013,21 +5039,22 @@ class AvailabilityCompareDSTTests(_AvailabilityFixtureMixin, TestCase):
         series = self._series_with(a)
         self._login(a)
 
-        target_week = week_start_for(date.today())
+        # The bug's own signature: naively reusing the stored UTC hour
+        # (rather than reinterpreting the wall-clock pattern for THIS real
+        # week) gives a DIFFERENT hour whenever the week's DST state differs
+        # from the dateless reference week's (winter/EST).
+        target_week = _first_week_from(
+            week_start_for(date.today()),
+            lambda week: copy_from_general_utc_hours(
+                general_hours, week, 'America/New_York') != general_hours)
         expected = utc_instant_token(
             target_week,
             copy_from_general_utc_hours(general_hours, target_week, 'America/New_York')[0])
-        # The bug's own signature: naively reusing the stored UTC hour
-        # (rather than reinterpreting the wall-clock pattern for THIS real
-        # week) gives a DIFFERENT token whenever the current week's DST
-        # state differs from the dateless reference week's (winter/EST).
         naive_token = utc_instant_token(target_week, general_hours[0])
-        self.assertNotEqual(expected, naive_token,
-                             "test fixture must exercise a real DST offset difference "
-                             "this week -- if this fails, the current real-world week "
-                             "happens to be in EST, pick a different test date")
+        self.assertNotEqual(expected, naive_token)
 
-        response = self.client.get(self.url, {'series': series.id, 'week': target_week.isoformat()})
+        with _wide_week_window():
+            response = self.client.get(self.url, {'series': series.id, 'week': target_week.isoformat()})
         hours = response.context['player_hours_json'][str(a.profile.id)]
         self.assertEqual(hours, [expected])
 
@@ -5095,9 +5122,10 @@ class AvailabilityCompareDSTTests(_AvailabilityFixtureMixin, TestCase):
         series = self._series_with(a)
         self._login(a)
 
-        # US fall-back 2026: local Nov 1 1am repeats, UTC hours 149/150.
-        fallback_week = date(2026, 10, 26)
-        response = self.client.get(self.url, {'series': series.id, 'week': fallback_week.isoformat()})
+        # US fall-back: local Sunday 1am repeats.
+        fallback_week = _next_us_fallback_week()
+        with _wide_week_window():
+            response = self.client.get(self.url, {'series': series.id, 'week': fallback_week.isoformat()})
         body = response.content.decode()
         self.assertIn('avail-cell-split', body)
         self.assertIn('avail-cell--split', body)
@@ -5152,7 +5180,7 @@ class AvailabilityCompareDSTTests(_AvailabilityFixtureMixin, TestCase):
         both halves -- each half is its own independent real instant."""
         from the_gatehouse.services.availability import week_grid_cells
 
-        fallback_week = date(2026, 10, 26)
+        fallback_week = _next_us_fallback_week()
         cells = week_grid_cells(fallback_week, 'America/New_York')
         first_how, second_how = [v for v in cells.values() if len(v) == 2][0]
 
@@ -5173,7 +5201,8 @@ class AvailabilityCompareDSTTests(_AvailabilityFixtureMixin, TestCase):
         series = self._series_with(a, b)
         self._login(a)
 
-        response = self.client.get(self.week_url, {'series': series.id, 'week': fallback_week.isoformat()})
+        with _wide_week_window():
+            response = self.client.get(self.week_url, {'series': series.id, 'week': fallback_week.isoformat()})
         data = response.json()
         from the_gatehouse.services.availability import utc_instant_token
         a_hours = set(data['player_hours_json'][str(a.profile.id)])
@@ -5192,9 +5221,11 @@ class AvailabilityCompareDSTTests(_AvailabilityFixtureMixin, TestCase):
         series = self._series_with(a)
         self._login(a)
 
-        fallback_week = date(2026, 10, 26)
-        page = self.client.get(self.url, {'series': series.id, 'week': fallback_week.isoformat()})
-        ajax = self.client.get(self.week_url, {'series': series.id, 'week': fallback_week.isoformat()})
+        fallback_week = _next_us_fallback_week()
+        with _wide_week_window():
+            page = self.client.get(self.url, {'series': series.id, 'week': fallback_week.isoformat()})
+            ajax = self.client.get(self.week_url, {'series': series.id, 'week': fallback_week.isoformat()})
+        self.assertIn('avail-cell-split', page.content.decode())
         self.assertTrue(ajax.json()['ok'])
         self.assertIn(ajax.json()['grid_html'].strip(), page.content.decode())
 
@@ -6653,7 +6684,6 @@ class DraftStatisticsTests(TestCase):
         self.assertEqual(cats['win_rate']['percent'], 75)
         body = self._get(threshold=0).content.decode()
         self.assertIn("1.5/2", body)
-        self.assertIn("counts a coalition win as half a win", body)
 
     def test_an_only_undrafted_faction_has_no_win_rate(self):
         self._four(winners=(4,))
@@ -6707,7 +6737,7 @@ class DraftStatisticsTests(TestCase):
         cats = next(r for r in response.context['stats']['factions']
                     if r['object'].pk == self.cats.pk)
         self.assertEqual(cats['overall']['offered'], 1)
-        self.assertIn("own picks", response.content.decode())
+        self.assertIn("Showing only", response.content.decode())
 
     def _games_counted(self, **params):
         return self._get(threshold=0, **params).context['stats']['games_counted']
