@@ -18,11 +18,14 @@ def publish_context(request, forged):
     if publisher is None or not user_can_edit_forge(request, forged):
         return {}
     name_taken = publisher.title_taken(forged.faction_name, exclude_pk=forged.published_post_id)
+    # Unique Name also covers anything else wrong with the name (a map's that's
+    # too long for a keep post's title: publisher.name_problem).
+    name_problem = publisher.name_problem(forged)
     requirements = [{
         'label': 'Unique Name',
-        'done': not name_taken,
+        'done': not name_taken and not name_problem,
         'warning': (f'"{forged.faction_name}" is already used by another {publisher.noun}. '
-                    f'Rename your {publisher.noun.lower()} before submitting.') if name_taken else None,
+                    f'Rename your {publisher.noun.lower()} before submitting.') if name_taken else name_problem,
     }] + [r.as_dict() for r in publisher.prerequisites(forged)]
 
     target, target_mode, target_label = _resolved_published(forged)

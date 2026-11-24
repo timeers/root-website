@@ -1313,7 +1313,11 @@ class MapPublishTests(_MapPublishBase):
         ForgedFaction.objects.filter(pk=long_draft.pk).update(faction_name='L' * 41)
         long_draft.refresh_from_db()
         reqs = self.client.get(reverse('forge-map-detail', args=[long_draft.pk])).context['submit_requirements']
-        self.assertFalse(next(r for r in reqs if r['label'] == 'Map Name')['done'])
+        # (Its Unique Name row covers the length too: there's no separate Map Name row.)
+        self.assertFalse(any(r['label'] == 'Map Name' for r in reqs))
+        name = next(r for r in reqs if r['label'] == 'Unique Name')
+        self.assertFalse(name['done'])
+        self.assertIn('40 characters', name['warning'])
 
     def test_forge_maps_need_a_building_slot_and_a_ruin(self):
         draft = self._create()
@@ -2402,15 +2406,21 @@ class MapSetupCardTests(_MapPublishBase):
         forged_map = self._map(draft)
         self.assertTrue(forged_map.card_stale)
         from .publishing import publisher_for
-        reqs = {r.label: r.done for r in publisher_for(ForgedFaction.objects.get(pk=draft.pk)).prerequisites(
+        reqs = {r.label: r for r in publisher_for(ForgedFaction.objects.get(pk=draft.pk)).prerequisites(
             ForgedFaction.objects.get(pk=draft.pk))}
-        self.assertFalse(reqs['Setup Card'])
+        # (Its own row no more: Completed Map covers it, saying what to do.)
+        self.assertNotIn('Setup Card', reqs)
+        self.assertFalse(reqs['Completed Map'].done)
+        self.assertIn('setup card is out of date', reqs['Completed Map'].warning)
         self.assertIn('The setup card is out of date',
                       self.client.get(reverse('forge-map-detail', args=[draft.pk])).content.decode())
         self.client.post(reverse('forge-map-setup-card-render', args=[draft.pk]))
         forged_map = self._map(draft)
         self.assertFalse(forged_map.card_stale)
         self.assertEqual(forged_map.card_image_version, 2)
+        reqs = {r.label: r for r in publisher_for(ForgedFaction.objects.get(pk=draft.pk)).prerequisites(
+            ForgedFaction.objects.get(pk=draft.pk))}
+        self.assertTrue(reqs['Completed Map'].done)
 
     def test_moving_the_logo_leaves_the_card_alone(self):
         draft = self._completed()

@@ -73,7 +73,7 @@
       <h4 class="root-title text-center mb-0">Setup Card</h4>
       {% if can_edit %}
         <a href="{% url 'forge-map-setup-card' pk=faction.pk %}" class="btn btn-sm btn-warning position-absolute top-50 end-0 translate-middle-y">
-          <i class="bi bi-pencil-square me-1"></i>{% if forged_map.map_card %}Edit{% else %}Add rules{% endif %}
+          <i class="bi bi-pencil-square me-1"></i>{% if forged_map.map_card %}Edit{% else %}Add Setup{% endif %}
         </a>
       {% endif %}
     </div>

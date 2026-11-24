@@ -233,13 +233,18 @@ class MapPublisher(Publisher):
     # refresh: nothing. Only the builder's Complete (or a download) renders a
     # map, so publishing never renders and never waits for the renderer.
 
+    def name_problem(self, forged):
+        # The builder holds a name to the keep post title's length; one from
+        # before that (or set some other way) may be longer.
+        if not 0 < len(forged.faction_name or '') <= MAX_TITLE:
+            return f'Keep the name to {MAX_TITLE} characters (rename it on the Start step).'
+        return None
+
     def prerequisites(self, forged):
         forged_map, state = rendered(forged)
-        name_ok = 0 < len(forged.faction_name or '') <= MAX_TITLE
         has_art = bool(forged_map and forged_map.art)
         reqs = [
-            Requirement('Map Name', name_ok, None if name_ok else
-                        f'Keep the name to {MAX_TITLE} characters (rename it on the Start step).'),
+            # (Its name: the publish card's Unique Name row, with name_problem.)
             # Art is optional for building and printing a map (a grey board),
             # but a map submitted to the Root Database needs its own.
             Requirement('Original Art', has_art, None if has_art else
@@ -249,13 +254,14 @@ class MapPublisher(Publisher):
             reqs.append(Requirement('Completed Map', False,
                                     'Finish the map in the builder and click Complete.'))
         else:
-            errors = rendered_errors(state)
-            reqs.append(Requirement('Completed Map', not errors, ' '.join(errors) or None))
+            # Completed: the map, and its setup card up to date with it.
             # Publishing never renders: an out-of-date card (after a rename,
-            # say) is re-rendered from the map's page first.
-            card_ok = not forged_map.card_stale
-            reqs.append(Requirement('Setup Card', card_ok, None if card_ok else
-                                    "Your setup card is out of date: re-render it from the map's page."))
+            # new rules saved from the builder, say) is re-rendered from the
+            # map's page first. The warning says which needs doing.
+            errors = rendered_errors(state)
+            if not errors and forged_map.card_stale:
+                errors = ["Your setup card is out of date: re-render it from the map's page."]
+            reqs.append(Requirement('Completed Map', not errors, ' '.join(errors) or None))
         return reqs
 
     def pending_note(self, forged):

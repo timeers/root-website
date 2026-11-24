@@ -103,6 +103,11 @@ class Publisher:
         return {}
 
     # ── Names and links ─────────────────────────────────────────────────────
+    def name_problem(self, forged):
+        """What's wrong with the draft's name for a keep post, besides being
+        taken (the publish card's Unique Name row says it), or None."""
+        return None
+
     def title_taken(self, name, exclude_pk=None):
         """A keep post of this kind, or a translation of one, already has the
         name (case-insensitive)."""
