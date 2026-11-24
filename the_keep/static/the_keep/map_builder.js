@@ -22,8 +22,12 @@
   const STEP_TRACK_PX = config.track.step * PPL;
   const ITEM = config.item_grid;
   const BUILDING_PX = config.building_size * PPL;   // building square size
-  const DOT_PX = Math.max(W, H) / 120;
-  const STROKE = Math.max(W, H) / 600;
+  // Dots and line widths: these sizes on the whole map, scaled with the view
+  // when the Buildings step zooms in, so they stay the same size on screen.
+  const BASE_DOT_PX = Math.max(W, H) / 120;
+  const BASE_STROKE = Math.max(W, H) / 600;
+  let DOT_PX = BASE_DOT_PX;
+  let STROKE = BASE_STROKE;
 
   const state = config.state;
   state.clearings = state.clearings || [];
@@ -40,7 +44,7 @@
     { key: 'clearings', heading: 'Clearings', name: 'Clearings',
       hint: 'Click the middle of a clearing, then drag (or click) to where its suit marker goes. Drag the number tile around the circle. Select a clearing to re-number or delete it.' },
     { key: 'buildings', heading: 'Buildings & Ruins', name: 'Buildings & Ruins', short: 'Buildings',
-      hint: 'Click each building slot. Drag inside a square to move it and press x to remove it. Select a building and click the ruin tile to make it a ruin.' },
+      hint: 'Each clearing is shown up close, starting with clearing 1: click each building slot, then use the arrows at the top for the next clearing. Drag inside a square to move it and press x to remove it. Select a building and click the ruin tile to make it a ruin. Click the small map to see the whole map; there, click a clearing (or the magnifier) to zoom back in, or click outside the clearings to place a building.' },
     { key: 'forests', heading: 'Forests', name: 'Forests',
       hint: 'Click the middle of each forest. Drag a dot to move it and press x to remove it. These are used for Relic placements.' },
     { key: 'review', heading: 'Review', name: 'Review',
@@ -411,6 +415,369 @@
     delete state.paths[twin].bow;     // the latest choice wins
   }
 
+  // ── Buildings step: one clearing at a time ────────────────────────────────
+  // Buildings sit in clearings, so the Buildings & Ruins step shows one
+  // clearing at a time, zoomed in. The board keeps its size and shape: only
+  // the part of the map drawn in it changes. The view is a box in board pixels
+  // with the board's own shape: the SVG's viewBox, and the same transform on
+  // the art under it. A mini-map (drag it to a corner, click it for the whole
+  // map) shows where the view is; on the whole map, a magnifier zooms back in.
+  const FULL = { x: 0, y: 0, w: W, h: H };
+  const ZOOM_PAD = 0.15;        // the view's margin round a clearing, each side
+  const ZOOM_EDGE = 10;         // the zoom controls' distance from the board's edge (screen px)
+  const ZOOM_MS = 250;
+  const artImage = document.getElementById('mb-image');
+  const minimap = document.getElementById('mb-minimap');
+  const minimapArt = minimap.querySelector('img');
+  const minimapView = document.getElementById('mb-minimap-view');
+  const clearingNav = document.getElementById('mb-clearing-nav');
+  const navLabel = document.getElementById('mb-nav-label');
+  const navPrev = document.getElementById('mb-nav-prev');
+  const navNext = document.getElementById('mb-nav-next');
+  const zoomInBtn = document.getElementById('mb-zoom-in');
+  const NEXT_CLEARING = navNext.getAttribute('aria-label');
+  // on: zoomed in (else the whole map); clearing: which (state.clearings
+  // index); view: its box, worked out when it's chosen (not on every redraw,
+  // so dragging a building out never moves the view under the pointer).
+  const zoom = { on: true, clearing: null, view: null };
+  let shownView = FULL;         // the view on screen (part way, mid-animation)
+  let targetView = FULL;        // where it's going
+  let viewFrame = null;
+  let countCardFrom = null;     // the count card's place before the view changed (it slides to its new one)
+  let miniCorner = 'tr';        // the mini-map's corner: t/b + l/r
+  try {
+    const saved = window.localStorage.getItem('mb-minimap-corner');
+    if (['tl', 'tr', 'bl', 'br'].includes(saved)) miniCorner = saved;
+  } catch (err) { /* no storage: top right */ }
+
+  // The clearings in number order (ties and unnumbered ones in list order).
+  function clearingOrder() {
+    return state.clearings.map((c, i) => [c, i]).filter(([c]) => c.marker)
+      .sort((a, b) => ((a[0].number || Infinity) - (b[0].number || Infinity)) || a[1] - b[1])
+      .map(([, i]) => i);
+  }
+
+  function nearestClearing(p) {
+    let best = null, bestD = Infinity;
+    state.clearings.forEach((c, i) => {
+      if (!c.marker) return;
+      const d = dist(p, px(c.centre));
+      if (d < bestD) { best = i; bestD = d; }
+    });
+    return best;
+  }
+
+  // The clearing whose circle p is inside (the nearest centre, where circles
+  // overlap), or null.
+  function clearingAt(p) {
+    let inside = null, nearest = Infinity;
+    state.clearings.forEach((c, i) => {
+      if (!c.marker) return;
+      const centre = px(c.centre), d = dist(p, centre);
+      if (d <= dist(centre, px(c.marker)) && d < nearest) { inside = i; nearest = d; }
+    });
+    return inside;
+  }
+
+  function zoomActive() {
+    const c = zoom.clearing === null ? null : state.clearings[zoom.clearing];
+    return step === STEP_BUILDINGS && !config.readonly && zoom.on && !!zoom.view && !!(c && c.marker);
+  }
+
+  // The view round clearing i: its circle, suit marker, number tile and the
+  // buildings nearest it, with a margin; never smaller than an average
+  // clearing's; centred on it, with the board's shape, and kept on the board.
+  function clearingView(i) {
+    const c = state.clearings[i], centre = px(c.centre), m = px(c.marker), R = dist(centre, m);
+    let reachX = R, reachY = R;
+    const take = (x, y, r) => {
+      reachX = Math.max(reachX, Math.abs(x - centre[0]) + r);
+      reachY = Math.max(reachY, Math.abs(y - centre[1]) + r);
+    };
+    take(m[0], m[1], Math.max(...config.marker_px));
+    const t = numberTile(c);
+    take(t[0], t[1], config.number_radius_px);
+    for (const b of state.buildings) {
+      const p = px(b.at);
+      if (nearestClearing(p) === i) take(p[0], p[1], BUILDING_PX * 0.75);
+    }
+    const hh = Math.max(reachY * (1 + ZOOM_PAD), reachX * (1 + ZOOM_PAD) * H / W,
+                        (config.default_radius_px || R) * 1.35);
+    const hw = hh * W / H;
+    if (2 * hw >= W || 2 * hh >= H) return FULL;
+    return { x: Math.min(Math.max(centre[0] - hw, 0), W - 2 * hw),
+             y: Math.min(Math.max(centre[1] - hh, 0), H - 2 * hh), w: 2 * hw, h: 2 * hh };
+  }
+
+  function zoomToClearing(i) {
+    zoom.on = i !== null;
+    zoom.clearing = i;
+    zoom.view = i === null ? null : clearingView(i);
+  }
+
+  // Entering the step: clearing 1.
+  function zoomStart() {
+    const order = clearingOrder();
+    zoomToClearing(order.length ? order[0] : null);
+  }
+
+  // From the review: the building's clearing (keeping it selected).
+  function zoomOnBuilding(index) {
+    if (step !== STEP_BUILDINGS || !state.buildings[index]) return;
+    const k = nearestClearing(px(state.buildings[index].at));
+    if (k !== null) zoomToClearing(k);
+  }
+
+  // Another clearing, or in and out: a building selected in the old view may
+  // be out of this one, so the selection goes (its pop-up would float off).
+  function changeView(fn) {
+    fn();
+    selected = null;
+    render();
+  }
+
+  // On every redraw: head for the view this step wants. A new view sets the
+  // line widths at once (they're drawn after this) and animates the box.
+  function syncView() {
+    const target = zoomActive() ? zoom.view : FULL;
+    if (['x', 'y', 'w', 'h'].every(k => Math.abs(target[k] - targetView[k]) < 1e-6)) return;
+    targetView = target;
+    noteCountCard();
+    DOT_PX = BASE_DOT_PX * target.w / W;
+    STROKE = BASE_STROKE * target.w / W;
+    if (viewFrame) cancelAnimationFrame(viewFrame);
+    let still = false;
+    try { still = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (err) { /* animate */ }
+    const from = shownView, start = performance.now(), ms = still ? 0 : ZOOM_MS;
+    const frame = (now) => {
+      const t = ms ? Math.min(1, Math.max(0, (now - start) / ms)) : 1;
+      const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;    // ease in and out
+      applyView({ x: from.x + (target.x - from.x) * e, y: from.y + (target.y - from.y) * e,
+                  w: from.w + (target.w - from.w) * e, h: from.h + (target.h - from.h) * e });
+      viewFrame = t < 1 ? requestAnimationFrame(frame) : null;
+      if (t >= 1 && selected) updatePopover();     // (it was placed for the old view)
+    };
+    if (ms) viewFrame = requestAnimationFrame(frame); else frame(start);
+  }
+
+  function applyView(v) {
+    shownView = v;
+    svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
+    // The art: scaled from its top-left corner, after moving the view's
+    // corner there (translate percentages are of the image's own box).
+    const s = W / v.w;
+    artImage.style.transform = v === FULL || (Math.abs(s - 1) < 1e-9 && !v.x && !v.y)
+      ? '' : `scale(${s}) translate(${-v.x / W * 100}%, ${-v.y / H * 100}%)`;
+    minimapView.setAttribute('x', v.x);
+    minimapView.setAttribute('y', v.y);
+    minimapView.setAttribute('width', v.w);
+    minimapView.setAttribute('height', v.h);
+  }
+
+  // The count card moves with the view (onto the item track, or into a top
+  // corner): it slides there, with the zoom. noteCountCard() before it's
+  // placed again, slideCountCard() after.
+  function noteCountCard() {
+    countCardFrom = countCard.classList.contains('d-none') ? null : countCard.getBoundingClientRect();
+  }
+
+  function slideCountCard() {
+    const from = countCardFrom;
+    countCardFrom = null;
+    if (!from || countCard.classList.contains('d-none')) return;
+    let still = false;
+    try { still = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (err) { /* slide */ }
+    countCard.style.transition = 'none';
+    countCard.style.transform = '';
+    const to = countCard.getBoundingClientRect();
+    const dx = from.left - to.left, dy = from.top - to.top;
+    if (still || Math.hypot(dx, dy) < 1) {
+      countCard.style.transition = '';
+      return;
+    }
+    countCard.style.transform = `translate(${dx}px, ${dy}px)`;
+    countCard.getBoundingClientRect();      // (start from there)
+    countCard.style.transition = `transform ${ZOOM_MS}ms cubic-bezier(0.65, 0, 0.35, 1), width .25s ease`;
+    countCard.style.transform = '';
+    const done = (evt) => {
+      if (evt && evt.propertyName !== 'transform') return;
+      countCard.style.transition = '';
+      countCard.removeEventListener('transitionend', done);
+    };
+    countCard.addEventListener('transitionend', done);
+  }
+
+  // The mini-map's size and its corner's position (board pixels).
+  function miniBox(area, corner = miniCorner) {
+    const w = Math.min(Math.max(area.width * 0.22, 90), 200, area.width - 2 * ZOOM_EDGE), h = w * H / W;
+    return { w, h, left: corner[1] === 'l' ? ZOOM_EDGE : area.width - w - ZOOM_EDGE,
+             top: corner[0] === 't' ? ZOOM_EDGE : area.height - h - ZOOM_EDGE };
+  }
+
+  // The zoomed count card: in the top corner the mini-map isn't in.
+  function placeInTopCorner(card, width) {
+    const area = board.getBoundingClientRect();
+    card.classList.remove('mb-grow-up');
+    card.style.bottom = 'auto';
+    card.style.top = `${ZOOM_EDGE}px`;
+    card.style.left = `${miniCorner === 'tl' ? area.width - width - ZOOM_EDGE : ZOOM_EDGE}px`;
+  }
+
+  // Shows and places the mini-map, the clearing pill and the magnifier.
+  function updateZoomControls() {
+    const order = step === STEP_BUILDINGS && !config.readonly ? clearingOrder() : [];
+    const zoomed = order.length > 0 && zoomActive();
+    minimap.classList.toggle('d-none', !zoomed);
+    clearingNav.classList.toggle('d-none', !zoomed);
+    zoomInBtn.classList.toggle('d-none', !order.length || zoomed);
+    const area = board.getBoundingClientRect();
+    if (zoomed) {
+      if (minimapArt.getAttribute('src') !== artImage.getAttribute('src')) minimapArt.src = artImage.getAttribute('src');
+      if (!miniDrag) {
+        const box = miniBox(area);
+        Object.assign(minimap.style, { width: `${box.w}px`, height: `${box.h}px`, left: `${box.left}px`, top: `${box.top}px` });
+      }
+      placeClearingNav(order, area);
+    } else if (order.length) {
+      placeZoomIn(area);
+    }
+  }
+
+  // ‹ Clearing 3 of 12 ›, at the top: centred, or in the gap between what's
+  // in the top corners (the zoomed count card, the mini-map when it's up
+  // there); just "3/12" where that's too narrow, and below them both if even
+  // that doesn't fit.
+  function placeClearingNav(order, area) {
+    const k = order.indexOf(zoom.clearing);
+    const n = state.clearings[zoom.clearing].number || k + 1;
+    const last = k === order.length - 1;
+    navPrev.disabled = k <= 0;
+    navNext.querySelector('i').className = last ? 'bi bi-arrows-fullscreen' : 'bi bi-chevron-right';
+    const nextLabel = last ? navNext.dataset.full : NEXT_CLEARING;
+    navNext.setAttribute('aria-label', nextLabel);
+    navNext.title = nextLabel;
+    // The top corners' contents (board pixels; layout boxes, not mid-slide ones).
+    const corners = [];
+    if (!countCard.classList.contains('d-none')) {
+      corners.push({ left: countCard.offsetLeft, right: countCard.offsetLeft + countCard.offsetWidth,
+                     bottom: countCard.offsetTop + countCard.offsetHeight });
+    }
+    if (miniCorner[0] === 't') {
+      const mini = miniBox(area);
+      corners.push({ left: mini.left, right: mini.left + mini.w, bottom: mini.top + mini.h });
+    }
+    let lo = ZOOM_EDGE, hi = area.width - ZOOM_EDGE;
+    for (const c of corners) {
+      if (c.left + c.right < area.width) lo = Math.max(lo, c.right + ZOOM_EDGE);   // in the left half
+      else hi = Math.min(hi, c.left - ZOOM_EDGE);
+    }
+    clearingNav.classList.remove('brief');
+    navLabel.textContent = `${navLabel.dataset.clearing} ${n} ${navLabel.dataset.of} ${order.length}`;
+    if (clearingNav.offsetWidth > hi - lo) {
+      clearingNav.classList.add('brief');
+      navLabel.textContent = `${n}/${order.length}`;
+    }
+    const w = clearingNav.offsetWidth;
+    let top = ZOOM_EDGE;
+    if (w > hi - lo) {
+      // No room between them: under them, across the whole width.
+      top = Math.max(ZOOM_EDGE, ...corners.map(c => c.bottom + ZOOM_EDGE));
+      lo = ZOOM_EDGE;
+      hi = area.width - ZOOM_EDGE;
+    }
+    clearingNav.style.top = `${top}px`;
+    clearingNav.style.left = `${Math.max(Math.min((area.width - w) / 2, hi - w), lo)}px`;
+  }
+
+  // The magnifier: top right, below the item track (and its count card) if
+  // they'd be in the way.
+  function placeZoomIn(area) {
+    const size = zoomInBtn.offsetWidth || 40;
+    const left = area.width - size - ZOOM_EDGE;
+    let top = ZOOM_EDGE;
+    const track = itemTrackBox();
+    const blocks = [[track.left, track.top, track.left + track.width, track.top + track.height]];
+    if (!countCard.classList.contains('d-none')) {
+      const r = countCard.getBoundingClientRect();
+      blocks.push([r.left - area.left, r.top - area.top, r.right - area.left, r.bottom - area.top]);
+    }
+    for (let pass = 0; pass < 2; pass++) {
+      for (const [x0, y0, x1, y1] of blocks) {
+        if (left < x1 + 4 && left + size > x0 - 4 && top < y1 + 4 && top + size > y0 - 4) top = y1 + ZOOM_EDGE;
+      }
+    }
+    zoomInBtn.style.top = `${Math.min(top, Math.max(area.height - size - ZOOM_EDGE, ZOOM_EDGE))}px`;
+  }
+  window.addEventListener('resize', () => updateZoomControls());
+
+  navPrev.addEventListener('click', () => {
+    const order = clearingOrder(), k = order.indexOf(zoom.clearing);
+    if (k > 0) changeView(() => zoomToClearing(order[k - 1]));
+  });
+  navNext.addEventListener('click', () => {
+    const order = clearingOrder(), k = order.indexOf(zoom.clearing);
+    if (k >= 0 && k < order.length - 1) changeView(() => zoomToClearing(order[k + 1]));
+    else changeView(() => { zoom.on = false; });       // after the last: the whole map
+  });
+  zoomInBtn.addEventListener('click', () => {
+    changeView(() => {
+      const order = clearingOrder();
+      zoomToClearing(order.includes(zoom.clearing) ? zoom.clearing : (order.length ? order[0] : null));
+    });
+  });
+
+  // The mini-map: a click shows the whole map; a drag moves it, snapping to
+  // the nearest corner on release.
+  let miniDrag = null;
+  minimap.addEventListener('pointerdown', (evt) => {
+    evt.stopPropagation();
+    evt.preventDefault();
+    minimap.setPointerCapture(evt.pointerId);
+    const area = board.getBoundingClientRect(), r = minimap.getBoundingClientRect();
+    miniDrag = { id: evt.pointerId, x: evt.clientX, y: evt.clientY,
+                 left: r.left - area.left, top: r.top - area.top, moved: false };
+  });
+  minimap.addEventListener('pointermove', (evt) => {
+    if (!miniDrag || evt.pointerId !== miniDrag.id) return;
+    const dx = evt.clientX - miniDrag.x, dy = evt.clientY - miniDrag.y;
+    if (!miniDrag.moved && Math.hypot(dx, dy) < 5) return;
+    miniDrag.moved = true;
+    minimap.classList.add('mb-dragging-mini');
+    const area = board.getBoundingClientRect();
+    const left = Math.min(Math.max(miniDrag.left + dx, 0), area.width - minimap.offsetWidth);
+    const top = Math.min(Math.max(miniDrag.top + dy, 0), area.height - minimap.offsetHeight);
+    minimap.style.left = `${left}px`;
+    minimap.style.top = `${top}px`;
+  });
+  function endMiniDrag(evt, cancelled) {
+    if (!miniDrag || evt.pointerId !== miniDrag.id) return;
+    const moved = miniDrag.moved;
+    miniDrag = null;
+    minimap.classList.remove('mb-dragging-mini');
+    if (moved || cancelled) {
+      // The corner nearest its middle.
+      const area = board.getBoundingClientRect(), r = minimap.getBoundingClientRect();
+      const midX = r.left + r.width / 2 - area.left, midY = r.top + r.height / 2 - area.top;
+      if (moved) miniCorner = (midY < area.height / 2 ? 't' : 'b') + (midX < area.width / 2 ? 'l' : 'r');
+      try { window.localStorage.setItem('mb-minimap-corner', miniCorner); } catch (err) { /* not kept */ }
+      noteCountCard();
+      updateCountCards();       // the zoomed count card takes the other top corner
+      slideCountCard();
+      updateZoomControls();
+      return;
+    }
+    changeView(() => { zoom.on = false; });
+  }
+  minimap.addEventListener('pointerup', (evt) => endMiniDrag(evt, false));
+  minimap.addEventListener('pointercancel', (evt) => endMiniDrag(evt, true));
+  minimap.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Enter' || evt.key === ' ') {
+      evt.preventDefault();
+      changeView(() => { zoom.on = false; });
+    }
+  });
+  for (const node of [clearingNav, zoomInBtn]) node.addEventListener('pointerdown', (evt) => evt.stopPropagation());
+
   // ── Drawing ───────────────────────────────────────────────────────────────
   function el(name, attrs, parent) {
     const node = document.createElementNS(NS, name);
@@ -419,7 +786,7 @@
     return node;
   }
 
-  const content = el('g', {}, svg);
+  const content = el('g', { id: 'mb-content' }, svg);   // (the Buildings step's mini-map shows it too)
   // The suit marker's outline, shared with the summary card's clearing icon
   // (map_summary.js keeps it as <symbol id="mb-marker"> on the page).
   MapSummary.loadMarker(config.marker_svg).then(ok => { if (ok) render(); });
@@ -647,6 +1014,7 @@
   }
 
   function render() {
+    syncView();     // first: a new view sets the line widths drawn below
     content.innerHTML = '';
     drawPaths();
     drawPrinted();
@@ -832,6 +1200,8 @@
     updateSuitMode();
     updatePathMode();
     updateCountCards();
+    slideCountCard();
+    updateZoomControls();
     updateUpload();
 
     document.getElementById('mb-back').disabled = step === 0;
@@ -1113,14 +1483,9 @@
         render();
         return;
       }
-      // A press inside an existing clearing's circle selects it (the nearest
-      // centre, where circles overlap) rather than starting a new one.
-      let inside = null, nearest = Infinity;
-      state.clearings.forEach((c, i) => {
-        if (!c.marker) return;
-        const centre = px(c.centre), d = dist(p, centre);
-        if (d <= dist(centre, px(c.marker)) && d < nearest) { inside = i; nearest = d; }
-      });
+      // A press inside an existing clearing's circle selects it rather than
+      // starting a new one.
+      const inside = clearingAt(p);
       if (inside !== null) {
         selected = { kind: 'clearing', index: inside };
         render();
@@ -1159,6 +1524,13 @@
         render();
         return;
       }
+      // The whole map: a press inside a clearing zooms in on it (buildings go
+      // in there, up close); outside every clearing, it places one here.
+      const inside = zoomActive() ? null : clearingAt(p);
+      if (inside !== null) {
+        changeView(() => zoomToClearing(inside));
+        return;
+      }
       // Place it and keep it under the pointer, so press-and-drag places and moves it.
       state.buildings.push({ at: norm(...p), ruin: false });
       selected = { kind: 'building', index: state.buildings.length - 1 };
@@ -1182,6 +1554,8 @@
     goTo(target[0]);
     if (target[1] && Number.isInteger(h.index)) {
       selected = { kind: target[1], index: h.index };
+      // A building: zoomed in on its clearing.
+      if (target[1] === 'building') zoomOnBuilding(h.index);
       render();
     }
   }
@@ -1668,6 +2042,10 @@
     const box = itemTrackBox();
     card.style.width = width === null ? 'auto' : `${width}px`;
     if (width === null) width = card.offsetWidth;
+    if (card === countCard && zoomActive()) {
+      placeInTopCorner(card, width);   // the item track is out of view
+      return;
+    }
     const left = Math.min(Math.max(box.left, 4), box.area.width - width - 4);
     card.style.left = `${left}px`;
     const up = box.top + openHeight(card, openWidth === null ? width : openWidth) > box.area.height - 4;
@@ -2249,6 +2627,7 @@
     selected = null;
     if (pendingMarker !== null && !state.clearings[pendingMarker].marker) removeClearing(pendingMarker);
     pendingMarker = null;
+    if (step === STEP_BUILDINGS) zoomStart();
     render();
     introduceStep();
   }

@@ -1302,6 +1302,8 @@ class MapBuilderTests(TestCase):
         self.assertIn('images/map_builder/clearing_marker.svg', config['marker_svg'])
         width, height = config['marker_px']
         self.assertAlmostEqual(width / height, 2.0, delta=0.05)
+        from the_keep.services.tts_map import DEFAULT_CLEARING_RADIUS
+        self.assertAlmostEqual(config['default_radius_px'], DEFAULT_CLEARING_RADIUS * config['px_per_local'])
         with mock.patch('django.contrib.staticfiles.finders.find', return_value=None):
             self.assertIsNone(self.client.get(self._builder_url()).context['config']['marker_svg'])
 

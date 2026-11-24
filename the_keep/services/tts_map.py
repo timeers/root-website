@@ -302,6 +302,8 @@ def builder_config(image_url, width, height, state, *, fixed, expected, save_url
         'item_grid': pieces()['item_grid'],
         'building_size': BUILDING_SIZE,
         'number_radius_px': number_tile_radius_px(geometry),
+        # An average clearing's radius: the Buildings step's zoom never shows less than one.
+        'default_radius_px': DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
         'suit_icons': suit_icons(),
         # The suit marker's outline (tts/make_marker_svg.py); round dots without it.
         'marker_svg': static(MARKER_SVG) if finders.find(MARKER_SVG) else None,
