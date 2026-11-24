@@ -52,7 +52,8 @@
         hint: 'Pick a path type, then drag from one clearing to another, or to the '
               + 'middle of another path. Select a path to change its type, drag one of '
               + 'its ends to another clearing, or press x to remove it. Rivers ▾ also draws lakes: '
-              + 'a lake fills the space around it, halfway to the land. Drawing a river or lake beside '
+              + 'a lake fills the space around it, halfway to the land, and one drawn outside the '
+              + "map's edge (nothing between it and the board's edge) becomes a sea. Drawing a river or lake beside "
               + 'a path (or a path beside one) between the same two clearings? Drop its end to the left '
               + "or right of the clearing's centre to choose which side it goes." });
   }
@@ -519,7 +520,7 @@
     const input = {
       width: W, height: H, grid,
       overlap: PATH.lake.clearing_overlap, smooth: PATH.lake.smooth, minHalf: PATH.lake.min_half,
-      round: PATH.lake.round,
+      round: PATH.lake.round, crossReach: PATH.lake.cross_reach,
       clearings: cs.map(([x, y, r], i) => ({ x, y, r, lake: onLake.has(i) })),
       // A lake's line runs on into its clearings' centres.
       lakes: state.paths.map((p, i) => [p, i]).filter(([p]) => p.kind === 'lake')
@@ -794,20 +795,7 @@
       paths: state.paths.filter(p => p.kind === 'path').length,
       special: state.paths.filter(p => p.kind === 'special').length,
       river_clearings: new Set(riverEnds.map(e => e.c)).size,
-      lakes: lakeBodies(),
     };
-  }
-
-  // Lake bodies: clearings joined by lake paths (lake_bodies in tts_map.py).
-  function lakeBodies() {
-    const parent = new Map();
-    const find = (k) => { while (parent.get(k) !== k) k = parent.get(k); return k; };
-    for (const p of state.paths) {
-      if (p.kind !== 'lake') continue;
-      for (const k of [p.a.c, p.b.c]) if (!parent.has(k)) parent.set(k, k);
-      parent.set(find(p.a.c), find(p.b.c));
-    }
-    return new Set([...parent.keys()].map(find)).size;
   }
 
   function updatePanel() {
@@ -865,7 +853,6 @@
         tile('path', 'Paths', c.paths, null, STEP_PATHS),
         ...(c.special ? [tile('special', state.special_path_name || 'Special Paths', c.special, null, STEP_PATHS)] : []),
         tile('river', 'River Clearings', c.river_clearings, config.expected.river_clearings, STEP_PATHS),
-        ...(c.lakes ? [tile('lake', 'Lakes', c.lakes, null, STEP_PATHS)] : []),
       ],
       colours: PATH ? PATH.colours : null,
     };
@@ -1390,7 +1377,10 @@
     menu.hidden = !open;
     toggle.classList.toggle('mb-water-open', open);
     if (!open) return;
-    // Below the toggle, or above it when the board has no room below.
+    // Under the water segment, right edges lined up; below the toggle, or
+    // above it when the board has no room below.
+    const btn = toggle.querySelector('[data-water]');
+    menu.style.right = `${Math.max(0, toggle.clientWidth - btn.offsetLeft - btn.offsetWidth)}px`;
     menu.classList.remove('up');
     if (menu.getBoundingClientRect().bottom > board.getBoundingClientRect().bottom) menu.classList.add('up');
     const item = menu.querySelector('[aria-checked="true"]:not(:disabled)') || menu.querySelector('button:not(:disabled)');

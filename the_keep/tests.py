@@ -2220,29 +2220,52 @@ class MapPathTests(TestCase):
         totals = path_totals(state)
         self.assertEqual((totals['lake'], totals['river_clearings']), (1, 4))
         tiles = {t['kind']: t['count'] for t in layout_summary(state, fixed=False)['path_tiles']}
-        self.assertEqual(tiles['lake'], 1)
+        self.assertNotIn('lake', tiles)                 # no Lakes tile
+        self.assertEqual(tiles['river'], 4)
 
-    def test_a_river_flows_into_a_lake(self):
-        # Clearing 1 is on a lake: the river ending there doesn't run off.
-        _state, _shapes, rivers = self._print_rivers(
-            [{'kind': 'lake', 'a': {'c': 1}, 'b': {'c': 2}}, {'kind': 'river', 'a': {'c': 3}, 'b': {'c': 1}}],
-            clearings=[(0.2, 0.5), (0.5, 0.5), (0.8, 0.5), (0.5, 0.15)])
-        ends = [run[0] for run in rivers['links']]
-        cx, cy, r = self._circle(_state, 1)
-        self.assertFalse(any(math.hypot(x - cx, y - cy) < r + 1 for x, y in ends))
-        self.assertTrue(any(s['key'] == (1, 'b') for s in rivers['springs']))     # it ends rounded, at the lake
+    def _river_into_lake(self, rivers, lake_shapes=None):
+        """Clearing 1 on a lake (1-2, to its right); `rivers` end at it."""
+        paths = [{'kind': 'lake', 'a': {'c': 1}, 'b': {'c': 2}}] + rivers
+        state = self._state(paths, clearings=[(0.2, 0.5), (0.5, 0.5), (0.8, 0.5), (0.5, 0.15), (0.5, 0.85)])
+        if lake_shapes:
+            state['lake_shapes'] = lake_shapes
+        from the_keep.services.tts_map import path_shapes, print_rivers
+        shapes = path_shapes(self._geometry(), state)
+        return state, shapes, print_rivers(self._geometry(), state, shapes)
 
-    def test_a_river_into_a_lake_ends_rounded(self):
-        from the_keep.services.tts_map import path_config, print_layout
-        state = self._state([{'kind': 'lake', 'a': {'c': 1}, 'b': {'c': 2}}, {'kind': 'river', 'a': {'c': 3}, 'b': {'c': 1}}],
-                            clearings=[(0.2, 0.5), (0.5, 0.5), (0.8, 0.5), (0.5, 0.15)])
-        layout = print_layout(self._geometry(), state)
-        cx, cy, r = self._circle(state, 1)
-        self.assertTrue(any(abs(math.hypot(x - cx, y - cy) - r) < 1.0 for x, y in layout['river_springs']))
+    def test_a_river_flows_through_its_clearing_into_the_lake(self):
+        # Without an outline: from the river's end on to where the lake's line leaves the clearing.
+        state, shapes, rivers = self._river_into_lake([{'kind': 'river', 'a': {'c': 3}, 'b': {'c': 1}}])
+        self.assertFalse(any(s['key'] == (1, 'b') for s in rivers['springs']))    # no rounded end, no run-off
+        arrive = shapes[1]['points'][-1]
+        lake_end = shapes[0]['points'][0]
+        link = next(l for l in rivers['links'] if math.dist(l[0], arrive) < 1e-6)
+        from the_keep.services.tts_map import PATH_WIDTH, RIVER_WIDTH
+        half = PATH_WIDTH * self._geometry().px_per_local * RIVER_WIDTH / 2
+        self.assertLess(math.dist(link[-1], lake_end), half + 1)       # nudged half a river into the water
+        # With an outline: to its nearest point to the clearing (a little into the water).
+        ring = [[0.55, 0.45], [0.75, 0.45], [0.75, 0.55], [0.55, 0.55]]
+        state, shapes, rivers = self._river_into_lake([{'kind': 'river', 'a': {'c': 3}, 'b': {'c': 1}}], [ring])
+        g = self._geometry()
+        link = next(l for l in rivers['links'] if math.dist(l[0], shapes[1]['points'][-1]) < 1e-6)
+        x0 = g.to_pixels(0.55, 0.5)[0]
+        self.assertAlmostEqual(link[-1][1], g.to_pixels(0.5, 0.5)[1], delta=2)
+        self.assertGreater(link[-1][0], x0)            # just inside the water's edge
+        self.assertLess(link[-1][0], x0 + half + 1)
+
+    def test_several_rivers_feed_one_lake(self):
+        state, shapes, rivers = self._river_into_lake([{'kind': 'river', 'a': {'c': 3}, 'b': {'c': 1}},
+                                                       {'kind': 'river', 'a': {'c': 4}, 'b': {'c': 1}}])
+        starts = [shapes[i]['points'][-1] for i in (1, 2)]
+        for start in starts:
+            self.assertTrue(any(math.dist(l[0], start) < 1e-6 for l in rivers['links']))
+
+    def test_lake_settings_reach_the_builder(self):
+        from the_keep.services.tts_map import path_config
         lake = path_config(self._geometry())['lake']
         self.assertEqual(lake['clearing_overlap'], 0.25)
-        self.assertGreater(lake['smooth'], 0)
-        self.assertGreater(lake['min_half'], 0)
+        for key in ('smooth', 'min_half', 'round', 'cross_reach'):
+            self.assertGreater(lake[key], 0)
 
     def test_print_layout_gives_the_lake_outline_or_a_line(self):
         from the_keep.services.tts_map import print_layout

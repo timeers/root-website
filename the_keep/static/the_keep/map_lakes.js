@@ -32,6 +32,7 @@ window.MapLakes = window.MapLakes || (function () {
   //   smooth,                           spikes and points narrower than twice this are rounded off (pixels)
   //   minHalf,                          a lake is never narrower than twice this along its line (pixels)
   //   round,                            corners are rounded over about this distance (pixels)
+  //   crossReach,                       a path an inland lake's line crosses isn't land this near the crossing (pixels)
   // }
   // returns { rings: [[[x, y], ...], ...] (pixels, even-odd), oceans: [clearing index, ...] }
   function shapes(input) {
@@ -56,44 +57,56 @@ window.MapLakes = window.MapLakes || (function () {
         }
       }
     }
-    function line(mark, points, half) {
+    function line(mark, points, half, skip = null) {
       const reach = Math.max(half, cell * 0.75);     // at least a cell thick, so nothing leaks across
+      const keep = skip ? ((k) => { if (!skip(k)) mark(k); }) : mark;
       for (let k = 1; k < points.length; k++) {
         const [ax, ay] = points[k - 1], [bx, by] = points[k];
         const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - reach) / cell + 0.5)), i1 = Math.min(cols - 1, Math.ceil((Math.max(ax, bx) + reach) / cell + 0.5));
         const j0 = Math.max(0, Math.floor((Math.min(ay, by) - reach) / cell + 0.5)), j1 = Math.min(rows - 1, Math.ceil((Math.max(ay, by) + reach) / cell + 0.5));
         for (let j = j0; j <= j1; j++) {
           for (let i = i0; i <= i1; i++) {
-            if (segmentDistance(cx(i), cy(j), ax, ay, bx, by) <= reach) mark(j * cols + i);
+            if (segmentDistance(cx(i), cy(j), ax, ay, bx, by) <= reach) keep(j * cols + i);
           }
         }
       }
     }
 
-    // ── Which clearings are on the map's edge ──
-    // Flood in from the border through every cell not on a clearing or a
-    // line (paths, rivers and lakes alike), 4-connected.
-    const wall = new Uint8Array(N);
-    const setWall = (k) => { wall[k] = 1; };
+    // ── The outside of the map ──
+    // Flooded in from the border, 4-connected, through every cell not on a
+    // wall, twice:
+    // - `beyond`: walls are the clearings and land lines (paths, special
+    //   paths, rivers), not lakes. A lake line lying out here, with nothing
+    //   between it and the board's edge, is what makes a lake a sea.
+    // - `outer`: lake lines are walls too: the map's outside proper, past its
+    //   edge clearings and lakes (edge clearings, which of them own which
+    //   stretch of the board's edge, and which way is out).
+    const wall = new Uint8Array(N), lakeWall = new Uint8Array(N);
+    const setWall = (k) => { wall[k] = 1; lakeWall[k] = 1; };
     input.clearings.forEach(c => disc(setWall, c.x, c.y, c.r));
     for (const l of input.lines) line(setWall, l.points, l.half);
-    for (const l of lakes) line(setWall, l.points, 0);
-    const outer = new Uint8Array(N);
+    for (const l of lakes) line((k) => { lakeWall[k] = 1; }, l.points, 0);
     const queue = new Int32Array(N);
     let head = 0, tail = 0;
-    for (let j = 0; j < rows; j++) {
-      for (let i = 0; i < cols; i++) {
-        if (border(i, j)) { const k = j * cols + i; outer[k] = 1; queue[tail++] = k; }
-      }
-    }
     const step = (k, fn) => {
       const i = k % cols, j = (k - i) / cols;
       if (i > 0) fn(k - 1); if (i < cols - 1) fn(k + 1);
       if (j > 0) fn(k - cols); if (j < rows - 1) fn(k + cols);
     };
-    while (head < tail) {
-      step(queue[head++], (n) => { if (!outer[n] && !wall[n]) { outer[n] = 1; queue[tail++] = n; } });
-    }
+    const flood = (walls) => {
+      const reached = new Uint8Array(N);
+      head = tail = 0;
+      for (let j = 0; j < rows; j++) {
+        for (let i = 0; i < cols; i++) {
+          if (border(i, j)) { const k = j * cols + i; reached[k] = 1; queue[tail++] = k; }
+        }
+      }
+      while (head < tail) {
+        step(queue[head++], (n) => { if (!reached[n] && !walls[n]) { reached[n] = 1; queue[tail++] = n; } });
+      }
+      return reached;
+    };
+    const beyond = flood(wall), outer = flood(lakeWall);
     // A clearing is on the edge when the outer area touches its circle.
     // Each one also claims the outer area nearest it (through the outer area,
     // never across the network), for the oceans below.
@@ -125,25 +138,133 @@ window.MapLakes = window.MapLakes || (function () {
       if (!bodies.has(root)) bodies.set(root, []);
       bodies.get(root).push(k);
     }
+    // A lake line is outside the map when (nearly all of) it lies in the
+    // outside area: nothing between it and the board's edge. A body is a sea
+    // when all its lines are; otherwise it's an inland lake, wherever its
+    // clearings are.
+    const cellAt = (x, y) => {
+      const i = Math.round(x / cell + 0.5), j = Math.round(y / cell + 0.5);
+      return i < 0 || j < 0 || i >= cols || j >= rows ? -1 : j * cols + i;
+    };
+    function outside(l) {
+      const ca = input.clearings[l.a], cb = input.clearings[l.b];
+      let inside = 0, out = 0;
+      for (const [x, y] of resample(l.points, cell)) {
+        if (Math.hypot(x - ca.x, y - ca.y) < ca.r + cell || Math.hypot(x - cb.x, y - cb.y) < cb.r + cell) continue;
+        const k = cellAt(x, y);
+        if (k < 0 || wall[k]) continue;
+        if (beyond[k]) out++; else inside++;
+      }
+      if (out + inside < 3) {        // too short to tell: its middle decides
+        const [x, y] = pointAlong(l.points, 0.5), k = cellAt(x, y);
+        return k >= 0 && !!beyond[k];
+      }
+      return out >= 0.8 * (out + inside);
+    }
     const oceans = [];
-    for (const members of bodies.values()) {
-      if (members.every(k => edge.has(k))) oceans.push(...members);
+    for (const [root, members] of bodies) {
+      const lines = lakes.filter(l => find(l.a) === root);
+      if (lines.every(outside)) oceans.push(...members);
     }
     const oceanClearing = new Set(oceans);
+
+    // ── Island coasts ──
+    // A sea whose lakes form a ring (or a single chain) gets a coast: a
+    // smooth curve through each of its clearings' outermost point, so the sea
+    // only touches each clearing there and the land reads as an island.
+    const overlap = input.overlap === undefined ? 0.25 : input.overlap;
+    const inner = (c) => c.r * (1 - overlap);
+    const coasts = [];              // [{points, outward}] (outward: per point, which side is sea)
+    const coastBody = new Set();    // bodies drawn with a coast (their lake lines aren't water)
+    const ownedSum = new Map();     // clearing -> [sum x, sum y, n] of its outer cells
+    for (let k = 0; k < N; k++) {
+      if (owner[k] < 0) continue;
+      const i = k % cols, j = (k - i) / cols, s = ownedSum.get(owner[k]) || [0, 0, 0];
+      s[0] += cx(i); s[1] += cy(j); s[2]++;
+      ownedSum.set(owner[k], s);
+    }
+    for (const [root, members] of bodies) {
+      if (!oceanClearing.has(root)) continue;
+      const order = ringOrChain(members, lakes.filter(l => find(l.a) === root));
+      if (!order) continue;             // branching: no single coast (its lake lines stay water)
+      if (order.closed) {
+        // A ring is an island's coast only when it goes round the rest of the
+        // map (every other clearing inside it). A ring off to one side (a bay
+        // in a corner) is just sea.
+        const ring = order.points.map(k => [input.clearings[k].x, input.clearings[k].y]);
+        const others = input.clearings.filter((c, k) => !members.includes(k));
+        if (!others.every(c => insideRing([c.x, c.y], ring))) continue;
+      }
+      const outwardOf = (k) => {
+        const c = input.clearings[k];
+        // Away from where its lake lines arrive...
+        let sx = 0, sy = 0, arriving = 0, first = null;
+        for (const l of lakes) {
+          if (l.a !== k && l.b !== k) continue;
+          const pts = l.a === k ? l.points : [...l.points].reverse();
+          const [px, py] = pointOnCircle(pts, [c.x, c.y], c.r);
+          const len = Math.hypot(px - c.x, py - c.y) || 1;
+          sx += (px - c.x) / len; sy += (py - c.y) / len;
+          if (!first) first = [(px - c.x) / len, (py - c.y) / len];
+          arriving++;
+        }
+        let ox = -sx, oy = -sy;
+        // ...towards the outside of the map it owns (also when its lines
+        // arrive from opposite sides, and the first guess is no guess).
+        const own = ownedSum.get(k);
+        const tx = own ? own[0] / own[2] - c.x : 0, ty = own ? own[1] / own[2] - c.y : 0;
+        if (arriving === 1 || Math.hypot(ox, oy) < 0.3) {
+          // At a chain's end (one lake line) or with lines arriving from
+          // opposite sides: across its line, on the side of the outside.
+          [ox, oy] = first ? [first[1], -first[0]] : [tx, ty];
+        }
+        if (ox * tx + oy * ty < 0) { ox = -ox; oy = -oy; }
+        const len = Math.hypot(ox, oy) || 1;
+        return [ox / len, oy / len];
+      };
+      const outs = order.points.map(outwardOf);
+      const P = order.points.map((k, n) => {
+        const c = input.clearings[k];
+        return [c.x + outs[n][0] * inner(c), c.y + outs[n][1] * inner(c)];
+      });
+      coasts.push(catmullRom(P, outs, order.closed, cell * 0.5,
+                             order.closed ? 0 : input.clearings[order.points[0]].r,
+                             order.closed ? 0 : input.clearings[order.points[order.points.length - 1]].r));
+      coastBody.add(root);
+    }
 
     // ── Seeds: water and land ──
     // A lake overlaps only the edge of its clearings: inside that (the inner
     // disc) stays dry, and the lake's line starts at the inner disc's edge.
-    const overlap = input.overlap === undefined ? 0.25 : input.overlap;
-    const inner = (c) => c.r * (1 - overlap);
+    // A sea with a coast takes its water from the coast, not its lake lines.
     const water = new Uint8Array(N), land = new Uint8Array(N), lakeLine = new Uint8Array(N);
     const setWater = (k) => { water[k] = 1; lakeLine[k] = 1; }, setLand = (k) => { land[k] = 1; };
+    const inlandLines = [];
     for (const l of lakes) {
+      if (coastBody.has(find(l.a))) continue;
+      if (!oceanClearing.has(l.a)) inlandLines.push(l);
       const ca = input.clearings[l.a], cb = input.clearings[l.b];
       line(setWater, trimEnds(l.points, [ca.x, ca.y], inner(ca), [cb.x, cb.y], inner(cb)), cell * 0.5);
     }
+    // The coast: water just outside it, land just inside, so the shore lies on it.
+    for (const coast of coasts) {
+      coast.points.forEach(([x, y], n) => {
+        const [nx, ny] = coast.outward[n];
+        disc((k) => { water[k] = 1; }, x + nx * cell, y + ny * cell, cell * 0.5);
+        disc(setLand, x - nx * cell, y - ny * cell, cell * 0.5);
+      });
+    }
+    // A path (or river) an inland lake's line is forced across isn't land
+    // near the crossing: the lake runs on under it.
+    const crossReach = input.crossReach || 0;
+    const crossingsOf = (l) => crossReach ? inlandLines.flatMap(lake => crossings(l.points, lake.points)) : [];
+    const lineSkips = input.lines.map(l => {
+      const at = crossingsOf(l);
+      return at.length ? ((k) => { const i = k % cols, j = (k - i) / cols;
+                                    return at.some(([x, y]) => Math.hypot(cx(i) - x, cy(j) - y) < crossReach); }) : null;
+    });
     input.clearings.forEach(c => { if (!c.lake) disc(setLand, c.x, c.y, c.r); });
-    for (const l of input.lines) line(setLand, l.points, l.half);
+    input.lines.forEach((l, n) => line(setLand, l.points, l.half, lineSkips[n]));
     for (const f of input.forests) disc(setLand, f.x, f.y, f.r);
     // A building slot or ruin is land, except in a lake's own clearing: there
     // it only stays dry (below), so the lake still reaches the clearing's edge.
@@ -174,7 +295,7 @@ window.MapLakes = window.MapLakes || (function () {
     const setDry = (k) => { dry[k] = 1; };
     for (const b of input.buildings) disc(setDry, b.x, b.y, b.r + (b.margin || 0));
     input.clearings.forEach(c => disc(setDry, c.x, c.y, c.lake ? inner(c) : c.r));
-    for (const l of input.lines) line(setDry, l.points, l.half);
+    input.lines.forEach((l, n) => line(setDry, l.points, l.half, lineSkips[n]));
     const wet = new Uint8Array(N);
     for (let k = 0; k < N; k++) wet[k] = !dry[k] && (dLand[k] - dWater[k] > 0 || (water[k] && !land[k])) ? 1 : 0;
 
@@ -201,9 +322,33 @@ window.MapLakes = window.MapLakes || (function () {
     for (let k = 0; k < N; k++) open[k] = smooth - dCore[k];
     const passes = 3, radius = Math.round((input.round || 0) / cell / Math.sqrt(passes));
     for (let p = 0; p < passes && radius > 0; p++) open = boxBlur(open, cols, rows, radius);
+    // An island's coast is already a smooth curve, so near it the shore is
+    // the curve itself: the exact signed distance to it (+ out to sea), so the
+    // sea reaches it all along (rounding would pull the sea back from round
+    // the clearings it touches) and the shore is as smooth as the curve.
+    const coastField = new Float32Array(N).fill(-Infinity);
+    const near = cell * 3;
+    for (const coast of coasts) {
+      const pts = coast.points;
+      for (let n = 1; n < pts.length; n++) {
+        const [ax, ay] = pts[n - 1], [bx, by] = pts[n], [ox, oy] = coast.outward[n];
+        const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - near) / cell + 0.5)), i1 = Math.min(cols - 1, Math.ceil((Math.max(ax, bx) + near) / cell + 0.5));
+        const j0 = Math.max(0, Math.floor((Math.min(ay, by) - near) / cell + 0.5)), j1 = Math.min(rows - 1, Math.ceil((Math.max(ay, by) + near) / cell + 0.5));
+        for (let j = j0; j <= j1; j++) {
+          for (let i = i0; i <= i1; i++) {
+            const x = cx(i), y = cy(j), d = segmentDistance(x, y, ax, ay, bx, by);
+            if (d > near) continue;
+            const k = j * cols + i, side = (x - ax) * ox + (y - ay) * oy >= 0 ? 1 : -1;
+            // The nearest segment decides (its sign included).
+            if (coastField[k] === -Infinity || d < Math.abs(coastField[k])) coastField[k] = side * d;
+          }
+        }
+      }
+    }
     const field = new Float32Array(N);       // > 0: water (a smooth signed distance, for tracing)
     for (let k = 0; k < N; k++) {
       field[k] = Math.max(open[k], minHalf - dLine[k]);
+      if (coastField[k] !== -Infinity) field[k] = coastField[k] > 0 ? Math.max(field[k], coastField[k]) : Math.min(field[k], coastField[k]);
       if (dry[k]) field[k] = Math.min(field[k], -cell * 0.5);
     }
 
@@ -236,6 +381,138 @@ window.MapLakes = window.MapLakes || (function () {
       }
     }
     return out;
+  }
+
+  // Is p inside the polygon (even-odd)?
+  function insideRing(p, ring) {
+    let inside = false;
+    for (let k = 0, j = ring.length - 1; k < ring.length; j = k++) {
+      const [ax, ay] = ring[k], [bx, by] = ring[j];
+      if ((ay > p[1]) !== (by > p[1]) && p[0] < ax + (p[1] - ay) * (bx - ax) / (by - ay)) inside = !inside;
+    }
+    return inside;
+  }
+
+  // Points along a polyline about `step` apart.
+  function resample(points, step) {
+    const out = [points[0]];
+    for (let k = 1; k < points.length; k++) {
+      const [ax, ay] = points[k - 1], [bx, by] = points[k];
+      const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / step));
+      for (let i = 1; i <= n; i++) out.push([ax + (bx - ax) * i / n, ay + (by - ay) * i / n]);
+    }
+    return out;
+  }
+
+  // The point a share `t` of the way along a polyline, by length.
+  function pointAlong(points, t) {
+    let total = 0;
+    for (let k = 1; k < points.length; k++) total += Math.hypot(points[k][0] - points[k - 1][0], points[k][1] - points[k - 1][1]);
+    let left = total * t;
+    for (let k = 1; k < points.length; k++) {
+      const [ax, ay] = points[k - 1], [bx, by] = points[k];
+      const len = Math.hypot(bx - ax, by - ay);
+      if (left <= len && len) return [ax + (bx - ax) * left / len, ay + (by - ay) * left / len];
+      left -= len;
+    }
+    return points[points.length - 1];
+  }
+
+  // Where a polyline (starting inside the circle) first leaves it.
+  function pointOnCircle(points, centre, r) {
+    for (const p of resample(points, r / 8)) {
+      if (Math.hypot(p[0] - centre[0], p[1] - centre[1]) >= r) return p;
+    }
+    return points[points.length - 1];
+  }
+
+  // Where two polylines cross.
+  function crossings(a, b) {
+    const out = [];
+    for (let i = 1; i < a.length; i++) {
+      for (let j = 1; j < b.length; j++) {
+        const p = segmentCross(a[i - 1], a[i], b[j - 1], b[j]);
+        if (p) out.push(p);
+      }
+    }
+    return out;
+  }
+
+  function segmentCross(p, q, r, s) {
+    const d = (q[0] - p[0]) * (s[1] - r[1]) - (q[1] - p[1]) * (s[0] - r[0]);
+    if (!d) return null;
+    const t = ((r[0] - p[0]) * (s[1] - r[1]) - (r[1] - p[1]) * (s[0] - r[0])) / d;
+    const u = ((r[0] - p[0]) * (q[1] - p[1]) - (r[1] - p[1]) * (q[0] - p[0])) / d;
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t] : null;
+  }
+
+  // The order a body's clearings are joined in: { points, closed } for a
+  // ring (each clearing has two lake neighbours) or a chain (two ends with
+  // one), else null.
+  function ringOrChain(members, lines) {
+    const next = new Map(members.map(k => [k, []]));
+    for (const l of lines) { next.get(l.a).push(l.b); next.get(l.b).push(l.a); }
+    const degrees = members.map(k => next.get(k).length);
+    if (degrees.some(d => d < 1 || d > 2)) return null;
+    const ends = members.filter(k => next.get(k).length === 1);
+    if (ends.length !== 0 && ends.length !== 2) return null;
+    const closed = ends.length === 0;
+    if (closed && members.length < 3) return null;
+    const order = [closed ? members[0] : ends[0]];
+    let previous = null;
+    while (order.length < members.length) {
+      const here = order[order.length - 1];
+      const step = next.get(here).find(k => k !== previous && !order.includes(k));
+      if (step === undefined) return null;
+      previous = here;
+      order.push(step);
+    }
+    return { points: order, closed };
+  }
+
+  // A Catmull-Rom curve through points P (closed, or open with a run-on past
+  // each end), sampled about `step` apart, with which side is outward at each
+  // sample (from the points' own outward directions).
+  function catmullRom(P, outs, closed, step, runStart, runEnd) {
+    const n = P.length;
+    const at = (i) => (closed ? P[(i + n) % n] : P[Math.max(0, Math.min(n - 1, i))]);
+    const out = (i) => (closed ? outs[(i + n) % n] : outs[Math.max(0, Math.min(n - 1, i))]);
+    const points = [], outward = [];
+    const segments = closed ? n : n - 1;
+    for (let i = 0; i < segments; i++) {
+      const p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2);
+      const count = Math.max(2, Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / step));
+      for (let s = 0; s < count; s++) {
+        const t = s / count, t2 = t * t, t3 = t2 * t;
+        const f = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+        points.push([f(p0[0], p1[0], p2[0], p3[0]), f(p0[1], p1[1], p2[1], p3[1])]);
+        const o1 = out(i), o2 = out(i + 1);
+        outward.push([o1[0] * (1 - t) + o2[0] * t, o1[1] * (1 - t) + o2[1] * t]);
+      }
+    }
+    if (!closed) { points.push(P[n - 1]); outward.push(outs[n - 1]); }
+    // Each sample's normal, turned to the outward side.
+    const normals = points.map((p, k) => {
+      const a = points[Math.max(0, k - 1)], b = points[Math.min(points.length - 1, k + 1)];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+      let nx = -(b[1] - a[1]) / len, ny = (b[0] - a[0]) / len;
+      if (nx * outward[k][0] + ny * outward[k][1] < 0) { nx = -nx; ny = -ny; }
+      return [nx, ny];
+    });
+    if (!closed) {
+      // A short run-on past each end, so the coast doesn't stop abruptly.
+      const run = (from, towards, length, normal) => {
+        const dx = from[0] - towards[0], dy = from[1] - towards[1], len = Math.hypot(dx, dy) || 1;
+        const extra = [];
+        for (let d = step; d <= length; d += step) extra.push([from[0] + dx / len * d, from[1] + dy / len * d]);
+        return extra.map(p => [p, normal]);
+      };
+      const head = run(points[0], points[1], runStart, normals[0]).reverse();
+      const tail = run(points[points.length - 1], points[points.length - 2], runEnd, normals[normals.length - 1]);
+      return { points: [...head.map(e => e[0]), ...points, ...tail.map(e => e[0])],
+               outward: [...head.map(e => e[1]), ...normals, ...tail.map(e => e[1])] };
+    }
+    return { points, outward: normals };
   }
 
   // The polyline without the parts inside the two discs at its ends.

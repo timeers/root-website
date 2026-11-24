@@ -482,6 +482,7 @@ LAKE_BUILDING_MARGIN = 0.25      # a building slot or ruin stays dry this share 
 LAKE_FOREST_SIZE = 0.6           # a forest marker is land this share of a building slot across
 LAKE_CLEARING_OVERLAP = 0.25     # a lake overlaps this share of its clearings' radius (their edge); the rest stays dry
 LAKE_SMOOTH = 0.35               # spikes and points of water narrower than twice this (x a clearing's radius) are rounded off
+LAKE_CROSS_REACH = 1.0           # a path an inland lake is forced across isn't land this far (x a clearing's radius) from the crossing
 LAKE_ROUND = 0.6                 # shores are softened (every corner rounded) over this share of a clearing's radius
 LAKE_MIN_HALF = 1.5              # a lake is at least this many river half-widths wide along its line
 LAKE_RINGS_MAX = 40
@@ -609,6 +610,7 @@ def path_config(geometry):
                      'clearing_overlap': LAKE_CLEARING_OVERLAP,
                      'smooth': LAKE_SMOOTH * DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
                      'round': LAKE_ROUND * DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
+                     'cross_reach': LAKE_CROSS_REACH * DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
                      'min_half': LAKE_MIN_HALF * px['width'] * RIVER_WIDTH / 2}}
 
 
@@ -914,8 +916,9 @@ def print_rivers(geometry, state, shapes=None):
       with no run-off ('springs': [{'key': (river, end), 'at', 'd'}])."""
     shapes = shapes if shapes is not None else path_shapes(geometry, state)
     paths = state.get('paths') or []
+    lakes = [[geometry.to_pixels(u, v) for u, v in ring] for ring in state.get('lake_shapes') or []]
     return river_extras(paths, shapes, _circles(geometry, state), _path_px(geometry)['width'] * RIVER_WIDTH,
-                        geometry, water=lake_clearings(paths))
+                        geometry, water=lake_clearings(paths), feed=True, lakes=lakes)
 
 
 def _is_spring(start, d, frame):
@@ -930,7 +933,8 @@ def _is_spring(start, d, frame):
     return math.dist(start, ahead) > behind_d * SPRING_RATIO
 
 
-def river_extras(paths, shapes, circles, width, frame, join_clearings=True, springs=None, water=()):
+def river_extras(paths, shapes, circles, width, frame, join_clearings=True, springs=None, water=(),
+                 feed=False, lakes=()):
     """print_rivers' work, from its inputs: the paths (state['paths']), their
     shapes ({'points', ...} each, as path_shapes), the clearings' (x, y, r),
     the river's width and the frame (anything with width and height, its
@@ -942,7 +946,10 @@ def river_extras(paths, shapes, circles, width, frame, join_clearings=True, spri
     springs: which loose ends are springs, as a set of (river index, end):
     the card passes the printed map's, so the two agree. None decides here.
     water: clearings on a lake: a river ending at one flows into the lake
-    (no run-off, and no join through the clearing)."""
+    (no run-off, and no join through the clearing). feed: and draw it on
+    through the clearing into the water: to the nearest point of the lake
+    outline (`lakes`, rings in the same units), or without one, to where the
+    lake's line meets the clearing."""
     half = width / 2
     reach_base = MERGE_REACH * width
     rivers = [i for i, p in enumerate(paths) if p['kind'] == 'river']
@@ -1013,11 +1020,17 @@ def river_extras(paths, shapes, circles, width, frame, join_clearings=True, spri
 
     for k, items in sorted(ends.items()):
         if k in water:
-            # It flows into the lake: no run-off; a lone river there ends
-            # rounded, as a spring does.
-            if len(items) == 1:
-                at, d = items[0]
-                found_springs.append({'key': keys[k][0], 'at': at, 'd': d})
+            # It flows into the lake (no run-off), on through the clearing.
+            if feed:
+                target = _lake_mouth(k, circles[k], paths, shapes, lakes)
+                if target is not None:
+                    (tx, ty), (nx, ny) = target
+                    reach = circles[k][2] * RIVER_LINK_REACH
+                    end = (tx + nx * half, ty + ny * half)     # a little into the water: no hairline gap
+                    for at, d in items:
+                        p1 = (at[0] + d[0] * reach, at[1] + d[1] * reach)
+                        p2 = (tx - nx * reach, ty - ny * reach)
+                        links.append(sampled(lambda t, at=at, p1=p1, p2=p2: _cubic(at, p1, p2, end, t)))
             continue
         cx, cy, r = circles[k]
         if len(items) == 1:
@@ -1045,6 +1058,49 @@ def river_extras(paths, shapes, circles, width, frame, join_clearings=True, spri
             curve = min(pairs, key=lambda c: math.hypot(*(p - q for p, q in zip(_middle(c), at))))
             links.append(_merge(at, d, curve, _middle(curve), reach_base))
     return {'links': links, 'trimmed': trimmed, 'springs': found_springs}
+
+
+def _lake_mouth(k, circle, paths, shapes, lakes):
+    """Where the water meets lake clearing k: (point, unit direction into the
+    water). The nearest point of the lake outline to the clearing (within a
+    little of its circle), or without an outline, where a lake's line leaves
+    the clearing."""
+    cx, cy, r = circle
+    best, best_d = None, r * 1.5
+    for ring in lakes:
+        for a, b in zip(ring, ring[1:] + ring[:1]):
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            length2 = dx * dx + dy * dy
+            t = 0.0 if not length2 else max(0.0, min(1.0, ((cx - a[0]) * dx + (cy - a[1]) * dy) / length2))
+            p = (a[0] + dx * t, a[1] + dy * t)
+            d = math.hypot(p[0] - cx, p[1] - cy)
+            if d < best_d:
+                best, best_d = (p, _unit(-dy, dx)), d
+    if best is not None:
+        p, (nx, ny) = best
+        # Of the two normals, the one whose side is water (even-odd: the
+        # outline's rings can be holes).
+        probe = (p[0] + nx * 2, p[1] + ny * 2)
+        if not _inside_rings(probe, lakes):
+            nx, ny = -nx, -ny
+        return p, (nx, ny)
+    for i, path in enumerate(paths):
+        if path.get('kind') != 'lake':
+            continue
+        for end, points in (('a', shapes[i]['points']), ('b', shapes[i]['points'][::-1])):
+            if path[end].get('c') == k:
+                at = points[0]
+                return at, _unit(at[0] - cx, at[1] - cy)
+    return None
+
+
+def _inside_rings(p, rings):
+    inside = False
+    for ring in rings:
+        for (ax, ay), (bx, by) in zip(ring, ring[1:] + ring[:1]):
+            if (ay > p[1]) != (by > p[1]) and p[0] < ax + (p[1] - ay) * (bx - ax) / (by - ay):
+                inside = not inside
+    return inside
 
 
 def river_links(geometry, state, shapes=None):
@@ -1196,8 +1252,6 @@ def layout_summary(state, *, fixed=None):
             # Labelled with the map's own name for its special paths, when it has one.
             path_tiles.append(tile('special', state.get('special_path_name') or _('Special Paths'), totals['special']))
         path_tiles.append(tile('river', _('River Clearings'), totals['river_clearings']))
-        if totals['lake']:
-            path_tiles.append(tile('lake', _('Lakes'), totals['lake']))
     fixed = state['fixed'] if isinstance(state.get('fixed'), bool) else bool(fixed)
     if not fixed:
         return _summary(tiles, path_tiles, _random_note())
