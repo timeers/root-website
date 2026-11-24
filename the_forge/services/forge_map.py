@@ -35,8 +35,9 @@ def step_text():
     """The Forge's wording for the builder's steps (the rest is the keep's)."""
     return {
         'upload': {
-            'hint': "Here we'll walk you through creating a Root map. All you need is a name: your own art is optional "
-                    "(without it, the map is printed on a grey board with its paths and rivers). "
+            'hint': "Here we'll walk you through creating a Root map. All you need is a name to start: "
+                    "If you don't have art the map is printed on a grey board with its paths and rivers. "
+                    "You will need your own art before you submit the map. "
                     "Please don't use AI-generated art.",
             'link': {'before': 'If you already have a finished map, ',
                      'label': 'submit it to the Database',
@@ -44,7 +45,7 @@ def step_text():
                      'after': ' and edit it from there.'},
         },
         'track': {
-            'hint': 'Drag the VP track up or down, and the item grid and the Root logo, to where they should be '
+            'hint': 'Drag the VP track up or down. Move the item grid and the Root logo to where they will be '
                     'printed on your map.',
         },
         'review': {

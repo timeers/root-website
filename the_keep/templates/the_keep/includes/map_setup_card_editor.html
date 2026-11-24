@@ -61,7 +61,7 @@ unused hidden, so their text is kept. Sections are numbered by a CSS counter
     {% for error in section.name.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
     <p class="small text-muted mb-2">What do they do?</p>
     <textarea name="special_rule_{{ section.key }}" rows="2" class="form-control" maxlength="{{ form.limits.special }}"
-              data-counter placeholder="e.g. You may only move along these if you rule both clearings.">{{ section.rule.value|default:'' }}</textarea>
+              data-counter placeholder="e.g. Remove one warrior when moving along these paths.">{{ section.rule.value|default:'' }}</textarea>
     <div class="form-text text-end" data-count-for="special_rule_{{ section.key }}"></div>
     {% for error in section.rule.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
     <p class="small text-muted mb-2 mt-2">Do they divide forests? Explain this rule above if so.</p>
@@ -92,7 +92,7 @@ unused hidden, so their text is kept. Sections are numbered by a CSS counter
 
   <div class="card p-3 mb-3 msc-section">
     <h5 class="root-title mb-1"><span class="badge text-bg-secondary me-2"><span class="msc-num"></span></span>Special Rules</h5>
-    <p class="small text-muted mb-2">The map's own rules (up to {{ form.limits.rules }}).</p>
+    <p class="small text-muted mb-2">Briefly list any other special rules (up to {{ form.limits.rules }}). If you need more room a Law entry is recommended.</p>
     <div class="border rounded p-2 mb-2 bg-body-tertiary small" data-raging-preview data-river-only>
       <strong>{{ text.raging_river }}.</strong> {{ text.raging_river_text }}
       <span class="text-muted">(from Raging River)</span>

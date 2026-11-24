@@ -42,21 +42,24 @@
     { key: 'track', heading: 'VP and Item Tracks', name: 'VP & Item Tracks', short: 'Tracks',
       hint: 'Drag the item grid onto the printed item spaces. Drag the VP track up or down so the blue dots align with the printed 0-30 track.' },
     { key: 'clearings', heading: 'Clearings', name: 'Clearings',
-      hint: 'Click the middle of a clearing, then drag (or click) to where its suit marker goes. Drag the number tile around the circle. Select a clearing to re-number or delete it.' },
+      hint: 'Click to create a clearing, then drag (or click) to where its suit marker goes. Drag the number tile to place it around the clearing. Select a clearing to re-number or delete it.' },
     { key: 'buildings', heading: 'Buildings & Ruins', name: 'Buildings & Ruins', short: 'Buildings',
-      hint: 'Each clearing is shown up close, starting with clearing 1: click each building slot, then use the arrows at the top for the next clearing. Drag inside a square to move it and press x to remove it. Select a building and click the ruin tile to make it a ruin. Click the small map to see the whole map; there, click a clearing (or the magnifier) to zoom back in, or click outside the clearings to place a building.' },
+      hint: 'Starting with Clearing #1: click each building slot, then use the arrows at the top for the next clearing. '
+      + 'Drag inside a square to move it and press x to remove it. Select a building and click the ruin tile to make it a ruin. '
+      + 'Click the mini map to see the whole map; there, click a clearing (or the magnifier) to zoom back in, or click outside the clearings to place a building.' },
     { key: 'forests', heading: 'Forests', name: 'Forests',
-      hint: 'Click the middle of each forest. Drag a dot to move it and press x to remove it. These are used for Relic placements.' },
+      hint: 'Click the middle of each forest. Drag a dot to move it and press x to remove it. '
+      + 'These are used for Relic placements. Forests will be divided by Special Paths and Rivers only if stated in the rules.' },
     { key: 'review', heading: 'Review', name: 'Review',
-      hint: 'Check the count of each element, then click "Complete" to generate the final JSON.' },
+      hint: 'Check the location and count of each element, then click "Complete" to generate the final JSON.' },
   ];
   if (config.paths_step) {
     STEPS.splice(STEPS.findIndex(s => s.key === 'forests'), 0,
       { key: 'paths', heading: 'Paths & Rivers', name: 'Paths & Rivers', short: 'Paths',
-        hint: 'Pick a path type, then drag from one clearing to another, or to the '
-              + 'middle of another path. Select a path to change its type, drag one of '
-              + "its ends to another clearing, or press x to remove it. Special paths come "
-              + 'in colours (its ▾): name each kind and give it its rules on the next step.' });
+        hint: 'Pick a path type, then drag from one clearing to another, or to the middle of another path. '
+              + 'You can choose different colored paths from the Special Path selector. You can choose between Rivers and Lakes from the River selector. '
+              + 'Select a path to change its type, drag one of its ends to another clearing, or press x to remove it. '
+              + "Multiple paths cannot connect the same two clearings." });
   }
   // Setup Card Rules (the setup card page's form, over the map), after Paths &
   // Rivers: they say what the special paths do and which divide forests.
@@ -64,8 +67,8 @@
   const rulesForm = rulesBox && rulesBox.querySelector('#msc-form');
   if (config.rules_step && rulesForm && !config.readonly) {
     STEPS.splice(STEPS.findIndex(s => s.key === 'paths') + 1, 0,
-      { key: 'rules', heading: 'Setup Card Rules', name: 'Setup Card Rules', short: 'Rules',
-        hint: "Name your special paths and say what they do, whether they and the river divide forests, "
+      { key: 'rules', heading: 'Map Rules', name: 'Map Rules', short: 'Rules',
+        hint: "If you use colored paths, name them and say what they do. Whether they or the river divide forests, "
               + "and add the map's setup modifications and special rules. They're saved with your map, "
               + 'and printed on its setup card.' });
   }
@@ -1223,6 +1226,7 @@
       btn.disabled = n > STEP_UPLOAD && artStepLocked();
       if (n === step) btn.setAttribute('aria-current', 'step'); else btn.removeAttribute('aria-current');
     });
+    fitStepNames();
     placeProgressThumb();
     document.getElementById('mb-heading').textContent = STEPS[step].heading;
 
@@ -2631,6 +2635,34 @@
   // text, never narrower than the step's own share.
   const THUMB_PAD = 12;     // px either side of the text
   const THUMB_INSET = 3;    // the bar's padding
+  // The steps' names: full, else short, else none (just the numbers): the
+  // longest that fits in every step's share of the bar, with a little room
+  // either side (map_builder.css, mb-names-*). (The highlight may reach a
+  // little past its share: placeProgressThumb.)
+  const STEP_NAME_MODES = ['mb-names-full', 'mb-names-short', 'mb-names-none'];
+  // px either side of a step's number and name, by mode: short names need
+  // more (at their narrowest they crowd the numbers: numbers only, then).
+  const STEP_NAME_ROOM = { 'mb-names-full': 4, 'mb-names-short': 10 };
+  let stepNamesWidth = null;
+  function fitStepNames() {
+    const bar = document.getElementById('mb-progress');
+    if (!bar || !bar.clientWidth || bar.clientWidth === stepNamesWidth) return;
+    stepNamesWidth = bar.clientWidth;
+    const fits = (room) => [...bar.querySelectorAll('[data-step]')].every(btn => {
+      let used = 0, shown = 0;
+      for (const child of btn.querySelectorAll('.mb-step-num, .mb-name-full, .mb-name-short, .mb-step-name:not(:has(span))')) {
+        const w = child.getBoundingClientRect().width;
+        if (w) { used += w; shown++; }
+      }
+      const gap = parseFloat(getComputedStyle(btn).columnGap) || 0;
+      return used + gap * Math.max(shown - 1, 0) + 2 * room <= btn.clientWidth;
+    });
+    for (const mode of STEP_NAME_MODES) {
+      bar.classList.remove(...STEP_NAME_MODES);
+      bar.classList.add(mode);
+      if (mode === 'mb-names-none' || fits(STEP_NAME_ROOM[mode])) break;
+    }
+  }
   function placeProgressThumb() {
     const bar = document.getElementById('mb-progress');
     const thumb = document.getElementById('mb-progress-thumb');
@@ -2654,9 +2686,11 @@
     thumb.style.left = `${x}px`;
     thumb.style.width = `${width}px`;
   }
-  window.addEventListener('resize', placeProgressThumb);
+  window.addEventListener('resize', () => { fitStepNames(); placeProgressThumb(); });
   // The step names' font (and so their widths) may load after the first layout.
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(placeProgressThumb);
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => { stepNamesWidth = null; fitStepNames(); placeProgressThumb(); });
+  }
 
   // ── Steps and saving ──────────────────────────────────────────────────────
   function goTo(n) {
