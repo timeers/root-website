@@ -24,9 +24,9 @@ from functools import lru_cache
 from io import BytesIO
 from types import SimpleNamespace
 
-from .tts_map import PRINT_DIR, SUITS, river_extras, route_paths
+from .tts_map import PRINT_DIR, SUITS, MapGeometry, lake_clearings, print_rivers, river_extras, route_paths
 
-SETUP_CARD_RENDER_VERSION = 13
+SETUP_CARD_RENDER_VERSION = 17
 CARD_DIR = PRINT_DIR / 'setup_card'
 
 # ── The card's data ─────────────────────────────────────────────────────────
@@ -60,6 +60,8 @@ def clean_setup_card(data):
         'special_path_rule': _text(data.get('special_path_rule'), SPECIAL_RULE_MAX),
         'modifications': _text(data.get('modifications'), MODIFICATIONS_MAX),
         'raging_river': data.get('raging_river') is True,
+        # Only for drawing the trees (any rule about it is the designer's own).
+        'special_divides_forests': data.get('special_divides_forests') is not False,
         'rules': rules[:RULES_MAX],
     }
 
@@ -78,6 +80,7 @@ def applicable(layout, map_card):
     features = layout_features(layout)
     if not features['special']:
         card['special_path_rule'] = ''
+        card['special_divides_forests'] = True
     if not features['river']:
         card['raging_river'] = False
     return card
@@ -102,6 +105,7 @@ def _diagram_layout(layout):
         'suits': _suits(layout),
         'forests': layout.get('forests') or [],
         'paths': layout.get('paths') or [],
+        'lakes': layout.get('lake_shapes') or [],
     }
     if layout_features(layout)['special']:
         out['special_path_name'] = layout.get('special_path_name') or ''
@@ -160,6 +164,11 @@ SPECIAL_COLOUR = '#ed2731'    # tts_map.PATH_COLOURS['special']
 RIVER_COLOUR = '#978ead'      # the example card's river: its blue, half over the paper
 RIVER_WIDTH = 3.25           # half the example card's band
 RAGING_RIVER_WIDTH = RIVER_WIDTH * 2
+# Water's edges vary a little, as if drawn by hand: smooth noise along each
+# river bank (and lake shore), with a new value every WOBBLE_STEP. 0 = smooth.
+WOBBLE_STEP = 7.0
+RIVER_WOBBLE = 0.35           # a bank moves up to this share of the river's half-width in or out
+LAKE_WOBBLE = 0.8             # a lake's shore moves up to this far (pt) in or out
 SUIT_ICON_H = 11.5            # a fixed-suit map's suit icon, on top of its clearing's circle
 SUIT_ICONS = {'fox': 'fox_icon_black_outline.svg', 'rabbit': 'rabbit_icon_black_border.svg',
               'mouse': 'mouse_icon_black_outline.svg', 'bird': 'bird_icon_black_outline.svg',
@@ -229,6 +238,91 @@ def _height(paragraphs, width):
     return total
 
 
+def _wobble(s, seed):
+    """Smooth noise in -1..1 along a distance s: a hashed value every
+    WOBBLE_STEP, eased between (cosine), so there are no kinks. The same
+    s and seed always give the same value, so a card always draws the same."""
+    t = s / WOBBLE_STEP
+    k = math.floor(t)
+
+    def knot(n):
+        return hashlib.md5(f'{seed}:{n}'.encode()).digest()[0] / 255 * 2 - 1
+
+    f = (1 - math.cos((t - k) * math.pi)) / 2
+    return knot(k) * (1 - f) + knot(k + 1) * f
+
+
+def _resample(points, step):
+    """The polyline's points about `step` apart, by distance, with the distance of each."""
+    out = [(points[0], 0.0)]
+    run = 0.0
+    for a, b in zip(points, points[1:]):
+        length = math.dist(a, b)
+        if not length:
+            continue
+        n = max(1, math.ceil(length / step))
+        for k in range(1, n + 1):
+            t = k / n
+            out.append(((a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t), run + length * t))
+        run += length
+    return out
+
+
+def _seed(points, n):
+    """A line's noise seed: its rounded start, so it's the same each render."""
+    return f'{n}:{round(points[0][0])}:{round(points[0][1])}'
+
+
+def river_outline(points, half, seed):
+    """A river's filled outline: its centre line with banks `half` out on
+    each side, each bank moved in or out (independently) by up to
+    RIVER_WOBBLE x half along its length, and rounded ends."""
+    amp = RIVER_WOBBLE * half
+    samples = _resample(points, 1.5)
+    if len(samples) < 2:
+        return []
+    left, right = [], []
+    for k, (p, s) in enumerate(samples):
+        a, b = samples[max(k - 1, 0)][0], samples[min(k + 1, len(samples) - 1)][0]
+        length = math.dist(a, b) or 1e-9
+        nx, ny = -(b[1] - a[1]) / length, (b[0] - a[0]) / length
+        hl = half + amp * _wobble(s, f'{seed}L')
+        hr = half + amp * _wobble(s, f'{seed}R')
+        left.append((p[0] + nx * hl, p[1] + ny * hl))
+        right.append((p[0] - nx * hr, p[1] - ny * hr))
+
+    def cap(p, start, end, steps=8):
+        """A half circle round p from `start` to `end` (the two bank points)."""
+        a0 = math.atan2(start[1] - p[1], start[0] - p[0])
+        a1 = math.atan2(end[1] - p[1], end[0] - p[0])
+        r0, r1 = math.dist(p, start), math.dist(p, end)
+        # Clockwise in these coordinates: from the left bank round past the
+        # river's end (or start) to the right bank, never back across the river.
+        sweep = (a1 - a0) % (2 * math.pi) - 2 * math.pi
+        return [(p[0] + math.cos(a0 + sweep * i / steps) * (r0 + (r1 - r0) * i / steps),
+                 p[1] + math.sin(a0 + sweep * i / steps) * (r0 + (r1 - r0) * i / steps)) for i in range(1, steps)]
+
+    end, start = samples[-1][0], samples[0][0]
+    return (left + cap(end, left[-1], right[-1]) + right[::-1] + cap(start, right[0], left[0]))
+
+
+def lake_shore(ring, seed):
+    """A lake's outline with a gently uneven shore: its points every ~2 pt,
+    each moved in or out along the ring's normal by up to LAKE_WOBBLE."""
+    closed = ring + ring[:1]
+    samples = _resample(closed, 2.0)[:-1]
+    if len(samples) < 3:
+        return list(ring)
+    out = []
+    for k, (p, s) in enumerate(samples):
+        a, b = samples[k - 1][0], samples[(k + 1) % len(samples)][0]
+        length = math.dist(a, b) or 1e-9
+        nx, ny = -(b[1] - a[1]) / length, (b[0] - a[0]) / length
+        w = LAKE_WOBBLE * _wobble(s, seed)
+        out.append((p[0] + nx * w, p[1] + ny * w))
+    return out
+
+
 def _segments(points):
     return list(zip(points, points[1:]))
 
@@ -250,14 +344,26 @@ def _segments_cross(p, q, a, b):
     return (d1 > 0) != (d2 > 0) and (d3 > 0) != (d4 > 0)
 
 
-def forest_trees(frame, clearings, lines, forests, avoid=()):
+def _inside(p, rings):
+    """Is p inside the rings, even-odd (a ring inside another is a hole)?"""
+    inside = False
+    for ring in rings:
+        for (ax, ay), (bx, by) in zip(ring, ring[1:] + ring[:1]):
+            if (ay > p[1]) != (by > p[1]) and p[0] < ax + (p[1] - ay) * (bx - ax) / (by - ay):
+                inside = not inside
+    return inside
+
+
+def forest_trees(frame, clearings, lines, forests, avoid=(), avoid_lines=(), water=()):
     """Where a card's trees go: (x, y) of each, filling each forest's area.
 
     frame: (width, height), its corner at 0, 0. clearings: (x, y, r) each.
     lines: (polyline, half width) of everything that bounds a forest (paths,
     special paths, and a raging river's lines). forests: the forest points.
     avoid: (x, y, r) discs trees keep clear of but that don't bound a forest
-    (the suit icons).
+    (the suit icons). avoid_lines: (polyline, half width) likewise (special
+    paths, on a map where they don't divide forests). water: lake outlines
+    (rings): no tree inside one.
 
     Works on the trees' own hex grid, in two parts. The areas: neighbouring
     spots are joined unless a line or a clearing lies between them, so only
@@ -270,6 +376,7 @@ def forest_trees(frame, clearings, lines, forests, avoid=()):
     row_h = TREE_SPACING * math.sqrt(3) / 2
     edge = tree_half + TREE_GAP
     segments = [(a, b, half) for points, half in lines for a, b in _segments(points)]
+    clear_of = segments + [(a, b, half) for points, half in avoid_lines for a, b in _segments(points)]
 
     def noise(i, j):
         """A spot's nudge (any direction, up to TREE_JITTER) and whether it's
@@ -283,7 +390,9 @@ def forest_trees(frame, clearings, lines, forests, avoid=()):
             return False
         if any(math.hypot(p[0] - cx, p[1] - cy) < r + TREE_GAP + tree_half for cx, cy, r in (*clearings, *avoid)):
             return False
-        return not any(_seg_distance(p, a, b) < half + TREE_GAP + tree_half for a, b, half in segments)
+        if any(_seg_distance(p, a, b) < half + TREE_GAP + tree_half for a, b, half in clear_of):
+            return False
+        return not (water and _inside(p, water))
 
     # Every spot in the frame that isn't on a clearing or a line joins up the
     # areas; `drawn` are those that also get a tree.
@@ -346,7 +455,7 @@ class _Diagram:
     the frame's edge and merged into each other as on the printed map) and the
     forests' trees."""
 
-    def __init__(self, layout, frame, box, raging):
+    def __init__(self, layout, frame, box, raging, special_divides=True):
         self.box_w, self.box_h = box
         clearings = layout.get('clearings') or []
         fw, fh = frame
@@ -362,7 +471,7 @@ class _Diagram:
         inner_w, inner_h = self.box_w - 2 * pad, self.box_h - pad - pad_top
         if not points or inner_w <= 0 or inner_h <= 0:    # (no room: text saved before the layout changed)
             self.height = 0
-            self.clearings, self.numbers, self.paths, self.rivers, self.trees = [], [], [], [], []
+            self.clearings, self.numbers, self.paths, self.rivers, self.trees, self.lakes = [], [], [], [], [], []
             return
         xs, ys = [p[0] for p in everything], [p[1] for p in everything]
         min_x, min_y = min(xs), min(ys)
@@ -398,7 +507,11 @@ class _Diagram:
         paths = layout.get('paths') or []
         ordered = route_paths(paths, self.clearings, RIVER_WIDTH / 2)
         width = self.river_width
-        extras = river_extras(paths, ordered, self.clearings, width, frame_obj, join_clearings=False)
+        # Which loose ends are springs: as on the printed map (decided on the
+        # map's own shape, not the card's stretched one), so the two agree.
+        springs = {spring['key'] for spring in print_rivers(MapGeometry(fw, fh), layout)['springs']}
+        extras = river_extras(paths, ordered, self.clearings, width, frame_obj, join_clearings=False,
+                              springs=springs, water=lake_clearings(paths))
         # A river runs on into its clearings' centres (under them), so two
         # meeting at a clearing read as one, however wide.
         self.rivers = []
@@ -412,16 +525,31 @@ class _Diagram:
                 points.append(centres[paths[i]['b']['c']])
             self.rivers.append(points)
         self.rivers += extras['links']
-        self.paths = [s for s in ordered if s['kind'] != 'river']
+        # Lakes: the builder's outlines, placed like everything else, their
+        # shores gently uneven. Without an outline, a lake is drawn as a river.
+        lake_rings = [[place((u * fw, v * fh)) for u, v in ring] for ring in layout.get('lake_shapes') or []]
+        self.lakes = [lake_shore(ring, _seed(ring, n)) for n, ring in enumerate(lake_rings)]
+        if not self.lakes:
+            self.rivers += [[centres[paths[i]['a']['c']], *s['points'], centres[paths[i]['b']['c']]]
+                            for i, s in enumerate(ordered) if s['kind'] == 'lake']
+        self.paths = [s for s in ordered if s['kind'] not in ('river', 'lake')]
 
-        lines = [(s['points'], PATH_WIDTH / 2) for s in self.paths]
+        # What bounds a forest: paths, special paths (unless the map says they
+        # don't divide forests: then trees just keep off their line) and, when
+        # it's raging, the river.
+        lines = [(s['points'], PATH_WIDTH / 2) for s in self.paths if special_divides or s['kind'] != 'special']
+        avoid_lines = [] if special_divides else \
+            [(s['points'], PATH_WIDTH / 2) for s in self.paths if s['kind'] == 'special']
         if raging:
-            lines += [(points, width / 2) for points in self.rivers]
+            lines += [(points, width / 2 * (1 + RIVER_WOBBLE)) for points in self.rivers]
+        # Lakes always divide forests, and no tree is ever in one.
+        lines += [(ring + ring[:1], 0.0) for ring in self.lakes]
         # Trees keep clear of the suit icons too (a disc round each, on top of its clearing).
         icons = [(x, y - r, SUIT_ICON_H * SUIT_ICON_SCALE.get(suit, 1) * self.r / CLEARING_R / 2)
                  for (x, y, r), suit in zip(self.clearings, self.suits) if suit]
         self.trees = forest_trees((self.box_w, self.height), self.clearings, lines,
-                                  [place(f) for f in forests], avoid=icons)
+                                  [place(f) for f in forests], avoid=icons, avoid_lines=avoid_lines,
+                                  water=self.lakes)
 
 
 class MapSetupCardEngine:
@@ -557,7 +685,8 @@ class MapSetupCardEngine:
         if top_paragraphs:
             y += DIAGRAM_GAP
         box_h = min(max(available, 0), DIAGRAM_MAX_H)
-        diagram = _Diagram(self.layout, self.frame, (self.width - 2 * MARGIN, box_h), self.raging)
+        diagram = _Diagram(self.layout, self.frame, (self.width - 2 * MARGIN, box_h), self.raging,
+                           special_divides=self.card['special_divides_forests'])
         # The diagram, centred in its space (all of it, when DIAGRAM_MAX_H holds it smaller).
         frame_top = y + (max(available, 0) - diagram.height) / 2
         self._draw_diagram(c, diagram, MARGIN, frame_top)
@@ -617,15 +746,29 @@ class MapSetupCardEngine:
         clip.rect(left, H - top - diagram.height, diagram.box_w, diagram.height)
         c.clipPath(clip, stroke=0, fill=0)
 
-        # Rivers (trees go over them, unless the river is raging: then they keep clear).
+        # Rivers (trees go over them, unless the river is raging: then they keep
+        # clear), each a filled outline with gently uneven banks. Non-zero fill,
+        # so an outline folding over itself at a sharp turn stays filled.
+        from reportlab.pdfgen.canvas import FILL_EVEN_ODD, FILL_NON_ZERO
         c.saveState()
-        c.setStrokeColor(HexColor(RIVER_COLOUR))
-        c.setLineWidth(diagram.river_width)
-        c.setLineCap(1)       # round: ends under a clearing or past the frame's (clipped) edge
-        c.setLineJoin(1)
-        for points in diagram.rivers:
-            if len(points) >= 2:
-                polyline(points)
+        c.setFillColor(HexColor(RIVER_COLOUR))
+        if diagram.lakes:          # under the rivers; even-odd: a ring inside another is an island
+            shape = c.beginPath()
+            for ring in diagram.lakes:
+                shape.moveTo(*at(ring[0]))
+                for p in ring[1:]:
+                    shape.lineTo(*at(p))
+                shape.close()
+            c.drawPath(shape, stroke=0, fill=1, fillMode=FILL_EVEN_ODD)
+        for n, points in enumerate(diagram.rivers):
+            outline = river_outline(points, diagram.river_width / 2, _seed(points, n))
+            if len(outline) >= 3:
+                shape = c.beginPath()
+                shape.moveTo(*at(outline[0]))
+                for p in outline[1:]:
+                    shape.lineTo(*at(p))
+                shape.close()
+                c.drawPath(shape, stroke=0, fill=1, fillMode=FILL_NON_ZERO)
         c.restoreState()
 
         self._draw_trees(c, [at(p) for p in diagram.trees])

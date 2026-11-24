@@ -14,8 +14,8 @@ window.MapSummary = window.MapSummary || (function () {
   'use strict';
 
   const NS = 'http://www.w3.org/2000/svg';
-  const PATH_KINDS = ['path', 'special', 'river'];
-  const COLOURS = { path: '#ffffff', special: '#ed2731', river: '#3e55a5' };   // tts_map.PATH_COLOURS
+  const PATH_KINDS = ['path', 'special', 'river', 'lake'];
+  const COLOURS = { path: '#ffffff', special: '#ed2731', river: '#3e55a5', lake: '#3e55a5' };   // tts_map.PATH_COLOURS
   const PATH_ICON_GREY = '#c4c9ce';   // white paths, as an icon on white
 
   // ── The clearing marker's outline (tts/make_marker_svg.py) ──
@@ -64,6 +64,11 @@ window.MapSummary = window.MapSummary || (function () {
     }
     if (PATH_KINDS.includes(kind)) {
       const colour = kind === 'path' ? PATH_ICON_GREY : (colours[kind] || COLOURS[kind]);
+      if (kind === 'lake') {
+        // A little lake: an uneven blob of water.
+        return '<svg width="30" height="18" viewBox="0 0 30 18" aria-hidden="true">'
+          + `<path d="M5 9.5C4 5.5 9 3 14 3.6S24.5 3 26 7.2 24 15 18.5 14.6 11 16 7.5 14.2 5.6 12 5 9.5Z" fill="${colour}"/></svg>`;
+      }
       if (kind === 'river') {
         // One solid line, as rivers are drawn.
         return '<svg width="30" height="18" viewBox="0 0 30 18" aria-hidden="true">'

@@ -70,12 +70,22 @@ class MapLayoutEngine:
         else:
             c.setFillColor(HexColor(MAP_BLANK))
             c.rect(0, 0, PAGE_W, PAGE_H, stroke=0, fill=1)
+            self._draw_lakes(c, layout['lakes'])
             for link in layout['river_links']:
                 self._draw_path(c, {'kind': 'river', 'colour': PATH_COLOURS['river'], 'points': link},
                                 layout['path_width'])
+            # A spring (where a river starts): a rounded end, half under its clearing's circle.
+            c.saveState()
+            c.setFillColor(HexColor(PATH_COLOURS['river']))
+            for x, y in layout['river_springs']:
+                c.circle(x * self.k, PAGE_H - y * self.k, RIVER_WIDTH * layout['path_width'] * self.k / 2,
+                         stroke=0, fill=1)
+            c.restoreState()
             # Rivers, then special paths, then paths, where they cross (stable within a kind).
             # A river that merges into another is printed cut back where its merge curve begins.
             for i, path in sorted(enumerate(layout['paths']), key=lambda ip: PATH_DRAW_ORDER.index(ip[1]['kind'])):
+                if path['kind'] == 'lake' and not layout['lake_lines']:
+                    continue           # filled above, from its outline
                 if i in layout['river_trimmed']:
                     path = {**path, 'points': layout['river_trimmed'][i]}
                 self._draw_path(c, path, layout['path_width'])
@@ -126,7 +136,7 @@ class MapLayoutEngine:
         c.setStrokeColor(HexColor(path['colour']))
         c.setLineCap(1)                     # round
         c.setLineJoin(1)
-        if path['kind'] == 'river':
+        if path['kind'] in ('river', 'lake'):      # (a lake without its outline: drawn as a river)
             # Flat ends: a river starts right at the clearing's edge.
             c.setLineCap(0)
             c.setLineWidth(RIVER_WIDTH * width * self.k)
@@ -138,6 +148,24 @@ class MapLayoutEngine:
             for i, points in enumerate(path_lanes(path['points'], width)):
                 c.setDash([dash, gap], (dash + gap) / 2 if i % 2 else 0)
                 self._polyline(c, points)
+        c.restoreState()
+
+    def _draw_lakes(self, c, rings):
+        """The lakes' outlines (pixels), filled even-odd: a ring inside another
+        is an island."""
+        if not rings:
+            return
+        from reportlab.pdfgen.canvas import FILL_EVEN_ODD
+        c.saveState()
+        c.setFillColor(HexColor(PATH_COLOURS['lake']))
+        shape = c.beginPath()
+        for ring in rings:
+            x, y = ring[0]
+            shape.moveTo(x * self.k, PAGE_H - y * self.k)
+            for x, y in ring[1:]:
+                shape.lineTo(x * self.k, PAGE_H - y * self.k)
+            shape.close()
+        c.drawPath(shape, stroke=0, fill=1, fillMode=FILL_EVEN_ODD)
         c.restoreState()
 
     def _draw_clearing(self, c, circle, width):

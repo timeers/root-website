@@ -2076,6 +2076,37 @@ class ForgedMapPathsTests(TestCase):
         self.assertGreater(order.index('suit'), max(i for i, k in enumerate(order) if k == 'clearing'))
         self.assertEqual(order[-3:], ['root_map_items', 'root_map_vp', 'root_map_logo'])
 
+    def test_lakes_are_printed_from_their_outline_first(self):
+        from .map_pdf_engine import MapLayoutEngine
+        draft = self._create()
+        layout = _fixed_layout(visited=['clearings', 'buildings', 'forests', 'paths'],
+                               paths=[{'kind': 'lake', 'a': {'c': 0}, 'b': {'c': 1}}])
+        layout['lake_shapes'] = [[[0.25, 0.35], [0.65, 0.35], [0.65, 0.55], [0.25, 0.55]]]
+        self.assertTrue(self._complete(draft, layout)['ok'])
+        forged_map = ForgedMap.objects.get(faction=draft)
+        self.assertEqual(len(forged_map.tts_builder['lake_shapes']), 1)
+        order = []
+        with mock.patch.object(MapLayoutEngine, '_draw_lakes', lambda _s, _c, rings: order.append(('lakes', len(rings)))), \
+                mock.patch.object(MapLayoutEngine, '_draw_path', lambda _s, _c, item, *_r: order.append(item['kind'])), \
+                mock.patch.object(MapLayoutEngine, '_draw_clearing', lambda *_a: order.append('clearing')):
+            MapLayoutEngine(forged_map).build(BytesIO())
+        self.assertEqual(order[0], ('lakes', 1))
+        self.assertNotIn('lake', order)                  # its outline is filled; no line
+        # Without an outline, it's printed as a river line.
+        state = dict(forged_map.tts_builder)
+        del state['lake_shapes']
+        ForgedMap.objects.filter(pk=forged_map.pk).update(tts_builder=state)
+        forged_map.refresh_from_db()
+        order.clear()
+        with mock.patch.object(MapLayoutEngine, '_draw_lakes', lambda _s, _c, rings: order.append(('lakes', len(rings)))), \
+                mock.patch.object(MapLayoutEngine, '_draw_path', lambda _s, _c, item, *_r: order.append(item['kind'])), \
+                mock.patch.object(MapLayoutEngine, '_draw_clearing', lambda *_a: order.append('clearing')):
+            MapLayoutEngine(forged_map).build(BytesIO())
+        self.assertIn('lake', order)
+        # And a real render doesn't fail either way.
+        from .map_pdf_engine import render_map_pdf
+        self.assertTrue(render_map_pdf(forged_map, target_dpi=20))
+
     def test_a_map_without_art_completes_with_its_paths_printed(self):
         draft = self._create()
         result = self._complete(draft)
@@ -2211,6 +2242,7 @@ class MapSetupCardTests(_MapPublishBase):
         self.assertEqual(page.status_code, 200)
         html = page.content.decode()
         self.assertIn('name="special_path_rule"', html)     # it has special paths
+        self.assertIn('id="msc-special-divides-no"', html)
         self.assertIn('name="raging_river"', html)          # and rivers
         self.assertIn('The river divides forests', html)
 
@@ -2221,6 +2253,7 @@ class MapSetupCardTests(_MapPublishBase):
         forged_map = self._map(draft)
         self.assertEqual(forged_map.map_card, {
             'special_path_rule': 'Only the ruler may cross.', 'modifications': 'Skip ruins.', 'raging_river': True,
+            'special_divides_forests': True,
             'rules': [{'name': 'Ferry', 'text': 'Move along the river (spend a card).'}]})
         self.assertTrue(forged_map.card_2_image)            # rules: a back
         self.assertEqual(forged_map.card_2_image_version, 1)
@@ -2243,10 +2276,19 @@ class MapSetupCardTests(_MapPublishBase):
         deck = next(iter(card[0]['CustomDeck'].values()))
         self.assertIn('card_front.webp', deck['BackURL'])
 
+    def test_special_paths_dividing_forests_is_saved(self):
+        draft = self._create()
+        self.assertTrue(self._save(draft, _paths_layout(special=True), generate=True).json()['ok'])
+        self._card_post(draft, special_divides_forests='no')
+        self.assertFalse(self._map(draft).map_card['special_divides_forests'])
+        self._card_post(draft, special_divides_forests='yes')
+        self.assertTrue(self._map(draft).map_card['special_divides_forests'])
+
     def test_sections_only_for_what_the_map_has(self):
         draft = self._completed()
         html = self.client.get(reverse('forge-map-setup-card', args=[draft.pk])).content.decode()
         self.assertNotIn('name="special_path_rule"', html)
+        self.assertNotIn('id="msc-special-divides-no"', html)
         self.assertNotIn('id="msc-raging-yes"', html)
         self.assertIn('name="modifications"', html)
 

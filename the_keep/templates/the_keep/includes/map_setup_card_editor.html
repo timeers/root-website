@@ -38,6 +38,14 @@ law_url ("Add a Law entry" for the map's keep post, optional).
               data-counter placeholder="e.g. Warriors may only move along these if you rule both clearings.">{{ form.special_path_rule.value|default:'' }}</textarea>
     <div class="form-text text-end" data-count-for="special_path_rule"></div>
     {% for error in form.special_path_rule.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    <p class="small text-muted mb-2 mt-2">Do your special paths divide forests? This only changes how the card draws its trees: write any rule about it above.</p>
+    <div class="btn-group" role="group" aria-label="Do special paths divide forests?">
+      {% for choice in form.special_divides_forests %}
+        <input type="radio" class="btn-check" name="special_divides_forests" id="msc-special-divides-{{ choice.data.value }}"
+               value="{{ choice.data.value }}" autocomplete="off" {% if choice.data.selected %}checked{% endif %}>
+        <label class="btn btn-outline-primary" for="msc-special-divides-{{ choice.data.value }}">{{ choice.choice_label }}</label>
+      {% endfor %}
+    </div>
   </div>
   {% endif %}
 

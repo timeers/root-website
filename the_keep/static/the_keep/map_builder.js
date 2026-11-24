@@ -51,7 +51,10 @@
       { key: 'paths', heading: 'Paths & Rivers', name: 'Paths & Rivers', short: 'Paths',
         hint: 'Pick a path type, then drag from one clearing to another, or to the '
               + 'middle of another path. Select a path to change its type, drag one of '
-              + 'its ends to another clearing, or press x to remove it.' });
+              + 'its ends to another clearing, or press x to remove it. Rivers ▾ also draws lakes: '
+              + 'a lake fills the space around it, halfway to the land. Drawing a river or lake beside '
+              + 'a path (or a path beside one) between the same two clearings? Drop its end to the left '
+              + "or right of the clearing's centre to choose which side it goes." });
   }
   if (config.upload_step) {
     STEPS.unshift({ key: 'upload', heading: 'Map Name & Art', name: 'Start', short: 'Start',
@@ -210,27 +213,38 @@
 
   // Each path's {kind, points (its centre line, trimmed to the clearings'
   // circles), middle}, in state order.
-  // A river and a path between the same two ends: bow them apart, the river to
-  // one side and the path to the other (measured from the ends in key order,
-  // so both agree), by PATH.shared_bend half-widths at the middle (_bow_apart).
-  function bowApart(control, a, b, p) {
+  // A river and a path between the same two ends: bow them apart, to `side`
+  // (+1/-1, measured from the ends in key order, so both agree), by
+  // PATH.shared_bend half-widths at the middle (_bow_apart).
+  function bowApart(control, a, b, p, side) {
     const [from, to] = endKey(p.a) <= endKey(p.b) ? [a, b] : [b, a];
     const length = Math.hypot(to[0] - from[0], to[1] - from[1]) || 1e-9;
     const nx = -(to[1] - from[1]) / length, ny = (to[0] - from[0]) / length;
-    const side = p.kind === 'river' ? 1 : -1;
     const bulge = PATH.shared_bend * PATH.width * (PATH.river_width + 1) / 2;
     return [control[0] + side * nx * 2 * bulge, control[1] + side * ny * 2 * bulge];
+  }
+
+  // Which way a path sharing both ends with its twin of the other family bows
+  // (_pair_side in tts_map.py): its own `bow` (+1/-1 towards the normal of its
+  // a->b line, chosen where it was dropped), else opposite its twin's, else the
+  // water one +1 and the land one -1. In key order, as bowApart measures.
+  const keySign = (p) => (endKey(p.a) <= endKey(p.b) ? 1 : -1);
+  function pairSide(p, twin) {
+    if (p.bow === 1 || p.bow === -1) return p.bow * keySign(p);
+    if (twin && (twin.bow === 1 || twin.bow === -1)) return -twin.bow * keySign(twin);
+    return familyOf(p.kind) === 'river' ? 1 : -1;
+  }
+
+  // Each path's twin: the other family's path between the same two ends, or -1.
+  function twinOf(index, paths = state.paths) {
+    const p = paths[index];
+    return paths.findIndex((q, k) => k !== index && pairKey(q.a, q.b) === pairKey(p.a, p.b)
+                                     && familyOf(q.kind) !== familyOf(p.kind));
   }
 
   function pathShapes() {
     const cs = circles();
     const shapes = [];
-    // Paths sharing both ends with one of the other family.
-    const families = new Map();
-    for (const p of state.paths) {
-      const key = pairKey(p.a, p.b);
-      families.set(key, (families.get(key) || new Set()).add(familyOf(p.kind)));
-    }
     const shape = (i, depth) => {
       if (shapes[i]) return shapes[i];
       if (depth > state.paths.length) throw new Error('path attachments loop');
@@ -242,10 +256,11 @@
       });
       const [a, b] = ends;
       // Kept clear of other clearings by half its own width (a river's is wider).
-      const clearance = PATH.width * (p.kind === 'river' ? PATH.river_width : 1) / 2;
+      const clearance = PATH.width * (familyOf(p.kind) === 'river' ? PATH.river_width : 1) / 2;
       const obstacles = cs.filter((c, k) => !own.has(k)).map(([x, y, r]) => [x, y, r + clearance]);
       let control = route(a, b, obstacles);
-      if (families.get(pairKey(p.a, p.b)).size > 1) control = bowApart(control, a, b, p);
+      const twin = twinOf(i);
+      if (twin >= 0) control = bowApart(control, a, b, p, pairSide(p, state.paths[twin]));
       const t0 = 'c' in p.a ? trim(a, control, b, a, cs[p.a.c][2], true) : 0;
       const t1 = Math.max('c' in p.b ? trim(a, control, b, b, cs[p.b.c][2], false) : 1, t0);
       const points = [];
@@ -292,15 +307,21 @@
   }
 
   // Rivers, and paths with special paths: one of each may join the same two ends.
-  const familyOf = (kind) => (kind === 'river' ? 'river' : 'land');
+  // Water (rivers and lakes) and land (paths and special paths): one of each
+  // may join the same two ends (path_family in tts_map.py).
+  const familyOf = (kind) => (kind === 'river' || kind === 'lake' ? 'river' : 'land');
 
   // Can a path of `kind` (path `self` when moving one of its ends) join ends a
   // and b? Not an end to itself, not a second of its family between the same
   // two ends, and never attached (through others) to itself (clean_paths in tts_map.py).
   function canConnect(a, b, self = null, kind = null) {
     if (!a || !b || endKey(a) === endKey(b)) return false;
+    kind = kind || (self !== null ? state.paths[self].kind : drawKind);
+    // A lake joins two clearings, and nothing joins a lake's middle (clean_paths).
+    if (kind === 'lake' && ('p' in a || 'p' in b)) return false;
+    if ([a, b].some(e => 'p' in e && state.paths[e.p] && state.paths[e.p].kind === 'lake')) return false;
     const key = pairKey(a, b);
-    const family = familyOf(kind || (self !== null ? state.paths[self].kind : drawKind));
+    const family = familyOf(kind);
     if (state.paths.some((p, k) => k !== self && pairKey(p.a, p.b) === key && familyOf(p.kind) === family)) return false;
     if (self !== null) {
       for (const e of [a, b]) if ('p' in e && (e.p === self || dependsOn(e.p, self))) return false;
@@ -351,7 +372,10 @@
   // The end under a point: a path's middle handle first, then a clearing's circle.
   function anchorAt(p) {
     let best = null, bestD = handleRadius() * 1.6;
+    // A lake only ever ends on a clearing; nothing ends on a lake's middle.
+    const kind = drag && drag.kind === 'path-end' ? state.paths[drag.index].kind : drawKind;
     pathCache.forEach((s, j) => {
+      if (kind === 'lake' || s.kind === 'lake') return;
       const d = dist(p, s.middle);
       if (d < bestD) { best = { p: j }; bestD = d; }
     });
@@ -367,6 +391,24 @@
   }
 
   let pathCache = [];   // the shapes drawn last (render), for hit-testing
+
+  // A path just dropped (drawn, or an end moved) where its twin of the other
+  // family already joins the same ends: it bows to the side of the line
+  // between its ends that it was dropped on (`bow`, see pairSide), and its twin
+  // to the other. Dropped (near enough) on the line itself: the sides stay as
+  // they were.
+  function chooseSide(index, end, dropAt) {
+    const twin = twinOf(index);
+    if (twin < 0) return;
+    const p = state.paths[index];
+    const a = anchorPoint(p.a), b = anchorPoint(p.b), at = end === 'a' ? a : b;
+    if (!a || !b) return;
+    const length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1e-9;
+    const across = ((dropAt[0] - at[0]) * -(b[1] - a[1]) + (dropAt[1] - at[1]) * (b[0] - a[0])) / length;
+    if (Math.abs(across) < DOT_PX / 2) return;
+    p.bow = across > 0 ? 1 : -1;
+    delete state.paths[twin].bow;     // the latest choice wins
+  }
 
   // ── Drawing ───────────────────────────────────────────────────────────────
   function el(name, attrs, parent) {
@@ -438,6 +480,13 @@
   // PDF prints them.)
   function drawLanes(g, points, kind) {
     const colour = PATH.colours[kind];
+    if (kind === 'lake') {
+      // Its water is the outline (drawLakes); the line it's drawn along shows faintly over it.
+      el('polyline', { points: points.map(p => p.join(',')).join(' '), fill: 'none', stroke: '#1f2d6b',
+                       'stroke-opacity': 0.45, 'stroke-width': PATH.width * 0.35, 'stroke-linecap': 'round',
+                       'stroke-dasharray': `${PATH.width * 0.9} ${PATH.width * 0.6}`, 'pointer-events': 'none' }, g);
+      return;
+    }
     if (kind === 'river') {
       el('polyline', { points: points.map(p => p.join(',')).join(' '), fill: 'none', stroke: colour,
                        'stroke-width': PATH.width * PATH.river_width, 'stroke-linecap': 'butt',   // ends at the clearing's edge
@@ -454,6 +503,56 @@
     });
   }
 
+  // ── Lakes (map_lakes.js works the water out) ──
+  // Recomputed only when what they depend on changes; at half the grid while
+  // something's being dragged (smooth), at full size otherwise and for saving.
+  let lakeCache = { key: null, grid: 0, rings: [] };
+  function lakeRings(full = false) {
+    if (!PATH || !state.paths.some(p => p.kind === 'lake') || !window.MapLakes) return [];
+    const grid = full || !drag ? PATH.lake.grid : Math.round(PATH.lake.grid / 2);
+    const key = JSON.stringify([state.clearings, state.paths, state.forests, state.buildings]);
+    if (lakeCache.key === key && lakeCache.grid >= grid) return lakeCache.rings;
+    const shapes = pathCache.length === state.paths.length ? pathCache : pathShapes();
+    const cs = circles();
+    const onLake = new Set(state.paths.filter(p => p.kind === 'lake').flatMap(p => [p.a.c, p.b.c]));
+    const centre = (e) => cs[e.c].slice(0, 2);
+    const input = {
+      width: W, height: H, grid,
+      overlap: PATH.lake.clearing_overlap, smooth: PATH.lake.smooth, minHalf: PATH.lake.min_half,
+      round: PATH.lake.round,
+      clearings: cs.map(([x, y, r], i) => ({ x, y, r, lake: onLake.has(i) })),
+      // A lake's line runs on into its clearings' centres.
+      lakes: state.paths.map((p, i) => [p, i]).filter(([p]) => p.kind === 'lake')
+        .map(([p, i]) => ({ a: p.a.c, b: p.b.c, points: [centre(p.a), ...shapes[i].points, centre(p.b)] })),
+      lines: state.paths.map((p, i) => [p, i]).filter(([p]) => p.kind !== 'lake')
+        .map(([p, i]) => ({ points: shapes[i].points,
+                            half: PATH.width * (p.kind === 'river' ? PATH.river_width : 1) / 2 })),
+      forests: state.forests.map(f => { const [x, y] = px(f); return { x, y, r: PATH.lake.forest_r }; }),
+      buildings: state.buildings.map(b => { const [x, y] = px(b.at); return { x, y, r: PATH.lake.building_r, margin: PATH.lake.building_margin }; }),
+    };
+    let rings = [];
+    try {
+      rings = window.MapLakes.shapes(input).rings;
+    } catch (err) {
+      rings = [];     // never break the board: the lakes are drawn as lines until it's fixed
+    }
+    lakeCache = { key, grid, rings };
+    return rings;
+  }
+
+  // The saved outline (state.lake_shapes, tts_map.py): rings in 0-1 of the frame.
+  function lakeShapesForSave() {
+    return lakeRings(true).map(ring => ring.map(([x, y]) => [Math.round(x / W * 1e4) / 1e4, Math.round(y / H * 1e4) / 1e4]));
+  }
+
+  function drawLakes(g) {
+    const rings = lakeRings();
+    if (!rings.length) return;
+    const d = rings.map(ring => 'M' + ring.map(p => p.map(n => n.toFixed(1)).join(' ')).join('L') + 'Z').join(' ');
+    el('path', { d, fill: PATH.colours.lake, 'fill-rule': 'evenodd', 'fill-opacity': config.image ? 0.75 : 1,
+                 stroke: '#2c3f80', 'stroke-width': STROKE * 1.5, 'stroke-linejoin': 'round', 'pointer-events': 'none' }, g);
+  }
+
   // Paths & Rivers, drawn first: under the printed art and every piece.
   function drawPaths() {
     pathCache = [];
@@ -466,6 +565,7 @@
     }
     const onStep = step === STEP_PATHS && !config.readonly;
     const ending = drag && drag.kind === 'path-end';
+    drawLakes(g);
     // Bottom to top where they cross: rivers, special paths, paths
     // (PATH.draw_order, as printed). Stable within a kind.
     const rank = (i) => PATH.draw_order.indexOf(pathCache[i].kind);
@@ -474,7 +574,7 @@
       const s = pathCache[i];
       const pg = el('g', { opacity: ending && drag.index === i ? 0.35 : 1 }, g);
       const pts = s.points.map(p => p.join(',')).join(' ');
-      const width = PATH.width * (s.kind === 'river' ? PATH.river_width : 1);   // as drawn
+      const width = PATH.width * (familyOf(s.kind) === 'river' ? PATH.river_width : 1);   // as drawn (a lake's line, as a river's)
       if (selected && selected.kind === 'path' && selected.index === i) {
         el('polyline', { points: pts, fill: 'none', stroke: '#dc3545', 'stroke-opacity': 0.6,
                          'stroke-width': width + STROKE * 6, 'stroke-linecap': 'round', 'pointer-events': 'none' }, pg);
@@ -485,8 +585,9 @@
                        'pointer-events': 'stroke', 'data-kind': 'path', 'data-index': i, style: 'cursor: pointer' }, pg);
     });
     if (!onStep) return;
-    // Each path's middle: another path can start or end there.
+    // Each path's middle: another path can start or end there (not a lake's).
     for (const s of pathCache) {
+      if (s.kind === 'lake' || drawKind === 'lake') continue;
       el('circle', { cx: s.middle[0], cy: s.middle[1], r: handleRadius(), fill: 'rgba(255,255,255,0.85)',
                      stroke: '#231f20', 'stroke-width': STROKE, 'pointer-events': 'none' }, g);
     }
@@ -683,7 +784,8 @@
   // ── Counters, tools, review ───────────────────────────────────────────────
   function counts() {
     // River clearings: clearings at the end of at least one river.
-    const riverEnds = state.paths.filter(p => p.kind === 'river').flatMap(p => [p.a, p.b]).filter(e => 'c' in e);
+    // River clearings: clearings at the end of at least one river or lake.
+    const riverEnds = state.paths.filter(p => familyOf(p.kind) === 'river').flatMap(p => [p.a, p.b]).filter(e => 'c' in e);
     return {
       clearings: state.clearings.length,
       forests: state.forests.length,
@@ -692,7 +794,20 @@
       paths: state.paths.filter(p => p.kind === 'path').length,
       special: state.paths.filter(p => p.kind === 'special').length,
       river_clearings: new Set(riverEnds.map(e => e.c)).size,
+      lakes: lakeBodies(),
     };
+  }
+
+  // Lake bodies: clearings joined by lake paths (lake_bodies in tts_map.py).
+  function lakeBodies() {
+    const parent = new Map();
+    const find = (k) => { while (parent.get(k) !== k) k = parent.get(k); return k; };
+    for (const p of state.paths) {
+      if (p.kind !== 'lake') continue;
+      for (const k of [p.a.c, p.b.c]) if (!parent.has(k)) parent.set(k, k);
+      parent.set(find(p.a.c), find(p.b.c));
+    }
+    return new Set([...parent.keys()].map(find)).size;
   }
 
   function updatePanel() {
@@ -750,6 +865,7 @@
         tile('path', 'Paths', c.paths, null, STEP_PATHS),
         ...(c.special ? [tile('special', state.special_path_name || 'Special Paths', c.special, null, STEP_PATHS)] : []),
         tile('river', 'River Clearings', c.river_clearings, config.expected.river_clearings, STEP_PATHS),
+        ...(c.lakes ? [tile('lake', 'Lakes', c.lakes, null, STEP_PATHS)] : []),
       ],
       colours: PATH ? PATH.colours : null,
     };
@@ -1122,6 +1238,7 @@
       const target = anchorAt(drag.at);
       if (target && canConnect(drag.from, target)) {
         state.paths.push({ kind: drawKind, a: drag.from, b: target });
+        chooseSide(state.paths.length - 1, 'b', drag.at);
         edited = true;
       } else if ('p' in drag.from && dist(drag.at, drag.start) < DOT_PX) {
         // A click on a path's middle (no drag): select that path.
@@ -1133,6 +1250,7 @@
       const target = anchorAt(drag.at);
       if (target && dragTargetOk(target)) {
         state.paths[drag.index][drag.end] = target;
+        chooseSide(drag.index, drag.end, drag.at);
         edited = true;
       }
     }
@@ -1234,6 +1352,7 @@
   // width (special paths are just a swatch), so it's placed from the button
   // itself (--mb-kind-x / --mb-kind-w, map_builder.css).
   function setKindToggle(toggle, kind) {
+    if (familyOf(kind) === 'river') setWaterKind(toggle, kind);
     toggle.querySelectorAll('[data-path-kind]').forEach(btn => {
       const on = btn.dataset.pathKind === kind;
       btn.setAttribute('aria-checked', on ? 'true' : 'false');
@@ -1244,25 +1363,113 @@
     });
   }
 
-  if (drawToggle) {
-    drawToggle.querySelectorAll('[data-path-kind]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        drawKind = btn.dataset.pathKind;
-        updatePathMode();
+  // The water segment is River or Lake: its swatch, label and kind follow the
+  // choice, and its menu ticks it.
+  function setWaterKind(toggle, kind) {
+    const btn = toggle.querySelector('[data-water]');
+    if (!btn) return;
+    btn.dataset.pathKind = kind;
+    const label = kind === 'lake' ? btn.dataset.labelLake : btn.dataset.labelRiver;
+    btn.querySelector('.mb-kind-label').textContent = label;
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    btn.querySelector('.mb-kind-swatch').classList.toggle('mb-kind-swatch-lake', kind === 'lake');
+    toggle.querySelectorAll('[data-water-kind]').forEach(item => {
+      item.setAttribute('aria-checked', item.dataset.waterKind === kind ? 'true' : 'false');
+    });
+  }
+
+  function waterMenuOpen(toggle) {
+    const menu = toggle.querySelector('.mb-water-menu');
+    return !!menu && !menu.hidden;
+  }
+
+  function openWaterMenu(toggle, open) {
+    const menu = toggle.querySelector('.mb-water-menu');
+    if (!menu) return;
+    menu.hidden = !open;
+    toggle.classList.toggle('mb-water-open', open);
+    if (!open) return;
+    // Below the toggle, or above it when the board has no room below.
+    menu.classList.remove('up');
+    if (menu.getBoundingClientRect().bottom > board.getBoundingClientRect().bottom) menu.classList.add('up');
+    const item = menu.querySelector('[aria-checked="true"]:not(:disabled)') || menu.querySelector('button:not(:disabled)');
+    if (item) item.focus();
+  }
+
+  // A kind toggle (the Draw card's, or the selected path's): onPick(kind).
+  // The water segment, when it's already chosen (or by its chevron), opens its
+  // River / Lake menu instead.
+  function wireKindToggle(toggle, onPick) {
+    toggle.querySelectorAll('[data-path-kind]').forEach(btn => {
+      btn.addEventListener('click', (evt) => {
+        const water = btn.hasAttribute('data-water');
+        if (water && (evt.target.closest('.mb-kind-chevron') || btn.getAttribute('aria-checked') === 'true')) {
+          openWaterMenu(toggle, !waterMenuOpen(toggle));
+          return;
+        }
+        openWaterMenu(toggle, false);
+        onPick(btn.dataset.pathKind);
       });
+    });
+    const menu = toggle.querySelector('.mb-water-menu');
+    if (!menu) return;
+    menu.querySelectorAll('[data-water-kind]').forEach(item => {
+      item.addEventListener('click', () => {
+        openWaterMenu(toggle, false);
+        onPick(item.dataset.waterKind);
+      });
+    });
+    menu.addEventListener('keydown', (evt) => {
+      const items = [...menu.querySelectorAll('button:not(:disabled)')];
+      const at = items.indexOf(document.activeElement);
+      if (evt.key === 'Escape') {
+        openWaterMenu(toggle, false);
+        toggle.querySelector('[data-water]').focus();
+      } else if (evt.key === 'ArrowDown' || evt.key === 'ArrowUp') {
+        const next = items[(at + (evt.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length];
+        if (next) next.focus();
+      } else {
+        return;
+      }
+      evt.preventDefault();
+      evt.stopPropagation();     // not the builder's own keys
+    });
+    // A press anywhere else closes it.
+    document.addEventListener('pointerdown', (evt) => {
+      if (waterMenuOpen(toggle) && !toggle.contains(evt.target)) openWaterMenu(toggle, false);
+    }, true);
+  }
+
+  // Can path `index` become a lake? Only joining two clearings, with nothing
+  // on its middle, nor on the water path it would replace (replaceTwin).
+  function lakeAllowed(index) {
+    const path = state.paths[index];
+    if (!('c' in path.a && 'c' in path.b)) return "A lake joins two clearings, not a path's middle.";
+    const attached = (k) => state.paths.some(q => [q.a, q.b].some(e => 'p' in e && e.p === k));
+    if (attached(index)) return "Another path ends on this one's middle: a lake can't have one.";
+    const twin = state.paths.findIndex((q, k) => k !== index && pairKey(q.a, q.b) === pairKey(path.a, path.b)
+                                                && familyOf(q.kind) === 'river');
+    if (twin >= 0 && attached(twin)) return "Another path ends on the river here: a lake can't have one.";
+    return null;
+  }
+
+  if (drawToggle) {
+    wireKindToggle(drawToggle, (kind) => {
+      drawKind = kind;
+      updatePathMode();
+      render();         // (a lake hides the path middles' handles)
     });
     pathMode.addEventListener('pointerdown', (evt) => evt.stopPropagation());
   }
   if (popKind) {
-    popKind.querySelectorAll('[data-path-kind]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (!selected || selected.kind !== 'path') return;
-        const path = state.paths[selected.index];
-        if (path.kind === btn.dataset.pathKind) return;
-        path.kind = btn.dataset.pathKind;
-        replaceTwin(selected.index);
-        changed();
-      });
+    wireKindToggle(popKind, (kind) => {
+      if (!selected || selected.kind !== 'path') return;
+      const path = state.paths[selected.index];
+      if (path.kind === kind || (kind === 'lake' && lakeAllowed(selected.index))) return;
+      path.kind = kind;
+      replaceTwin(selected.index);
+      changed();
     });
   }
 
@@ -1318,7 +1525,18 @@
     // A path: its kind (the same toggle as the Draw card) and delete.
     if (popKindWrap) {
       popKindWrap.classList.toggle('d-none', selected.kind !== 'path');
-      if (selected.kind === 'path') setKindToggle(popKind, state.paths[selected.index].kind);
+      if (selected.kind === 'path') {
+        const kind = state.paths[selected.index].kind;
+        if (familyOf(kind) === 'land') setWaterKind(popKind, 'river');   // (not left on another path's Lake)
+        setKindToggle(popKind, kind);
+        // Lake only where it can be one (lakeAllowed says why not).
+        const lakeItem = popKind.querySelector('[data-water-kind="lake"]');
+        const why = lakeAllowed(selected.index);
+        lakeItem.disabled = !!why && state.paths[selected.index].kind !== 'lake';
+        lakeItem.title = lakeItem.disabled ? why : '';
+      } else {
+        openWaterMenu(popKind, false);
+      }
     }
     if (isClearing) {
       const c = state.clearings[selected.index];
@@ -2153,6 +2371,15 @@
     }
   }
 
+  // The layout to save: with its lakes' outline worked out from exactly this
+  // layout, at full size (the printed map and setup card draw it).
+  function withLakeShapes(layout) {
+    const out = { ...layout };
+    const shapes = lakeShapesForSave();
+    if (shapes.length) out.lake_shapes = shapes; else delete out.lake_shapes;
+    return out;
+  }
+
   // Returns true when the page is moving on (a redirect).
   async function saveNow(generate) {
     const box = document.getElementById('mb-messages');
@@ -2170,7 +2397,7 @@
       const response = await fetch(config.save_url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() },
-        body: JSON.stringify(startStepFields({ state, generate })),
+        body: JSON.stringify(startStepFields({ state: withLakeShapes(state), generate })),
       });
       result = await response.json();
     } catch (err) {

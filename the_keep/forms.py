@@ -1666,6 +1666,8 @@ class MapSetupCardForm(forms.Form):
                                     widget=forms.Textarea(attrs={'rows': 3}))
     raging_river = forms.ChoiceField(required=False, choices=[('no', 'No'), ('yes', 'Yes')],
                                      widget=forms.RadioSelect)
+    special_divides_forests = forms.ChoiceField(required=False, choices=[('no', 'No'), ('yes', 'Yes')],
+                                                widget=forms.RadioSelect)
     limits = {'special': msc.SPECIAL_RULE_MAX, 'modifications': msc.MODIFICATIONS_MAX, 'rules': msc.RULES_MAX,
               'rule_name': msc.RULE_NAME_MAX, 'rule_text': msc.RULE_TEXT_MAX}
 
@@ -1676,6 +1678,7 @@ class MapSetupCardForm(forms.Form):
             'special_path_rule': card['special_path_rule'],
             'modifications': card['modifications'],
             'raging_river': 'yes' if card['raging_river'] else 'no',
+            'special_divides_forests': 'yes' if card['special_divides_forests'] else 'no',
         })
         super().__init__(*args, **kwargs)
         self.rules = card['rules']
@@ -1697,6 +1700,8 @@ class MapSetupCardForm(forms.Form):
             'special_path_rule': cleaned.get('special_path_rule'),
             'modifications': cleaned.get('modifications'),
             'raging_river': cleaned.get('raging_river') == 'yes',
+            # (Not sent: the map has no special paths, and it doesn't apply.)
+            'special_divides_forests': cleaned.get('special_divides_forests') != 'no',
             'rules': self.rules,
         })
         fits = msc.setup_card_fits(self.title, self.layout, card, frame=self.frame, lang_code=self.lang_code)
