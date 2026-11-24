@@ -2838,8 +2838,12 @@ class MapSetupCardEngineTests(TestCase):
         side = lambda p: (bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax)  # noqa: E731
         self.assertEqual(len({side(p) > 0 for p in divided.trees}), 1)     # one side only
         self.assertEqual(len({side(p) > 0 for p in joined.trees}), 2)      # both sides
+        # Not dividing them, it's like a river that isn't raging: trees go over
+        # it (it's drawn under them), right across its line.
+        self.assertTrue(divided.paths[0]['divides'])
+        self.assertFalse(joined.paths[0]['divides'])
         line = joined.paths[0]['points']
-        self.assertTrue(all(min(msc._seg_distance(p, a, b) for a, b in zip(line, line[1:])) >= msc.PATH_WIDTH / 2
+        self.assertTrue(any(min(msc._seg_distance(p, a, b) for a, b in zip(line, line[1:])) < msc.PATH_WIDTH
                             for p in joined.trees))
 
     def test_river_banks_vary_a_little(self):

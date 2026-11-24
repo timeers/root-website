@@ -31,7 +31,7 @@ from types import SimpleNamespace
 from .tts_map import (PRINT_DIR, SPECIAL_DEFAULT, SPECIAL_KEYS, SPECIAL_PATH_NAME_MAX, SPECIAL_PATH_TYPES, SUITS,
                       MapGeometry, lake_clearings, path_shapes, print_rivers, river_extras, route_paths, special_key)
 
-SETUP_CARD_RENDER_VERSION = 21
+SETUP_CARD_RENDER_VERSION = 22
 CARD_DIR = PRINT_DIR / 'setup_card'
 
 # ── The card's data ─────────────────────────────────────────────────────────
@@ -428,8 +428,8 @@ def forest_trees(frame, clearings, lines, forests, avoid=(), avoid_lines=(), wat
     lines: (polyline, half width) of everything that bounds a forest (paths,
     special paths, and a raging river's lines). forests: the forest points.
     avoid: (x, y, r) discs trees keep clear of but that don't bound a forest
-    (the suit icons). avoid_lines: (polyline, half width) likewise (special
-    paths, on a map where they don't divide forests). water: lake outlines
+    (the suit icons). avoid_lines: (polyline, half width) likewise: lines
+    trees keep off without them bounding a forest. water: lake outlines
     (rings): no tree inside one. bounds: the clearings as big as they are on
     the map, scaled to the card ((x, y, r) each, none bigger than as drawn):
     these, not the drawn ones, part the areas, so two clearings drawn nearly
@@ -733,12 +733,14 @@ class _Diagram:
         self.paths = [s for s in ordered if s['kind'] not in ('river', 'lake')]
 
         # What bounds a forest: paths, special paths (those of the types in
-        # dividing_specials, all when None; trees just keep off the others'
-        # line) and, when it's raging, the river.
+        # dividing_specials, all when None; the others, like a river that
+        # isn't raging, are drawn under the trees, which go over them) and,
+        # when it's raging, the river.
         def divides(s):
             return s['kind'] != 'special' or dividing_specials is None or s.get('special') in dividing_specials
+        for s in self.paths:
+            s['divides'] = divides(s)
         lines = [(s['points'], PATH_WIDTH / 2) for s in self.paths if divides(s)]
-        avoid_lines = [(s['points'], PATH_WIDTH / 2) for s in self.paths if not divides(s)]
         if raging:
             lines += [(points, width / 2 * (1 + RIVER_WOBBLE)) for points in self.rivers]
         # Lakes always divide forests, and no tree is ever in one.
@@ -773,7 +775,7 @@ class _Diagram:
                   if divides(s) and s['kind'] != 'lake' and (raging or s['kind'] != 'river')]
         spots = [_off_lines(place(f), lines, _map_side(f, on_map, place)) for f in forests]
         self.trees = forest_trees((self.box_w, self.height), self.clearings, lines,
-                                  spots, avoid=icons, avoid_lines=avoid_lines,
+                                  spots, avoid=icons,
                                   water=self.lakes, bounds=bounds)
 
 
@@ -998,19 +1000,26 @@ class MapSetupCardEngine:
                 c.drawPath(shape, stroke=0, fill=1, fillMode=FILL_NON_ZERO)
         c.restoreState()
 
-        self._draw_trees(c, [at(p) for p in diagram.trees])
+        # Special paths (each in its type's colour), then paths
+        # (tts_map.PATH_DRAW_ORDER): those that don't divide forests under the
+        # trees, which go over them as over a river; the rest over the trees.
+        def draw_paths(over_trees):
+            for kind in ('special', 'path'):
+                for shape in diagram.paths:
+                    if shape['kind'] != kind or shape['points'][0] == shape['points'][-1]:
+                        continue
+                    if shape.get('divides', True) != over_trees:
+                        continue
+                    c.saveState()
+                    c.setStrokeColor(HexColor(shape['colour'] if kind == 'special' else INK))
+                    c.setLineWidth(PATH_WIDTH)
+                    c.setDash(list(PATH_DASH), 0)
+                    polyline(shape['points'])
+                    c.restoreState()
 
-        # Special paths (each in its type's colour), then paths (tts_map.PATH_DRAW_ORDER).
-        for kind in ('special', 'path'):
-            for shape in diagram.paths:
-                if shape['kind'] != kind or shape['points'][0] == shape['points'][-1]:
-                    continue
-                c.saveState()
-                c.setStrokeColor(HexColor(shape['colour'] if kind == 'special' else INK))
-                c.setLineWidth(PATH_WIDTH)
-                c.setDash(list(PATH_DASH), 0)
-                polyline(shape['points'])
-                c.restoreState()
+        draw_paths(over_trees=False)
+        self._draw_trees(c, [at(p) for p in diagram.trees])
+        draw_paths(over_trees=True)
 
         # Clearings: the paper inside, the ring, the number.
         from reportlab.graphics import renderPDF
