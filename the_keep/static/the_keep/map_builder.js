@@ -536,7 +536,10 @@
       round: PATH.lake.round, crossReach: PATH.lake.cross_reach,
       touch: PATH.lake.touch, lens: PATH.lake.lens, funnel: PATH.lake.funnel, variation: PATH.lake.variation,
       riverHalf: PATH.width * PATH.river_width / 2, linkReach: PATH.link_reach,
-      clearings: cs.map(([x, y, r], i) => ({ x, y, r, lake: onLake.has(i), feeds: feeds.get(i) || null })),
+      // The setup card's fit: a lake reaches a clearing as far as it is on the card.
+      card: PATH.card || null,
+      clearings: cs.map(([x, y, r], i) => ({ x, y, r, lake: onLake.has(i), feeds: feeds.get(i) || null,
+                                             suit: config.fixed ? state.clearings[i].suit || null : null })),
       // A lake's line runs on into its clearings' centres.
       lakes: state.paths.map((p, i) => [p, i]).filter(([p]) => p.kind === 'lake')
         .map(([p, i]) => ({ a: p.a.c, b: p.b.c, points: [centre(p.a), ...shapes[i].points, centre(p.b)] })),

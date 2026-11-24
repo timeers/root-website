@@ -26,7 +26,7 @@ from types import SimpleNamespace
 
 from .tts_map import PRINT_DIR, SUITS, MapGeometry, lake_clearings, print_rivers, river_extras, route_paths
 
-SETUP_CARD_RENDER_VERSION = 17
+SETUP_CARD_RENDER_VERSION = 18
 CARD_DIR = PRINT_DIR / 'setup_card'
 
 # ── The card's data ─────────────────────────────────────────────────────────
@@ -188,6 +188,15 @@ TREE_SKIP = 0.08              # this share of spots left empty, for a few natura
 def _card_size():
     from the_forge.pdf_engine import CARD_SLOT_H, CARD_SLOT_W
     return CARD_SLOT_W, CARD_SLOT_H
+
+
+def builder_card_config():
+    """What map_lakes.js needs to work out how big a clearing is on the card
+    (cardRadius: _Diagram's fit, repeated), so lakes reach it there too."""
+    return {'clearing_r': CLEARING_R, 'box_w': _card_size()[0] - 2 * MARGIN,
+            'min_h': DIAGRAM_MIN_H, 'max_h': DIAGRAM_MAX_H, 'pad': CLEARING_R + 2,
+            'stretch': DIAGRAM_MAX_STRETCH, 'min_scale': CLEARING_MIN_SCALE, 'lake_wobble': LAKE_WOBBLE,
+            'icon_half': {s: SUIT_ICON_H * SUIT_ICON_SCALE.get(s, 1) / 2 for s in SUITS}}
 
 
 @lru_cache(maxsize=None)
@@ -507,11 +516,13 @@ class _Diagram:
         paths = layout.get('paths') or []
         ordered = route_paths(paths, self.clearings, RIVER_WIDTH / 2)
         width = self.river_width
-        # Which loose ends are springs: as on the printed map (decided on the
-        # map's own shape, not the card's stretched one), so the two agree.
-        springs = {spring['key'] for spring in print_rivers(MapGeometry(fw, fh), layout)['springs']}
+        # Which loose ends are springs, and which way a lone river at a
+        # clearing leaves the map: as on the printed map (decided on the map's
+        # own shape, not the card's stretched one), so the two agree.
+        printed = print_rivers(MapGeometry(fw, fh), layout)
+        springs = {spring['key'] for spring in printed['springs']}
         extras = river_extras(paths, ordered, self.clearings, width, frame_obj, join_clearings=False,
-                              springs=springs, water=lake_clearings(paths))
+                              springs=springs, water=lake_clearings(paths), run_offs=printed['run_offs'])
         # A river runs on into its clearings' centres (under them), so two
         # meeting at a clearing read as one, however wide.
         self.rivers = []

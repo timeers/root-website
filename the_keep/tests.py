@@ -2187,6 +2187,78 @@ class MapPathTests(TestCase):
         self.assertLess(min(x, y, FORGE_FRAME[0] - x, FORGE_FRAME[1] - y), 0)   # past the edge
         self.assertNotIn(1, rivers['trimmed'])                                  # not cut back
 
+    # A river from clearing 0 ending at 1, heading down-left, with clearing 2
+    # in its way off the map: round 2's bottom is the long way, round its top
+    # (turning in 1) the short way to the left edge.
+    BLOCKED_RUN_OFF = [(0.47, 0.21), (0.30, 0.36), (0.13, 0.49)]
+
+    def test_a_blocked_run_off_takes_the_shorter_way(self):
+        from the_keep.services.tts_map import RIVER_WIDTH, RUN_OFF_MAX_TURN, _circles, _path_px, _run_off
+        state, shapes, rivers = self._print_rivers([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}],
+                                                   clearings=self.BLOCKED_RUN_OFF)
+        self.assertEqual(rivers['springs'], [])
+        turn, _side = rivers['run_offs'][(0, 'b')]
+        self.assertNotEqual(turn, 0)
+        cx, cy, r = _circles(self._geometry(), state)[1]
+        ox, oy, r2 = _circles(self._geometry(), state)[2]
+        at = shapes[0]['points'][-1]
+        join = next(link for link in rivers['links'] if math.dist(link[0], at) < 1e-6)
+        run = next(link for link in rivers['links'] if math.dist(link[0], join[-1]) < 1e-6 and link is not join)
+        self.assertLess(run[-1][0], 0)                                       # off the left edge...
+        self.assertLess(run[-1][1], oy)                                      # ...above clearing 2
+        # Shorter than the way round 2's bottom (straight on, bent as a path).
+        before = shapes[0]['points'][-2]
+        d = ((at[0] - before[0]), (at[1] - before[1]))
+        d = (d[0] / math.hypot(*d), d[1] / math.hypot(*d))
+        half = _path_px(self._geometry())['width'] * RIVER_WIDTH / 2
+        old = _run_off(at, d, self._geometry(), [(ox, oy, r2 + half)], half)
+        length = lambda line: sum(math.dist(p, q) for p, q in zip(line, line[1:]))     # noqa: E731
+        self.assertLess(length(join) + length(run), length(old))
+        # Joined as two rivers are: on from the river's end along its way...
+        self.assertLess(math.dist(join[0], at), 1e-6)
+        self.assertLess(self._angle((join[1][0] - join[0][0], join[1][1] - join[0][1]), d), 1)
+        # ...to the run's start on the clearing's rim, along the run's way out.
+        self.assertLess(math.dist(join[-1], run[0]), 1e-6)
+        self.assertAlmostEqual(math.dist(run[0], (cx, cy)), r, places=3)
+        self.assertLess(self._angle((join[-1][0] - join[-2][0], join[-1][1] - join[-2][1]),
+                                    (run[1][0] - run[0][0], run[1][1] - run[0][1])), 1)
+        # Never more than RUN_OFF_MAX_TURN from the river's way.
+        out = (run[1][0] - run[0][0], run[1][1] - run[0][1])
+        self.assertLessEqual(math.degrees(math.acos((out[0] * d[0] + out[1] * d[1]) / math.hypot(*out))),
+                             RUN_OFF_MAX_TURN + 1e-6)
+
+    def test_a_run_off_never_turns_back(self):
+        from the_keep.services.tts_map import MapGeometry, _clearing_run_off
+        # Heading left from (1000, 1000), walled in on every side but behind:
+        # no way off within RUN_OFF_MAX_TURN, so it's carried on as before.
+        walls = [(1000 + 450 * math.cos(math.radians(a)), 1000 + 450 * math.sin(math.radians(a)), 260)
+                 for a in range(-170, 171, 20) if abs(a) >= 60]
+        way = _clearing_run_off((900, 1000), (-1, 0), (1000, 1000, 100), MapGeometry(2000, 2000), walls, 10)
+        self.assertIsNone(way['choice'])
+        self.assertIsNone(way['join'])
+
+    def test_an_unblocked_run_off_runs_straight_on(self):
+        _state, shapes, rivers = self._print_rivers([{'kind': 'river', 'a': {'c': 1}, 'b': {'c': 0}}],
+                                                    clearings=[(0.1, 0.5), (0.4, 0.5)])
+        self.assertEqual(rivers['run_offs'], {(0, 'b'): (0, 0)})
+        run, = rivers['links']
+        self.assertLess(math.dist(run[0], shapes[0]['points'][-1]), 1e-6)       # from the river's end
+        self.assertTrue(all(abs(y - run[0][1]) < 1e-6 for _x, y in run))      # straight on
+
+    def test_the_setup_card_runs_off_the_printed_maps_way(self):
+        from unittest import mock
+        from the_keep.services import map_setup_card as msc
+        from the_keep.services.tts_map import FORGE_FRAME
+        state, _shapes, rivers = self._print_rivers([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}],
+                                                    clearings=self.BLOCKED_RUN_OFF)
+        with mock.patch.object(msc, 'river_extras', wraps=msc.river_extras) as extras:
+            msc._Diagram(state, FORGE_FRAME, (160, 140), False)
+        kwargs = extras.call_args.kwargs
+        self.assertEqual(kwargs['run_offs'], rivers['run_offs'])
+        card = msc.river_extras(*extras.call_args.args, **kwargs)
+        self.assertEqual(card['run_offs'], rivers['run_offs'])               # the same way off...
+        self.assertEqual(len(card['links']), len(card['run_offs']))          # ...each end's run alone (no join)
+
     # ── Lakes ──
     def test_lake_rules(self):
         from the_keep.services.tts_map import clean_paths
@@ -2280,6 +2352,19 @@ class MapPathTests(TestCase):
         for key in ('smooth', 'min_half', 'round', 'cross_reach', 'touch', 'lens', 'funnel', 'variation'):
             self.assertGreater(lake[key], 0)
         self.assertNotIn('building_r', lake)            # buildings don't shape lakes (their clearings do)
+
+    def test_the_setup_cards_fit_reaches_the_builder(self):
+        from the_keep.services import map_setup_card as msc
+        from the_keep.services.tts_map import SUITS, path_config
+        card = path_config(self._geometry())['card']
+        self.assertEqual(card['clearing_r'], msc.CLEARING_R)
+        self.assertEqual(card['box_w'], msc._card_size()[0] - 2 * msc.MARGIN)
+        self.assertEqual((card['min_h'], card['max_h']), (msc.DIAGRAM_MIN_H, msc.DIAGRAM_MAX_H))
+        self.assertEqual(card['pad'], msc.CLEARING_R + 2)
+        self.assertEqual((card['stretch'], card['min_scale']), (msc.DIAGRAM_MAX_STRETCH, msc.CLEARING_MIN_SCALE))
+        self.assertEqual(card['lake_wobble'], msc.LAKE_WOBBLE)
+        self.assertEqual(set(card['icon_half']), set(SUITS))
+        self.assertEqual(card['icon_half']['city'], msc.SUIT_ICON_H * msc.SUIT_ICON_SCALE['city'] / 2)
 
     def test_print_layout_gives_the_lake_outline_or_a_line(self):
         from the_keep.services.tts_map import print_layout

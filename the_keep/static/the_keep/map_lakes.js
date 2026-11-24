@@ -39,6 +39,8 @@ window.MapLakes = window.MapLakes || (function () {
   //                                     join curve reaches (share of the radius, river_extras' RIVER_LINK_REACH)
   //   clearings[].feeds:                [[x, y, dx, dy], ...]: rivers ending at that clearing (their end on its
   //                                     rim, flowing in): an inland lake curves out to each, as a river widening
+  //   clearings[].suit,                 a fixed-suit map's suits (room for their icons on the setup card)
+  //   card,                             the setup card's diagram fit (path_config's 'card'; cardRadius)
   // }
   // returns { rings: [[[x, y], ...], ...] (pixels, even-odd), oceans: [clearing index, ...] }
   function shapes(input) {
@@ -179,7 +181,12 @@ window.MapLakes = window.MapLakes || (function () {
     // smooth curve through each of its clearings' outermost point, so the sea
     // only touches each clearing there and the land reads as an island.
     const overlap = input.overlap === undefined ? 0.25 : input.overlap;
-    const inner = (c) => c.r * (1 - overlap);
+    // A lake clearing's radius for how far its lake reaches in: no more than
+    // the clearing is on the setup card (cardRadius), so the lake meets it
+    // there too, where every clearing is drawn the same size.
+    const cardR = cardRadius(input);
+    const reachR = (c) => Math.min(c.r, cardR);
+    const inner = (c) => reachR(c) * (1 - overlap);
     const coasts = [];              // [{points, outward}] (outward: per point, which side is sea)
     const coastBody = new Set();    // bodies drawn with a coast (their lake lines aren't water)
     const ownedSum = new Map();     // clearing -> [sum x, sum y, n] of its outer cells
@@ -389,7 +396,7 @@ window.MapLakes = window.MapLakes || (function () {
         for (const [x, y, k] of hull) {
           const c = input.clearings[k], len = Math.hypot(mid[0] - x, mid[1] - y) || 1;
           const dir = [(mid[0] - x) / len, (mid[1] - y) / len];
-          P.push([x + dir[0] * c.r * touch, y + dir[1] * c.r * touch]);
+          P.push([x + dir[0] * reachR(c) * touch, y + dir[1] * reachR(c) * touch]);
           outs.push([-dir[0], -dir[1]]);
           along.push([-dir[1], dir[0]]);      // along the clearing's circle there
           axisOf.set(k, dir);
@@ -404,8 +411,8 @@ window.MapLakes = window.MapLakes || (function () {
             return [(p[0] - c.x) / len, (p[1] - c.y) / len];
           };
           const da = leave(ca, l.points), db = leave(cb, [...l.points].reverse());
-          const Pa = [ca.x + da[0] * ca.r * touch, ca.y + da[1] * ca.r * touch];
-          const Pb = [cb.x + db[0] * cb.r * touch, cb.y + db[1] * cb.r * touch];
+          const Pa = [ca.x + da[0] * reachR(ca) * touch, ca.y + da[1] * reachR(ca) * touch];
+          const Pb = [cb.x + db[0] * reachR(cb) * touch, cb.y + db[1] * reachR(cb) * touch];
           const m = pointAlong(l.points, 0.5), len = Math.hypot(Pb[0] - Pa[0], Pb[1] - Pa[1]) || 1;
           const n = [-(Pb[1] - Pa[1]) / len, (Pb[0] - Pa[0]) / len];
           const gap = Math.hypot(cb.x - ca.x, cb.y - ca.y) - ca.r - cb.r;
@@ -467,7 +474,7 @@ window.MapLakes = window.MapLakes || (function () {
     const funnelField = new Float32Array(N).fill(-Infinity);
     for (const f of funnels) {
       const { c, axis, A, dA } = f, k = c.r * linkReach;
-      const B = [c.x + axis[0] * c.r * 0.95, c.y + axis[1] * c.r * 0.95];
+      const B = [c.x + axis[0] * reachR(c) * 0.95, c.y + axis[1] * reachR(c) * 0.95];
       const p1 = [A[0] + dA[0] * k, A[1] + dA[1] * k], p2 = [B[0] - axis[0] * k, B[1] - axis[1] * k];
       const samples = [];
       for (let n = 0; n <= 32; n++) {
@@ -475,7 +482,7 @@ window.MapLakes = window.MapLakes || (function () {
         samples.push([u * u * u * A[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * B[0],
                       u * u * u * A[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * B[1]]);
       }
-      const wide = funnelHalf * c.r;
+      const wide = funnelHalf * reachR(c);
       around(c.x, c.y, c.r * 1.3, (cellK, x, y) => {
         let best = Infinity, bestT = 0;
         for (let n = 1; n < samples.length; n++) {
@@ -540,6 +547,42 @@ window.MapLakes = window.MapLakes || (function () {
   }
 
   // The convex hull of [x, y, ...] points (monotone chain), anticlockwise.
+  // How big a clearing is on the setup card, in board pixels: map_setup_card's
+  // _Diagram fit, repeated (its clearings and forests fitted to the diagram's
+  // box, stretched up to card.stretch either way, crowded clearings shrunk).
+  // The card's text sets how tall the diagram is, so the smallest over the
+  // heights it can be, less the card's lake shore wobble: a lake reaching this
+  // far meets the clearing on any card. Infinity: no card (or nothing to fit).
+  function cardRadius(input) {
+    const card = input.card, cs = input.clearings;
+    if (!card || !cs.length) return Infinity;
+    const pts = [...cs.map(c => [c.x, c.y]), ...(input.forests || []).map(f => [f.x, f.y])];
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    const spanX = Math.max(...xs) - Math.min(...xs), spanY = Math.max(...ys) - Math.min(...ys);
+    if (!spanX && !spanY) return Infinity;
+    const iconHalf = Math.max(0, ...cs.map(c => (c.suit && (card.icon_half || {})[c.suit]) || 0));
+    const R = card.clearing_r, steps = 6;
+    let best = Infinity;
+    for (let n = 0; n <= steps; n++) {
+      const boxH = card.min_h + (card.max_h - card.min_h) * n / steps;
+      const innerW = card.box_w - 2 * card.pad, innerH = boxH - card.pad - (card.pad + iconHalf);
+      if (innerW <= 0 || innerH <= 0) continue;
+      let sx = spanX ? innerW / spanX : 0, sy = spanY ? innerH / spanY : 0;
+      if (sx && sy) {
+        const s = Math.min(sx, sy);
+        sx = Math.min(sx, s * card.stretch); sy = Math.min(sy, s * card.stretch);
+      }
+      sx = sx || sy; sy = sy || sx;
+      let nearest = Infinity;
+      for (let i = 0; i < cs.length; i++) {
+        for (let j = i + 1; j < cs.length; j++) nearest = Math.min(nearest, Math.hypot((cs[i].x - cs[j].x) * sx, (cs[i].y - cs[j].y) * sy));
+      }
+      const r = nearest < 2 * R + 3 ? R * Math.max(card.min_scale, (nearest - 3) / (2 * R)) : R;
+      best = Math.min(best, (r - (card.lake_wobble || 0)) / Math.max(sx, sy));
+    }
+    return best;
+  }
+
   function convexHull(points) {
     const ps = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
     if (ps.length < 3) return ps;
@@ -902,5 +945,5 @@ window.MapLakes = window.MapLakes || (function () {
     return out;
   }
 
-  return { shapes };
+  return { shapes, cardRadius };
 })();

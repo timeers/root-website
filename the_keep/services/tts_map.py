@@ -507,6 +507,8 @@ CLEARING_OUTLINE_INSET = 9
 SPRING_RATIO = 1.0               # a loose river end whose edge ahead is this many times farther than the one behind is a spring
 RIVER_LINK_REACH = 0.6          # a river's curve through a clearing: control points this share of its radius in
 MERGE_REACH = 1.5                # a river merging into another: starts (and ends) this many river widths from the junction
+RUN_OFF_MAX_TURN = 100.0         # a lone river at a clearing whose way straight off the map is blocked may turn up to this (degrees) in it
+RUN_OFF_TURN_COST = 0.5          # ...choosing the shortest way off, each 90° of turn counting as this share more length
 DEFAULT_CLEARING_RADIUS = 0.3    # local units, for a clearing without its marker yet
 MAX_PATHS = 300
 PATH_SAMPLES = 32
@@ -601,6 +603,7 @@ def _path_px(geometry):
 
 def path_config(geometry):
     """The builder's copy of the path constants (pixels), so it draws as the PDF does."""
+    from .map_setup_card import builder_card_config
     px = _path_px(geometry)
     return {'colours': PATH_COLOURS, 'width': px['width'], 'lanes': PATH_LANES, 'stroke': PATH_STROKE,
             'dash': PATH_DASH, 'gap': PATH_GAP, 'river_width': RIVER_WIDTH, 'default_radius': px['default_radius'],
@@ -614,7 +617,9 @@ def path_config(geometry):
                      'smooth': LAKE_SMOOTH * DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
                      'round': LAKE_ROUND * DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
                      'cross_reach': LAKE_CROSS_REACH * DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
-                     'min_half': LAKE_MIN_HALF * px['width'] * RIVER_WIDTH / 2}}
+                     'min_half': LAKE_MIN_HALF * px['width'] * RIVER_WIDTH / 2},
+            # The setup card's diagram fit: lakes reach a clearing as far as it is on the card.
+            'card': builder_card_config()}
 
 
 def _circles(geometry, state):
@@ -647,24 +652,40 @@ def _route(a, b, obstacles):
     """The control point of a quadratic curve from a to b that keeps clear of
     every obstacle (x, y, clearance): straight (the midpoint) when that's
     clear, else bent sideways as little as works; straight if nothing does."""
+    options = _route_options(a, b, obstacles, both=False)
+    return options[0][1] if options else ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+
+
+def _route_options(a, b, obstacles, both=True):
+    """The clear ways from a to b, as (side, control point), best first:
+    [(0, the midpoint)] when straight is clear; else, for each side it can
+    bend to (+1 or -1, across a→b), the least bend that keeps clear of every
+    obstacle, the smaller bend first (on a tie, away from the obstacle the
+    straight line cuts deepest into). [] if nothing is clear. both=False:
+    just the best."""
     mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
     blocking = [o for o in obstacles if _segment_distance(o, a, b) < o[2]]
     if not blocking:
-        return mid
+        return [(0, mid)]
     length = math.hypot(b[0] - a[0], b[1] - a[1]) or 1e-9
     nx, ny = -(b[1] - a[1]) / length, (b[0] - a[0]) / length
     # Bend away from the obstacle the straight line cuts deepest into.
     worst = min(blocking, key=lambda o: _segment_distance(o, a, b) - o[2])
     side = -1 if (worst[0] - mid[0]) * nx + (worst[1] - mid[1]) * ny > 0 else 1
+    options = []
     for step in range(1, _BEND_STEPS + 1):
         bulge = _BEND_MAX * length * step / _BEND_STEPS
         for s in (side, -side):
+            if any(found == s for found, _c in options):
+                continue
             # A quadratic's middle sits halfway to its control point.
             control = (mid[0] + s * nx * 2 * bulge, mid[1] + s * ny * 2 * bulge)
             samples = [_quad(a, control, b, i / PATH_SAMPLES) for i in range(PATH_SAMPLES + 1)]
             if all(math.hypot(p[0] - o[0], p[1] - o[1]) >= o[2] for o in obstacles for p in samples):
-                return control
-    return mid
+                options.append((s, control))
+                if not both or len(options) == 2:
+                    return options
+    return options
 
 
 def _trim(a, control, b, centre, radius, start):
@@ -902,6 +923,78 @@ def _run_off(start, d, geometry, obstacles, half_width):
     return run + [_past_edge(run[-2], edge, half_width, geometry)]
 
 
+def _clearing_run_off(at, d, circle, geometry, obstacles, half_width, prefer=None):
+    """A lone river at a clearing (its end `at` on the clearing's rim, flowing
+    along d) carried on to the map's edge: {'join': its curve on through the
+    clearing (None when it runs straight on), 'run': from there to just past
+    the edge, 'choice': (turn, side) as taken, None for _run_off's}, or None
+    if it's already leaving the frame.
+
+    Straight on, as _run_off, when that's clear. Else the shortest way off
+    of the directions up to RUN_OFF_MAX_TURN either way of d (each 90° of
+    turn counting as RUN_OFF_TURN_COST more length): leaving the clearing's
+    rim, bent round the obstacles like a path, and joined to the river
+    through the clearing as two rivers are (river_extras). prefer: a choice
+    to take when it's clear here (the printed map's, for its setup card).
+    None clear: _run_off's."""
+    w, h = geometry.width, geometry.height
+    edge = _ray_to_edge(at, d, w, h)
+    if edge is None:
+        return None
+    if not any(_segment_distance(o, at, edge) < o[2] for o in obstacles):
+        return {'join': None, 'run': _run_off(at, d, geometry, obstacles, half_width), 'choice': (0, 0)}
+    cx, cy, r = circle
+    route_obstacles = list(obstacles) + [(cx, cy, r * 0.98)]   # (not back across its own clearing)
+
+    def turn_of(u):
+        return math.degrees(math.acos(max(-1.0, min(1.0, u[0] * d[0] + u[1] * d[1]))))
+
+    def ways(turn):
+        """[(score, choice, B, control, E, u_B)] leaving along d turned by `turn`."""
+        a = math.radians(turn)
+        u = (d[0] * math.cos(a) - d[1] * math.sin(a), d[0] * math.sin(a) + d[1] * math.cos(a))
+        end = _ray_to_edge((cx, cy), u, w, h)
+        if end is None:
+            return []
+        out = []
+        for side, _control in _route_options((cx + u[0] * r, cy + u[1] * r), end, route_obstacles):
+            start, best = (cx + u[0] * r, cy + u[1] * r), None
+            for _ in range(2):      # then again from where the run leaves the rim, so it leaves squarely
+                options = dict(_route_options(start, end, route_obstacles))
+                control = options.get(side, options.get(0))
+                if control is None:
+                    break
+                u_b = _unit(control[0] - start[0], control[1] - start[1])
+                if u_b == (0.0, 0.0) or turn_of(u_b) > RUN_OFF_MAX_TURN:
+                    break
+                best = (start, control, u_b)
+                start = (cx + u_b[0] * r, cy + u_b[1] * r)
+            if best is None:
+                continue
+            start, control, u_b = best
+            run = [_quad(start, control, end, n / PATH_SAMPLES) for n in range(PATH_SAMPLES + 1)]
+            score = _polyline_length(run) * (1 + RUN_OFF_TURN_COST * turn_of(u_b) / 90)
+            out.append((score, (turn, side), start, control, end, u_b))
+        return out
+
+    found = []
+    if prefer is not None:
+        found = [way for way in ways(prefer[0]) if way[1] == tuple(prefer)]
+    if not found:
+        step = 20
+        for turn in range(-int(RUN_OFF_MAX_TURN), int(RUN_OFF_MAX_TURN) + 1, step):
+            found.extend(ways(turn))
+    if not found:
+        return {'join': None, 'run': _run_off(at, d, geometry, obstacles, half_width), 'choice': None}
+    _score, choice, start, control, end, u_b = min(found, key=lambda way: way[0])
+    reach = r * RIVER_LINK_REACH
+    p1 = (at[0] + d[0] * reach, at[1] + d[1] * reach)
+    p2 = (start[0] - u_b[0] * reach, start[1] - u_b[1] * reach)
+    join = [_cubic(at, p1, p2, start, n / PATH_SAMPLES) for n in range(PATH_SAMPLES + 1)]
+    run = [_quad(start, control, end, n / PATH_SAMPLES) for n in range(PATH_SAMPLES + 1)]
+    return {'join': join, 'run': run + [_past_edge(run[-2], end, half_width, geometry)], 'choice': choice}
+
+
 def print_rivers(geometry, state, shapes=None):
     """The printed map's rivers (a map without art), beyond what the builder
     draws: {'links': extra polylines, 'trimmed': {river index: its printed
@@ -910,8 +1003,12 @@ def print_rivers(geometry, state, shapes=None):
     - Two rivers at a clearing: a curve through it, continuing each river's
       line (the straightest pairs first). An odd one out curves into the
       nearest of those, like a tributary.
-    - One river at a clearing, or a river ending on a path's middle: carried
-      on, the way it was flowing, to the map's edge (round other clearings).
+    - A river ending on a path's middle: carried on, the way it was
+      flowing, to the map's edge (round the clearings).
+    - One river at a clearing: likewise, when its way straight on is clear.
+      Else the shortest way off, turning up to RUN_OFF_MAX_TURN in the
+      clearing (curving through it as two rivers do), round the other
+      clearings ('run_offs': {(river, end): the way it took}).
     - A river ending on another river's middle: cut back a little and curved
       into that river (its printed line), flowing the way it was heading.
     - A loose end (either run-off above) whose way to the edge is longer than
@@ -937,7 +1034,7 @@ def _is_spring(start, d, frame):
 
 
 def river_extras(paths, shapes, circles, width, frame, join_clearings=True, springs=None, water=(),
-                 feed=False, lakes=()):
+                 feed=False, lakes=(), run_offs=None):
     """print_rivers' work, from its inputs: the paths (state['paths']), their
     shapes ({'points', ...} each, as path_shapes), the clearings' (x, y, r),
     the river's width and the frame (anything with width and height, its
@@ -948,6 +1045,9 @@ def river_extras(paths, shapes, circles, width, frame, join_clearings=True, spri
 
     springs: which loose ends are springs, as a set of (river index, end):
     the card passes the printed map's, so the two agree. None decides here.
+    run_offs: likewise, the way each lone river at a clearing leaves the map
+    ({(river index, end): (turn, side)}, as _clearing_run_off chose it), so
+    the card's runs leave the way the printed map's do (when that's clear).
     water: clearings on a lake: a river ending at one flows into the lake
     (no run-off, and no join through the clearing). feed: and draw it on
     through the clearing into the water: to the nearest point of the lake
@@ -957,17 +1057,29 @@ def river_extras(paths, shapes, circles, width, frame, join_clearings=True, spri
     reach_base = MERGE_REACH * width
     rivers = [i for i, p in enumerate(paths) if p['kind'] == 'river']
     printed = {i: list(shapes[i]['points']) for i in rivers}
-    links, trimmed, done, found_springs = [], {}, set(), []
+    links, trimmed, done, found_springs, found_run_offs = [], {}, set(), [], {}
 
-    def loose_end(key, at, d, obstacles):
-        """Run a loose end off to the edge, unless it's a spring."""
+    def loose_end(key, at, d, obstacles, circle=None):
+        """Run a loose end off to the edge, unless it's a spring. At a
+        clearing (its circle): through it, the shortest way off."""
         spring = (key in springs) if springs is not None else _is_spring(at, d, frame)
         if spring:
             found_springs.append({'key': key, 'at': at, 'd': d})
             return
-        run = _run_off(at, d, frame, obstacles, half)
-        if run:
-            links.append(run)
+        if circle is None:
+            run = _run_off(at, d, frame, obstacles, half)
+            if run:
+                links.append(run)
+            return
+        way = _clearing_run_off(at, d, circle, frame, obstacles, half, prefer=(run_offs or {}).get(key))
+        if way is None:
+            return
+        if way['join'] and join_clearings:
+            links.append(way['join'])
+        if way['run']:
+            links.append(way['run'])
+        if way['choice'] is not None:
+            found_run_offs[key] = way['choice']
 
     def arriving(points, end):
         """(point, direction it flows in) where a river reaches its `end`."""
@@ -1044,7 +1156,8 @@ def river_extras(paths, shapes, circles, width, frame, join_clearings=True, spri
         cx, cy, r = circles[k]
         if len(items) == 1:
             at, d = items[0]
-            loose_end(keys[k][0], at, d, [(x, y, rr + half) for j, (x, y, rr) in enumerate(circles) if j != k])
+            loose_end(keys[k][0], at, d, [(x, y, rr + half) for j, (x, y, rr) in enumerate(circles) if j != k],
+                      circle=circles[k])
             continue
         if not join_clearings:
             continue
@@ -1066,7 +1179,7 @@ def river_extras(paths, shapes, circles, width, frame, join_clearings=True, spri
             (at, d), = remaining
             curve = min(pairs, key=lambda c: math.hypot(*(p - q for p, q in zip(_middle(c), at))))
             links.append(_merge(at, d, curve, _middle(curve), reach_base))
-    return {'links': links, 'trimmed': trimmed, 'springs': found_springs}
+    return {'links': links, 'trimmed': trimmed, 'springs': found_springs, 'run_offs': found_run_offs}
 
 
 def _lake_mouth(k, circle, paths, shapes, lakes):
