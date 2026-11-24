@@ -55,11 +55,7 @@
       { key: 'paths', heading: 'Paths & Rivers', name: 'Paths & Rivers', short: 'Paths',
         hint: 'Pick a path type, then drag from one clearing to another, or to the '
               + 'middle of another path. Select a path to change its type, drag one of '
-              + 'its ends to another clearing, or press x to remove it. Rivers ▾ also draws lakes: '
-              + 'a lake fills the space around it, halfway to the land, and one drawn outside the '
-              + "map's edge (nothing between it and the board's edge) becomes a sea. Drawing a river or lake beside "
-              + 'a path (or a path beside one) between the same two clearings? Drop its end to the left '
-              + "or right of the clearing's centre to choose which side it goes." });
+              + "its ends to another clearing, or press x to remove it." });
   }
   if (config.upload_step) {
     STEPS.unshift({ key: 'upload', heading: 'Map Name & Art', name: 'Start', short: 'Start',
@@ -790,6 +786,7 @@
   // The suit marker's outline, shared with the summary card's clearing icon
   // (map_summary.js keeps it as <symbol id="mb-marker"> on the page).
   MapSummary.loadMarker(config.marker_svg).then(ok => { if (ok) render(); });
+  MapSummary.useIcons({ forest: config.forest_icon, ruin: config.ruin_icon });   // (the review's summary card)
 
   // A step's pieces appear from that step on: never before it (they'd be in
   // the way of what's being placed now), dimmed on the steps after it, and at

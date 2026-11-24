@@ -165,6 +165,8 @@ def number_tile_radius_px(geometry):
 # ── The builder page (shared by the Keep and the Forge) ─────────────────────
 
 MARKER_SVG = 'images/map_builder/clearing_marker.svg'
+FOREST_ICON = 'pdf/maps/root_map_green_forest.svg'   # the summary card's forest icon (a printed map's forest)
+RUIN_ICON = 'images/tts/assets/ruin.png'             # ...and its ruin (the builder's ruin tile)
 
 # The official boards' shape (about 1.09 wide to 1 tall). Forge maps are cropped
 # to it, and the Forge builder always works in this frame, whatever the art's
@@ -307,6 +309,9 @@ def builder_config(image_url, width, height, state, *, fixed, expected, save_url
         'suit_icons': suit_icons(),
         # The suit marker's outline (tts/make_marker_svg.py); round dots without it.
         'marker_svg': static(MARKER_SVG) if finders.find(MARKER_SVG) else None,
+        # The summary card's forest and ruin icons (on the review step).
+        'forest_icon': static(FOREST_ICON) if finders.find(FOREST_ICON) else None,
+        'ruin_icon': static(RUIN_ICON) if finders.find(RUIN_ICON) else None,
         # The marker mesh's footprint (mesh units x its 1.3 scale), in pixels.
         'marker_px': [3.164 * 1.3 / BOARD_SCALE * geometry.px_per_local,
                       1.575 * 1.3 / BOARD_SCALE * geometry.px_per_local],
@@ -1348,7 +1353,9 @@ def _suit_names():
 def _summary(tiles, path_tiles, suits):
     from django.contrib.staticfiles import finders
     return {'tiles': tiles, 'path_tiles': path_tiles, 'suits': suits, 'colours': PATH_COLOURS,
-            'marker_svg': static(MARKER_SVG) if finders.find(MARKER_SVG) else None}
+            'marker_svg': static(MARKER_SVG) if finders.find(MARKER_SVG) else None,
+            'forest_icon': static(FOREST_ICON) if finders.find(FOREST_ICON) else None,
+            'ruin_icon': static(RUIN_ICON) if finders.find(RUIN_ICON) else None}
 
 
 def _random_note():

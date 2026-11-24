@@ -26,7 +26,7 @@ from types import SimpleNamespace
 
 from .tts_map import PRINT_DIR, SUITS, MapGeometry, lake_clearings, print_rivers, river_extras, route_paths
 
-SETUP_CARD_RENDER_VERSION = 19
+SETUP_CARD_RENDER_VERSION = 20
 CARD_DIR = PRINT_DIR / 'setup_card'
 
 # ── The card's data ─────────────────────────────────────────────────────────
@@ -457,22 +457,34 @@ def forest_trees(frame, clearings, lines, forests, avoid=(), avoid_lines=(), wat
         for di, dj in ((-1, 0), (1, 0), (-1 + shift, -1), (shift, -1), (-1 + shift, 1), (shift, 1)):
             yield i + di, j + dj
 
-    filled = set()
-    for fx, fy in forests:
+    filled = {}        # spot -> its area (the first forest to reach it)
+    starts = []
+    for n_forest, (fx, fy) in enumerate(forests):
         open_nodes = sorted(nodes, key=lambda k: math.hypot(nodes[k][0] - fx, nodes[k][1] - fy))
         # The nearest spot the forest point can reach without crossing a line.
         start = next((k for k in open_nodes[:12] if not blocked((fx, fy), nodes[k])), None)
+        starts.append(start)
         if start is None or start in filled:
             continue
         stack = [start]
-        filled.add(start)
+        filled[start] = n_forest
         while stack:
             k = stack.pop()
             for n in neighbours(*k):
                 if n in nodes and n not in filled and not blocked(nodes[k], nodes[n]):
-                    filled.add(n)
+                    filled[n] = n_forest
                     stack.append(n)
-    return [nodes[k] for k in sorted(filled & drawn, key=lambda k: (k[1], k[0]))]
+    trees = [nodes[k] for k in sorted(filled.keys() & drawn, key=lambda k: (k[1], k[0]))]
+    # Every forest gets at least one tree: one whose area has no room for any
+    # (a small one, squeezed between a lake and a path, say) gets one where
+    # its point is.
+    with_trees = {filled[k] for k in filled.keys() & drawn}
+    for (fx, fy), start in zip(forests, starts):
+        if (start is None or filled.get(start) not in with_trees) and not (water and _inside((fx, fy), water)):
+            trees.append((fx, fy))
+            if start is not None:
+                with_trees.add(filled.get(start))
+    return trees
 
 
 class _Diagram:

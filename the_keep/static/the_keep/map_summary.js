@@ -8,7 +8,7 @@
 //   { tiles: [{kind, label, count, expected?, step?}], path_tiles: [...],
 //     suits: {fixed: true, chips: [{suit, name, count, icon}], unset, unset_label}
 //          | {fixed, note, icon},   (a note: random suits, or fixed with no tally)
-//     marker_svg, colours: {path, special, river} }
+//     marker_svg, forest_icon, ruin_icon, colours: {path, special, river} }
 // Loaded once per page, however many templates include it.
 window.MapSummary = window.MapSummary || (function () {
   'use strict';
@@ -49,8 +49,45 @@ window.MapSummary = window.MapSummary || (function () {
     return markerPromise;
   }
 
+  // The summary card's forest and ruin pictures (tts_map.FOREST_ICON,
+  // RUIN_ICON: a printed map's forest, the builder's ruin tile), by the
+  // page's static URLs for them; drawn shapes without them.
+  const pictures = {};
+  function useIcons(urls) {
+    for (const [kind, url] of Object.entries(urls || {})) if (url) pictures[kind] = url;
+  }
+  function picture(kind, width, height) {
+    const img = document.createElement('img');
+    img.src = pictures[kind];
+    img.alt = '';
+    img.width = width;
+    img.height = height;
+    img.setAttribute('aria-hidden', 'true');
+    return img.outerHTML;
+  }
+
+  // The summary's ruin: its picture in the building icon's rounded square,
+  // bordered red.
+  let clipIds = 0;
+  function ruinSquare() {
+    const svg = document.createElementNS(NS, 'svg');
+    const set = (node, attrs) => { for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v); return node; };
+    set(svg, { width: 24, height: 24, viewBox: '0 0 24 24', 'aria-hidden': 'true' });
+    const id = `mb-sum-ruin-${++clipIds}`;
+    const clip = set(document.createElementNS(NS, 'clipPath'), { id });
+    clip.appendChild(set(document.createElementNS(NS, 'rect'), { x: 2, y: 2, width: 20, height: 20, rx: 4 }));
+    svg.appendChild(clip);
+    svg.appendChild(set(document.createElementNS(NS, 'image'), { href: pictures.ruin, x: 2, y: 2, width: 20, height: 20,
+                                                                 preserveAspectRatio: 'xMidYMid slice', 'clip-path': `url(#${id})` }));
+    svg.appendChild(set(document.createElementNS(NS, 'rect'), { x: 2, y: 2, width: 20, height: 20, rx: 4, fill: 'none',
+                                                                stroke: '#dc3545', 'stroke-width': 1.5 }));
+    return svg.outerHTML;
+  }
+
   // ── Icons, drawn like the board draws each piece ──
-  function icon(kind, colours) {
+  // summary: the summary card's own look (its forest and ruin pictures, a
+  // plain building square); otherwise the builder's (its count cards).
+  function icon(kind, colours, summary = false) {
     colours = colours || COLOURS;
     if (kind === 'clearing') {
       if (markerReady()) {
@@ -76,6 +113,8 @@ window.MapSummary = window.MapSummary || (function () {
           + ' stroke-width="2.8" stroke-linecap="round" stroke-dasharray="3.2 3.4"/>').join('')
         + '</svg>';
     }
+    if (summary && kind === 'forest' && pictures.forest) return picture('forest', 22, 25);   // (its own shape)
+    if (summary && kind === 'ruin' && pictures.ruin) return ruinSquare();
     if (kind === 'forest') {
       return '<svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">'
         + '<circle cx="11" cy="11" r="8" fill="#198754" stroke="#fff" stroke-width="3"/>'
@@ -84,7 +123,7 @@ window.MapSummary = window.MapSummary || (function () {
     const ruin = kind === 'ruin';
     return '<svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">'
       + `<rect x="2" y="2" width="20" height="20" rx="4" fill="${ruin ? '#dc3545' : '#fff'}" stroke="#333" stroke-width="1.5"/>`
-      + (ruin
+      + (summary && !ruin ? '' : ruin
         ? '<text x="12" y="12.5" fill="#fff" font-size="13" font-weight="700" text-anchor="middle" dominant-baseline="central">R</text>'
         : '<path d="M12 7v10M7 12h10" stroke="#333" stroke-width="2" stroke-linecap="round"/>')
       + '</svg>';
@@ -95,6 +134,7 @@ window.MapSummary = window.MapSummary || (function () {
   // piece's step) and show "expected → count" pills; without it, plain tiles.
   function render(container, data, options) {
     const onTile = (options || {}).onTile || null;
+    useIcons({ forest: data.forest_icon, ruin: data.ruin_icon });
     container.innerHTML = '';
     const grid = document.createElement('div');
     grid.className = 'mb-sum-grid mb-3';
@@ -116,7 +156,7 @@ window.MapSummary = window.MapSummary || (function () {
         node.setAttribute('aria-label', `${tile.label}: ${tile.count}. Edit ${tile.label.toLowerCase()}`);
         node.addEventListener('click', () => onTile(tile));
       }
-      node.innerHTML = `<div class="mb-sum-icon">${icon(tile.kind, data.colours)}</div>`
+      node.innerHTML = `<div class="mb-sum-icon">${icon(tile.kind, data.colours, true)}</div>`
         + '<div class="mb-sum-count"></div><div class="mb-sum-label"></div>';
       node.querySelector('.mb-sum-count').textContent = tile.count;
       node.querySelector('.mb-sum-label').textContent = tile.label;
@@ -169,5 +209,5 @@ window.MapSummary = window.MapSummary || (function () {
     loadMarker(data.marker_svg).then(ok => { if (ok) render(container, data); });
   }
 
-  return { icon, loadMarker, markerReady, render, mount };
+  return { icon, loadMarker, markerReady, render, mount, useIcons };
 })();

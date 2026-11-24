@@ -1300,6 +1300,12 @@ class MapBuilderTests(TestCase):
         self.assertEqual(set(config['suit_icons']), {'fox', 'rabbit', 'mouse', 'bird', 'city'})
         self.assertIn('images/tags/Bird_Tag.png', config['suit_icons']['bird'])
         self.assertIn('images/map_builder/clearing_marker.svg', config['marker_svg'])
+        # The summary card's forest icon: in the builder's config and the detail pages' data.
+        from the_keep.services.tts_map import layout_summary
+        self.assertIn('pdf/maps/root_map_green_forest.svg', config['forest_icon'])
+        self.assertEqual(layout_summary({})['forest_icon'], config['forest_icon'])
+        self.assertIn('images/tts/assets/ruin.png', config['ruin_icon'])
+        self.assertEqual(layout_summary({})['ruin_icon'], config['ruin_icon'])
         width, height = config['marker_px']
         self.assertAlmostEqual(width / height, 2.0, delta=0.05)
         from the_keep.services.tts_map import DEFAULT_CLEARING_RADIUS
@@ -2630,6 +2636,18 @@ class ForestTreesTests(TestCase):
         sealed = msc.forest_trees(frame, [top, bottom], [wall, under, ([(80.0, 34.0), (80.0, 38.0)], 1.0)],
                                   [(30.0, 45.0)], bounds=bounds)
         self.assertFalse(any(x > 100 for x, _y in sealed))                      # (a path between them shuts it)
+
+    def test_every_forest_gets_a_tree(self):
+        # A forest squeezed between two paths, with no room for a tree on the
+        # grid: one tree where its point is (and none in a lake).
+        walls = [([(-10.0, 18.0), (170.0, 18.0)], 1.0), ([(-10.0, 24.0), (170.0, 24.0)], 1.0)]
+        trees = msc.forest_trees(self.FRAME, [], walls, [(40.0, 21.0)])
+        self.assertEqual(trees, [(40.0, 21.0)])
+        lake = [[(30.0, 15.0), (50.0, 15.0), (50.0, 27.0), (30.0, 27.0)]]
+        self.assertEqual(msc.forest_trees(self.FRAME, [], walls, [(40.0, 21.0)], water=lake), [])
+        # A forest with room gets its trees as before, no extra one.
+        roomy = msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0)])
+        self.assertNotIn((40.0, 60.0), roomy)
 
     def test_two_forests_in_one_area_fill_it_once(self):
         one = msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0)])
