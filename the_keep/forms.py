@@ -1702,11 +1702,12 @@ class MapSetupCardForm(forms.Form):
         fits = msc.setup_card_fits(self.title, self.layout, card, frame=self.frame, lang_code=self.lang_code)
         if not fits['front']:
             self.overflow = 'front'
-            raise ValidationError("That's too much text for the card: it would leave no room for the map, even with "
-                                  "the setup modifications moved to the back. Shorten them, the special paths' rule "
-                                  "or the rules.")
+            raise ValidationError("That's too much text for the card's front: it would leave no room for the map. "
+                                  "Shorten the special paths' name.")
         if not fits['back']:
             self.overflow = 'back'
-            raise ValidationError("The rules don't fit on the card's back. Shorten them, or move some to a Law entry.")
+            raise ValidationError("That's too much text for the card: it doesn't fit on the back, and the setup "
+                                  "modifications don't fit on the front either. Shorten the setup modifications or "
+                                  "the rules, or move some to a Law entry.")
         cleaned['map_card'] = card
         return cleaned

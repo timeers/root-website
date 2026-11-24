@@ -26,7 +26,7 @@ from types import SimpleNamespace
 
 from .tts_map import PRINT_DIR, SUITS, river_extras, route_paths
 
-SETUP_CARD_RENDER_VERSION = 11
+SETUP_CARD_RENDER_VERSION = 13
 CARD_DIR = PRINT_DIR / 'setup_card'
 
 # ── The card's data ─────────────────────────────────────────────────────────
@@ -143,6 +143,8 @@ LEADING = 1.2
 PARAGRAPH_GAP = 3.0
 DIAGRAM_GAP = 4.0             # between the diagram and the text above / below it
 DIAGRAM_MIN_H = 110.0         # the front's text must leave the diagram this much
+DIAGRAM_MAX_H = 140.0         # the diagram is never taller than this (it's centred in any space left over);
+                              # 200 is more than a front ever has, so as it stands it never limits it
 DIAGRAM_MAX_STRETCH = 1.4     # a diagram may be stretched this much (either way) to fill its space
 
 CLEARING_R = 13.29            # map_setup_clearing.svg's own size (9.38 mm across)
@@ -150,7 +152,7 @@ CLEARING_MIN_SCALE = 0.7      # crowded maps: smaller clearings, down to this sh
 CLEARING_FILL = '#f8e3a4'     # the card's paper (map_setup_card_border.svg)
 NUMBER_FONT = 'Baskerville-Bold'
 NUMBER_SIZE = 17.0
-NUMBER_SUIT_NUDGE = 2.5       # a fixed-suit clearing's number, this much lower: clear of its suit icon
+NUMBER_SUIT_NUDGE = 2       # a fixed-suit clearing's number, this much lower: clear of its suit icon
 INK = '#110f0d'
 PATH_WIDTH = 2.0
 PATH_DASH = (2.0, 2.0)
@@ -163,13 +165,14 @@ SUIT_ICONS = {'fox': 'fox_icon_black_outline.svg', 'rabbit': 'rabbit_icon_black_
               'mouse': 'mouse_icon_black_outline.svg', 'bird': 'bird_icon_black_outline.svg',
               'city': 'city_icon_black_outline.svg'}
 SUIT_ICON_SCALE = {'city': 1.3}   # three suits in one icon: drawn larger to read
-LEGEND_INDENT = 18.0          # the legend's text, in from the card's text margin
-LEGEND_SWATCH = 10.0          # its special path sample: centred in that indent, clear of the edge and the text
+LEGEND_INSET = 4.0            # the legend's special path sample, in from the card's text margin
+LEGEND_SWATCH = 10.0          # its length
+LEGEND_INDENT = LEGEND_INSET + LEGEND_SWATCH + 1.0   # then ": name", just after it
 
 TREE_H = 5.3                  # map_setup_tree.svg, drawn this tall
 TREE_SPACING = 8.0            # the trees' hex grid: the distance between neighbouring trees before they're nudged
-TREE_GAP = 1.0                # from a clearing, a path (or a raging river) and the diagram's edge
-TREE_JITTER = 1.4             # each tree nudged up to this far (any direction), so the grid doesn't show
+TREE_GAP = 1.2                # from a clearing, a path (or a raging river) and the diagram's edge
+TREE_JITTER = 1.8             # each tree nudged up to this far (any direction), so the grid doesn't show
 TREE_SKIP = 0.08              # this share of spots left empty, for a few natural gaps
 
 
@@ -440,14 +443,15 @@ class MapSetupCardEngine:
         self.text = card_text(lang_code)
         self.width, self.height = _card_size()
         self.text_w = self.width - 2 * MARGIN
-        # The setup modifications go on the front, above the diagram; if that
-        # leaves the diagram too little room, on the back, before the rules
-        # (when they fit there). Otherwise they stay, and fits() says so.
-        self.modifications_on_back = False
-        if self.card['modifications'] and not self._front_fits():
-            self.modifications_on_back = True
+        # The setup modifications go on the back, before the rules; only if
+        # they don't fit there, but do on the front (above the diagram, leaving
+        # it room), on the front. Fitting nowhere, they stay on the back, and
+        # fits() says so.
+        self.modifications_on_back = bool(self.card['modifications'])
+        if self.modifications_on_back and self._back_size() is None:
+            self.modifications_on_back = False
             if not (self._front_fits() and self._back_size() is not None):
-                self.modifications_on_back = False
+                self.modifications_on_back = True
 
     # ── What goes on each side ──
     @property
@@ -482,7 +486,7 @@ class MapSetupCardEngine:
         if not layout_features(self.layout)['special']:
             return None
         # Just the name beside its red line: what they do is a rule, on the back.
-        return _paragraph(_escape(special_path_name(self.layout, self.lang_code)), size)
+        return _paragraph(': ' + _escape(special_path_name(self.layout, self.lang_code)), size)
 
     def _legend_width(self):
         return self.text_w - LEGEND_INDENT
@@ -511,8 +515,8 @@ class MapSetupCardEngine:
 
     def fits(self):
         """{'front': bool, 'back': bool}: the front leaves the diagram
-        DIAGRAM_MIN_H (with the setup modifications moved to the back if they
-        fit there), and the back's text fits at BODY_MIN_SIZE or more."""
+        DIAGRAM_MIN_H, and the back's text (the setup modifications too, unless
+        they've moved to the front) fits at BODY_MIN_SIZE or more."""
         return {'front': self._front_fits(),
                 'back': not self.has_back or self._back_size() is not None}
 
@@ -552,10 +556,10 @@ class MapSetupCardEngine:
         y = self._draw_paragraphs(c, top_paragraphs, BODY_TOP, self.text_w)
         if top_paragraphs:
             y += DIAGRAM_GAP
-        box_h = max(available, 0)
+        box_h = min(max(available, 0), DIAGRAM_MAX_H)
         diagram = _Diagram(self.layout, self.frame, (self.width - 2 * MARGIN, box_h), self.raging)
-        # The diagram, centred in its space.
-        frame_top = y + (box_h - diagram.height) / 2
+        # The diagram, centred in its space (all of it, when DIAGRAM_MAX_H holds it smaller).
+        frame_top = y + (max(available, 0) - diagram.height) / 2
         self._draw_diagram(c, diagram, MARGIN, frame_top)
         legend = self._legend()
         if legend is not None:
@@ -569,7 +573,7 @@ class MapSetupCardEngine:
             c.setStrokeColor(HexColor(SPECIAL_COLOUR))
             c.setLineWidth(PATH_WIDTH)
             c.setDash(list(PATH_DASH), 0)
-            start = MARGIN + (LEGEND_INDENT - LEGEND_SWATCH) / 2
+            start = MARGIN + LEGEND_INSET
             c.line(start, line_y, start + LEGEND_SWATCH, line_y)
             c.restoreState()
 

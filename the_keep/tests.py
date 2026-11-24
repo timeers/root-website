@@ -2398,7 +2398,7 @@ class MapSetupCardEngineTests(TestCase):
         special = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}], special_path_name='Bridges')
         engine = self._engine(special, card={'special_path_rule': 'Cross by day.'})
         # The key is just the name; what they do is a rule on the back.
-        self.assertEqual(engine._legend().text, 'Bridges')
+        self.assertEqual(engine._legend().text, ': Bridges')
         self.assertEqual(engine.back_items(), [('Bridges', 'Cross by day.')])
         self.assertTrue(engine.has_back)
         self.assertFalse(self._engine(special).has_back)        # no rule: no back
@@ -2428,26 +2428,29 @@ class MapSetupCardEngineTests(TestCase):
         self.assertNotEqual(fp(layout), fp({**layout, 'fixed': False}))
         self.assertTrue(self._engine(layout).render()[0])   # draws
 
-    def test_crowded_modifications_move_to_the_back(self):
-        short = self._engine(card={'modifications': 'Skip ruins.'})
-        self.assertFalse(short.modifications_on_back)
-        self.assertFalse(short.has_back)
-        special = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}])
-        crowded = self._engine(special, card={'modifications': 'word ' * 59, 'special_path_rule': 'word ' * 39,
-                                              'rules': [{'name': 'Ferry', 'text': 'Sail.'}]})
-        self.assertTrue(crowded.modifications_on_back)
-        self.assertEqual(crowded._front_top(), [])
-        self.assertEqual([h for h, _t in crowded.back_items()], ['Setup Modifications', 'Special Paths', 'Ferry'])
-        self.assertEqual(crowded.fits(), {'front': True, 'back': True})
+    def test_setup_modifications_go_on_the_back_unless_it_is_full(self):
         import fitz
-        front, back = crowded.render()
+        rules = lambda n, words: [{'name': f'R{i}', 'text': 'word ' * words} for i in range(n)]  # noqa: E731
+        # On the back by default, before the special paths' rule and the rules.
+        special = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}])
+        short = self._engine(special, card={'modifications': 'Skip ruins.', 'special_path_rule': 'Cross by day.',
+                                            'rules': [{'name': 'Ferry', 'text': 'Sail.'}]})
+        self.assertTrue(short.modifications_on_back)
+        self.assertEqual(short._front_top(), [])
+        self.assertEqual([h for h, _t in short.back_items()], ['Setup Modifications', 'Special Paths', 'Ferry'])
+        front, back = short.render()
         self.assertNotIn('Setup Modifications', fitz.open(stream=front, filetype='pdf')[0].get_text())
         self.assertIn('Setup Modifications', fitz.open(stream=back, filetype='pdf')[0].get_text())
-        # A back too full to take them: they stay, and the front is reported.
-        full = self._engine(special, card={**crowded.card, 'rules': [
-            {'name': f'R{n}', 'text': 'word ' * 30} for n in range(2)]})
+        self.assertTrue(self._engine(card={'modifications': 'Skip ruins.'}).has_back)   # even alone
+        # A back too full for them, with room on the front: on the front.
+        full = self._engine(card={'modifications': 'word ' * 5, 'rules': rules(3, 40)})
         self.assertFalse(full.modifications_on_back)
-        self.assertEqual(full.fits(), {'front': False, 'back': True})
+        self.assertEqual(len(full._front_top()), 1)
+        self.assertEqual(full.fits(), {'front': True, 'back': True})
+        # Room on neither: they stay on the back, and the back is reported.
+        neither = self._engine(card={'modifications': 'word ' * 59, 'rules': rules(2, 40)})
+        self.assertTrue(neither.modifications_on_back)
+        self.assertEqual(neither.fits(), {'front': True, 'back': False})
 
     def test_fits(self):
         self.assertEqual(self._engine().fits(), {'front': True, 'back': True})

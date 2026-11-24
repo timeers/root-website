@@ -2233,8 +2233,9 @@ class MapSetupCardTests(_MapPublishBase):
         self.assertIn('card_front.webp', deck['FaceURL'])
         self.assertIn('card_back.webp', deck['BackURL'])
 
-        # No rules and no Raging River: the back goes, and the front shows twice in TTS.
-        self._card_post(draft, modifications='Skip ruins.')
+        # Nothing for the back (no setup modifications, special path rule, Raging
+        # River or rules): the back goes, and the front shows twice in TTS.
+        self._card_post(draft)
         forged_map = self._map(draft)
         self.assertFalse(forged_map.card_2_image)
         self.assertEqual(forged_map.card_2_image_version, 2)
