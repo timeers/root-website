@@ -24,7 +24,7 @@ from functools import lru_cache
 from io import BytesIO
 from types import SimpleNamespace
 
-from .tts_map import PRINT_DIR, SUITS, MapGeometry, lake_clearings, print_rivers, river_extras, route_paths
+from .tts_map import PRINT_DIR, SUITS, MapGeometry, lake_clearings, path_shapes, print_rivers, river_extras, route_paths
 
 SETUP_CARD_RENDER_VERSION = 20
 CARD_DIR = PRINT_DIR / 'setup_card'
@@ -184,6 +184,7 @@ TREE_GAP = 1.2                # from a clearing, a path (or a raging river) and 
 TREE_JITTER = 1.8             # each tree nudged up to this far (any direction), so the grid doesn't show
 TREE_SKIP = 0.08              # this share of spots left empty, for a few natural gaps
 FOREST_GAP = 1.5 * TREE_SPACING   # two clearings drawn closer than this, with an opening between them on the map, don't split a forest
+FEW_TREES = 3                 # a forest's area with fewer trees than this on the grid gets more between its spots
 
 
 def _card_size():
@@ -411,12 +412,12 @@ def forest_trees(frame, clearings, lines, forests, avoid=(), avoid_lines=(), wat
         angle, reach = h[0] / 256 * 2 * math.pi, math.sqrt(h[1] / 255) * TREE_JITTER
         return (math.cos(angle) * reach, math.sin(angle) * reach), h[2] / 256 < TREE_SKIP
 
-    def has_room(p):
+    def has_room(p, gap=TREE_GAP):
         if not (edge <= p[0] <= width - edge and edge <= p[1] <= height - edge):
             return False
-        if any(math.hypot(p[0] - cx, p[1] - cy) < r + TREE_GAP + tree_half for cx, cy, r in (*clearings, *avoid)):
+        if any(math.hypot(p[0] - cx, p[1] - cy) < r + gap + tree_half for cx, cy, r in (*clearings, *avoid)):
             return False
-        if any(_seg_distance(p, a, b) < half + TREE_GAP + tree_half for a, b, half in clear_of):
+        if any(_seg_distance(p, a, b) < half + gap + tree_half for a, b, half in clear_of):
             return False
         return not (water and _inside(p, water))
 
@@ -475,16 +476,117 @@ def forest_trees(frame, clearings, lines, forests, avoid=(), avoid_lines=(), wat
                     filled[n] = n_forest
                     stack.append(n)
     trees = [nodes[k] for k in sorted(filled.keys() & drawn, key=lambda k: (k[1], k[0]))]
+    # A narrow area (a strip between a raging river and a path, say) has room
+    # for few of the grid's spots: there, trees go between them too (a grid
+    # half as wide), a little closer to the lines and each other, so it fills
+    # like the rest.
+    placed = {}
+    for k in filled.keys() & drawn:
+        placed.setdefault(filled[k], []).append(nodes[k])
+    for area in sorted(set(filled.values())):
+        if len(placed.get(area, [])) >= FEW_TREES:
+            continue
+        members = [nodes[k] for k, a in filled.items() if a == area]
+        # The area on a finer grid: from its spots, spreading as they do
+        # (never across a line or a clearing), past where the coarse grid has
+        # any (a strip's far end, say).
+        fine = TREE_SPACING / 2
+        x0 = min(p[0] for p in members) - 3 * TREE_SPACING
+        y0 = min(p[1] for p in members) - 3 * TREE_SPACING
+        cols_f = int((max(p[0] for p in members) + 3 * TREE_SPACING - x0) / fine) + 1
+        rows_f = int((max(p[1] for p in members) + 3 * TREE_SPACING - y0) / fine) + 1
+        fine_spots = {}
+        for jj in range(rows_f):
+            for ii in range(cols_f):
+                p = (x0 + ii * fine, y0 + jj * fine)
+                if not (0 <= p[0] <= width and 0 <= p[1] <= height):
+                    continue
+                if any(math.hypot(p[0] - cx, p[1] - cy) < r for cx, cy, r in bounds):
+                    continue
+                if any(_seg_distance(p, a, b) < half for a, b, half in segments):
+                    continue
+                fine_spots[(ii, jj)] = p
+        reached = [k for k, p in fine_spots.items()
+                   if any(math.dist(p, q) <= TREE_SPACING and not blocked(p, q) for q in members)]
+        seen, stack = set(reached), list(reached)
+        while stack:
+            ii, jj = stack.pop()
+            for di in (-1, 0, 1):
+                for dj in (-1, 0, 1):
+                    n = (ii + di, jj + dj)
+                    if n in fine_spots and n not in seen and not blocked(fine_spots[(ii, jj)], fine_spots[n]):
+                        seen.add(n)
+                        stack.append(n)
+        for k in sorted(seen, key=lambda k: (k[1], k[0])):
+            p = fine_spots[k]
+            # (A little tighter here than elsewhere: closer to the lines and
+            # each other, so a narrow strip still reads as a forest.)
+            if has_room(p, TREE_GAP * 0.25) and all(math.dist(p, t) >= TREE_SPACING * 0.8 for t in trees):
+                trees.append(p)
+                placed.setdefault(area, []).append(p)
     # Every forest gets at least one tree: one whose area has no room for any
     # (a small one, squeezed between a lake and a path, say) gets one where
     # its point is.
-    with_trees = {filled[k] for k in filled.keys() & drawn}
+    with_trees = {area for area, spots in placed.items() if spots}
     for (fx, fy), start in zip(forests, starts):
         if (start is None or filled.get(start) not in with_trees) and not (water and _inside((fx, fy), water)):
             trees.append((fx, fy))
             if start is not None:
                 with_trees.add(filled.get(start))
     return trees
+
+
+def _nearest_on(p, segments):
+    """The point of the segments (a, b) nearest p, and its distance."""
+    best, best_d = None, math.inf
+    for a, b in segments:
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        t = max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / ((dx * dx + dy * dy) or 1e-12)))
+        q = (a[0] + dx * t, a[1] + dy * t)
+        d = math.dist(p, q)
+        if d < best_d:
+            best, best_d = q, d
+    return best, best_d
+
+
+def _map_side(point, lines, place):
+    """Which way, on the card, a forest at `point` (map pixels) lies from the
+    nearest line that bounds forests on the map (lines: (polyline, kind)):
+    a unit vector, or None."""
+    segments = [ab for points, _kind in lines for ab in _segments(points)]
+    if not segments:
+        return None
+    q, d = _nearest_on(point, segments)
+    if not d:
+        return None
+    away = ((point[0] - q[0]) / d, (point[1] - q[1]) / d)
+    a, b = place(point), place((point[0] + away[0], point[1] + away[1]))
+    length = math.dist(a, b)
+    return ((b[0] - a[0]) / length, (b[1] - a[1]) / length) if length else None
+
+
+def _off_lines(spot, lines, side):
+    """A forest's spot on the card, moved off a line the card draws over it:
+    to just clear of it on `side` (a unit vector: the side the forest is on
+    on the map)."""
+    if side is None:
+        return spot
+    clear = TREE_GAP + TREE_H / 2 + 0.5
+    for points, half in lines:
+        if not half:
+            continue
+        q, d = _nearest_on(spot, list(_segments(points)))
+        if q is None or d >= half:
+            continue        # (not on the line: it bounds the forest as it is)
+        # Across the line at its nearest point, on the forest's side.
+        a, b = min(_segments(points), key=lambda ab: _seg_distance(spot, *ab))
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length = math.hypot(dx, dy) or 1.0
+        n = (-dy / length, dx / length)
+        if n[0] * side[0] + n[1] * side[1] < 0:
+            n = (-n[0], -n[1])
+        spot = (q[0] + n[0] * (half + clear), q[1] + n[1] * (half + clear))
+    return spot
 
 
 class _Diagram:
@@ -607,8 +709,17 @@ class _Diagram:
                 size = max((apart - FOREST_GAP) / 2, 0.0)
                 parting[n], parting[m] = min(parting[n], size), min(parting[m], size)
         bounds = [(x, y, r) for (x, y, _r), r in zip(self.clearings, parting)]
+        # A forest's point that the card draws on (or right beside) a line
+        # that bounds forests (a raging river, drawn wide): moved off it, to
+        # the side the forest is on on the map.
+        dividing = {'path', 'special'} if special_divides else {'path'}
+        if raging:
+            dividing.add('river')
+        on_map = [(s['points'], kind) for s, kind in zip(path_shapes(MapGeometry(fw, fh), layout),
+                                                         (p['kind'] for p in paths)) if kind in dividing]
+        spots = [_off_lines(place(f), lines, _map_side(f, on_map, place)) for f in forests]
         self.trees = forest_trees((self.box_w, self.height), self.clearings, lines,
-                                  [place(f) for f in forests], avoid=icons, avoid_lines=avoid_lines,
+                                  spots, avoid=icons, avoid_lines=avoid_lines,
                                   water=self.lakes, bounds=bounds)
 
 

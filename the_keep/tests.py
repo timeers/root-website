@@ -2649,6 +2649,23 @@ class ForestTreesTests(TestCase):
         roomy = msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0)])
         self.assertNotIn((40.0, 60.0), roomy)
 
+    def test_a_narrow_strip_still_fills_with_trees(self):
+        # A strip between two paths, too narrow for the trees' grid to have
+        # more than a spot or two: trees between its spots too, along it.
+        walls = [([(-10.0, 16.0), (170.0, 16.0)], 1.0), ([(-10.0, 27.0), (170.0, 27.0)], 1.0)]
+        trees = msc.forest_trees(self.FRAME, [], walls, [(40.0, 21.5)])
+        self.assertGreaterEqual(len(trees), 5)
+        self.assertTrue(all(16 < y < 27 for _x, y in trees))
+        self.assertGreater(max(x for x, _y in trees) - min(x for x, _y in trees), 80)
+
+    def test_a_forest_drawn_on_a_line_moves_to_its_side(self):
+        # A raging river drawn over a forest's point: moved off it, to the
+        # side the forest is on on the map (here, above).
+        river = ([(0.0, 60.0), (160.0, 60.0)], 4.0)
+        spot = msc._off_lines((50.0, 61.0), [river], (0.0, -1.0))
+        self.assertLess(spot[1], 60 - 4)
+        self.assertEqual(msc._off_lines((50.0, 40.0), [river], (0.0, -1.0)), (50.0, 40.0))   # (clear of it: as it is)
+
     def test_two_forests_in_one_area_fill_it_once(self):
         one = msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0)])
         two = msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0), (120.0, 60.0)])
