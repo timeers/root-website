@@ -604,7 +604,7 @@ def path_config(geometry):
     px = _path_px(geometry)
     return {'colours': PATH_COLOURS, 'width': px['width'], 'lanes': PATH_LANES, 'stroke': PATH_STROKE,
             'dash': PATH_DASH, 'gap': PATH_GAP, 'river_width': RIVER_WIDTH, 'default_radius': px['default_radius'],
-            'draw_order': list(PATH_DRAW_ORDER), 'shared_bend': SHARED_BEND,
+            'draw_order': list(PATH_DRAW_ORDER), 'shared_bend': SHARED_BEND, 'link_reach': RIVER_LINK_REACH,
             'samples': PATH_SAMPLES, 'bend_steps': _BEND_STEPS, 'bend_max': _BEND_MAX, 'blank': MAP_BLANK,
             # Lakes (map_lakes.js): their grid, and how much land a building and a forest keep.
             'lake': {'grid': LAKE_GRID,
@@ -1029,17 +1029,12 @@ def river_extras(paths, shapes, circles, width, frame, join_clearings=True, spri
                 if target is not None:
                     (tx, ty), (nx, ny) = target
                     reach = circles[k][2] * RIVER_LINK_REACH
-                    cx, cy, cr = circles[k]
-                    if math.hypot(tx - cx, ty - cy) < cr * 0.6:
-                        # The lake's funnel reaches into the clearing, a river's
-                        # width at its middle (map_lakes.js): the river runs on to
-                        # the middle, where it meets it.
-                        for at, d in items:
-                            nx, ny = _unit(cx - at[0], cy - at[1])
-                            p1 = (at[0] + d[0] * reach, at[1] + d[1] * reach)
-                            p2 = (cx - nx * reach * 0.5, cy - ny * reach * 0.5)
-                            links.append(sampled(lambda t, at=at, p1=p1, p2=p2: _cubic(at, p1, p2, (cx, cy), t)))
-                        continue
+                    # An inland lake's outline curves out to meet the river at the
+                    # rim, widening from its width (map_lakes.js): nothing to draw.
+                    # Otherwise (a sea, an island clearing, an outline saved
+                    # before that): a curve on through the clearing to the water.
+                    items = [(at, d) for at, d in items
+                             if not _inside_rings((at[0] + d[0] * half, at[1] + d[1] * half), lakes)]
                     end = (tx + nx * half, ty + ny * half)     # a little into the water: no hairline gap
                     for at, d in items:
                         p1 = (at[0] + d[0] * reach, at[1] + d[1] * reach)

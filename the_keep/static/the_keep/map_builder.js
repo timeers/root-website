@@ -516,16 +516,27 @@
     const shapes = pathCache.length === state.paths.length ? pathCache : pathShapes();
     const cs = circles();
     const onLake = new Set(state.paths.filter(p => p.kind === 'lake').flatMap(p => [p.a.c, p.b.c]));
-    // Clearings a river ends at: a lake there narrows to meet it.
-    const feeds = new Set(state.paths.filter(p => p.kind === 'river').flatMap(p => [p.a, p.b]).filter(e => 'c' in e).map(e => e.c));
+    // Rivers ending at each clearing: their end on its rim and the way they
+    // flow in (a lake there curves out to meet each, widening).
+    const feeds = new Map();
+    state.paths.forEach((p, i) => {
+      if (p.kind !== 'river' || !shapes[i]) return;
+      const pts = shapes[i].points;
+      for (const [end, at, before] of [['a', pts[0], pts[1]], ['b', pts[pts.length - 1], pts[pts.length - 2]]]) {
+        if (!('c' in p[end]) || !at || !before) continue;
+        const len = Math.hypot(at[0] - before[0], at[1] - before[1]) || 1;
+        if (!feeds.has(p[end].c)) feeds.set(p[end].c, []);
+        feeds.get(p[end].c).push([at[0], at[1], (at[0] - before[0]) / len, (at[1] - before[1]) / len]);
+      }
+    });
     const centre = (e) => cs[e.c].slice(0, 2);
     const input = {
       width: W, height: H, grid,
       overlap: PATH.lake.clearing_overlap, smooth: PATH.lake.smooth, minHalf: PATH.lake.min_half,
       round: PATH.lake.round, crossReach: PATH.lake.cross_reach,
       touch: PATH.lake.touch, lens: PATH.lake.lens, funnel: PATH.lake.funnel, variation: PATH.lake.variation,
-      riverHalf: PATH.width * PATH.river_width / 2,
-      clearings: cs.map(([x, y, r], i) => ({ x, y, r, lake: onLake.has(i), feeds: feeds.has(i) })),
+      riverHalf: PATH.width * PATH.river_width / 2, linkReach: PATH.link_reach,
+      clearings: cs.map(([x, y, r], i) => ({ x, y, r, lake: onLake.has(i), feeds: feeds.get(i) || null })),
       // A lake's line runs on into its clearings' centres.
       lakes: state.paths.map((p, i) => [p, i]).filter(([p]) => p.kind === 'lake')
         .map(([p, i]) => ({ a: p.a.c, b: p.b.c, points: [centre(p.a), ...shapes[i].points, centre(p.b)] })),

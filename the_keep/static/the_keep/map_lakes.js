@@ -25,7 +25,7 @@ window.MapLakes = window.MapLakes || (function () {
   // input: {
   //   width, height,                    the frame (pixels)
   //   grid,                             cells across the frame
-  //   clearings: [{x, y, r, lake, feeds}], lake: on a lake; feeds: a river ends there
+  //   clearings: [{x, y, r, lake, feeds}], lake: on a lake; feeds: rivers ending there (below)
   //   lakes: [{points, a, b}],          each lake path's line (clearing centre to centre) and its clearings
   //   lines: [{points, half}],          every other path, special path and river (land)
   //   forests: [{x, y, r}],
@@ -35,8 +35,10 @@ window.MapLakes = window.MapLakes || (function () {
   //   round,                            corners are rounded over about this distance (pixels)
   //   crossReach,                       a path an inland lake's line crosses isn't land this near the crossing (pixels)
   //   touch, lens, funnel, variation:   an inland lake's shape (shares of its clearings' radius / gap)
-  //   riverHalf,                        a river's half-width (pixels): where a river feeds a lake clearing,
-  //                                     the lake narrows to it by the clearing's middle
+  //   riverHalf, linkReach,             a river's half-width (pixels), and how far into a clearing its
+  //                                     join curve reaches (share of the radius, river_extras' RIVER_LINK_REACH)
+  //   clearings[].feeds:                [[x, y, dx, dy], ...]: rivers ending at that clearing (their end on its
+  //                                     rim, flowing in): an inland lake curves out to each, as a river widening
   // }
   // returns { rings: [[[x, y], ...], ...] (pixels, even-odd), oceans: [clearing index, ...] }
   function shapes(input) {
@@ -430,7 +432,10 @@ window.MapLakes = window.MapLakes || (function () {
         fillCurve(pts);
       }
       for (const [k, axis] of axisOf) {
-        if (input.clearings[k].feeds && !seen.has(k)) { funnels.push({ c: input.clearings[k], axis }); seen.add(k); }
+        const c = input.clearings[k];
+        if (seen.has(k) || !Array.isArray(c.feeds)) continue;
+        seen.add(k);
+        for (const [ax, ay, dx, dy] of c.feeds) funnels.push({ c, axis, A: [ax, ay], dA: [dx, dy] });
       }
     }
     function fillCurve(pts) {
@@ -454,20 +459,35 @@ window.MapLakes = window.MapLakes || (function () {
         }
       }
     }
-    // A river's funnel through clearing c: from just inside the rim (facing
-    // the lake) to the centre, narrowing to the river's half-width there.
-    const funnelAt = (f, x, y) => {
-      const { c, axis } = f;
-      const sx = c.x + axis[0] * c.r * 0.95, sy = c.y + axis[1] * c.r * 0.95;
-      const dx = c.x - sx, dy = c.y - sy, len2 = dx * dx + dy * dy || 1;
-      const t = Math.max(0, Math.min(1, ((x - sx) * dx + (y - sy) * dy) / len2));
-      const e = t * t * (3 - 2 * t);
-      const half = funnelHalf * c.r * (1 - e) + riverHalf * e;
-      return half - Math.hypot(x - (sx + dx * t), y - (sy + dy * t));
-    };
+    // A river's way into the lake through clearing c: the curve two rivers
+    // take through a clearing (river_extras' join: A, A + dA·k, B − axis·k,
+    // B), from the river's end A on the rim to B where the lake meets the
+    // clearing, widening from the river's width to the lake's as it goes.
+    const linkReach = input.linkReach || 0.6;
     const funnelField = new Float32Array(N).fill(-Infinity);
     for (const f of funnels) {
-      around(f.c.x, f.c.y, f.c.r * 1.2, (k, x, y) => { funnelField[k] = Math.max(funnelField[k], funnelAt(f, x, y)); });
+      const { c, axis, A, dA } = f, k = c.r * linkReach;
+      const B = [c.x + axis[0] * c.r * 0.95, c.y + axis[1] * c.r * 0.95];
+      const p1 = [A[0] + dA[0] * k, A[1] + dA[1] * k], p2 = [B[0] - axis[0] * k, B[1] - axis[1] * k];
+      const samples = [];
+      for (let n = 0; n <= 32; n++) {
+        const t = n / 32, u = 1 - t;
+        samples.push([u * u * u * A[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * B[0],
+                      u * u * u * A[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * B[1]]);
+      }
+      const wide = funnelHalf * c.r;
+      around(c.x, c.y, c.r * 1.3, (cellK, x, y) => {
+        let best = Infinity, bestT = 0;
+        for (let n = 1; n < samples.length; n++) {
+          const [ax, ay] = samples[n - 1], [bx, by] = samples[n];
+          const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy || 1;
+          const q = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2));
+          const d = Math.hypot(x - ax - dx * q, y - ay - dy * q);
+          if (d < best) { best = d; bestT = (n - 1 + q) / 32; }
+        }
+        const half = riverHalf + (wide - riverHalf) * bestT * bestT;     // widening mostly near the lake
+        funnelField[cellK] = Math.max(funnelField[cellK], half - best);
+      });
     }
     const inlandFillet = Math.max(cell, 0.25 * (input.clearings.reduce((sum, c) => sum + c.r, 0) / Math.max(1, input.clearings.length)));
     for (let k = 0; k < N; k++) {
@@ -506,6 +526,9 @@ window.MapLakes = window.MapLakes || (function () {
       if (coastField[k] !== -Infinity) field[k] = coastField[k] > 0 ? Math.max(field[k], coastField[k]) : Math.min(field[k], coastField[k]);
       field[k] = Math.min(field[k], dryField[k]);
       if (dry[k] && !(funnelField[k] > 0)) field[k] = Math.min(field[k], 0);
+      // A river's funnel wins over every dry rule (its own river's line too,
+      // or it would stop short of the river it carries on).
+      if (funnelField[k] > field[k]) field[k] = funnelField[k];
     }
 
     // (Specks a few cells across, where the exact dry edges meet the grid,

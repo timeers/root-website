@@ -2253,14 +2253,18 @@ class MapPathTests(TestCase):
         self.assertGreater(link[-1][0], x0)            # just inside the water's edge
         self.assertLess(link[-1][0], x0 + half + 1)
 
-    def test_a_river_meets_the_lakes_funnel_at_its_clearings_middle(self):
-        # The outline reaches into clearing 1 (as map_lakes.js's funnel does):
-        # the river runs on to the clearing's centre.
+    def test_a_river_the_lakes_funnel_reaches_gets_no_link(self):
+        # The outline curves out to the river's end on the rim (map_lakes.js's
+        # funnel): the river stops there and the lake carries on from it.
         g = self._geometry()
-        ring = [[0.49, 0.49], [0.75, 0.47], [0.75, 0.53], [0.49, 0.51]]
+        state, shapes, rivers = self._river_into_lake([{'kind': 'river', 'a': {'c': 3}, 'b': {'c': 1}}])
+        end = shapes[1]['points'][-1]
+        u, v = end[0] / g.width, end[1] / g.height
+        ring = [[u - 0.02, v - 0.04], [u + 0.02, v - 0.04], [u + 0.02, v + 0.03], [u - 0.02, v + 0.03]]
         state, shapes, rivers = self._river_into_lake([{'kind': 'river', 'a': {'c': 3}, 'b': {'c': 1}}], [ring])
-        link = next(l for l in rivers['links'] if math.dist(l[0], shapes[1]['points'][-1]) < 1e-6)
-        self.assertLess(math.dist(link[-1], g.to_pixels(0.5, 0.5)), 1.0)
+        self.assertFalse(any(math.dist(l[0], end) < 1e-6 for l in rivers['links']))
+        from the_keep.services.tts_map import RIVER_LINK_REACH, path_config
+        self.assertEqual(path_config(g)['link_reach'], RIVER_LINK_REACH)
 
     def test_several_rivers_feed_one_lake(self):
         state, shapes, rivers = self._river_into_lake([{'kind': 'river', 'a': {'c': 3}, 'b': {'c': 1}},
