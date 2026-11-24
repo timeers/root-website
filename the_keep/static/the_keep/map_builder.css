@@ -440,7 +440,7 @@ body.mb-dragging, body.mb-dragging * { -webkit-user-select: none !important; use
     border-left: 3.5px solid transparent; border-right: 3.5px solid transparent; border-top: 4.5px solid currentColor;
     transition: transform .2s ease;
 }
-.mb-kind-toggle.mb-water-open .mb-kind-chevron { transform: rotate(180deg); }
+.mb-kind-toggle button.mb-menu-open .mb-kind-chevron { transform: rotate(180deg); }
 .mb-kind-swatch-lake { border-radius: 45% 55% 50% 50% / 60% 45% 55% 40%; width: 14px; }
 .mb-water-menu {
     position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; min-width: 8.5rem; padding: 4px;
@@ -479,17 +479,16 @@ body.mb-dragging, body.mb-dragging * { -webkit-user-select: none !important; use
 /* The upload area fills the space; "Remove art" sits below it. */
 .mb-art-drop { flex-direction: column; }
 
-/* The special paths' name, in the Paths step's VP-track pill: a small version
-   of the Start step's Map Name input, sized to its text by map_builder.js. */
-#mb-special-name {
-    height: 1.7em; padding: 0 .7em; border: 1px solid rgba(0, 0, 0, .12); border-radius: 999px;
-    font: inherit; color: #212529; background: #fff; min-width: 4em; max-width: 60vw;
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, .06); outline: none;
-    transition: box-shadow .15s ease, border-color .15s ease;
-    -webkit-user-select: text; user-select: text;
+/* ── Setup Card Rules step: the setup card page's form, floating over the
+   map in its window and scrolling within it (map_builder.js, "Rules step") ── */
+#mb-rules {
+    position: absolute; z-index: 6; inset: 12px; overflow-y: auto; overscroll-behavior: contain;
+    padding: 14px; border-radius: 14px; background: rgba(248, 249, 250, .96);
+    backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .3); -webkit-user-select: text; user-select: text;
 }
-#mb-special-name::placeholder { color: #adb5bd; }
-#mb-special-name:focus { border-color: var(--bs-primary, #0d6efd); box-shadow: 0 0 0 3px rgba(13, 110, 253, .25); }
+#mb-rules .card:last-of-type { margin-bottom: 0 !important; }
+#mb-rules-errors:empty { display: none; }
 
 /* ── Buildings step: one clearing at a time (map_builder.js, "Buildings step") ──
    The art's window clips the zoomed art (the SVG clips itself); the art is

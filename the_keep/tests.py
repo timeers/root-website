@@ -1263,19 +1263,38 @@ class MapBuilderTests(TestCase):
         self.assertTrue(result['generated'], result)
         self.assertEqual(Map.objects.get(pk=self.map.pk).river_clearings, 2)
 
-    def test_the_keep_builder_saves_the_special_path_name(self):
+    def test_the_keep_builder_saves_the_setup_card_rules(self):
+        # The Rules step: its form's fields saved with the layout, as the Map's
+        # map_card (the same JSON as a Forge map's), named special paths and all.
         from the_keep.models import Map
         self.client.force_login(self.designer_user)
-        self.assertEqual(self.client.get(self._builder_url()).context['config']['special_name_max'], 24)
+        page = self.client.get(self._builder_url())
+        self.assertTrue(page.context['config']['rules_step'])
+        self.assertIn('id="mb-rules"', page.content.decode())
         state = self._state()
-        state['paths'] = [{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}]
+        state['paths'] = [{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}},
+                          {'kind': 'special', 'special': 'green', 'a': {'c': 1}, 'b': {'c': 2}}]
         state['visited'] = ['paths']
-        state['special_path_name'] = 'Bridges'
-        self.client.post(self._builder_url(), json.dumps({'state': state}), content_type='application/json')
-        self.assertEqual(Map.objects.get(pk=self.map.pk).tts_builder['special_path_name'], 'Bridges')
-        # The Map's page shows it, on its summary card.
+        card = {'special_name_red': ['Bridges'], 'special_rule_red': ['Cross by day.'], 'special_divides_red': ['no'],
+                'special_name_green': [''], 'modifications': ['Set up the ferry.'], 'raging_river': ['no']}
+        result = self.client.post(self._builder_url(), json.dumps({'state': state, 'card': card}),
+                                  content_type='application/json').json()
+        self.assertEqual(result['card_errors'], [])
+        saved = Map.objects.get(pk=self.map.pk).map_card
+        self.assertEqual(saved['special_paths']['red'], {'name': 'Bridges', 'rule': 'Cross by day.', 'divides_forests': False})
+        self.assertEqual(saved['modifications'], 'Set up the ferry.')
+        # The Map's page shows them on its summary card: named, or by their colour.
         html = self.client.get(reverse('map-detail', kwargs={'slug': self.map.slug})).content.decode()
         self.assertIn('"label": "Bridges"', html)
+        self.assertIn('"label": "Green Paths"', html)
+        # A card that won't fit isn't saved (the layout is), and says so.
+        too_long = {**card, 'modifications': ['x' * 300], 'rule_name': [f'R{n}' for n in range(6)],
+                    'rule_text': ['y' * 300] * 6}
+        result = self.client.post(self._builder_url(), json.dumps({'state': state, 'card': too_long, 'generate': True}),
+                                  content_type='application/json').json()
+        self.assertTrue(result['card_errors'])
+        self.assertFalse(result['ok'])
+        self.assertEqual(Map.objects.get(pk=self.map.pk).map_card['modifications'], 'Set up the ferry.')
 
     def test_map_page_has_the_layout_summary(self):
         from the_keep.models import Map
@@ -2014,13 +2033,37 @@ class MapPathTests(TestCase):
         before = sum(l for (a, _b), l in zip(zip(points, points[1:]), lengths) if a[0] < mx)
         self.assertAlmostEqual(before, sum(lengths) / 2, delta=max(lengths))
 
+    def test_special_path_types(self):
+        # Kept by key (the first, red, is the default: no key); an unknown key is red.
+        from the_keep.services.tts_map import clean_paths, layout_summary, path_shapes
+        paths = clean_paths([{'kind': 'special', 'special': 'green', 'a': {'c': 0}, 'b': {'c': 1}},
+                             {'kind': 'special', 'special': 'red', 'a': {'c': 1}, 'b': {'c': 2}},
+                             {'kind': 'special', 'special': 'purple', 'a': {'c': 2}, 'b': {'c': 3}},
+                             {'kind': 'path', 'special': 'green', 'a': {'c': 0}, 'b': {'c': 3}}], 4)
+        self.assertEqual([p.get('special') for p in paths], ['green', None, None, None])
+        # Each drawn (printed, and on the card) in its type's colour.
+        state = self._state(paths)
+        self.assertEqual([s['colour'] for s in path_shapes(self._geometry(), state)],
+                         ['#2f9e44', '#ed2731', '#ed2731', '#ffffff'])
+        # The summary: Paths, River Clearings, then each type, by its name or colour.
+        state['visited'] = ['paths']
+        tiles = layout_summary(state, map_card={'special_paths': {'green': {'name': 'Bridges'}}})['path_tiles']
+        self.assertEqual([(t['kind'], t['label'], t['count']) for t in tiles],
+                         [('path', 'Paths', 1), ('river', 'River Clearings', 0),
+                          ('special', 'Red Paths', 2), ('special', 'Bridges', 1)])
+        self.assertEqual(tiles[3]['colour'], '#2f9e44')
+        # Just one type: "Special Paths", as maps had.
+        state['paths'] = [p for p in paths if p.get('special') != 'green']
+        self.assertEqual([t['label'] for t in layout_summary(state)['path_tiles']][2:], ['Special Paths'])
+
     def test_river_clearings_count_once_and_only_once_visited(self):
         from the_keep.services.tts_map import layout_counts, path_totals
         state = self._state([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}},
                              {'kind': 'river', 'a': {'c': 1}, 'b': {'c': 2}},
                              {'kind': 'special', 'a': {'c': 0}, 'b': {'c': 3}},
                              {'kind': 'path', 'a': {'c': 2}, 'b': {'c': 3}}])
-        self.assertEqual(path_totals(state), {'path': 1, 'special': 1, 'river': 2, 'lake': 0, 'river_clearings': 3})
+        self.assertEqual(path_totals(state), {'path': 1, 'special': 1, 'river': 2, 'lake': 0, 'river_clearings': 3,
+                                              'specials': {'red': 1}})
         self.assertEqual(layout_counts(state)['river_clearings'], 3)
         state['visited'] = []
         self.assertNotIn('river_clearings', layout_counts(state))
@@ -2528,7 +2571,8 @@ class MapSetupCardDataTests(TestCase):
             'rules': [{'name': ' Ferry ', 'text': 'Sail.'}, {'name': '', 'text': '  '}, 'junk']
                      + [{'name': f'R{n}', 'text': 't'} for n in range(9)],
         })
-        self.assertEqual(card['special_path_rule'], 'Cross only by day.')
+        # (A card from before special path types: its one rule is the first type's.)
+        self.assertEqual(card['special_paths']['red']['rule'], 'Cross only by day.')
         self.assertEqual(len(card['modifications']), msc.MODIFICATIONS_MAX)
         self.assertIs(card['raging_river'], False)          # only a real True
         self.assertEqual(card['rules'][0], {'name': 'Ferry', 'text': 'Sail.'})
@@ -2536,15 +2580,19 @@ class MapSetupCardDataTests(TestCase):
         self.assertEqual(msc.clean_setup_card(None)['rules'], [])
 
     def test_special_paths_divide_forests_by_default(self):
-        self.assertTrue(msc.clean_setup_card({})['special_divides_forests'])
-        self.assertFalse(msc.clean_setup_card({'special_divides_forests': False})['special_divides_forests'])
-        self.assertTrue(msc.clean_setup_card({'special_divides_forests': 'no'})['special_divides_forests'])
+        special = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}])
+        divides = lambda card: msc.special_types(special, card, 'en')[0]['divides_forests']  # noqa: E731
+        self.assertTrue(divides({}))
+        self.assertFalse(divides({'special_divides_forests': False}))          # (a card from before types)
+        self.assertTrue(divides({'special_divides_forests': 'no'}))            # only a real False
+        self.assertFalse(divides({'special_paths': {'red': {'divides_forests': False}}}))
         # Without special paths it doesn't apply (and doesn't change the card).
-        self.assertTrue(msc.applicable(_card_layout(), {'special_divides_forests': False})['special_divides_forests'])
+        self.assertEqual(msc.applicable(_card_layout(), {'special_divides_forests': False})['special_paths'], {})
 
     def test_sections_the_layout_lacks_are_kept_but_not_drawn(self):
         card = {'special_path_rule': 'Bridges.', 'raging_river': True}
-        self.assertEqual(msc.applicable(_card_layout(), card)['special_path_rule'], '')
+        self.assertEqual(msc.applicable(_card_layout(), card)['special_paths'], {})
+        self.assertEqual(msc.clean_setup_card(card)['special_paths']['red']['rule'], 'Bridges.')     # (still stored)
         self.assertFalse(msc.applicable(_card_layout(), card)['raging_river'])
         rivers = _card_layout(paths=[{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}])
         self.assertTrue(msc.applicable(rivers, card)['raging_river'])
@@ -2749,16 +2797,28 @@ class MapSetupCardEngineTests(TestCase):
                                     raging.river_width / 2)
 
     def test_the_legend_only_with_special_paths(self):
-        self.assertIsNone(self._engine()._legend())
+        self.assertEqual(self._engine()._legend(), [])
+        # (A layout and card from before special path types: the first type's name and rule.)
         special = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}], special_path_name='Bridges')
         engine = self._engine(special, card={'special_path_rule': 'Cross by day.'})
-        # The key is just the name; what they do is a rule on the back.
-        self.assertEqual(engine._legend().text, ': Bridges')
+        # The key is just the name beside its colour; what they do is a rule on the back.
+        (paragraph, colour), = engine._legend()
+        self.assertEqual((paragraph.text, colour), (': Bridges', '#ed2731'))
         self.assertEqual(engine.back_items(), [('Bridges', 'Cross by day.')])
         self.assertTrue(engine.has_back)
         self.assertFalse(self._engine(special).has_back)        # no rule: no back
         unnamed = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}])
-        self.assertIn('Special Paths', self._engine(unnamed)._legend().text)
+        self.assertIn('Special Paths', self._engine(unnamed)._legend()[0][0].text)
+
+    def test_a_legend_line_and_rule_per_special_path_type(self):
+        both = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}},
+                                   {'kind': 'special', 'special': 'orange', 'a': {'c': 1}, 'b': {'c': 2}}])
+        engine = self._engine(both, card={'special_paths': {'orange': {'name': 'Ropes', 'rule': 'Climb.'}}})
+        # In SPECIAL_PATH_TYPES order; an unnamed one by its colour (there are two types).
+        self.assertEqual([(p.text, colour) for p, colour in engine._legend()],
+                         [(': Red Paths', '#ed2731'), (': Ropes', '#f08c00')])
+        self.assertEqual(engine.back_items(), [('Ropes', 'Climb.')])
+        self.assertTrue(engine.fits()['front'])
 
     def test_the_diagram_keeps_the_maps_shape_within_its_stretch(self):
         wide = _card_layout(clearings=[{'centre': [0.1, 0.45], 'number': 1}, {'centre': [0.9, 0.55], 'number': 2}],
@@ -2773,7 +2833,7 @@ class MapSetupCardEngineTests(TestCase):
         # A forest split only by a special path from clearing 1 (top left) to 4 (bottom right).
         layout = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 3}}], forests=((0.3, 0.7),))
         divided = msc._Diagram(layout, FORGE_FRAME, (self._engine().text_w, 150.0), False)
-        joined = msc._Diagram(layout, FORGE_FRAME, (self._engine().text_w, 150.0), False, special_divides=False)
+        joined = msc._Diagram(layout, FORGE_FRAME, (self._engine().text_w, 150.0), False, dividing_specials=set())
         (ax, ay, _r), (bx, by, _r2) = divided.clearings[0], divided.clearings[3]
         side = lambda p: (bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax)  # noqa: E731
         self.assertEqual(len({side(p) > 0 for p in divided.trees}), 1)     # one side only

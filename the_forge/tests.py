@@ -2241,19 +2241,22 @@ class MapSetupCardTests(_MapPublishBase):
         page = self.client.get(reverse('forge-map-setup-card', args=[draft.pk]))
         self.assertEqual(page.status_code, 200)
         html = page.content.decode()
-        self.assertIn('name="special_path_rule"', html)     # it has special paths
-        self.assertIn('id="msc-special-divides-no"', html)
+        self.assertIn('name="special_rule_red"', html)      # it has (red) special paths
+        self.assertIn('data-special-section="red">', html)  # (shown)
+        self.assertIn('data-special-section="green" hidden', html)
+        self.assertIn('id="msc-divides-red-no"', html)
         self.assertIn('name="raging_river"', html)          # and rivers
+        self.assertNotIn('data-river-section hidden', html)
         self.assertIn('The river divides forests', html)
 
         response = self._card_post(draft, rules=[('Ferry', 'Move along the river (spend a card).'), ('', '')],
-                                   special_path_rule='Only the ruler may cross.', modifications='Skip ruins.',
+                                   special_rule_red='Only the ruler may cross.', modifications='Skip ruins.',
                                    raging_river='yes')
         self.assertRedirects(response, reverse('forge-map-detail', args=[draft.pk]), fetch_redirect_response=False)
         forged_map = self._map(draft)
         self.assertEqual(forged_map.map_card, {
-            'special_path_rule': 'Only the ruler may cross.', 'modifications': 'Skip ruins.', 'raging_river': True,
-            'special_divides_forests': True,
+            'special_paths': {'red': {'name': '', 'rule': 'Only the ruler may cross.', 'divides_forests': True}},
+            'modifications': 'Skip ruins.', 'raging_river': True,
             'rules': [{'name': 'Ferry', 'text': 'Move along the river (spend a card).'}]})
         self.assertTrue(forged_map.card_2_image)            # rules: a back
         self.assertEqual(forged_map.card_2_image_version, 1)
@@ -2279,17 +2282,45 @@ class MapSetupCardTests(_MapPublishBase):
     def test_special_paths_dividing_forests_is_saved(self):
         draft = self._create()
         self.assertTrue(self._save(draft, _paths_layout(special=True), generate=True).json()['ok'])
-        self._card_post(draft, special_divides_forests='no')
-        self.assertFalse(self._map(draft).map_card['special_divides_forests'])
-        self._card_post(draft, special_divides_forests='yes')
-        self.assertTrue(self._map(draft).map_card['special_divides_forests'])
+        self._card_post(draft, special_divides_red='no')
+        self.assertFalse(self._map(draft).map_card['special_paths']['red']['divides_forests'])
+        self._card_post(draft, special_divides_red='yes')
+        self.assertNotIn('red', self._map(draft).map_card['special_paths'])     # (the default: nothing kept)
+
+    def test_the_builder_has_a_rules_step_that_saves_the_card(self):
+        draft = self._create()
+        page = self.client.get(reverse('forge-map-builder', args=[draft.pk]))
+        self.assertTrue(page.context['config']['rules_step'])
+        html = page.content.decode()
+        self.assertIn('id="mb-rules"', html)
+        self.assertIn('data-embedded', html)               # (no buttons: saved with the layout)
+        self.assertNotIn('Save Setup Card', html)
+        layout = _paths_layout(special=True)
+        card = {'special_name_red': ['Bridges'], 'special_rule_red': ['Cross by day.'], 'raging_river': ['yes']}
+        result = self._save(draft, layout, card=card).json()
+        self.assertEqual(result['card_errors'], [])
+        forged_map = self._map(draft)
+        self.assertEqual(forged_map.map_card['special_paths']['red']['name'], 'Bridges')
+        self.assertTrue(forged_map.map_card['raging_river'])
+        # Too much for the card: not saved, and Complete is refused.
+        result = self._save(draft, layout, generate=True,
+                            card={**card, 'modifications': ['x' * 300], 'rule_name': [f'R{n}' for n in range(6)],
+                                  'rule_text': ['y' * 300] * 6}).json()
+        self.assertTrue(result['card_errors'])
+        self.assertFalse(result['ok'])
+        self.assertEqual(self._map(draft).map_card['special_paths']['red']['name'], 'Bridges')
+        # The read-only builder (the map's page) has no Rules step.
+        detail = self.client.get(reverse('forge-map-detail', args=[draft.pk]))
+        self.assertFalse(detail.context['config']['rules_step'])
+        self.assertNotIn('id="mb-rules"', detail.content.decode())
 
     def test_sections_only_for_what_the_map_has(self):
         draft = self._completed()
         html = self.client.get(reverse('forge-map-setup-card', args=[draft.pk])).content.decode()
-        self.assertNotIn('name="special_path_rule"', html)
-        self.assertNotIn('id="msc-special-divides-no"', html)
-        self.assertNotIn('id="msc-raging-yes"', html)
+        # Every special path type's section is there, hidden (their text kept), as is Raging River's.
+        for key in ('red', 'green', 'orange'):
+            self.assertIn(f'data-special-section="{key}" hidden', html)
+        self.assertIn('data-river-section hidden', html)
         self.assertIn('name="modifications"', html)
 
     def test_text_that_wont_fit_is_refused_with_the_law_note(self):

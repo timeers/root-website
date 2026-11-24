@@ -138,6 +138,14 @@ generate_title. Load map_summary.css, map_builder.css, map_summary.js and map_bu
     </div>
     {% endif %}
 
+    {% if rules and config.rules_step %}
+    <!-- Setup Card Rules step: the setup card page's form, floating over the
+         map and scrolling within it (saved with the layout: map_builder.js) -->
+    <div id="mb-rules" class="d-none">
+        {% include 'the_keep/includes/map_setup_card_editor.html' with form=rules.form features=rules.features text=rules.text law_url=rules.law_url embedded=True %}
+    </div>
+    {% endif %}
+
     <!-- Counts for the step: a card over the item track, or a pill on the VP track -->
     <div id="mb-count-card" class="d-none" aria-live="polite"></div>
     <div id="mb-clearing-count" class="d-none" aria-live="polite"></div>

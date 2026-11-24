@@ -468,6 +468,10 @@ PDF_TEXT = {
         'map_setup_card': {
             'modifications': 'Setup Modifications',
             'special_paths': 'Special Paths',      # the legend's name when the map hasn't named them
+            # ...when it has more than one type of them (tts_map.SPECIAL_PATH_TYPES, by key).
+            'special_paths_red': 'Red Paths',
+            'special_paths_green': 'Green Paths',
+            'special_paths_orange': 'Orange Paths',
             'raging_river': 'Raging River',
             'raging_river_text': 'The river divides forests (as printed paths do).',
         },

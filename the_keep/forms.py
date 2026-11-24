@@ -1654,33 +1654,60 @@ class CardForm(forms.ModelForm):
 
 class MapSetupCardForm(forms.Form):
     """A map's setup card text (the_keep/services/map_setup_card.py), for any
-    map with a layout: the Forge's setup card page now, a Keep one later.
-    Its rules come as repeated rule_name / rule_text inputs.
+    map with a layout: the setup card page and the map builder's Rules step,
+    in the Forge and on the Keep. Each special path type (by colour) has its
+    own name, rule and whether it divides forests: special_name_<key>,
+    special_rule_<key> and special_divides_<key>; the rules come as repeated
+    rule_name / rule_text inputs.
 
-    cleaned_data['map_card'] is the cleaned card; a card that won't fit is
-    refused (self.overflow says which side), so the page can suggest a Law
-    entry."""
-    special_path_rule = forms.CharField(required=False, max_length=msc.SPECIAL_RULE_MAX,
-                                        widget=forms.Textarea(attrs={'rows': 2}))
+    special_sections: a section per special path type (all of them: those
+    the layout doesn't use are hidden, their text kept). cleaned_data
+    ['map_card'] is the cleaned card; a card that won't fit is refused
+    (self.overflow says which side), so the page can suggest a Law entry."""
     modifications = forms.CharField(required=False, max_length=msc.MODIFICATIONS_MAX,
                                     widget=forms.Textarea(attrs={'rows': 3}))
     raging_river = forms.ChoiceField(required=False, choices=[('no', 'No'), ('yes', 'Yes')],
                                      widget=forms.RadioSelect)
-    special_divides_forests = forms.ChoiceField(required=False, choices=[('no', 'No'), ('yes', 'Yes')],
-                                                widget=forms.RadioSelect)
-    limits = {'special': msc.SPECIAL_RULE_MAX, 'modifications': msc.MODIFICATIONS_MAX, 'rules': msc.RULES_MAX,
+    limits = {'special': msc.SPECIAL_RULE_MAX, 'special_name': msc.SPECIAL_PATH_NAME_MAX,
+              'modifications': msc.MODIFICATIONS_MAX, 'rules': msc.RULES_MAX,
               'rule_name': msc.RULE_NAME_MAX, 'rule_text': msc.RULE_TEXT_MAX}
 
     def __init__(self, *args, title, layout, frame, lang_code, map_card=None, **kwargs):
         self.title, self.layout, self.frame, self.lang_code = title, layout or {}, frame, lang_code
         card = msc.clean_setup_card(map_card)
-        kwargs.setdefault('initial', {
-            'special_path_rule': card['special_path_rule'],
+        initial = {
             'modifications': card['modifications'],
             'raging_river': 'yes' if card['raging_river'] else 'no',
-            'special_divides_forests': 'yes' if card['special_divides_forests'] else 'no',
-        })
+        }
+        named = {kind['key']: kind for kind in msc.special_types(self.layout, map_card, lang_code)}
+        for kind in msc.SPECIAL_PATH_TYPES:
+            key = kind['key']
+            entry = card['special_paths'].get(key) or {}
+            # (The first type's old name, from the layout, when the card has none.)
+            initial[f'special_name_{key}'] = entry.get('name') or (
+                named[key]['name'] if key in named and named[key]['named'] else '')
+            initial[f'special_rule_{key}'] = entry.get('rule', '')
+            initial[f'special_divides_{key}'] = 'no' if entry.get('divides_forests') is False else 'yes'
+        kwargs.setdefault('initial', initial)
         super().__init__(*args, **kwargs)
+        used = msc.used_special_keys(self.layout)
+        self.special_sections = []
+        for kind in msc.SPECIAL_PATH_TYPES:
+            key = kind['key']
+            self.fields[f'special_name_{key}'] = forms.CharField(required=False, max_length=msc.SPECIAL_PATH_NAME_MAX)
+            self.fields[f'special_rule_{key}'] = forms.CharField(required=False, max_length=msc.SPECIAL_RULE_MAX,
+                                                                 widget=forms.Textarea(attrs={'rows': 2}))
+            self.fields[f'special_divides_{key}'] = forms.ChoiceField(
+                required=False, choices=[('no', 'No'), ('yes', 'Yes')], widget=forms.RadioSelect)
+            self.special_sections.append({
+                'key': key, 'colour': kind['colour'], 'label': kind['label'], 'used': key in used,
+                # What it's called while unnamed: on a map with more than one type, its colour's name.
+                'default_name': msc.default_special_name(key, lang_code, len(used) > 1),
+                'single_name': msc.default_special_name(key, lang_code, False),
+                'several_name': msc.default_special_name(key, lang_code, True),
+                'name': self[f'special_name_{key}'], 'rule': self[f'special_rule_{key}'],
+                'divides': self[f'special_divides_{key}'],
+            })
         self.rules = card['rules']
         self.overflow = None
 
@@ -1697,22 +1724,25 @@ class MapSetupCardForm(forms.Form):
             if len(rule['text'].strip()) > msc.RULE_TEXT_MAX:
                 raise ValidationError(f"Keep each rule's text to {msc.RULE_TEXT_MAX} characters.")
         card = msc.clean_setup_card({
-            'special_path_rule': cleaned.get('special_path_rule'),
+            'special_paths': {kind['key']: {
+                'name': cleaned.get(f'special_name_{kind["key"]}'),
+                'rule': cleaned.get(f'special_rule_{kind["key"]}'),
+                # (Not sent: no paths of this type, and it doesn't apply.)
+                'divides_forests': cleaned.get(f'special_divides_{kind["key"]}') != 'no',
+            } for kind in msc.SPECIAL_PATH_TYPES},
             'modifications': cleaned.get('modifications'),
             'raging_river': cleaned.get('raging_river') == 'yes',
-            # (Not sent: the map has no special paths, and it doesn't apply.)
-            'special_divides_forests': cleaned.get('special_divides_forests') != 'no',
             'rules': self.rules,
         })
         fits = msc.setup_card_fits(self.title, self.layout, card, frame=self.frame, lang_code=self.lang_code)
         if not fits['front']:
             self.overflow = 'front'
             raise ValidationError("That's too much text for the card's front: it would leave no room for the map. "
-                                  "Shorten the special paths' name.")
+                                  "Shorten the special paths' names.")
         if not fits['back']:
             self.overflow = 'back'
             raise ValidationError("That's too much text for the card: it doesn't fit on the back, and the setup "
-                                  "modifications don't fit on the front either. Shorten the setup modifications or "
-                                  "the rules, or move some to a Law entry.")
+                                  "modifications don't fit on the front either. Shorten the setup modifications, "
+                                  "the special paths' rules or the rules, or move some to a Law entry.")
         cleaned['map_card'] = card
         return cleaned

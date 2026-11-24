@@ -8252,9 +8252,9 @@ class QualifierStandingsTests(TestCase):
         self._game(5, self.b, self.a, test_match=True)
         self._game(5, self.b, self.a, final=False)
 
-        EloParticipant.objects.create(elo_system=self.system, player=self.a, rating=1400, rank=2)
-        EloParticipant.objects.create(elo_system=self.system, player=self.b, rating=1300, rank=3)
-        EloParticipant.objects.create(elo_system=self.system, player=self.c, rating=1600, rank=1)
+        EloParticipant.objects.create(elo_system=self.system, player=self.a, rating=1400, rank=2, tier='fox')
+        EloParticipant.objects.create(elo_system=self.system, player=self.b, rating=1300, rank=3, tier='mouse')
+        EloParticipant.objects.create(elo_system=self.system, player=self.c, rating=1600, rank=1, tier='stag')
 
         self.Qualifier = Qualifier
         self.qualifier = Qualifier.objects.create(
@@ -8316,26 +8316,30 @@ class QualifierStandingsTests(TestCase):
         self.assertEqual(rows['Alpha'].rank, 1)
         self.assertEqual(rows['Alpha'].score, 1400)
 
-    def test_unranked_rootelo_player_cannot_qualify(self):
+    def test_untiered_rootelo_player_cannot_qualify(self):
         from the_warroom.models import EloParticipant, EloSystem
-        # RootELO hasn't ranked Alpha yet: rating hidden, can't qualify, sorts last.
-        EloParticipant.objects.filter(elo_system=self.system, player=self.a).update(rank=None)
+        # A tier without a rank still counts (the squirrel case)...
+        EloParticipant.objects.filter(elo_system=self.system, player=self.b).update(
+            rank=None, tier='squirrel')
+        # ...but a placeholder tier doesn't: Alpha shows a dash and can't qualify.
+        EloParticipant.objects.filter(elo_system=self.system, player=self.a).update(
+            tier='unassigned')
         q = self.Qualifier.objects.create(
             name="Rank Q", start_date=date(2026, 1, 1), end_date=date(2026, 1, 10),
             game_threshold=3, qualifier_places=2, elo_system=self.system,
         )
         rows = self._rows(q)
         self.assertIsNone(rows['Alpha'].score)
-        self.assertIsNone(rows['Alpha'].rank)  # met the threshold, but unranked on RootELO
+        self.assertIsNone(rows['Alpha'].rank)  # met the threshold, but untiered on RootELO
         self.assertFalse(rows['Alpha'].qualified)
         self.assertEqual(rows['Bravo'].rank, 1)
         self.assertTrue(rows['Bravo'].qualified)
 
-        # The threshold filter goes by games played, so unranked Alpha stays listed.
+        # The threshold filter goes by games played, so untiered Alpha stays listed.
         resp = self.client.get(q.get_absolute_url(), {'show': 'threshold'})
         self.assertEqual(sorted(r.name for r in resp.context['rows']), ['Alpha', 'Bravo'])
 
-        # LOCAL systems never set rank, so it isn't required there.
+        # LOCAL systems never set tier, so it isn't required there.
         self.system.calculation_type = EloSystem.CalculationType.LOCAL
         self.system.save()
         q.save()  # new updated_at -> fresh cache key

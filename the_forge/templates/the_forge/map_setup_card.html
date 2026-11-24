@@ -10,7 +10,6 @@
     <a href="{{ cancel_url }}" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Back to Map</a>
   </div>
 
-  {% url 'forge-map-builder' pk=faction.pk as rename_url %}
   {% include 'the_keep/includes/map_setup_card_editor.html' %}
 </div>
 {% endblock %}

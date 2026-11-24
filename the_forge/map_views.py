@@ -17,13 +17,14 @@ from django.views.decorators.http import require_POST
 from the_gatehouse.views import forge_onboard_required
 from the_keep.forms import MapSetupCardForm
 from the_keep.models import Post
-from the_keep.services.tts_map import check_builder, clean_builder_state, layout_summary
+from the_keep.services.tts_map import FORGE_FRAME, check_builder, clean_builder_state, layout_summary
 
 from .models import ForgedFaction, ForgedMap
 from .services.forge_map import (ArtRejected, default_state, map_builder_config, map_library_state,
                                  map_name_max, name_locked_note, refresh_forge_setup_card, refresh_map_image,
                                  remove_art, save_art, set_language, setup_card_args, setup_card_fingerprint,
                                  store_map_tts)
+from .pdf_engine import _lang_code_for
 from .views import _forbid_if_not_editor, user_can_edit_forge, user_can_view_forge
 
 
@@ -59,9 +60,13 @@ def map_create(request):
     the draft and its map made (so its slug, and with it its media folder,
     comes from its real name)."""
     if request.method != 'POST':
+        state = default_state()
         return render(request, 'the_forge/map_builder.html', {
             'faction': None,
             'config': map_builder_config(None, profile=request.user.profile),
+            # The Rules step's form: empty until the map has a card.
+            'rules': _setup_card_context(None, MapSetupCardForm(
+                None, title='', layout=state, frame=FORGE_FRAME, lang_code='en'), state),
         })
 
     name = (request.POST.get('name') or '').strip()[:map_name_max()]
@@ -114,7 +119,8 @@ def map_detail(request, pk):
     from .publishing.context import publish_context
     context.update(publish_context(request, faction))
     context['config'] = map_builder_config(forged_map, profile=request.user.profile, readonly=True)
-    context['summary'] = layout_summary(forged_map.tts_builder or {}, fixed=forged_map.fixed_clearings)
+    context['summary'] = layout_summary(forged_map.tts_builder or {}, fixed=forged_map.fixed_clearings,
+                                        map_card=forged_map.map_card, lang_code=_lang_code_for(forged_map))
     context['card_stale'] = forged_map.card_stale
     context['card_sides'] = [(image, version, side) for image, version, side in (
         (forged_map.card_image, forged_map.card_image_version, 'front'),
@@ -140,6 +146,12 @@ def map_builder(request, pk):
             forged_map.fixed_clearings = state['fixed']
         forged_map.save(update_fields=['tts_builder', 'fixed_clearings', 'last_updated'])
         errors, warnings = check_builder(forged_map, state, require_buildings=True)
+        # The Rules step: the setup card's text, checked against this layout.
+        card_errors = []
+        if 'card' in payload:
+            from the_keep.services.map_setup_card import save_builder_card
+            card_errors = save_builder_card(forged_map, payload['card'], state, title=forged_map.title,
+                                            frame=FORGE_FRAME, lang_code=_lang_code_for(forged_map))
         # The name and language, from the Start step. A map linked to a keep
         # post keeps both: only an admin can rename a published post.
         locked = bool(name_locked_note(faction))
@@ -161,9 +173,11 @@ def map_builder(request, pk):
                     store_map_tts(forged_map)
         # No Map post counts to update: the builder compares nothing.
         result = {'ok': True, 'saved': True, 'changes': [], 'errors': errors, 'warnings': warnings, 'counted': [],
-                  'name': faction.faction_name}
+                  'name': faction.faction_name, 'card_errors': card_errors}
         if payload.get('generate'):
-            if errors:
+            if card_errors:
+                result['errors'] = errors + ["The setup card's rules need fixing first (the Setup Card Rules step)."]
+            if errors or card_errors:
                 result['ok'] = False
                 return JsonResponse(result)
             from .render_guard import RenderBusy, render_slot
@@ -183,10 +197,15 @@ def map_builder(request, pk):
             result.update(generated=True, redirect=reverse('forge-map-detail', kwargs={'pk': faction.pk}))
         return JsonResponse(result)
 
+    # The Rules step's form (the setup card page's), on the live layout.
+    rules = _setup_card_context(forged_map, MapSetupCardForm(
+        None, title=forged_map.title, layout=forged_map.tts_builder or {}, frame=FORGE_FRAME,
+        lang_code=_lang_code_for(forged_map), map_card=forged_map.map_card), forged_map.tts_builder or {})
     return render(request, 'the_forge/map_builder.html', {
         'faction': faction,
         'forged_map': forged_map,
         'config': map_builder_config(forged_map, profile=profile),
+        'rules': rules,
     })
 
 
@@ -303,22 +322,27 @@ def map_setup_card(request, pk):
         _render_setup_card(request, forged_map)
         return redirect('forge-map-detail', pk=faction.pk)
 
-    from the_keep.services.map_setup_card import card_text, layout_features, special_path_name
-    from .pdf_engine import _lang_code_for
-    layout = setup_card_args(forged_map)['layout']
-    post = faction.published_keep_post if faction.published_post_id else None
     return render(request, 'the_forge/map_setup_card.html', {
         'faction': faction,
         'forged_map': forged_map,
-        'form': form,
-        'features': layout_features(layout),
-        'special_name': special_path_name(layout, _lang_code_for(forged_map)),
-        'named': bool(layout.get('special_path_name')),
-        'text': card_text(_lang_code_for(forged_map)),
-        'law_url': reverse('post-law-group-create', kwargs={'slug': post.slug}) if post else None,
+        **_setup_card_context(forged_map, form, setup_card_args(forged_map)['layout']),
         'post_url': reverse('forge-map-setup-card', kwargs={'pk': faction.pk}),
         'cancel_url': reverse('forge-map-detail', kwargs={'pk': faction.pk}),
     })
+
+
+def _setup_card_context(forged_map, form, layout):
+    """The setup card editor's context (the_keep/includes/map_setup_card_editor.html),
+    for the setup card page and the builder's Rules step."""
+    from the_keep.services.map_setup_card import card_text, layout_features
+    faction = forged_map.faction if forged_map else None
+    post = faction.published_keep_post if faction and faction.published_post_id else None
+    return {
+        'form': form,
+        'features': layout_features(layout),
+        'text': card_text(_lang_code_for(forged_map) if forged_map else 'en'),
+        'law_url': reverse('post-law-group-create', kwargs={'slug': post.slug}) if post else None,
+    }
 
 
 def _render_setup_card(request, forged_map):

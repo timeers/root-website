@@ -23,6 +23,13 @@ from the_warroom.services.win_rate import points_annotations
 
 CACHE_TTL = 5 * 60  # new games appear within this long
 
+# Feed tier values that mean "not tiered yet".
+PLACEHOLDER_TIERS = {'unassigned', 'unranked'}
+
+
+def has_rootelo_tier(tier):
+    return bool(tier) and tier.strip().lower() not in PLACEHOLDER_TIERS
+
 
 @dataclass
 class Row:
@@ -94,16 +101,17 @@ def _compute(qualifier):
 
     if qualifier.is_elo:
         system = qualifier.elo_system
-        # RootELO marks players it hasn't ranked yet with rank=NULL; their feed
-        # rating isn't treated as real, so they show a dash and can't qualify.
-        # LOCAL systems never set rank, so the check only applies to RootELO.
-        require_rank = system.calculation_type == EloSystem.CalculationType.ROOTELO
+        # RootELO players without a real tier (blank, or a placeholder like
+        # 'unassigned') aren't treated as rated: they show a dash and can't
+        # qualify. Tier, not rank: some tiered players (e.g. squirrel) have no
+        # rank. LOCAL systems never set tier, so the check only applies to RootELO.
+        require_tier = system.calculation_type == EloSystem.CalculationType.ROOTELO
         participants = EloParticipant.objects.filter(
             elo_system=system, player_id__in=[r.player_id for r in rows]
-        ).values_list('player_id', 'rating', 'rank')
+        ).values_list('player_id', 'rating', 'tier')
         ratings = {
-            pid: rating for pid, rating, elo_rank in participants
-            if not require_rank or elo_rank is not None
+            pid: rating for pid, rating, tier in participants
+            if not require_tier or has_rootelo_tier(tier)
         }
         for r in rows:
             r.score = ratings.get(r.player_id)
@@ -114,7 +122,7 @@ def _compute(qualifier):
     rank = 0
     for r in rows:
         # An Elo qualifier also needs a rating: players with no participant row,
-        # or unranked on RootELO, get no qualifier rank and so can't qualify.
+        # or untiered on RootELO, get no qualifier rank and so can't qualify.
         if qualifier.is_elo and r.score is None:
             continue
         if r.games >= qualifier.game_threshold:

@@ -239,8 +239,8 @@ def clean_builder_state(state, *, logo=False):
         shapes = clean_lake_shapes(state.get('lake_shapes'))
         if shapes:
             clean['lake_shapes'] = shapes
-    # What the map's special paths are (Bridges, Mountain Passes...): kept even
-    # while it has none, so drawing one again brings it back.
+    # The name the builder used to give its (red) special paths: kept, as the
+    # red ones' name when the setup card hasn't one (map_setup_card.special_types).
     name = state.get('special_path_name')
     if isinstance(name, str) and name.strip():
         clean['special_path_name'] = name.strip()[:SPECIAL_PATH_NAME_MAX]
@@ -319,7 +319,6 @@ def builder_config(image_url, width, height, state, *, fixed, expected, save_url
         # Step cards open by themselves until the user's first finished map.
         'show_intros': bool(show_intros),
         'random_icon': static('images/ClearingsRandom.png'),
-        'special_name_max': SPECIAL_PATH_NAME_MAX,
     }
     config.update(extra)
     return config
@@ -471,7 +470,7 @@ PATH_DRAW_ORDER = ('lake', 'river', 'special', 'path')
 # family may not. Where a river and a path share both ends they bow apart, each
 # by this many (river + path) half-widths at the middle, so they don't overlap.
 SHARED_BEND = 1.0
-SPECIAL_PATH_NAME_MAX = 24       # the name a map gives its special paths (the Paths step's pill)
+SPECIAL_PATH_NAME_MAX = 24       # the name a map gives a type of its special paths (its setup card)
 
 
 def path_family(kind):
@@ -479,6 +478,32 @@ def path_family(kind):
     one of each may share two ends."""
     return 'river' if kind in ('river', 'lake') else 'land'
 PATH_COLOURS = {'path': '#ffffff', 'special': '#ed2731', 'river': '#3e55a5', 'lake': '#3e55a5'}
+# The special paths' types, by colour, in order: a path {'kind': 'special',
+# 'special': key} (no key: the first, red, as every map had before). Their
+# names and rules are the map's setup card's (map_card['special_paths']). A
+# type is one more entry here.
+SPECIAL_PATH_TYPES = (
+    {'key': 'red', 'colour': '#ed2731', 'label': 'Red'},
+    {'key': 'green', 'colour': '#2f9e44', 'label': 'Green'},
+    {'key': 'orange', 'colour': '#f08c00', 'label': 'Orange'},
+)
+SPECIAL_KEYS = tuple(t['key'] for t in SPECIAL_PATH_TYPES)
+SPECIAL_DEFAULT = SPECIAL_KEYS[0]
+
+
+def special_key(path):
+    """A special path's type (its key; the first for one without)."""
+    key = (path or {}).get('special')
+    return key if key in SPECIAL_KEYS else SPECIAL_DEFAULT
+
+
+def special_colour(key):
+    return next((t['colour'] for t in SPECIAL_PATH_TYPES if t['key'] == key), PATH_COLOURS['special'])
+
+
+def path_colour(path):
+    """A path's colour: its kind's, or for a special path its type's."""
+    return special_colour(special_key(path)) if path.get('kind') == 'special' else PATH_COLOURS[path['kind']]
 # Lakes: drawn from clearing to clearing like a river, printed as an area of
 # water filling the space around them halfway to the land (other clearings,
 # paths, rivers, forests, buildings). The builder works the outline out
@@ -546,13 +571,15 @@ def clean_paths(raw, clearing_count):
     dropped one goes too. The rest are renumbered, and so are the {'p': j}
     references to them."""
     raw = [p for p in (raw if isinstance(raw, list) else [])[:MAX_PATHS]]
-    parsed, bows = {}, {}
+    parsed, bows, specials = {}, {}, {}
     for i, p in enumerate(raw):
         if not isinstance(p, dict) or p.get('kind') not in PATH_KINDS:
             continue
         a, b = _end(p.get('a'), clearing_count, len(raw)), _end(p.get('b'), clearing_count, len(raw))
         if a and b and a != b:
             parsed[i] = (p['kind'], a, b)
+            if p['kind'] == 'special' and special_key(p) != SPECIAL_DEFAULT:
+                specials[i] = special_key(p)
             if p.get('bow') in (1, -1) and not isinstance(p.get('bow'), bool):
                 bows[i] = int(p['bow'])
 
@@ -597,6 +624,8 @@ def clean_paths(raw, clearing_count):
         kind, a, b = parsed[i]
         out.append({'kind': kind, 'a': {a[0]: renumber[a[1]] if a[0] == 'p' else a[1]},
                     'b': {b[0]: renumber[b[1]] if b[0] == 'p' else b[1]}})
+        if i in specials:  # a special path's type (none: the first)
+            out[-1]['special'] = specials[i]
         if i in bows:      # which side it bows to, when it shares its ends (_pair_side)
             out[-1]['bow'] = bows[i]
     return out
@@ -613,7 +642,8 @@ def path_config(geometry):
     """The builder's copy of the path constants (pixels), so it draws as the PDF does."""
     from .map_setup_card import builder_card_config
     px = _path_px(geometry)
-    return {'colours': PATH_COLOURS, 'width': px['width'], 'lanes': PATH_LANES, 'stroke': PATH_STROKE,
+    return {'colours': PATH_COLOURS, 'specials': [dict(t) for t in SPECIAL_PATH_TYPES],
+            'width': px['width'], 'lanes': PATH_LANES, 'stroke': PATH_STROKE,
             'dash': PATH_DASH, 'gap': PATH_GAP, 'river_width': RIVER_WIDTH, 'default_radius': px['default_radius'],
             'draw_order': list(PATH_DRAW_ORDER), 'shared_bend': SHARED_BEND, 'link_reach': RIVER_LINK_REACH,
             'samples': PATH_SAMPLES, 'bend_steps': _BEND_STEPS, 'bend_max': _BEND_MAX, 'blank': MAP_BLANK,
@@ -809,8 +839,10 @@ def route_paths(paths, circles, width):
         t1 = _trim(a, control, b, b, circles[p['b']['c']][2], False) if 'c' in p['b'] else 1.0
         t1 = max(t1, t0)
         points = [_quad(a, control, b, t0 + (t1 - t0) * k / PATH_SAMPLES) for k in range(PATH_SAMPLES + 1)]
-        shapes[i] = {'kind': p['kind'], 'colour': PATH_COLOURS[p['kind']], 'points': points,
+        shapes[i] = {'kind': p['kind'], 'colour': path_colour(p), 'points': points,
                      'middle': _middle(points)}
+        if p['kind'] == 'special':
+            shapes[i]['special'] = special_key(p)
         return shapes[i]
 
     return [shape(i) for i in range(len(paths))]
@@ -1264,9 +1296,12 @@ def lake_clearings(paths):
 
 def path_totals(state):
     """{'path': n, 'special': n, 'river': n, 'lake': lake bodies,
-    'river_clearings': n (clearings on a river or a lake)}."""
+    'river_clearings': n (clearings on a river or a lake),
+    'specials': {type key: n} (the special paths by type, used ones only)}."""
     paths = state.get('paths') or []
     totals = {kind: sum(1 for p in paths if p.get('kind') == kind) for kind in PATH_KINDS}
+    totals['specials'] = {key: n for key in SPECIAL_KEYS
+                          if (n := sum(1 for p in paths if p.get('kind') == 'special' and special_key(p) == key))}
     totals['lake'] = len(lake_bodies(paths))
     totals['river_clearings'] = len({end['c'] for p in paths if p.get('kind') in ('river', 'lake')
                                      for end in (p.get('a') or {}, p.get('b') or {}) if 'c' in end})
@@ -1364,11 +1399,12 @@ def _random_note():
             'icon': static('images/ClearingsRandom.png')}
 
 
-def layout_summary(state, *, fixed=None):
+def layout_summary(state, *, fixed=None, map_card=None, lang_code='en'):
     """The summary card's data from a builder layout: a tile per piece, a row
-    for Paths, Special Paths (only when there are some) and River Clearings
-    once the Paths step was reached, and the clearing suits (the layout's
-    fixed / random choice, else `fixed`)."""
+    for Paths, River Clearings and a tile per special path type the map uses
+    (named on its setup card, map_card) once the Paths step was reached, and
+    the clearing suits (the layout's fixed / random choice, else `fixed`)."""
+    from .map_setup_card import special_types
     from django.utils.translation import gettext as _
     state = state or {}
     counts = layout_counts(state)
@@ -1380,11 +1416,12 @@ def layout_summary(state, *, fixed=None):
     path_tiles = []
     if 'paths' in visited_stages(state):
         totals = path_totals(state)
-        path_tiles = [tile('path', _('Paths'), totals['path'])]
-        if totals['special']:
-            # Labelled with the map's own name for its special paths, when it has one.
-            path_tiles.append(tile('special', state.get('special_path_name') or _('Special Paths'), totals['special']))
-        path_tiles.append(tile('river', _('River Clearings'), totals['river_clearings']))
+        path_tiles = [tile('path', _('Paths'), totals['path']),
+                      tile('river', _('River Clearings'), totals['river_clearings'])]
+        # Then each special path type, in its colour, by its name.
+        for kind in special_types(state, map_card, lang_code):
+            path_tiles.append({**tile('special', kind['name'], kind['count']), 'colour': kind['colour'],
+                               'special': kind['key']})
     fixed = state['fixed'] if isinstance(state.get('fixed'), bool) else bool(fixed)
     if not fixed:
         return _summary(tiles, path_tiles, _random_note())
@@ -1423,7 +1460,9 @@ def map_summary(map_post):
     (with clearings), else from its own figures."""
     state = getattr(map_post, 'tts_builder', None) or {}
     if state.get('clearings'):
-        return layout_summary(state, fixed=map_post.fixed_clearings)
+        language = getattr(map_post, 'language', None)
+        return layout_summary(state, fixed=map_post.fixed_clearings, map_card=getattr(map_post, 'map_card', None),
+                              lang_code=language.code if language else 'en')
     return figures_summary(map_post)
 
 

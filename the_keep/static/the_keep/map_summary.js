@@ -140,14 +140,22 @@ window.MapSummary = window.MapSummary || (function () {
     grid.className = 'mb-sum-grid mb-3';
     container.appendChild(grid);
 
+    // Paths get a row of their own, split evenly: Paths, River Clearings and
+    // each special path type; with three or more types, those take a row of
+    // their own after it.
     const pathTiles = data.path_tiles || [];
-    let pathRow = null;
-    if (pathTiles.length) {
-      // Paths get a row of their own: halves, or thirds with special paths.
-      pathRow = document.createElement('div');
-      pathRow.className = 'mb-sum-paths';
-      pathRow.style.setProperty('--mb-path-tiles', pathTiles.length);
-    }
+    const specialTiles = pathTiles.filter(t => t.kind === 'special');
+    const ownRow = specialTiles.length >= 3;
+    const pathRows = [];
+    const newRow = (count) => {
+      const row = document.createElement('div');
+      row.className = 'mb-sum-paths';
+      row.style.setProperty('--mb-path-tiles', count);
+      pathRows.push(row);
+      return row;
+    };
+    const pathRow = pathTiles.length ? newRow(ownRow ? pathTiles.length - specialTiles.length : pathTiles.length) : null;
+    const specialRow = ownRow ? newRow(specialTiles.length) : null;
     for (const tile of [...(data.tiles || []), ...pathTiles]) {
       const node = document.createElement(onTile ? 'button' : 'div');
       node.className = 'mb-sum-tile';
@@ -156,7 +164,9 @@ window.MapSummary = window.MapSummary || (function () {
         node.setAttribute('aria-label', `${tile.label}: ${tile.count}. Edit ${tile.label.toLowerCase()}`);
         node.addEventListener('click', () => onTile(tile));
       }
-      node.innerHTML = `<div class="mb-sum-icon">${icon(tile.kind, data.colours, true)}</div>`
+      // (A special path type's tile: in its own colour.)
+      const colours = tile.colour ? { ...(data.colours || COLOURS), special: tile.colour } : data.colours;
+      node.innerHTML = `<div class="mb-sum-icon">${icon(tile.kind, colours, true)}</div>`
         + '<div class="mb-sum-count"></div><div class="mb-sum-label"></div>';
       node.querySelector('.mb-sum-count').textContent = tile.count;
       node.querySelector('.mb-sum-label').textContent = tile.label;
@@ -167,9 +177,10 @@ window.MapSummary = window.MapSummary || (function () {
         pill.title = `The Map currently has ${tile.expected}. Completing the map updates it to ${tile.count}.`;
         node.appendChild(pill);
       }
-      (PATH_KINDS.includes(tile.kind) ? pathRow : grid).appendChild(node);
+      const row = tile.kind === 'special' && specialRow ? specialRow : PATH_KINDS.includes(tile.kind) ? pathRow : grid;
+      row.appendChild(node);
     }
-    if (pathRow) grid.appendChild(pathRow);
+    for (const row of pathRows) grid.appendChild(row);
 
     // How the clearing suits are handled.
     const suits = document.createElement('div');

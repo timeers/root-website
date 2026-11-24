@@ -1,14 +1,33 @@
 {% comment %}
 A map's setup card editor (the_keep/forms.py MapSetupCardForm), for any map
-with a layout: the Forge's setup card page now, a Keep page later.
+with a layout: the Forge's setup card page, and the map builder's Setup Card
+Rules step (Forge and Keep), which saves it with the layout.
 
-Context: form; features ({special, river}: which sections the layout has);
-special_name (the special paths' name, or the default); named (the map named
-them); text (the card's fixed wording, in the map's language); post_url;
-cancel_url; rename_url (where the special paths are named, optional);
-law_url ("Add a Law entry" for the map's keep post, optional).
+Context: form; features ({special, specials, river}: which sections the
+layout has); text (the card's fixed wording, in the map's language); law_url
+("Add a Law entry" for the map's keep post, optional); post_url and
+cancel_url (the page), or embedded (the builder: no buttons, never posted
+itself; map_builder.js shows the sections the live layout has, from each
+section's data-special-section / data-river-section).
+
+A section per special path type (form.special_sections): all of them, the
+unused hidden, so their text is kept. Sections are numbered by a CSS counter
+(below), so hidden ones don't count.
 {% endcomment %}
-<form method="post" action="{{ post_url }}" id="msc-form" data-rules-max="{{ form.limits.rules }}">
+<style>
+  /* Sections numbered in order, hidden ones (a special path type the map
+     doesn't use, Raging River without rivers) not counted. (The number is in
+     a span inside its badge: an empty badge is hidden.) */
+  .msc-form { counter-reset: msc-step; }
+  .msc-form .msc-section:not([hidden]) { counter-increment: msc-step; }
+  .msc-form .msc-num::before { content: counter(msc-step); }
+  /* A special path type's colour: a short stretch of its dashed line. */
+  .msc-swatch {
+    display: inline-block; width: 26px; height: 0; flex: none;
+    border-top: 4px dashed var(--msc-swatch);
+  }
+</style>
+<form method="post" action="{{ post_url|default:'' }}" id="msc-form" class="msc-form" data-rules-max="{{ form.limits.rules }}"{% if embedded %} data-embedded{% endif %}>
   {% csrf_token %}
 
   {% if form.non_field_errors %}
@@ -18,8 +37,8 @@ law_url ("Add a Law entry" for the map's keep post, optional).
     </div>
   {% endif %}
 
-  <div class="card p-3 mb-3">
-    <h5 class="root-title mb-1"><span class="badge text-bg-secondary me-2">1</span>{{ text.modifications }}</h5>
+  <div class="card p-3 mb-3 msc-section">
+    <h5 class="root-title mb-1"><span class="badge text-bg-secondary me-2"><span class="msc-num"></span></span>{{ text.modifications }}</h5>
     <p class="small text-muted mb-2">How is setup up on this map different from the usual setup?</p>
     <textarea name="modifications" rows="3" class="form-control" maxlength="{{ form.limits.modifications }}"
               data-counter>{{ form.modifications.value|default:'' }}</textarea>
@@ -27,31 +46,37 @@ law_url ("Add a Law entry" for the map's keep post, optional).
     {% for error in form.modifications.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
   </div>
 
-  {% if features.special %}
-  <div class="card p-3 mb-3">
-    <h5 class="root-title mb-1"><span class="badge text-bg-secondary me-2">2</span>{{ special_name }}</h5>
-    <p class="small text-muted mb-2">
-      What do your special paths do?
-      {% if rename_url %}{% if named %}Rename them{% else %}Name them{% endif %} on the builder's <a href="{{ rename_url }}">Paths &amp; Rivers step</a>.{% endif %}
-    </p>
-    <textarea name="special_path_rule" rows="2" class="form-control" maxlength="{{ form.limits.special }}"
-              data-counter placeholder="e.g. Warriors may only move along these if you rule both clearings.">{{ form.special_path_rule.value|default:'' }}</textarea>
-    <div class="form-text text-end" data-count-for="special_path_rule"></div>
-    {% for error in form.special_path_rule.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
-    <p class="small text-muted mb-2 mt-2">Do your special paths divide forests? This only changes how the card draws its trees: write any rule about it above.</p>
-    <div class="btn-group" role="group" aria-label="Do special paths divide forests?">
-      {% for choice in form.special_divides_forests %}
-        <input type="radio" class="btn-check" name="special_divides_forests" id="msc-special-divides-{{ choice.data.value }}"
+  {% for section in form.special_sections %}
+  <div class="card p-3 mb-3 msc-section" data-special-section="{{ section.key }}"{% if not section.used %} hidden{% endif %}>
+    <h5 class="root-title mb-1 d-flex align-items-center">
+      <span class="badge text-bg-secondary me-2"><span class="msc-num"></span></span>
+      <span class="msc-swatch me-2" style="--msc-swatch: {{ section.colour }};" aria-hidden="true"></span>
+      <span data-special-heading data-single="{{ section.single_name }}" data-several="{{ section.several_name }}">{% firstof section.name.value section.default_name %}</span>
+    </h5>
+    <label class="small text-muted mb-1" for="msc-special-name-{{ section.key }}">What are the {{ section.label|lower }} special paths called?</label>
+    <input type="text" class="form-control mb-2" id="msc-special-name-{{ section.key }}" name="special_name_{{ section.key }}"
+           maxlength="{{ form.limits.special_name }}" value="{{ section.name.value|default:'' }}"
+           placeholder="{{ section.default_name }}" data-special-name data-single="{{ section.single_name }}"
+           data-several="{{ section.several_name }}" autocomplete="off">
+    {% for error in section.name.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    <p class="small text-muted mb-2">What do they do?</p>
+    <textarea name="special_rule_{{ section.key }}" rows="2" class="form-control" maxlength="{{ form.limits.special }}"
+              data-counter placeholder="e.g. You may only move along these if you rule both clearings.">{{ section.rule.value|default:'' }}</textarea>
+    <div class="form-text text-end" data-count-for="special_rule_{{ section.key }}"></div>
+    {% for error in section.rule.errors %}<div class="text-danger small">{{ error }}</div>{% endfor %}
+    <p class="small text-muted mb-2 mt-2">Do they divide forests? Explain this rule above if so.</p>
+    <div class="btn-group" role="group" aria-label="Do they divide forests?">
+      {% for choice in section.divides %}
+        <input type="radio" class="btn-check" name="special_divides_{{ section.key }}" id="msc-divides-{{ section.key }}-{{ choice.data.value }}"
                value="{{ choice.data.value }}" autocomplete="off" {% if choice.data.selected %}checked{% endif %}>
-        <label class="btn btn-outline-primary" for="msc-special-divides-{{ choice.data.value }}">{{ choice.choice_label }}</label>
+        <label class="btn btn-outline-primary" for="msc-divides-{{ section.key }}-{{ choice.data.value }}">{{ choice.choice_label }}</label>
       {% endfor %}
     </div>
   </div>
-  {% endif %}
+  {% endfor %}
 
-  {% if features.river %}
-  <div class="card p-3 mb-3">
-    <h5 class="root-title mb-1"><span class="badge text-bg-secondary me-2">{% if features.special %}3{% else %}2{% endif %}</span>{{ text.raging_river }}</h5>
+  <div class="card p-3 mb-3 msc-section" data-river-section{% if not features.river %} hidden{% endif %}>
+    <h5 class="root-title mb-1"><span class="badge text-bg-secondary me-2"><span class="msc-num"></span></span>{{ text.raging_river }}</h5>
     <p class="small text-muted mb-2">Does the River divide forests on this map? Of the official maps only Winter has this special rule.</p>
     <div class="btn-group mb-2" role="group" aria-label="{{ text.raging_river }}">
       {% for choice in form.raging_river %}
@@ -64,17 +89,14 @@ law_url ("Add a Law entry" for the map's keep post, optional).
       Adds this rule to the card's back: <strong>{{ text.raging_river }}.</strong> {{ text.raging_river_text }}
     </p>
   </div>
-  {% endif %}
 
-  <div class="card p-3 mb-3">
-    <h5 class="root-title mb-1"><span class="badge text-bg-secondary me-2">{% if features.special and features.river %}4{% elif features.special or features.river %}3{% else %}2{% endif %}</span>Special Rules</h5>
+  <div class="card p-3 mb-3 msc-section">
+    <h5 class="root-title mb-1"><span class="badge text-bg-secondary me-2"><span class="msc-num"></span></span>Special Rules</h5>
     <p class="small text-muted mb-2">The map's own rules (up to {{ form.limits.rules }}).</p>
-    {% if features.river %}
-      <div class="border rounded p-2 mb-2 bg-body-tertiary small" data-raging-preview>
-        <strong>{{ text.raging_river }}.</strong> {{ text.raging_river_text }}
-        <span class="text-muted">(from Raging River)</span>
-      </div>
-    {% endif %}
+    <div class="border rounded p-2 mb-2 bg-body-tertiary small" data-raging-preview data-river-only>
+      <strong>{{ text.raging_river }}.</strong> {{ text.raging_river_text }}
+      <span class="text-muted">(from Raging River)</span>
+    </div>
     <div id="msc-rules">
       {% for rule in form.rules %}
         {% include 'the_keep/includes/map_setup_card_rule_row.html' %}
@@ -91,10 +113,12 @@ law_url ("Add a Law entry" for the map's keep post, optional).
     </div>
   </div>
 
+  {% if not embedded %}
   <div class="d-flex justify-content-end gap-2">
     <a href="{{ cancel_url }}" class="btn btn-outline-secondary">Cancel</a>
     <button type="submit" class="btn btn-primary"><i class="bi bi-save me-1"></i>Save Setup Card</button>
   </div>
+  {% endif %}
 </form>
 
 <script>
@@ -138,12 +162,41 @@ law_url ("Add a Law entry" for the map's keep post, optional).
     refresh();
   });
 
-  // The stock Raging River rule shows while Raging River is Yes.
+  // The stock Raging River rule shows while Raging River is Yes (and the
+  // map has rivers).
   function raging() {
     const yes = form.querySelector('input[name="raging_river"][value="yes"]');
-    form.querySelectorAll('[data-raging-preview]').forEach(node => { node.hidden = !(yes && yes.checked); });
+    const rivers = !form.querySelector('[data-river-section]').hidden;
+    form.querySelectorAll('[data-raging-preview]').forEach(node => { node.hidden = !(rivers && yes && yes.checked); });
   }
   form.addEventListener('change', raging);
+
+  // An unnamed special path type's name: "Special Paths" while it's the
+  // map's only type, else its colour's ("Red Paths"); typed names head
+  // their section.
+  function names() {
+    const several = form.querySelectorAll('[data-special-section]:not([hidden])').length > 1;
+    form.querySelectorAll('[data-special-section]').forEach(section => {
+      const input = section.querySelector('[data-special-name]');
+      const fallback = several ? input.dataset.several : input.dataset.single;
+      input.placeholder = fallback;
+      section.querySelector('[data-special-heading]').textContent = input.value.trim() || fallback;
+    });
+  }
+  form.addEventListener('input', names);
+
+  // The builder (embedded) shows the sections its live layout has, and saves
+  // the form with the layout: it's never posted itself.
+  form.mscSections = (specials, river) => {
+    form.querySelectorAll('[data-special-section]').forEach(section => {
+      section.hidden = !specials.includes(section.dataset.specialSection);
+    });
+    form.querySelector('[data-river-section]').hidden = !river;
+    names();
+    raging();
+  };
+  if (form.hasAttribute('data-embedded')) form.addEventListener('submit', event => event.preventDefault());
+  names();
   raging();
   refresh();
 })();

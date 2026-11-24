@@ -93,6 +93,8 @@ def map_builder_config(forged_map, *, profile, readonly=False):
         upload_url=upload_url,
         # Paths & Rivers: drawn in the builder (and printed on a map without art).
         paths_step=True,
+        # Setup Card Rules, after them (the page passes its form: map_views).
+        rules_step=not readonly,
         path=path_config(MapGeometry(*FORGE_FRAME)),
         blank=MAP_BLANK,
         create_url=reverse('forge-map-create') if forged_map is None else None,

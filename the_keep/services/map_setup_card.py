@@ -9,12 +9,16 @@ keep Map later. Nothing here reads a model's own fields beyond those: the
 engine draws from a title, a builder layout (tts_builder) and the card's data,
 and refresh_setup_card stores its images on whatever it's given.
 
-The card's data (map_card):
-    {"special_path_rule": str, "modifications": str, "raging_river": bool,
-     "rules": [{"name": str, "text": str}]}
-The special paths' name is the layout's special_path_name, and the card's
-fixed wording is in the Forge's translations (pdf_engine.PDF_TEXT,
-'map_setup_card'), in the map's language with English for anything missing.
+The card's data (map_card), the same JSON on a Forge map and a keep Map:
+    {"special_paths": {type key: {"name": str, "rule": str, "divides_forests": bool}},
+     "modifications": str, "raging_river": bool, "rules": [{"name": str, "text": str}]}
+A map's special paths come in types, by colour (tts_map.SPECIAL_PATH_TYPES):
+each has its own name, rule and whether it divides forests (special_types).
+Cards saved before then had one "special_path_rule" and
+"special_divides_forests", and the layout its "special_path_name": read as
+the first type's. The card's fixed wording is in the Forge's translations
+(pdf_engine.PDF_TEXT, 'map_setup_card'), in the map's language with English
+for anything missing.
 """
 import hashlib
 import json
@@ -24,9 +28,10 @@ from functools import lru_cache
 from io import BytesIO
 from types import SimpleNamespace
 
-from .tts_map import PRINT_DIR, SUITS, MapGeometry, lake_clearings, path_shapes, print_rivers, river_extras, route_paths
+from .tts_map import (PRINT_DIR, SPECIAL_DEFAULT, SPECIAL_KEYS, SPECIAL_PATH_NAME_MAX, SPECIAL_PATH_TYPES, SUITS,
+                      MapGeometry, lake_clearings, path_shapes, print_rivers, river_extras, route_paths, special_key)
 
-SETUP_CARD_RENDER_VERSION = 20
+SETUP_CARD_RENDER_VERSION = 21
 CARD_DIR = PRINT_DIR / 'setup_card'
 
 # ── The card's data ─────────────────────────────────────────────────────────
@@ -56,44 +61,95 @@ def clean_setup_card(data):
         name, text = _text(rule.get('name'), RULE_NAME_MAX), _text(rule.get('text'), RULE_TEXT_MAX)
         if name or text:
             rules.append({'name': name, 'text': text})
+    # Each special path type's name, rule and whether it divides forests (only
+    # for drawing the trees: any rule about it is the designer's own). A card
+    # from before types: its one rule and switch are the first type's.
+    stored = data.get('special_paths') if isinstance(data.get('special_paths'), dict) else {}
+    if not stored and ('special_path_rule' in data or 'special_divides_forests' in data):
+        stored = {SPECIAL_DEFAULT: {'rule': data.get('special_path_rule'),
+                                    'divides_forests': data.get('special_divides_forests')}}
+    special_paths = {}
+    for key in SPECIAL_KEYS:
+        entry = stored.get(key)
+        if not isinstance(entry, dict):
+            continue
+        kept = {'name': _text(entry.get('name'), SPECIAL_PATH_NAME_MAX),
+                'rule': _text(entry.get('rule'), SPECIAL_RULE_MAX),
+                'divides_forests': entry.get('divides_forests') is not False}
+        if kept['name'] or kept['rule'] or not kept['divides_forests']:    # (else: all defaults, nothing to keep)
+            special_paths[key] = kept
     return {
-        'special_path_rule': _text(data.get('special_path_rule'), SPECIAL_RULE_MAX),
+        'special_paths': special_paths,
         'modifications': _text(data.get('modifications'), MODIFICATIONS_MAX),
         'raging_river': data.get('raging_river') is True,
-        # Only for drawing the trees (any rule about it is the designer's own).
-        'special_divides_forests': data.get('special_divides_forests') is not False,
         'rules': rules[:RULES_MAX],
     }
 
 
+def used_special_keys(layout):
+    """The special path types the layout has, in SPECIAL_PATH_TYPES order."""
+    used = {special_key(p) for p in (layout or {}).get('paths') or [] if isinstance(p, dict) and p.get('kind') == 'special'}
+    return [key for key in SPECIAL_KEYS if key in used]
+
+
 def layout_features(layout):
-    """{'special': bool, 'river': bool}: which of the card's sections apply."""
+    """{'special': bool, 'specials': [type keys used], 'river': bool}: which of
+    the card's sections apply."""
     kinds = {p.get('kind') for p in (layout or {}).get('paths') or [] if isinstance(p, dict)}
-    return {'special': 'special' in kinds, 'river': 'river' in kinds}
+    specials = used_special_keys(layout)
+    return {'special': bool(specials), 'specials': specials, 'river': 'river' in kinds}
 
 
 def applicable(layout, map_card):
-    """The card's data with the sections the layout no longer has blanked (a
-    special path rule without special paths, Raging River without rivers).
-    They stay stored, so they come back with them."""
+    """The card's data with the sections the layout no longer has dropped (a
+    special path type it doesn't use, Raging River without rivers). They stay
+    stored, so they come back with them."""
     card = clean_setup_card(map_card)
-    features = layout_features(layout)
-    if not features['special']:
-        card['special_path_rule'] = ''
-        card['special_divides_forests'] = True
-    if not features['river']:
+    used = used_special_keys(layout)
+    card['special_paths'] = {key: entry for key, entry in card['special_paths'].items() if key in used}
+    if not layout_features(layout)['river']:
         card['raging_river'] = False
     return card
+
+
+def default_special_name(key, lang_code, several):
+    """An unnamed special path type's name: "Special Paths" on a map with one
+    type of them, else its colour's ("Red Paths")."""
+    text = card_text(lang_code)
+    if several:
+        return text.get(f'special_paths_{key}') or next(t['label'] for t in SPECIAL_PATH_TYPES if t['key'] == key)
+    return text.get('special_paths', '')
+
+
+def special_types(layout, map_card, lang_code):
+    """The special path types the layout uses, in order: [{key, colour,
+    label, name (the card's, else the default), named (the card's own),
+    rule, divides_forests, count}]. A card without a name for the first type
+    takes the layout's old special_path_name."""
+    card = clean_setup_card(map_card)
+    used = used_special_keys(layout)
+    counts = {key: sum(1 for p in (layout or {}).get('paths') or []
+                       if isinstance(p, dict) and p.get('kind') == 'special' and special_key(p) == key) for key in used}
+    out = []
+    for kind in SPECIAL_PATH_TYPES:
+        key = kind['key']
+        if key not in used:
+            continue
+        entry = card['special_paths'].get(key) or {}
+        name = entry.get('name') or ''
+        if not name and key == SPECIAL_DEFAULT:
+            name = _text((layout or {}).get('special_path_name'), SPECIAL_PATH_NAME_MAX)
+        out.append({'key': key, 'colour': kind['colour'], 'label': kind['label'], 'named': bool(name),
+                    'name': name or default_special_name(key, lang_code, len(used) > 1),
+                    'rule': entry.get('rule', ''), 'divides_forests': entry.get('divides_forests', True),
+                    'count': counts[key]})
+    return out
 
 
 def card_text(lang_code):
     """The card's fixed wording in the language (English for anything missing)."""
     from the_forge.pdf_engine import _pdf_text
     return _pdf_text('map_setup_card', lang_code)
-
-
-def special_path_name(layout, lang_code):
-    return (layout or {}).get('special_path_name') or card_text(lang_code).get('special_paths', '')
 
 
 def _diagram_layout(layout):
@@ -108,6 +164,7 @@ def _diagram_layout(layout):
         'lakes': layout.get('lake_shapes') or [],
     }
     if layout_features(layout)['special']:
+        # (The first type's old name, when its card has none.)
         out['special_path_name'] = layout.get('special_path_name') or ''
     return out
 
@@ -160,7 +217,6 @@ NUMBER_SUIT_NUDGE = 2       # a fixed-suit clearing's number, this much lower: c
 INK = '#110f0d'
 PATH_WIDTH = 2.0
 PATH_DASH = (2.0, 2.0)
-SPECIAL_COLOUR = '#ed2731'    # tts_map.PATH_COLOURS['special']
 RIVER_COLOUR = '#978ead'      # the example card's river: its blue, half over the paper
 RIVER_WIDTH = 3.25           # half the example card's band
 RAGING_RIVER_WIDTH = RIVER_WIDTH * 2
@@ -595,7 +651,7 @@ class _Diagram:
     the frame's edge and merged into each other as on the printed map) and the
     forests' trees."""
 
-    def __init__(self, layout, frame, box, raging, special_divides=True):
+    def __init__(self, layout, frame, box, raging, dividing_specials=None):
         self.box_w, self.box_h = box
         clearings = layout.get('clearings') or []
         fw, fh = frame
@@ -676,12 +732,13 @@ class _Diagram:
                             for i, s in enumerate(ordered) if s['kind'] == 'lake']
         self.paths = [s for s in ordered if s['kind'] not in ('river', 'lake')]
 
-        # What bounds a forest: paths, special paths (unless the map says they
-        # don't divide forests: then trees just keep off their line) and, when
-        # it's raging, the river.
-        lines = [(s['points'], PATH_WIDTH / 2) for s in self.paths if special_divides or s['kind'] != 'special']
-        avoid_lines = [] if special_divides else \
-            [(s['points'], PATH_WIDTH / 2) for s in self.paths if s['kind'] == 'special']
+        # What bounds a forest: paths, special paths (those of the types in
+        # dividing_specials, all when None; trees just keep off the others'
+        # line) and, when it's raging, the river.
+        def divides(s):
+            return s['kind'] != 'special' or dividing_specials is None or s.get('special') in dividing_specials
+        lines = [(s['points'], PATH_WIDTH / 2) for s in self.paths if divides(s)]
+        avoid_lines = [(s['points'], PATH_WIDTH / 2) for s in self.paths if not divides(s)]
         if raging:
             lines += [(points, width / 2 * (1 + RIVER_WOBBLE)) for points in self.rivers]
         # Lakes always divide forests, and no tree is ever in one.
@@ -712,11 +769,8 @@ class _Diagram:
         # A forest's point that the card draws on (or right beside) a line
         # that bounds forests (a raging river, drawn wide): moved off it, to
         # the side the forest is on on the map.
-        dividing = {'path', 'special'} if special_divides else {'path'}
-        if raging:
-            dividing.add('river')
-        on_map = [(s['points'], kind) for s, kind in zip(path_shapes(MapGeometry(fw, fh), layout),
-                                                         (p['kind'] for p in paths)) if kind in dividing]
+        on_map = [(s['points'], s['kind']) for s in path_shapes(MapGeometry(fw, fh), layout)
+                  if divides(s) and s['kind'] != 'lake' and (raging or s['kind'] != 'river')]
         spots = [_off_lines(place(f), lines, _map_side(f, on_map, place)) for f in forests]
         self.trees = forest_trees((self.box_w, self.height), self.clearings, lines,
                                   spots, avoid=icons, avoid_lines=avoid_lines,
@@ -740,6 +794,8 @@ class MapSetupCardEngine:
         self.frame = frame
         self.lang_code = lang_code
         self.text = card_text(lang_code)
+        # The special path types the map uses: their colours, names and rules.
+        self.specials = special_types(self.layout, map_card, lang_code)
         self.width, self.height = _card_size()
         self.text_w = self.width - 2 * MARGIN
         # The setup modifications go on the back, before the rules; only if
@@ -764,8 +820,7 @@ class MapSetupCardEngine:
         items = []
         if self.modifications_on_back:
             items.append((self.text.get('modifications', ''), self.card['modifications']))
-        if self.card['special_path_rule']:
-            items.append((special_path_name(self.layout, self.lang_code), self.card['special_path_rule']))
+        items += [(kind['name'], kind['rule']) for kind in self.specials if kind['rule']]
         if self.raging:
             items.append((self.text.get('raging_river', ''), self.text.get('raging_river_text', '')))
         items += [(rule['name'], rule['text']) for rule in self.card['rules']]
@@ -782,10 +837,9 @@ class MapSetupCardEngine:
         return paragraphs
 
     def _legend(self, size=BODY_SIZE):
-        if not layout_features(self.layout)['special']:
-            return None
-        # Just the name beside its red line: what they do is a rule, on the back.
-        return _paragraph(': ' + _escape(special_path_name(self.layout, self.lang_code)), size)
+        """[(paragraph, colour)]: a line per special path type, its name beside
+        a stretch of its line (what they do is a rule, on the back)."""
+        return [(_paragraph(': ' + _escape(kind['name']), size), kind['colour']) for kind in self.specials]
 
     def _legend_width(self):
         return self.text_w - LEGEND_INDENT
@@ -794,7 +848,7 @@ class MapSetupCardEngine:
         """(top text height, legend height, the diagram's height)."""
         top = _height(self._front_top(), self.text_w)
         legend = self._legend()
-        legend_h = legend.wrap(self._legend_width(), 10_000)[1] if legend else 0.0
+        legend_h = _height([p for p, _colour in legend], self._legend_width())
         available = self.height - BODY_TOP - BOTTOM - top - legend_h
         available -= (DIAGRAM_GAP if top else 0) + (DIAGRAM_GAP if legend_h else 0)
         return top, legend_h, available
@@ -857,25 +911,27 @@ class MapSetupCardEngine:
             y += DIAGRAM_GAP
         box_h = min(max(available, 0), DIAGRAM_MAX_H)
         diagram = _Diagram(self.layout, self.frame, (self.width - 2 * MARGIN, box_h), self.raging,
-                           special_divides=self.card['special_divides_forests'])
+                           dividing_specials={kind['key'] for kind in self.specials if kind['divides_forests']})
         # The diagram, centred in its space (all of it, when DIAGRAM_MAX_H holds it smaller).
         frame_top = y + (max(available, 0) - diagram.height) / 2
         self._draw_diagram(c, diagram, MARGIN, frame_top)
-        legend = self._legend()
-        if legend is not None:
-            legend_top = self.height - BOTTOM - legend_h
-            legend.wrap(self._legend_width(), 10_000)
-            x = MARGIN + LEGEND_INDENT
-            legend.drawOn(c, x, self.height - legend_top - legend_h)
-            # The swatch, beside the legend's first line.
-            line_y = self.height - legend_top - BODY_SIZE * LEADING / 2 - 1
+        # The legend, at the bottom: a line per special path type, each with
+        # its swatch beside its first line.
+        top = self.height - BOTTOM - legend_h
+        for n, (paragraph, colour) in enumerate(self._legend()):
+            if n:
+                top += PARAGRAPH_GAP
+            h = paragraph.wrap(self._legend_width(), 10_000)[1]
+            paragraph.drawOn(c, MARGIN + LEGEND_INDENT, self.height - top - h)
+            line_y = self.height - top - BODY_SIZE * LEADING / 2 - 1
             c.saveState()
-            c.setStrokeColor(HexColor(SPECIAL_COLOUR))
+            c.setStrokeColor(HexColor(colour))
             c.setLineWidth(PATH_WIDTH)
             c.setDash(list(PATH_DASH), 0)
             start = MARGIN + LEGEND_INSET
             c.line(start, line_y, start + LEGEND_SWATCH, line_y)
             c.restoreState()
+            top += h
 
     def draw_back(self, c):
         self._border_and_title(c)
@@ -944,16 +1000,17 @@ class MapSetupCardEngine:
 
         self._draw_trees(c, [at(p) for p in diagram.trees])
 
-        # Special paths, then paths (tts_map.PATH_DRAW_ORDER).
-        for kind, colour in (('special', SPECIAL_COLOUR), ('path', INK)):
-            c.saveState()
-            c.setStrokeColor(HexColor(colour))
-            c.setLineWidth(PATH_WIDTH)
-            c.setDash(list(PATH_DASH), 0)
+        # Special paths (each in its type's colour), then paths (tts_map.PATH_DRAW_ORDER).
+        for kind in ('special', 'path'):
             for shape in diagram.paths:
-                if shape['kind'] == kind and shape['points'][0] != shape['points'][-1]:
-                    polyline(shape['points'])
-            c.restoreState()
+                if shape['kind'] != kind or shape['points'][0] == shape['points'][-1]:
+                    continue
+                c.saveState()
+                c.setStrokeColor(HexColor(shape['colour'] if kind == 'special' else INK))
+                c.setLineWidth(PATH_WIDTH)
+                c.setDash(list(PATH_DASH), 0)
+                polyline(shape['points'])
+                c.restoreState()
 
         # Clearings: the paper inside, the ring, the number.
         from reportlab.graphics import renderPDF
@@ -1024,6 +1081,32 @@ class MapSetupCardEngine:
             return buf.getvalue()
 
         return page(self.draw_front), (page(self.draw_back) if self.has_back else None)
+
+
+def save_builder_card(owner, fields, layout, *, title, frame, lang_code):
+    """The map builder's Rules step, saved: `fields` are its form's fields
+    ({name: value or [values]}, as the builder sends them), checked like the
+    setup card page's (MapSetupCardForm, against the builder's layout) and
+    stored as owner.map_card (a ForgedMap or a keep Map: the same JSON).
+    Returns a list of errors (nothing stored then); [] when saved."""
+    from django.http import QueryDict
+
+    from the_keep.forms import MapSetupCardForm
+    if not isinstance(fields, dict):
+        return ["Couldn't read the setup card's rules."]
+    data = QueryDict(mutable=True)
+    for name, value in fields.items():
+        for item in (value if isinstance(value, list) else [value]):
+            if isinstance(item, (str, int, float, bool)):
+                data.appendlist(str(name), str(item))
+    form = MapSetupCardForm(data, title=title, layout=layout, frame=frame, lang_code=lang_code,
+                            map_card=owner.map_card)
+    if not form.is_valid():
+        return [error for errors in form.errors.values() for error in errors]
+    if owner.map_card != form.cleaned_data['map_card']:
+        owner.map_card = form.cleaned_data['map_card']
+        type(owner).objects.filter(pk=owner.pk).update(map_card=owner.map_card)
+    return []
 
 
 def setup_card_fits(title, layout, map_card, *, frame, lang_code):
