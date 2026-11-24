@@ -3,16 +3,17 @@
 // A lake is drawn from clearing to clearing like a river, but printed as an
 // area of water. It fills the space around it, stopping halfway to the land:
 // every point of the board goes to whichever it's nearer, the water (the
-// lakes' lines and their clearings) or the land (other clearings, paths,
-// special paths, rivers, forest markers, building slots and ruins). So lakes
-// with nothing between them merge into one, and a lake covers its own
-// clearings but leaves their buildings dry.
+// lakes' lines) or the land (other clearings, paths, special paths, rivers,
+// forest markers). So lakes with nothing between them merge into one. A lake
+// overlaps only the edge of its own clearings (their centres stay dry, and so
+// do the buildings there), meeting each with a broad rounded contact, or,
+// where a river ends at that clearing, narrowing to the river's width so the
+// river seems to widen into it.
 //
-// A lake body (clearings joined by lake paths) whose clearings are all on the
-// edge of the map (reachable from the board's edge without crossing a path,
-// river or clearing) is an ocean: the stretch of the board's edge nearest its
-// clearings is water too, ending halfway to the next edge clearings; all of
-// it when its clearings ring the map.
+// A lake body (clearings joined by lake paths) is a sea when all its lines lie
+// outside the map (nothing between them and the board's edge): the stretch of
+// the board's edge nearest its clearings is water too, ending halfway to the
+// next edge clearings. A ring of them round the map is an island's coast.
 //
 // Plain data in, plain data out (no DOM, no builder state): map_builder.js
 // calls MapLakes.shapes() and saves the outline with the layout
@@ -24,15 +25,18 @@ window.MapLakes = window.MapLakes || (function () {
   // input: {
   //   width, height,                    the frame (pixels)
   //   grid,                             cells across the frame
-  //   clearings: [{x, y, r, lake}],     lake: on a lake
+  //   clearings: [{x, y, r, lake, feeds}], lake: on a lake; feeds: a river ends there
   //   lakes: [{points, a, b}],          each lake path's line (clearing centre to centre) and its clearings
   //   lines: [{points, half}],          every other path, special path and river (land)
-  //   forests: [{x, y, r}], buildings: [{x, y, r, margin}],
+  //   forests: [{x, y, r}],
   //   overlap,                          a lake overlaps this share of its clearings' radius (their edge)
   //   smooth,                           spikes and points narrower than twice this are rounded off (pixels)
   //   minHalf,                          a lake is never narrower than twice this along its line (pixels)
   //   round,                            corners are rounded over about this distance (pixels)
   //   crossReach,                       a path an inland lake's line crosses isn't land this near the crossing (pixels)
+  //   touch, lens, funnel, variation:   an inland lake's shape (shares of its clearings' radius / gap)
+  //   riverHalf,                        a river's half-width (pixels): where a river feeds a lake clearing,
+  //                                     the lake narrows to it by the clearing's middle
   // }
   // returns { rings: [[[x, y], ...], ...] (pixels, even-odd), oceans: [clearing index, ...] }
   function shapes(input) {
@@ -239,10 +243,12 @@ window.MapLakes = window.MapLakes || (function () {
     // A sea with a coast takes its water from the coast, not its lake lines.
     const water = new Uint8Array(N), land = new Uint8Array(N), lakeLine = new Uint8Array(N);
     const setWater = (k) => { water[k] = 1; lakeLine[k] = 1; }, setLand = (k) => { land[k] = 1; };
+    // An inland lake isn't grown from its line: it's a smooth shape through
+    // its clearings (below). Only a coastless sea's lines are water here.
     const inlandLines = [];
     for (const l of lakes) {
       if (coastBody.has(find(l.a))) continue;
-      if (!oceanClearing.has(l.a)) inlandLines.push(l);
+      if (!oceanClearing.has(l.a)) { inlandLines.push(l); continue; }
       const ca = input.clearings[l.a], cb = input.clearings[l.b];
       line(setWater, trimEnds(l.points, [ca.x, ca.y], inner(ca), [cb.x, cb.y], inner(cb)), cell * 0.5);
     }
@@ -263,13 +269,9 @@ window.MapLakes = window.MapLakes || (function () {
       return at.length ? ((k) => { const i = k % cols, j = (k - i) / cols;
                                     return at.some(([x, y]) => Math.hypot(cx(i) - x, cy(j) - y) < crossReach); }) : null;
     });
-    input.clearings.forEach(c => { if (!c.lake) disc(setLand, c.x, c.y, c.r); });
+    input.clearings.forEach((c, k) => { if (!c.lake || !oceanClearing.has(k)) disc(setLand, c.x, c.y, c.r); });
     input.lines.forEach((l, n) => line(setLand, l.points, l.half, lineSkips[n]));
     for (const f of input.forests) disc(setLand, f.x, f.y, f.r);
-    // A building slot or ruin is land, except in a lake's own clearing: there
-    // it only stays dry (below), so the lake still reaches the clearing's edge.
-    const inLakeClearing = (b) => input.clearings.some(c => c.lake && Math.hypot(b.x - c.x, b.y - c.y) < c.r);
-    for (const b of input.buildings) if (!inLakeClearing(b)) disc(setLand, b.x, b.y, b.r);
     // Outside the network (between the edge clearings and the board's edge):
     // - the board's edge nearest an ocean's clearings is water, the rest land,
     //   so an ocean takes in its stretch of the edge, and its shore curves
@@ -288,12 +290,11 @@ window.MapLakes = window.MapLakes || (function () {
 
     // ── Halfway to the land ──
     const dWater = distances(water, cols, rows, cell), dLand = distances(land, cols, rows, cell);
-    // Always dry, whatever's nearer: building slots and ruins (and a margin
-    // round them), the inner discs of lake clearings, every other clearing,
-    // and every path, special path and river line.
+    // Always dry, whatever's nearer: the inner discs of lake clearings (and
+    // with them, their buildings), every other clearing, and every path,
+    // special path and river line.
     const dry = new Uint8Array(N);
     const setDry = (k) => { dry[k] = 1; };
-    for (const b of input.buildings) disc(setDry, b.x, b.y, b.r + (b.margin || 0));
     input.clearings.forEach(c => disc(setDry, c.x, c.y, c.lake ? inner(c) : c.r));
     input.lines.forEach((l, n) => line(setDry, l.points, l.half, lineSkips[n]));
     const wet = new Uint8Array(N);
@@ -318,8 +319,15 @@ window.MapLakes = window.MapLakes || (function () {
     // Soften: blur the shore (a signed distance, so a straight shore stays
     // put) over `round` pixels, rounding every corner, inside and out, so
     // lakes read as lakes, not polygons.
+    // A little variation first: smooth low-frequency noise, so a lake's shore
+    // bulges and dips gently (the same layout always gives the same lake).
+    const meanR = input.clearings.reduce((sum, c) => sum + c.r, 0) / Math.max(1, input.clearings.length);
+    const vary = (input.variation || 0) * meanR, wave = 2 * meanR;
     let open = new Float32Array(N);
-    for (let k = 0; k < N; k++) open[k] = smooth - dCore[k];
+    for (let k = 0; k < N; k++) {
+      const i = k % cols, j = (k - i) / cols;
+      open[k] = smooth - dCore[k] + (vary ? vary * valueNoise(cx(i) / wave, cy(j) / wave) : 0);
+    }
     const passes = 3, radius = Math.round((input.round || 0) / cell / Math.sqrt(passes));
     for (let p = 0; p < passes && radius > 0; p++) open = boxBlur(open, cols, rows, radius);
     // An island's coast is already a smooth curve, so near it the shore is
@@ -345,16 +353,212 @@ window.MapLakes = window.MapLakes || (function () {
         }
       }
     }
+    const fillet = Math.max((input.round || 0) * 0.5, cell);
     const field = new Float32Array(N);       // > 0: water (a smooth signed distance, for tracing)
+    for (let k = 0; k < N; k++) field[k] = smax(open[k], minHalf - dLine[k], fillet);
+    const around = (x, y, reach, fn) => {
+      const i0 = Math.max(0, Math.floor((x - reach) / cell + 0.5)), i1 = Math.min(cols - 1, Math.ceil((x + reach) / cell + 0.5));
+      const j0 = Math.max(0, Math.floor((y - reach) / cell + 0.5)), j1 = Math.min(rows - 1, Math.ceil((y + reach) / cell + 0.5));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) fn(j * cols + i, cx(i), cy(j));
+    };
+
+    // ── Inland lakes ──
+    // A smooth shape inside the clearings that make the lake, just touching
+    // each at the point facing the middle of the lake (as a coast touches its
+    // clearings): a closed curve through those points round the lake's
+    // clearings, or for two clearings (or ones nearly in a line) a lens along
+    // each lake line. Where a river ends at one of its clearings, the water
+    // runs on into the clearing, narrowing to the river's width by its middle.
+    const touch = input.touch || 0.92, riverHalf = input.riverHalf || minHalf;
+    const funnelHalf = (input.funnel || 0.35);
+    const inlandField = new Float32Array(N).fill(-Infinity);
+    const funnels = [];                     // {c, axis}: a river's way into the lake through clearing c
+    const seen = new Set();
+    for (const [root, members] of bodies) {
+      if (oceanClearing.has(root)) continue;
+      const cs = members.map(k => input.clearings[k]);
+      const meanR = cs.reduce((sum, c) => sum + c.r, 0) / cs.length;
+      const mid = [cs.reduce((sum, c) => sum + c.x, 0) / cs.length, cs.reduce((sum, c) => sum + c.y, 0) / cs.length];
+      const hull = convexHull(members.map(k => [input.clearings[k].x, input.clearings[k].y, k]));
+      const curves = [];                    // {P, outs}
+      const axisOf = new Map();             // clearing -> the way into the lake from it
+      if (hull.length >= 3 && Math.abs(polygonArea(hull)) >= 2 * meanR * meanR) {
+        const P = [], outs = [], along = [];
+        for (const [x, y, k] of hull) {
+          const c = input.clearings[k], len = Math.hypot(mid[0] - x, mid[1] - y) || 1;
+          const dir = [(mid[0] - x) / len, (mid[1] - y) / len];
+          P.push([x + dir[0] * c.r * touch, y + dir[1] * c.r * touch]);
+          outs.push([-dir[0], -dir[1]]);
+          along.push([-dir[1], dir[0]]);      // along the clearing's circle there
+          axisOf.set(k, dir);
+        }
+        curves.push({ P, outs, along });
+      } else {
+        for (const l of lakes) {
+          if (find(l.a) !== root) continue;
+          const ca = input.clearings[l.a], cb = input.clearings[l.b];
+          const leave = (c, pts) => {
+            const p = pointOnCircle(pts, [c.x, c.y], c.r), len = Math.hypot(p[0] - c.x, p[1] - c.y) || 1;
+            return [(p[0] - c.x) / len, (p[1] - c.y) / len];
+          };
+          const da = leave(ca, l.points), db = leave(cb, [...l.points].reverse());
+          const Pa = [ca.x + da[0] * ca.r * touch, ca.y + da[1] * ca.r * touch];
+          const Pb = [cb.x + db[0] * cb.r * touch, cb.y + db[1] * cb.r * touch];
+          const m = pointAlong(l.points, 0.5), len = Math.hypot(Pb[0] - Pa[0], Pb[1] - Pa[1]) || 1;
+          const n = [-(Pb[1] - Pa[1]) / len, (Pb[0] - Pa[0]) / len];
+          const gap = Math.hypot(cb.x - ca.x, cb.y - ca.y) - ca.r - cb.r;
+          const w = (input.lens || 0.3) * Math.max(gap, meanR);
+          curves.push({ P: [Pa, [m[0] + n[0] * w, m[1] + n[1] * w], Pb, [m[0] - n[0] * w, m[1] - n[1] * w]],
+                        outs: [[-da[0], -da[1]], n, [-db[0], -db[1]], [-n[0], -n[1]]],
+                        along: [[-da[1], da[0]], null, [-db[1], db[0]], null] });
+          if (!axisOf.has(l.a)) axisOf.set(l.a, da);
+          if (!axisOf.has(l.b)) axisOf.set(l.b, db);
+        }
+      }
+      // Each curve: gently varied (not at the touch points), then filled.
+      const vary = (input.variation || 0) * meanR, wave = 2 * meanR;
+      for (const { P, outs, along } of curves) {
+        const curve = catmullRom(P, outs, true, cell * 0.5, 0, 0, along);
+        let run = 0;
+        const pts = curve.points.map((p, n) => {
+          if (n) run += Math.hypot(p[0] - curve.points[n - 1][0], p[1] - curve.points[n - 1][1]);
+          const near = Math.min(...P.map(q => Math.hypot(p[0] - q[0], p[1] - q[1])));
+          const fade = Math.min(1, near / (0.5 * meanR));
+          const push = vary * valueNoise(run / wave, root * 7.31) * fade * fade * (3 - 2 * fade);
+          return [p[0] + curve.outward[n][0] * push, p[1] + curve.outward[n][1] * push];
+        });
+        fillCurve(pts);
+      }
+      for (const [k, axis] of axisOf) {
+        if (input.clearings[k].feeds && !seen.has(k)) { funnels.push({ c: input.clearings[k], axis }); seen.add(k); }
+      }
+    }
+    function fillCurve(pts) {
+      // Inside the curve: + the distance to it; outside: −.
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+      for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+      const pad = cell * 3;
+      const i0 = Math.max(0, Math.floor((x0 - pad) / cell + 0.5)), i1 = Math.min(cols - 1, Math.ceil((x1 + pad) / cell + 0.5));
+      const j0 = Math.max(0, Math.floor((y0 - pad) / cell + 0.5)), j1 = Math.min(rows - 1, Math.ceil((y1 + pad) / cell + 0.5));
+      for (let j = j0; j <= j1; j++) {
+        for (let i = i0; i <= i1; i++) {
+          const x = cx(i), y = cy(j);
+          let d = Infinity, inside = false;
+          for (let q = 0, r = pts.length - 1; q < pts.length; r = q++) {
+            const [ax, ay] = pts[q], [bx, by] = pts[r];
+            d = Math.min(d, segmentDistance(x, y, ax, ay, bx, by));
+            if ((ay > y) !== (by > y) && x < ax + (y - ay) * (bx - ax) / (by - ay)) inside = !inside;
+          }
+          const k = j * cols + i;
+          inlandField[k] = Math.max(inlandField[k], inside ? d : -d);
+        }
+      }
+    }
+    // A river's funnel through clearing c: from just inside the rim (facing
+    // the lake) to the centre, narrowing to the river's half-width there.
+    const funnelAt = (f, x, y) => {
+      const { c, axis } = f;
+      const sx = c.x + axis[0] * c.r * 0.95, sy = c.y + axis[1] * c.r * 0.95;
+      const dx = c.x - sx, dy = c.y - sy, len2 = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((x - sx) * dx + (y - sy) * dy) / len2));
+      const e = t * t * (3 - 2 * t);
+      const half = funnelHalf * c.r * (1 - e) + riverHalf * e;
+      return half - Math.hypot(x - (sx + dx * t), y - (sy + dy * t));
+    };
+    const funnelField = new Float32Array(N).fill(-Infinity);
+    for (const f of funnels) {
+      around(f.c.x, f.c.y, f.c.r * 1.2, (k, x, y) => { funnelField[k] = Math.max(funnelField[k], funnelAt(f, x, y)); });
+    }
+    const inlandFillet = Math.max(cell, 0.25 * (input.clearings.reduce((sum, c) => sum + c.r, 0) / Math.max(1, input.clearings.length)));
     for (let k = 0; k < N; k++) {
-      field[k] = Math.max(open[k], minHalf - dLine[k]);
+      const lake = funnelField[k] === -Infinity ? inlandField[k] : smax(inlandField[k], funnelField[k], inlandFillet);
+      if (lake > field[k]) field[k] = lake;
+    }
+    // What's always dry, as an exact signed distance (negative inside), so
+    // the shore follows a clearing's circle or a path's edge exactly instead
+    // of the grid's cells.
+    const dryField = new Float32Array(N).fill(Infinity);
+    const reachOut = cell * 2;
+    input.clearings.forEach(c => {
+      const R = c.lake ? inner(c) : c.r;
+      // (A river's funnel is the one water allowed inside a clearing.)
+      around(c.x, c.y, R + reachOut, (k, x, y) => {
+        dryField[k] = Math.min(dryField[k], Math.max(Math.hypot(x - c.x, y - c.y) - R, funnelField[k]));
+      });
+    });
+    input.lines.forEach((l, n) => {
+      const skip = lineSkips[n];
+      for (let q = 1; q < l.points.length; q++) {
+        const [ax, ay] = l.points[q - 1], [bx, by] = l.points[q];
+        const reach = l.half + reachOut;
+        const i0 = Math.max(0, Math.floor((Math.min(ax, bx) - reach) / cell + 0.5)), i1 = Math.min(cols - 1, Math.ceil((Math.max(ax, bx) + reach) / cell + 0.5));
+        const j0 = Math.max(0, Math.floor((Math.min(ay, by) - reach) / cell + 0.5)), j1 = Math.min(rows - 1, Math.ceil((Math.max(ay, by) + reach) / cell + 0.5));
+        for (let j = j0; j <= j1; j++) {
+          for (let i = i0; i <= i1; i++) {
+            const k = j * cols + i;
+            if (skip && skip(k)) continue;
+            dryField[k] = Math.min(dryField[k], segmentDistance(cx(i), cy(j), ax, ay, bx, by) - l.half);
+          }
+        }
+      }
+    });
+    for (let k = 0; k < N; k++) {
       if (coastField[k] !== -Infinity) field[k] = coastField[k] > 0 ? Math.max(field[k], coastField[k]) : Math.min(field[k], coastField[k]);
-      if (dry[k]) field[k] = Math.min(field[k], -cell * 0.5);
+      field[k] = Math.min(field[k], dryField[k]);
+      if (dry[k] && !(funnelField[k] > 0)) field[k] = Math.min(field[k], 0);
     }
 
+    // (Specks a few cells across, where the exact dry edges meet the grid,
+    // aren't water anyone drew: dropped.)
+    const area = (r) => Math.abs(r.reduce((sum, p, k) => { const q = r[(k + 1) % r.length]; return sum + p[0] * q[1] - q[0] * p[1]; }, 0)) / 2;
     const rings = trace(field, cols, rows, cx, cy).map(r => thin(chaikin(chaikin(r)), cell * 0.3, 400))
-      .filter(r => r.length >= 3);
+      .filter(r => r.length >= 3 && area(r) > cell * cell * 4);
     return { rings, oceans };
+  }
+
+  // The convex hull of [x, y, ...] points (monotone chain), anticlockwise.
+  function convexHull(points) {
+    const ps = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    if (ps.length < 3) return ps;
+    const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const lower = [], upper = [];
+    for (const p of ps) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop(); lower.push(p); }
+    for (const p of [...ps].reverse()) { while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop(); upper.push(p); }
+    return lower.slice(0, -1).concat(upper.slice(0, -1));
+  }
+
+  function polygonArea(points) {
+    let a = 0;
+    for (let k = 0; k < points.length; k++) {
+      const p = points[k], q = points[(k + 1) % points.length];
+      a += p[0] * q[1] - q[0] * p[1];
+    }
+    return a / 2;
+  }
+
+  // Smooth maximum / minimum: a rounded fillet about k across where two
+  // shapes meet, instead of a corner.
+  function smax(a, b, k) {
+    const h = Math.max(k - Math.abs(a - b), 0) / k;
+    return Math.max(a, b) + h * h * k * 0.25;
+  }
+  function smin(a, b, k) {
+    return -smax(-a, -b, k);
+  }
+
+  // Smooth value noise in about -1..1: hashed values on a lattice, eased
+  // between. Repeatable: the same point always gives the same value.
+  function valueNoise(x, y) {
+    const hash = (i, j) => {
+      let h = (i * 374761393 + j * 668265263) | 0;
+      h = Math.imul(h ^ (h >>> 13), 1274126177);
+      return ((h ^ (h >>> 16)) >>> 0) / 4294967295 * 2 - 1;
+    };
+    const i = Math.floor(x), j = Math.floor(y), fx = x - i, fy = y - j;
+    const ease = (t) => t * t * (3 - 2 * t);
+    const u = ease(fx), v = ease(fy);
+    const a = hash(i, j), b = hash(i + 1, j), c = hash(i, j + 1), d = hash(i + 1, j + 1);
+    return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
   }
 
   // A box blur of radius r cells, rows then columns (three passes are close
@@ -473,19 +677,32 @@ window.MapLakes = window.MapLakes || (function () {
   // A Catmull-Rom curve through points P (closed, or open with a run-on past
   // each end), sampled about `step` apart, with which side is outward at each
   // sample (from the points' own outward directions).
-  function catmullRom(P, outs, closed, step, runStart, runEnd) {
+  // `along` (optional): per point, a direction the curve must run along there
+  // (an inland lake runs along each clearing's circle where it touches it);
+  // the curve keeps its Catmull-Rom speed, just turned to that direction.
+  function catmullRom(P, outs, closed, step, runStart, runEnd, along = null) {
     const n = P.length;
     const at = (i) => (closed ? P[(i + n) % n] : P[Math.max(0, Math.min(n - 1, i))]);
     const out = (i) => (closed ? outs[(i + n) % n] : outs[Math.max(0, Math.min(n - 1, i))]);
+    const tangent = (i) => {
+      const a = at(i - 1), b = at(i + 1);
+      const m = [(b[0] - a[0]) / 2, (b[1] - a[1]) / 2];
+      const dir = along && along[closed ? (i + n) % n : Math.max(0, Math.min(n - 1, i))];
+      if (!dir) return m;
+      const speed = Math.hypot(m[0], m[1]), sign = dir[0] * m[0] + dir[1] * m[1] >= 0 ? 1 : -1;
+      return [dir[0] * speed * sign, dir[1] * speed * sign];
+    };
     const points = [], outward = [];
     const segments = closed ? n : n - 1;
     for (let i = 0; i < segments; i++) {
-      const p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2);
+      const p1 = at(i), p2 = at(i + 1), m1 = tangent(i), m2 = tangent(i + 1);
       const count = Math.max(2, Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / step));
       for (let s = 0; s < count; s++) {
         const t = s / count, t2 = t * t, t3 = t2 * t;
-        const f = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
-        points.push([f(p0[0], p1[0], p2[0], p3[0]), f(p0[1], p1[1], p2[1], p3[1])]);
+        // Cubic Hermite (with Catmull-Rom's tangents this is Catmull-Rom).
+        const h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
+        points.push([h00 * p1[0] + h10 * m1[0] + h01 * p2[0] + h11 * m2[0],
+                     h00 * p1[1] + h10 * m1[1] + h01 * p2[1] + h11 * m2[1]]);
         const o1 = out(i), o2 = out(i + 1);
         outward.push([o1[0] * (1 - t) + o2[0] * t, o1[1] * (1 - t) + o2[1] * t]);
       }

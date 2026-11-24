@@ -478,11 +478,14 @@ PATH_COLOURS = {'path': '#ffffff', 'special': '#ed2731', 'river': '#3e55a5', 'la
 # (map_lakes.js) and saves it with the layout: state['lake_shapes'], rings of
 # [u, v] (0-1), drawn even-odd (a ring can be an island's hole).
 LAKE_GRID = 180                  # the lake outline's grid: cells across the frame
-LAKE_BUILDING_MARGIN = 0.25      # a building slot or ruin stays dry this share of its size beyond its edge
 LAKE_FOREST_SIZE = 0.6           # a forest marker is land this share of a building slot across
 LAKE_CLEARING_OVERLAP = 0.25     # a lake overlaps this share of its clearings' radius (their edge); the rest stays dry
 LAKE_SMOOTH = 0.35               # spikes and points of water narrower than twice this (x a clearing's radius) are rounded off
 LAKE_CROSS_REACH = 1.0           # a path an inland lake is forced across isn't land this far (x a clearing's radius) from the crossing
+LAKE_TOUCH = 0.92               # an inland lake just touches each of its clearings this share of its radius from the centre
+LAKE_LENS = 0.3                  # a lake between two clearings is a lens this share of the gap between them wide (each side)
+LAKE_FUNNEL = 0.35               # where a river ends at a lake clearing, the lake runs in this share of its radius wide, to the river's width at its middle
+LAKE_VARIATION = 0.12            # lake shores vary gently in and out by up to this share of a clearing's radius
 LAKE_ROUND = 0.6                 # shores are softened (every corner rounded) over this share of a clearing's radius
 LAKE_MIN_HALF = 1.5              # a lake is at least this many river half-widths wide along its line
 LAKE_RINGS_MAX = 40
@@ -604,8 +607,8 @@ def path_config(geometry):
             'draw_order': list(PATH_DRAW_ORDER), 'shared_bend': SHARED_BEND,
             'samples': PATH_SAMPLES, 'bend_steps': _BEND_STEPS, 'bend_max': _BEND_MAX, 'blank': MAP_BLANK,
             # Lakes (map_lakes.js): their grid, and how much land a building and a forest keep.
-            'lake': {'grid': LAKE_GRID, 'building_r': BUILDING_SIZE * geometry.px_per_local / 2,
-                     'building_margin': LAKE_BUILDING_MARGIN * BUILDING_SIZE * geometry.px_per_local,
+            'lake': {'grid': LAKE_GRID,
+                     'touch': LAKE_TOUCH, 'lens': LAKE_LENS, 'funnel': LAKE_FUNNEL, 'variation': LAKE_VARIATION,
                      'forest_r': LAKE_FOREST_SIZE * BUILDING_SIZE * geometry.px_per_local / 2,
                      'clearing_overlap': LAKE_CLEARING_OVERLAP,
                      'smooth': LAKE_SMOOTH * DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
@@ -1026,6 +1029,17 @@ def river_extras(paths, shapes, circles, width, frame, join_clearings=True, spri
                 if target is not None:
                     (tx, ty), (nx, ny) = target
                     reach = circles[k][2] * RIVER_LINK_REACH
+                    cx, cy, cr = circles[k]
+                    if math.hypot(tx - cx, ty - cy) < cr * 0.6:
+                        # The lake's funnel reaches into the clearing, a river's
+                        # width at its middle (map_lakes.js): the river runs on to
+                        # the middle, where it meets it.
+                        for at, d in items:
+                            nx, ny = _unit(cx - at[0], cy - at[1])
+                            p1 = (at[0] + d[0] * reach, at[1] + d[1] * reach)
+                            p2 = (cx - nx * reach * 0.5, cy - ny * reach * 0.5)
+                            links.append(sampled(lambda t, at=at, p1=p1, p2=p2: _cubic(at, p1, p2, (cx, cy), t)))
+                        continue
                     end = (tx + nx * half, ty + ny * half)     # a little into the water: no hairline gap
                     for at, d in items:
                         p1 = (at[0] + d[0] * reach, at[1] + d[1] * reach)

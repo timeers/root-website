@@ -511,17 +511,21 @@
   function lakeRings(full = false) {
     if (!PATH || !state.paths.some(p => p.kind === 'lake') || !window.MapLakes) return [];
     const grid = full || !drag ? PATH.lake.grid : Math.round(PATH.lake.grid / 2);
-    const key = JSON.stringify([state.clearings, state.paths, state.forests, state.buildings]);
+    const key = JSON.stringify([state.clearings, state.paths, state.forests]);
     if (lakeCache.key === key && lakeCache.grid >= grid) return lakeCache.rings;
     const shapes = pathCache.length === state.paths.length ? pathCache : pathShapes();
     const cs = circles();
     const onLake = new Set(state.paths.filter(p => p.kind === 'lake').flatMap(p => [p.a.c, p.b.c]));
+    // Clearings a river ends at: a lake there narrows to meet it.
+    const feeds = new Set(state.paths.filter(p => p.kind === 'river').flatMap(p => [p.a, p.b]).filter(e => 'c' in e).map(e => e.c));
     const centre = (e) => cs[e.c].slice(0, 2);
     const input = {
       width: W, height: H, grid,
       overlap: PATH.lake.clearing_overlap, smooth: PATH.lake.smooth, minHalf: PATH.lake.min_half,
       round: PATH.lake.round, crossReach: PATH.lake.cross_reach,
-      clearings: cs.map(([x, y, r], i) => ({ x, y, r, lake: onLake.has(i) })),
+      touch: PATH.lake.touch, lens: PATH.lake.lens, funnel: PATH.lake.funnel, variation: PATH.lake.variation,
+      riverHalf: PATH.width * PATH.river_width / 2,
+      clearings: cs.map(([x, y, r], i) => ({ x, y, r, lake: onLake.has(i), feeds: feeds.has(i) })),
       // A lake's line runs on into its clearings' centres.
       lakes: state.paths.map((p, i) => [p, i]).filter(([p]) => p.kind === 'lake')
         .map(([p, i]) => ({ a: p.a.c, b: p.b.c, points: [centre(p.a), ...shapes[i].points, centre(p.b)] })),
@@ -529,7 +533,6 @@
         .map(([p, i]) => ({ points: shapes[i].points,
                             half: PATH.width * (p.kind === 'river' ? PATH.river_width : 1) / 2 })),
       forests: state.forests.map(f => { const [x, y] = px(f); return { x, y, r: PATH.lake.forest_r }; }),
-      buildings: state.buildings.map(b => { const [x, y] = px(b.at); return { x, y, r: PATH.lake.building_r, margin: PATH.lake.building_margin }; }),
     };
     let rings = [];
     try {

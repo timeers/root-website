@@ -2253,6 +2253,15 @@ class MapPathTests(TestCase):
         self.assertGreater(link[-1][0], x0)            # just inside the water's edge
         self.assertLess(link[-1][0], x0 + half + 1)
 
+    def test_a_river_meets_the_lakes_funnel_at_its_clearings_middle(self):
+        # The outline reaches into clearing 1 (as map_lakes.js's funnel does):
+        # the river runs on to the clearing's centre.
+        g = self._geometry()
+        ring = [[0.49, 0.49], [0.75, 0.47], [0.75, 0.53], [0.49, 0.51]]
+        state, shapes, rivers = self._river_into_lake([{'kind': 'river', 'a': {'c': 3}, 'b': {'c': 1}}], [ring])
+        link = next(l for l in rivers['links'] if math.dist(l[0], shapes[1]['points'][-1]) < 1e-6)
+        self.assertLess(math.dist(link[-1], g.to_pixels(0.5, 0.5)), 1.0)
+
     def test_several_rivers_feed_one_lake(self):
         state, shapes, rivers = self._river_into_lake([{'kind': 'river', 'a': {'c': 3}, 'b': {'c': 1}},
                                                        {'kind': 'river', 'a': {'c': 4}, 'b': {'c': 1}}])
@@ -2264,8 +2273,9 @@ class MapPathTests(TestCase):
         from the_keep.services.tts_map import path_config
         lake = path_config(self._geometry())['lake']
         self.assertEqual(lake['clearing_overlap'], 0.25)
-        for key in ('smooth', 'min_half', 'round', 'cross_reach'):
+        for key in ('smooth', 'min_half', 'round', 'cross_reach', 'touch', 'lens', 'funnel', 'variation'):
             self.assertGreater(lake[key], 0)
+        self.assertNotIn('building_r', lake)            # buildings don't shape lakes (their clearings do)
 
     def test_print_layout_gives_the_lake_outline_or_a_line(self):
         from the_keep.services.tts_map import print_layout
