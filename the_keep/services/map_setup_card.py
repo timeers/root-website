@@ -26,7 +26,7 @@ from types import SimpleNamespace
 
 from .tts_map import PRINT_DIR, SUITS, MapGeometry, lake_clearings, print_rivers, river_extras, route_paths
 
-SETUP_CARD_RENDER_VERSION = 18
+SETUP_CARD_RENDER_VERSION = 19
 CARD_DIR = PRINT_DIR / 'setup_card'
 
 # ── The card's data ─────────────────────────────────────────────────────────
@@ -183,6 +183,7 @@ TREE_SPACING = 8.0            # the trees' hex grid: the distance between neighb
 TREE_GAP = 1.2                # from a clearing, a path (or a raging river) and the diagram's edge
 TREE_JITTER = 1.8             # each tree nudged up to this far (any direction), so the grid doesn't show
 TREE_SKIP = 0.08              # this share of spots left empty, for a few natural gaps
+FOREST_GAP = 1.5 * TREE_SPACING   # two clearings drawn closer than this, with an opening between them on the map, don't split a forest
 
 
 def _card_size():
@@ -363,7 +364,7 @@ def _inside(p, rings):
     return inside
 
 
-def forest_trees(frame, clearings, lines, forests, avoid=(), avoid_lines=(), water=()):
+def forest_trees(frame, clearings, lines, forests, avoid=(), avoid_lines=(), water=(), bounds=None):
     """Where a card's trees go: (x, y) of each, filling each forest's area.
 
     frame: (width, height), its corner at 0, 0. clearings: (x, y, r) each.
@@ -372,7 +373,13 @@ def forest_trees(frame, clearings, lines, forests, avoid=(), avoid_lines=(), wat
     avoid: (x, y, r) discs trees keep clear of but that don't bound a forest
     (the suit icons). avoid_lines: (polyline, half width) likewise (special
     paths, on a map where they don't divide forests). water: lake outlines
-    (rings): no tree inside one.
+    (rings): no tree inside one. bounds: the clearings as big as they are on
+    the map, scaled to the card ((x, y, r) each, none bigger than as drawn):
+    these, not the drawn ones, part the areas, so two clearings drawn nearly
+    touching where the map has an opening between them don't split a forest
+    (trees still keep clear of the drawn ones). Lines that stop at a drawn
+    clearing's circle run on to its centre for this, so there's no way round
+    their ends.
 
     Works on the trees' own hex grid, in two parts. The areas: neighbouring
     spots are joined unless a line or a clearing lies between them, so only
@@ -386,6 +393,16 @@ def forest_trees(frame, clearings, lines, forests, avoid=(), avoid_lines=(), wat
     edge = tree_half + TREE_GAP
     segments = [(a, b, half) for points, half in lines for a, b in _segments(points)]
     clear_of = segments + [(a, b, half) for points, half in avoid_lines for a, b in _segments(points)]
+    if bounds is None:
+        bounds = clearings
+    else:
+        for points, half in lines:
+            if not half:
+                continue          # (a lake's shore: closed already)
+            for end in (points[0], points[-1]):
+                centre = next(((cx, cy) for cx, cy, r in clearings if math.hypot(end[0] - cx, end[1] - cy) <= r + 1), None)
+                if centre is not None:
+                    segments.append((tuple(end), centre, half))
 
     def noise(i, j):
         """A spot's nudge (any direction, up to TREE_JITTER) and whether it's
@@ -416,7 +433,7 @@ def forest_trees(frame, clearings, lines, forests, avoid=(), avoid_lines=(), wat
             p = (x + dx, y + dy)
             if not (0 <= p[0] <= width and 0 <= p[1] <= height):
                 continue
-            if any(math.hypot(p[0] - cx, p[1] - cy) < r for cx, cy, r in clearings):
+            if any(math.hypot(p[0] - cx, p[1] - cy) < r for cx, cy, r in bounds):
                 continue
             if any(_seg_distance(p, a, b) < half for a, b, half in segments):
                 continue
@@ -425,7 +442,7 @@ def forest_trees(frame, clearings, lines, forests, avoid=(), avoid_lines=(), wat
                 drawn.add((i, j))
 
     def blocked(p, q):
-        if any(_seg_distance((cx, cy), p, q) < r for cx, cy, r in clearings):
+        if any(_seg_distance((cx, cy), p, q) < r for cx, cy, r in bounds):
             return True
         lo_x, hi_x, lo_y, hi_y = min(p[0], q[0]), max(p[0], q[0]), min(p[1], q[1]), max(p[1], q[1])
         for a, b, _half in segments:
@@ -558,9 +575,29 @@ class _Diagram:
         # Trees keep clear of the suit icons too (a disc round each, on top of its clearing).
         icons = [(x, y - r, SUIT_ICON_H * SUIT_ICON_SCALE.get(suit, 1) * self.r / CLEARING_R / 2)
                  for (x, y, r), suit in zip(self.clearings, self.suits) if suit]
+        # The card draws every clearing one size, often closer together than
+        # on the map: two can nearly close a gap the map leaves open between
+        # them (too narrow for the trees' grid), splitting a forest the map
+        # doesn't. There, the two part the forests a little smaller than
+        # drawn, leaving FOREST_GAP between them (paths run on to the clearings'
+        # centres for this, so nothing slips round their ends). Clearings that
+        # touch on the map itself stay as they are.
+        board = [(c['centre'][0] * fw, c['centre'][1] * fh,
+                  math.dist((c['centre'][0] * fw, c['centre'][1] * fh), (c['marker'][0] * fw, c['marker'][1] * fh))
+                  if c.get('marker') else 0.0) for c in clearings]
+        parting = [r for _x, _y, r in self.clearings]
+        for n, (x1, y1, r1) in enumerate(self.clearings):
+            for m in range(n + 1, len(self.clearings)):
+                x2, y2, r2 = self.clearings[m]
+                apart = math.dist((x1, y1), (x2, y2))
+                if apart - r1 - r2 >= FOREST_GAP or math.dist(board[n][:2], board[m][:2]) <= board[n][2] + board[m][2]:
+                    continue
+                size = max((apart - FOREST_GAP) / 2, 0.0)
+                parting[n], parting[m] = min(parting[n], size), min(parting[m], size)
+        bounds = [(x, y, r) for (x, y, _r), r in zip(self.clearings, parting)]
         self.trees = forest_trees((self.box_w, self.height), self.clearings, lines,
                                   [place(f) for f in forests], avoid=icons, avoid_lines=avoid_lines,
-                                  water=self.lakes)
+                                  water=self.lakes, bounds=bounds)
 
 
 class MapSetupCardEngine:

@@ -480,7 +480,8 @@ PATH_COLOURS = {'path': '#ffffff', 'special': '#ed2731', 'river': '#3e55a5', 'la
 # (map_lakes.js) and saves it with the layout: state['lake_shapes'], rings of
 # [u, v] (0-1), drawn even-odd (a ring can be an island's hole).
 LAKE_GRID = 180                  # the lake outline's grid: cells across the frame
-LAKE_FOREST_SIZE = 0.6           # a forest marker is land this share of a building slot across
+LAKE_FOREST_ISLAND = 0.5         # a forest in a lake or sea is an island this share of an average clearing's radius
+LAKE_SHORE_MARGIN = 0.35         # a sea keeps this share of an average clearing's radius clear of paths (beyond their width)
 LAKE_CLEARING_OVERLAP = 0.25     # a lake overlaps this share of its clearings' radius (their edge); the rest stays dry
 LAKE_SMOOTH = 0.35               # spikes and points of water narrower than twice this (x a clearing's radius) are rounded off
 LAKE_CROSS_REACH = 1.0           # a path an inland lake is forced across isn't land this far (x a clearing's radius) from the crossing
@@ -611,10 +612,11 @@ def path_config(geometry):
             'dash': PATH_DASH, 'gap': PATH_GAP, 'river_width': RIVER_WIDTH, 'default_radius': px['default_radius'],
             'draw_order': list(PATH_DRAW_ORDER), 'shared_bend': SHARED_BEND, 'link_reach': RIVER_LINK_REACH,
             'samples': PATH_SAMPLES, 'bend_steps': _BEND_STEPS, 'bend_max': _BEND_MAX, 'blank': MAP_BLANK,
-            # Lakes (map_lakes.js): their grid, and how much land a building and a forest keep.
+            # Lakes (map_lakes.js): their grid, a forest's island, and the lake shapes.
             'lake': {'grid': LAKE_GRID,
                      'touch': LAKE_TOUCH, 'lens': LAKE_LENS, 'funnel': LAKE_FUNNEL, 'variation': LAKE_VARIATION,
-                     'forest_r': LAKE_FOREST_SIZE * BUILDING_SIZE * geometry.px_per_local / 2,
+                     'forest_r': LAKE_FOREST_ISLAND * DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
+                     'shore_margin': LAKE_SHORE_MARGIN * DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
                      'clearing_overlap': LAKE_CLEARING_OVERLAP,
                      'smooth': LAKE_SMOOTH * DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
                      'round': LAKE_ROUND * DEFAULT_CLEARING_RADIUS * geometry.px_per_local,

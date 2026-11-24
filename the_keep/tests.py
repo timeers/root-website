@@ -2351,7 +2351,8 @@ class MapPathTests(TestCase):
         from the_keep.services.tts_map import path_config
         lake = path_config(self._geometry())['lake']
         self.assertEqual(lake['clearing_overlap'], 0.25)
-        for key in ('smooth', 'min_half', 'round', 'cross_reach', 'touch', 'lens', 'funnel', 'variation'):
+        for key in ('smooth', 'min_half', 'round', 'cross_reach', 'touch', 'lens', 'funnel', 'variation',
+                    'shore_margin'):
             self.assertGreater(lake[key], 0)
         self.assertNotIn('building_r', lake)            # buildings don't shape lakes (their clearings do)
 
@@ -2605,6 +2606,30 @@ class ForestTreesTests(TestCase):
         wall = ([(80.0, -10.0), (80.0, 50.0)], 1.0)
         trees = msc.forest_trees((160.0, 40.0), [], [wall], [(20.0, 20.0)])
         self.assertFalse(any(x > 80 for x, _y in trees))
+
+    def test_clearings_drawn_nearly_touching_dont_split_a_forest_the_map_doesnt(self):
+        # Two clearings drawn 4 apart, touching the frame's top and bottom:
+        # too narrow for the trees' grid, so as drawn they part it in two...
+        top, bottom = (80.0, 17.0, 17.0), (80.0, 55.0, 17.0)
+        frame = (160.0, 72.0)
+        shut = msc.forest_trees(frame, [top, bottom], [], [(30.0, 45.0)])
+        self.assertFalse(any(x > 100 for x, _y in shut))
+        # ...but where the map has an opening between them, they part the
+        # forests smaller than drawn: the forest reaches the other side, and
+        # its trees still keep clear of the clearings as drawn.
+        bounds = [(80.0, 17.0, 9.0), (80.0, 55.0, 9.0)]
+        open_ = msc.forest_trees(frame, [top, bottom], [], [(30.0, 45.0)], bounds=bounds)
+        self.assertTrue(any(x > 100 for x, _y in open_))
+        self.assertTrue(all(math.hypot(x - cx, y - cy) >= r + msc.TREE_GAP for x, y in open_ for cx, cy, r in (top, bottom)))
+        # A path ending at one of them still bounds a forest: it runs on to the
+        # clearing's centre, so nothing slips round its end.
+        wall = ([(80.0, -10.0), (80.0, 0.0)], 1.0)       # down to the top clearing's circle
+        under = ([(80.0, 72.0), (80.0, 90.0)], 1.0)      # up to the bottom one's
+        walled = msc.forest_trees(frame, [top, bottom], [wall, under], [(30.0, 45.0)], bounds=bounds)
+        self.assertTrue(any(x > 100 for x, _y in walled))                       # (the gap between them is open)
+        sealed = msc.forest_trees(frame, [top, bottom], [wall, under, ([(80.0, 34.0), (80.0, 38.0)], 1.0)],
+                                  [(30.0, 45.0)], bounds=bounds)
+        self.assertFalse(any(x > 100 for x, _y in sealed))                      # (a path between them shuts it)
 
     def test_two_forests_in_one_area_fill_it_once(self):
         one = msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0)])

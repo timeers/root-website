@@ -877,6 +877,10 @@
   let lakeCache = { key: null, grid: 0, rings: [] };
   function lakeRings(full = false) {
     if (!PATH || !state.paths.some(p => p.kind === 'lake') || !window.MapLakes) return [];
+    // A forest being dragged (or just placed): the last outline stays put
+    // until it's dropped, then it's worked out again in full. (Worked out on
+    // every move, the lakes would jump about even far from the forest.)
+    if (!full && drag && drag.kind === 'forest' && lakeCache.key !== null) return lakeCache.rings;
     const grid = full || !drag ? PATH.lake.grid : Math.round(PATH.lake.grid / 2);
     const key = JSON.stringify([state.clearings, state.paths, state.forests]);
     if (lakeCache.key === key && lakeCache.grid >= grid) return lakeCache.rings;
@@ -902,6 +906,7 @@
       overlap: PATH.lake.clearing_overlap, smooth: PATH.lake.smooth, minHalf: PATH.lake.min_half,
       round: PATH.lake.round, crossReach: PATH.lake.cross_reach,
       touch: PATH.lake.touch, lens: PATH.lake.lens, funnel: PATH.lake.funnel, variation: PATH.lake.variation,
+      shoreMargin: PATH.lake.shore_margin,
       riverHalf: PATH.width * PATH.river_width / 2, linkReach: PATH.link_reach,
       // The setup card's fit: a lake reaches a clearing as far as it is on the card.
       card: PATH.card || null,
@@ -911,7 +916,7 @@
       lakes: state.paths.map((p, i) => [p, i]).filter(([p]) => p.kind === 'lake')
         .map(([p, i]) => ({ a: p.a.c, b: p.b.c, points: [centre(p.a), ...shapes[i].points, centre(p.b)] })),
       lines: state.paths.map((p, i) => [p, i]).filter(([p]) => p.kind !== 'lake')
-        .map(([p, i]) => ({ points: shapes[i].points,
+        .map(([p, i]) => ({ points: shapes[i].points, kind: p.kind,
                             half: PATH.width * (p.kind === 'river' ? PATH.river_width : 1) / 2 })),
       forests: state.forests.map(f => { const [x, y] = px(f); return { x, y, r: PATH.lake.forest_r }; }),
     };
