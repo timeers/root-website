@@ -145,23 +145,30 @@ window.MapLakes = window.MapLakes || (function () {
       step(k, (n) => { if (outer[n] && owner[n] < 0) { owner[n] = owner[k]; queue[tail++] = n; } });
     }
 
-    // ── Lake bodies, and which are oceans ──
+    // ── Bodies: lakes and oceans ──
+    // Clearings joined by lake lines make a lake (always inland); by ocean
+    // lines (l.ocean), an ocean: the sea round the outside of the map. The two
+    // never merge: a clearing on both is in a lake and an ocean. A body's id is
+    // its root clearing, -(root + 1) for an ocean; its members are clearings.
     const parent = new Map();
     const find = (k) => { while (parent.get(k) !== k) { parent.set(k, parent.get(parent.get(k))); k = parent.get(k); } return k; };
+    const keyOf = (l, k) => (l.ocean ? -(k + 1) : k);
+    const clearingOf = (key) => (key < 0 ? -key - 1 : key);
     for (const l of lakes) {
-      for (const k of [l.a, l.b]) if (!parent.has(k)) parent.set(k, k);
-      parent.set(find(l.a), find(l.b));
+      for (const k of [keyOf(l, l.a), keyOf(l, l.b)]) if (!parent.has(k)) parent.set(k, k);
+      parent.set(find(keyOf(l, l.a)), find(keyOf(l, l.b)));
     }
+    const bodyOf = (l) => find(keyOf(l, l.a));
     const bodies = new Map();
-    for (const k of parent.keys()) {
-      const root = find(k);
+    for (const key of parent.keys()) {
+      const root = find(key);
       if (!bodies.has(root)) bodies.set(root, []);
-      bodies.get(root).push(k);
+      bodies.get(root).push(clearingOf(key));
     }
-    // A lake line is outside the map when (nearly all of) it lies in the
-    // outside area: nothing between it and the board's edge. A body is a sea
-    // when all its lines are; otherwise it's an inland lake, wherever its
-    // clearings are.
+    // An ocean is a sea when its lines lie outside the map (nearly all of each
+    // in the outside area: nothing between it and the board's edge). One
+    // drawn inside the map is drawn as a lake instead (the sea's logic needs
+    // the outside). A lake is never a sea.
     const cellAt = (x, y) => {
       const i = Math.round(x / cell + 0.5), j = Math.round(y / cell + 0.5);
       return i < 0 || j < 0 || i >= cols || j >= rows ? -1 : j * cols + i;
@@ -182,11 +189,16 @@ window.MapLakes = window.MapLakes || (function () {
       return out >= 0.8 * (out + inside);
     }
     const oceans = [];
+    const seaBody = new Set();
     for (const [root, members] of bodies) {
-      const lines = lakes.filter(l => find(l.a) === root);
-      if (lines.every(outside)) oceans.push(...members);
+      if (root >= 0) continue;
+      if (lakes.filter(l => bodyOf(l) === root).every(outside)) {
+        seaBody.add(root);
+        oceans.push(...members);
+      }
     }
     const oceanClearing = new Set(oceans);
+    const seaLine = (l) => l.ocean && seaBody.has(bodyOf(l));
 
     // ── Island coasts ──
     // A sea whose lakes form a ring (or a single chain) gets a coast: a
@@ -211,8 +223,8 @@ window.MapLakes = window.MapLakes || (function () {
       ownedSum.set(owner[k], s);
     }
     for (const [root, members] of bodies) {
-      if (!oceanClearing.has(root)) continue;
-      const order = ringOrChain(members, lakes.filter(l => find(l.a) === root));
+      if (!seaBody.has(root)) continue;
+      const order = ringOrChain(members, lakes.filter(l => bodyOf(l) === root));
       if (!order) continue;             // branching: no single coast (its lake lines stay water)
       if (order.closed) {
         // A ring is an island's coast only when it goes round the rest of the
@@ -224,10 +236,10 @@ window.MapLakes = window.MapLakes || (function () {
       }
       const outwardOf = (k) => {
         const c = input.clearings[k];
-        // Away from where its lake lines arrive...
+        // Away from where its lines arrive (this ocean's: not a lake's there)...
         let sx = 0, sy = 0, arriving = 0, first = null;
         for (const l of lakes) {
-          if (l.a !== k && l.b !== k) continue;
+          if ((l.a !== k && l.b !== k) || bodyOf(l) !== root) continue;
           const pts = l.a === k ? l.points : [...l.points].reverse();
           const [px, py] = pointOnCircle(pts, [c.x, c.y], c.r);
           const len = Math.hypot(px - c.x, py - c.y) || 1;
@@ -266,11 +278,14 @@ window.MapLakes = window.MapLakes || (function () {
     // A sea's clearings (not an island's ring): its broad water only touches
     // them from outside, like a rubber band round them; its lake lines' lens
     // and its rivers' funnels are what come into them (below).
-    const bandSea = new Set(oceans.filter(k => !ringBody.has(find(k))));
+    const bandSea = new Set([...bodies].filter(([root]) => seaBody.has(root) && !ringBody.has(root))
+      .flatMap(([, members]) => members));
     // A lake clearing keeps a dry centre unless the water already decides
     // how far in it comes: a sea's (the band), or one a river ends at (its
-    // funnel runs through the middle).
-    const dryCentre = (c, k) => c.lake && !bandSea.has(k) && !(Array.isArray(c.feeds) && c.feeds.length);
+    // funnel runs through the middle). A clearing on a lake and an ocean
+    // keeps it, for the lake.
+    const onLake = new Set(lakes.filter(l => !seaLine(l)).flatMap(l => [l.a, l.b]));
+    const dryCentre = (c, k) => c.lake && (!bandSea.has(k) || onLake.has(k)) && !(Array.isArray(c.feeds) && c.feeds.length);
 
     // ── Seeds: water and land ──
     // A lake overlaps only the edge of its clearings: inside that (the inner
@@ -284,10 +299,10 @@ window.MapLakes = window.MapLakes || (function () {
     const seaSeeds = new Map();     // sea body -> its water's seed cells (where its way to the edge starts)
     const seedOf = (root, k) => { if (!seaSeeds.has(root)) seaSeeds.set(root, []); seaSeeds.get(root).push(k); };
     for (const l of lakes) {
-      if (coastBody.has(find(l.a))) continue;
-      if (!oceanClearing.has(l.a)) { inlandLines.push(l); continue; }
+      if (coastBody.has(bodyOf(l))) continue;
+      if (!seaLine(l)) { inlandLines.push(l); continue; }
       const ca = input.clearings[l.a], cb = input.clearings[l.b];
-      line((k) => { setWater(k); seedOf(find(l.a), k); },
+      line((k) => { setWater(k); seedOf(bodyOf(l), k); },
            trimEnds(l.points, [ca.x, ca.y], inner(ca), [cb.x, cb.y], inner(cb)), cell * 0.5);
     }
     // The coast: water just outside it, and for an island's ring land just
@@ -336,7 +351,7 @@ window.MapLakes = window.MapLakes || (function () {
     //   away halfway to the next edge clearings (not a hard line);
     // - the outer area nearest an inland lake's clearings is land, so an
     //   inland lake never spills out past the map's edge clearings.
-    const inland = new Set([...parent.keys()].filter(k => !oceanClearing.has(k)));
+    const inland = new Set([...onLake].filter(k => !oceanClearing.has(k)));
     for (let k = 0; k < N; k++) {
       if (!outer[k]) continue;
       const i = k % cols, j = (k - i) / cols;
@@ -514,9 +529,20 @@ window.MapLakes = window.MapLakes || (function () {
     const seaFillet = Math.max(input.round || 0, cell * 2);
     const funnels = [];                     // {c, axis}: a river's way into the lake through clearing c
     const seen = new Set();
+    // Clearing -> [{ocean, axis}]: which way each body's water lies from it
+    // (a sea's: out to sea, where it knows), for the straits below.
+    const sides = new Map();
+    const side = (k, ocean, axis) => {
+      if (!axis) return;
+      if (!sides.has(k)) sides.set(k, []);
+      if (!sides.get(k).some(e => e.ocean === ocean)) sides.get(k).push({ ocean, axis });
+    };
     for (const [root, members] of bodies) {
-      const sea = oceanClearing.has(root);
-      if (sea && ringBody.has(root)) continue;
+      const sea = seaBody.has(root);
+      if (sea && ringBody.has(root)) {
+        for (const k of members) side(k, true, outwardDir.get(k));
+        continue;
+      }
       const cs = members.map(k => input.clearings[k]);
       const meanR = cs.reduce((sum, c) => sum + c.r, 0) / cs.length;
       const mid = [cs.reduce((sum, c) => sum + c.x, 0) / cs.length, cs.reduce((sum, c) => sum + c.y, 0) / cs.length];
@@ -538,7 +564,7 @@ window.MapLakes = window.MapLakes || (function () {
         curves.push({ P, outs, along });
       } else {
         for (const l of lakes) {
-          if (find(l.a) !== root) continue;
+          if (bodyOf(l) !== root) continue;
           const ca = input.clearings[l.a], cb = input.clearings[l.b];
           const leave = (c, pts) => {
             const p = pointOnCircle(pts, [c.x, c.y], c.r), len = Math.hypot(p[0] - c.x, p[1] - c.y) || 1;
@@ -567,15 +593,16 @@ window.MapLakes = window.MapLakes || (function () {
           if (n) run += Math.hypot(p[0] - curve.points[n - 1][0], p[1] - curve.points[n - 1][1]);
           const near = Math.min(...P.map(q => Math.hypot(p[0] - q[0], p[1] - q[1])));
           const fade = Math.min(1, near / (0.5 * meanR));
-          const push = vary * valueNoise(run / wave, root * 7.31) * fade * fade * (3 - 2 * fade);
+          const push = vary * valueNoise(run / wave, clearingOf(root) * 7.31) * fade * fade * (3 - 2 * fade);
           return [p[0] + curve.outward[n][0] * push, p[1] + curve.outward[n][1] * push];
         });
         fillCurve(pts, sea ? seaShapeField : inlandField, sea ? seaFillet : 0);
       }
+      for (const [k, axis] of axisOf) side(k, root < 0, (sea && outwardDir.get(k)) || axis);
       for (const [k, axis] of axisOf) {
         const c = input.clearings[k];
-        if (seen.has(k) || !Array.isArray(c.feeds)) continue;
-        seen.add(k);
+        if (seen.has(`${root}:${k}`) || !Array.isArray(c.feeds)) continue;
+        seen.add(`${root}:${k}`);     // (once per body: a clearing on a lake and an ocean feeds both)
         for (const [ax, ay, dx, dy] of c.feeds) {
           // At a sea's clearing a river carries on to whichever is the
           // gentler turn: its lake line's contact, or straight out to sea.
@@ -638,6 +665,43 @@ window.MapLakes = window.MapLakes || (function () {
         // (Two rivers into a sea's clearing fork apart rounded.)
         funnelField[cellK] = f.sea && funnelField[cellK] !== -Infinity
           ? smax(funnelField[cellK], half - best, seaFillet * 0.5) : Math.max(funnelField[cellK], half - best);
+      });
+    }
+    // A lake and an ocean at one clearing: joined by a strait across it, the
+    // curve a river takes through a clearing (as a funnel's), from where the
+    // one meets the clearing to where the other does. As wide as a funnel's
+    // mouth at each end, it narrows gradually to a river's width at its
+    // middle and widens again, so it reads as one water running through
+    // without taking much of the clearing's land.
+    const STRAIT_END = 1.15, STRAIT_MOUTH = 0.55;    // its ends: this far out (of the clearing's reach), this wide (half)
+    for (const [k, list] of sides) {
+      const lake = list.find(e => !e.ocean), ocean = list.find(e => e.ocean);
+      if (!lake || !ocean) continue;
+      const c = input.clearings[k], reach = c.r * linkReach;
+      const a = lake.axis, b = ocean.axis;
+      if (a[0] * b[0] + a[1] * b[1] > 0.95) continue;     // (the same way: they meet already)
+      // (Its ends just past the rim, in the water, so it opens out there.)
+      const A = [c.x + a[0] * reachR(c) * STRAIT_END, c.y + a[1] * reachR(c) * STRAIT_END];
+      const B = [c.x + b[0] * reachR(c) * STRAIT_END, c.y + b[1] * reachR(c) * STRAIT_END];
+      const p1 = [A[0] - a[0] * reach, A[1] - a[1] * reach], p2 = [B[0] - b[0] * reach, B[1] - b[1] * reach];
+      const samples = [];
+      for (let n = 0; n <= 32; n++) {
+        const t = n / 32, u = 1 - t;
+        samples.push([u * u * u * A[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * B[0],
+                      u * u * u * A[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * B[1]]);
+      }
+      const wide = Math.max(funnelHalf, STRAIT_MOUTH) * reachR(c);
+      around(c.x, c.y, c.r * 1.3 + wide, (cellK, x, y) => {
+        let best = Infinity, bestT = 0;
+        for (let n = 1; n < samples.length; n++) {
+          const [ax, ay] = samples[n - 1], [bx, by] = samples[n];
+          const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy || 1;
+          const q = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2));
+          const d = Math.hypot(x - ax - dx * q, y - ay - dy * q);
+          if (d < best) { best = d; bestT = (n - 1 + q) / 32; }
+        }
+        const e = Math.abs(2 * bestT - 1), half = riverHalf + (wide - riverHalf) * e * e * (3 - 2 * e);
+        funnelField[cellK] = Math.max(funnelField[cellK], half - best);
       });
     }
     const inlandFillet = Math.max(cell, 0.25 * (input.clearings.reduce((sum, c) => sum + c.r, 0) / Math.max(1, input.clearings.length)));
@@ -721,9 +785,9 @@ window.MapLakes = window.MapLakes || (function () {
       const reached = new Uint8Array(N);
       head = tail = 0;
       const seed = (k) => { if (k >= 0 && !reached[k] && !lineWall[k]) { reached[k] = 1; queue[tail++] = k; } };
-      for (const l of lakes) if (bandSea.has(l.a)) line(seed, l.points, cell * 0.5);
+      for (const l of lakes) if (seaLine(l) && bandSea.has(l.a)) line(seed, l.points, cell * 0.5);
       for (const f of funnels) {
-        if (!bandSea.has(f.k)) continue;
+        if (!f.sea || !bandSea.has(f.k)) continue;
         const r = reachR(f.c) * 0.95;
         seed(cellAt(f.c.x + f.axis[0] * r, f.c.y + f.axis[1] * r));
       }

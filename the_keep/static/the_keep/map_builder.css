@@ -443,6 +443,8 @@ body.mb-dragging, body.mb-dragging * { -webkit-user-select: none !important; use
 }
 .mb-kind-toggle button.mb-menu-open .mb-kind-chevron { transform: rotate(180deg); }
 .mb-kind-swatch-lake { border-radius: 45% 55% 50% 50% / 60% 45% 55% 40%; width: 14px; }
+/* An ocean: a wide wave-topped swatch (the sea round the map). */
+.mb-kind-swatch-ocean { border-radius: 50% 50% 3px 3px / 35% 35% 3px 3px; width: 16px; }
 .mb-water-menu {
     position: absolute; z-index: 20; top: calc(100% + 6px); right: 0; min-width: 8.5rem; padding: 4px;
     background: #fff; border-radius: 10px; box-shadow: 0 6px 20px rgba(0, 0, 0, .18), 0 0 0 1px rgba(0, 0, 0, .06);
@@ -459,7 +461,7 @@ body.mb-dragging, body.mb-dragging * { -webkit-user-select: none !important; use
 }
 /* The swatch in a box of its own, so both labels line up whatever its shape. */
 .mb-water-menu .mb-kind-swatch { margin: 0 2px; }
-.mb-water-menu .mb-kind-swatch:not(.mb-kind-swatch-lake) { margin: 0 3px; }
+.mb-water-menu .mb-kind-swatch:not(.mb-kind-swatch-lake):not(.mb-kind-swatch-ocean) { margin: 0 3px; }
 .mb-water-menu button:hover, .mb-water-menu button:focus-visible { background: #f1f3f5; outline: none; }
 .mb-water-menu button[aria-checked="true"] { font-weight: 600; }
 .mb-water-menu button::after { content: ''; width: 1em; margin-left: auto; text-align: center; color: #3e55a5; }
