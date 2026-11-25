@@ -1,0 +1,22 @@
+{% comment %} Players who could be invited to test (the testers page's search). Invite
+swaps the row out; the new tester's row joins the list out of band. {% endcomment %}
+{% for player in players %}
+<div class="border rounded p-2 mb-2 d-flex justify-content-between align-items-center" id="tester-invite-{{ player.slug }}">
+  <div class="d-flex align-items-center flex-grow-1 me-2" style="min-width: 0;">
+    {% if player.image %}
+    <img src="{{ player.image.url }}" class="md-avatar-icon me-2 flex-shrink-0" alt="">
+    {% else %}
+    <i class="bi bi-person-circle me-2 text-muted flex-shrink-0" style="font-size: 1.5rem;"></i>
+    {% endif %}
+    <span class="text-truncate">{{ player.display_name }} ({{ player.discord }})</span>
+  </div>
+  <button type="button" class="btn btn-sm btn-outline-success flex-shrink-0"
+          hx-post="{% url 'tester-invite' player.slug %}"
+          hx-target="#tester-invite-{{ player.slug }}"
+          hx-swap="outerHTML">
+    <i class="bi bi-plus-circle me-1"></i>Invite
+  </button>
+</div>
+{% empty %}
+  {% if query %}<div class="text-muted small py-1">No matching players</div>{% endif %}
+{% endfor %}

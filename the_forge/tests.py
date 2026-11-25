@@ -621,7 +621,7 @@ class TTSLibrarySubmissionTests(TestCase):
     def test_detail_card_message_follows_status(self):
         # The detail page sits behind the forge onboarding gate.
         Profile.objects.filter(pk=self.designer.pk).update(
-            group='D', player_onboard=True, forge_onboard=True)
+            group='D', player_onboard=True, forge_onboard=True, tester=True, tester_onboard=True)
         self.client.force_login(self.user)
         url = reverse('forge-faction-detail', args=[self.forged.pk])
         cases = [
@@ -640,7 +640,7 @@ class TTSLibrarySubmissionTests(TestCase):
                 self.assertNotIn('Publish to TTS Library', content)
 
     def test_admin_sees_review_panel_on_submitted_faction(self):
-        Profile.objects.filter(user=self.admin_user).update(player_onboard=True, forge_onboard=True)
+        Profile.objects.filter(user=self.admin_user).update(player_onboard=True, forge_onboard=True, tester=True, tester_onboard=True)
         self.client.force_login(self.admin_user)
         url = reverse('forge-faction-detail', args=[self.forged.pk])
         self.assertNotIn('TTS Library Review', self.client.get(url).content.decode())
@@ -675,7 +675,7 @@ class ForgeComponentTests(TestCase):
         Language.objects.create(code='en', name='English')
         self.user = User.objects.create_user(username='typedesigner', password='pw')
         self.designer = Profile.objects.get(user=self.user)
-        Profile.objects.filter(pk=self.designer.pk).update(group='D', player_onboard=True, forge_onboard=True)
+        Profile.objects.filter(pk=self.designer.pk).update(group='D', player_onboard=True, forge_onboard=True, tester=True, tester_onboard=True)
         self.designer.refresh_from_db()
 
     def _draft(self, component='Faction', **kwargs):
@@ -918,6 +918,35 @@ def _fixed_layout(**extra):
 
 
 @override_settings(MEDIA_ROOT=_TTS_MEDIA, SITE_URL='https://example.test')
+class ForgedMapTesterGateTests(TestCase):
+    """Maps are for testers who've accepted the tester agreement
+    (tester_onboard_required); faction publishing, which maps share, isn't."""
+
+    def setUp(self):
+        from django.contrib.auth.signals import user_logged_in
+        from the_gatehouse.signals import user_logged_in_handler
+        user_logged_in.disconnect(user_logged_in_handler)
+        self.addCleanup(user_logged_in.connect, user_logged_in_handler)
+        self.user = User.objects.create_user(username='surveyor', password='pw')
+        Profile.objects.filter(user=self.user).update(group='D', player_onboard=True, forge_onboard=True)
+        self.client.force_login(self.user)
+
+    def test_a_non_tester_is_refused(self):
+        self.assertEqual(self.client.get(reverse('forge-map-list')).status_code, 403)
+
+    def test_a_tester_who_hasnt_accepted_is_sent_to_the_agreement(self):
+        Profile.objects.filter(user=self.user).update(tester=True)
+        response = self.client.get(reverse('forge-map-list'))
+        self.assertRedirects(response, reverse('onboard-user', args=['tester']) + '?next=' + reverse('forge-map-list'),
+                             fetch_redirect_response=False)
+
+    def test_only_the_map_routes_of_the_shared_publishing_views_are_gated(self):
+        from django.urls import resolve
+        from the_forge import views
+        self.assertIs(resolve(reverse('forge-faction-submit', args=[1])).func, views.forgedfaction_submit)
+        self.assertIsNot(resolve(reverse('forge-map-submit', args=[1])).func, views.forgedfaction_submit)
+
+
 class ForgedMapTests(TestCase):
     def setUp(self):
         from django.contrib.auth.signals import user_logged_in
@@ -928,7 +957,7 @@ class ForgedMapTests(TestCase):
         Language.objects.get_or_create(code='en', defaults={'name': 'English'})
         self.user = User.objects.create_user(username='cartographer', password='pw')
         self.designer = Profile.objects.get(user=self.user)
-        Profile.objects.filter(pk=self.designer.pk).update(group='D', player_onboard=True, forge_onboard=True)
+        Profile.objects.filter(pk=self.designer.pk).update(group='D', player_onboard=True, forge_onboard=True, tester=True, tester_onboard=True)
         self.client.force_login(self.user)
 
     def _create(self, name='Highlands'):
@@ -1054,7 +1083,7 @@ class ForgedMapTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertFalse(response.json()['ok'])
         other = User.objects.create_user(username='someone', password='pw')
-        Profile.objects.filter(user=other).update(group='D', player_onboard=True, forge_onboard=True)
+        Profile.objects.filter(user=other).update(group='D', player_onboard=True, forge_onboard=True, tester=True, tester_onboard=True)
         self.client.force_login(other)
         self.assertEqual(self._upload(draft).status_code, 403)
 
@@ -1125,7 +1154,7 @@ class ForgedMapTests(TestCase):
         self.assertIn('ObjectStates', json.loads(b''.join(tts.streaming_content) if tts.streaming else tts.content))
 
         other = User.objects.create_user(username='someone', password='pw')
-        Profile.objects.filter(user=other).update(group='D', player_onboard=True, forge_onboard=True)
+        Profile.objects.filter(user=other).update(group='D', player_onboard=True, forge_onboard=True, tester=True, tester_onboard=True)
         self.client.force_login(other)
         for name in ('forge-map-pdf', 'forge-map-webp', 'forge-map-tts'):
             with self.subTest(name=name):
@@ -1217,7 +1246,7 @@ class _MapPublishBase(TestCase):
         self.french, _ = Language.objects.get_or_create(code='fr', defaults={'name': 'French'})
         self.user = User.objects.create_user(username='mapmaker', password='pw')
         self.designer = Profile.objects.get(user=self.user)
-        Profile.objects.filter(pk=self.designer.pk).update(group='D', player_onboard=True, forge_onboard=True)
+        Profile.objects.filter(pk=self.designer.pk).update(group='D', player_onboard=True, forge_onboard=True, tester=True, tester_onboard=True)
         self.designer.refresh_from_db()
         self.client.force_login(self.user)
         from the_keep.forms import config
@@ -1905,7 +1934,7 @@ class WarriorBackImageTests(TestCase):
         Language.objects.get_or_create(code='en', defaults={'name': 'English'})
         self.user = User.objects.create_user(username='warriorback', password='pw')
         self.designer = Profile.objects.get(user=self.user)
-        Profile.objects.filter(pk=self.designer.pk).update(group='D', player_onboard=True, forge_onboard=True)
+        Profile.objects.filter(pk=self.designer.pk).update(group='D', player_onboard=True, forge_onboard=True, tester=True, tester_onboard=True)
         self.client.force_login(self.user)
         self.forged = ForgedFaction.objects.create(designer=self.designer, faction_name='Back Cats', color='#d2691e')
         self.back = FactionBack.objects.create(faction=self.forged)
@@ -2025,7 +2054,7 @@ class ForgedMapPathsTests(TestCase):
         Language.objects.get_or_create(code='en', defaults={'name': 'English'})
         self.user = User.objects.create_user(username='riverbuilder', password='pw')
         self.designer = Profile.objects.get(user=self.user)
-        Profile.objects.filter(pk=self.designer.pk).update(group='D', player_onboard=True, forge_onboard=True)
+        Profile.objects.filter(pk=self.designer.pk).update(group='D', player_onboard=True, forge_onboard=True, tester=True, tester_onboard=True)
         self.client.force_login(self.user)
 
     def _create(self, art=False):
@@ -2342,7 +2371,7 @@ class MapSetupCardTests(_MapPublishBase):
     def test_only_editors(self):
         draft = self._completed()
         other = User.objects.create_user(username='stranger', password='pw')
-        Profile.objects.filter(user=other).update(group='D', player_onboard=True, forge_onboard=True)
+        Profile.objects.filter(user=other).update(group='D', player_onboard=True, forge_onboard=True, tester=True, tester_onboard=True)
         self.client.force_login(other)
         self.assertEqual(self.client.get(reverse('forge-map-setup-card', args=[draft.pk])).status_code, 302)
         self._card_post(draft, modifications='Hacked.')

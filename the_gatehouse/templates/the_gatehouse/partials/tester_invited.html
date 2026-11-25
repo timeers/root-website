@@ -1,0 +1,7 @@
+{% comment %} After an invite: the search result goes (an empty swap), and out of band
+the new tester's row joins the list, the empty note goes and the counts update. {% endcomment %}
+<div id="tester-list" hx-swap-oob="beforeend">
+  {% include 'the_gatehouse/partials/tester_row.html' %}
+</div>
+<div id="tester-empty" hx-swap-oob="delete"></div>
+{% include 'the_gatehouse/partials/tester_counts.html' with oob=True %}

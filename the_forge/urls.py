@@ -1,5 +1,7 @@
 from django.urls import path
 
+from the_gatehouse.views import tester_onboard_required
+
 from . import map_views, views
 
 urlpatterns = [
@@ -51,11 +53,12 @@ urlpatterns = [
     path('forge/map/<int:pk>/tts/', map_views.map_tts, name='forge-map-tts'),
     path('forge/map/<int:pk>/setup-card/', map_views.map_setup_card, name='forge-map-setup-card'),
     path('forge/map/<int:pk>/setup-card/render/', map_views.map_setup_card_render, name='forge-map-setup-card-render'),
-    # Publishing a map to the Root Database: the same views as factions use.
-    path('forge/map/<int:pk>/submit/', views.forgedfaction_submit, name='forge-map-submit'),
-    path('forge/map/<int:pk>/link/', views.forgedfaction_link, name='forge-map-link'),
-    path('forge/map/<int:pk>/unlink/', views.forgedfaction_unlink, name='forge-map-unlink'),
-    path('forge/map/<int:pk>/sync/', views.forgedfaction_sync, name='forge-map-sync'),
+    # Publishing a map to the Root Database: the same views as factions use
+    # (gated for testers here, not in the views, so factions stay open).
+    path('forge/map/<int:pk>/submit/', tester_onboard_required(views.forgedfaction_submit), name='forge-map-submit'),
+    path('forge/map/<int:pk>/link/', tester_onboard_required(views.forgedfaction_link), name='forge-map-link'),
+    path('forge/map/<int:pk>/unlink/', tester_onboard_required(views.forgedfaction_unlink), name='forge-map-unlink'),
+    path('forge/map/<int:pk>/sync/', tester_onboard_required(views.forgedfaction_sync), name='forge-map-sync'),
 
     # FactionSheet Front
     path('forge/faction/<int:faction_pk>/front/new/', views.factionsheet_create, name='forge-sheet-create'),

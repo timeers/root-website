@@ -190,6 +190,51 @@
                     </div>
                     {% include 'the_gatehouse/partials/onboard_buttons.html' %}
 
+                {% elif user_type == 'tester' and active_user.tester and not active_user.tester_onboard %}
+                    <div class="onboard-content">
+                        <div class="mb-4">
+                            <h3 class="h4 fw-semibold mb-3 text-center">
+                                <i class="bi bi-bug"></i>
+                                Beta Tester
+                            </h3>
+                            <p class="mb-2">Thank you for helping try out some new features before they're released.</p>
+                        </div>
+
+                        <div class="alert alert-light border mb-4">
+                            <h5 class="alert-heading h6 fw-semibold mb-3">What to Expect:</h5>
+                            <ul class="mb-0 ps-3">
+                                <li>Features in testing are unfinished and may change, break or be removed</li>
+                                <li>Things may look or behave differently from the final version</li>
+                                <li>Data created while testing may be deleted or lost</li>
+                            </ul>
+                        </div>
+
+                        <div class="alert alert-light border mb-4">
+                            <h5 class="alert-heading h6 fw-semibold mb-3">What we Expect:</h5>
+                            <ul class="mb-0 ps-3">
+                                <li>Report bugs and problems you find</li>
+                                <li>Share feedback and suggestions</li>
+                                <li>Please don't share unreleased features or screenshots outside the testing group</li>
+                                <li>Don't rely on test features for anything important</li>
+                                <li>Test out the new features, mess around with them to try to push their limits or find holes</li>
+                            </ul>
+                        </div>
+
+                        <div class="alert alert-light border mb-4">
+                            <h5 class="alert-heading h6 fw-semibold mb-3">Your Permissions:</h5>
+                            <ul class="mb-0 ps-3">
+                                <li>Access to beta features in testing</li>
+                            </ul>
+                        </div>
+
+                        <div class="alert alert-warning border-warning mb-4">
+                            <strong>Important:</strong> By accepting, you agree to report problems you find and keep test features private (nothing is top secret, but try not to post about it).
+                        </div>
+
+                        <p class="fw-semibold">Thank you for helping make the site better!</p>
+                    </div>
+                    {% include 'the_gatehouse/partials/onboard_buttons.html' %}
+
                 {% elif user_type == 'player' and active_user.player and not active_user.player_onboard %}
                     <div class="onboard-content">
                         <div class="mb-4">

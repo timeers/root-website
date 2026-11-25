@@ -22,7 +22,8 @@ from .views import (user_settings, player_page_view, dwd_profile_redirect,
                     manage_holidays, manage_holiday_edit,
                     manage_guilds, edit_guild, hx_save_lfg_role, hx_delete_lfg_role,
                     hx_save_tournament_channels, refresh_guild_discord_cache,
-                    bmc_webhook)
+                    bmc_webhook,
+                    manage_testers, tester_search, tester_invite, tester_remove)
 from the_warroom.views import player_game_list_view  #PlayerGameListView
 urlpatterns = [
     # path("", list_view, name='home'),
@@ -121,6 +122,12 @@ urlpatterns = [
     path('admin/global-message/', set_global_message, name='set-global-message'),
     path('admin/send-notification/', send_notification, name='send-notification'),
     path('admin/send-notification/<slug:slug>/', send_notification, name='send-notification-user'),
+
+    # Beta testers
+    path('admin/testers/', manage_testers, name='manage-testers'),
+    path('admin/testers/search/', tester_search, name='tester-search'),
+    path('admin/testers/<slug:slug>/invite/', tester_invite, name='tester-invite'),
+    path('admin/testers/<slug:slug>/remove/', tester_remove, name='tester-remove'),
 
     # Theme management
     path('admin/themes/', manage_themes, name='manage-themes'),

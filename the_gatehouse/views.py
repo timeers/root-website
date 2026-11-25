@@ -2003,6 +2003,27 @@ def tester_required_class_based_view(view_class):
     view_class.dispatch = method_decorator(tester_required)(view_class.dispatch)
     return view_class
 
+def tester_onboard_required(view_func):
+    """A tester who has accepted the beta tester agreement. A tester who
+    hasn't is sent to it (and back here after); anyone else is refused."""
+    @player_onboard_required
+    @wraps(view_func)
+    def wrapper(request, *args, **kwargs):
+        profile = request.user.profile
+        if not profile.tester:
+            messages.error(request, "You do not have full permissions to view this page.")
+            raise PermissionDenied()
+        if not profile.tester_onboard:
+            next_url = request.GET.get('next', request.path)
+            return redirect(f'{reverse("onboard-user", args=["tester"])}?next={next_url}')
+        return view_func(request, *args, **kwargs)
+    return wrapper
+
+def tester_onboard_required_class_based_view(view_class):
+    """Decorator to apply to class-based views."""
+    view_class.dispatch = method_decorator(tester_onboard_required)(view_class.dispatch)
+    return view_class
+
 
 
 def admin_required(view_func):
@@ -2471,6 +2492,13 @@ def onboard_user(request, user_type=None):
                 messages.info(request, "Welcome to the Forge!")
             else:
                 messages.warning(request, f"You do not have access to the {user_type} role")
+        elif user_type == 'tester' and not profile.tester_onboard:
+            if profile.tester:
+                profile.tester_onboard = True
+                profile.save()
+                messages.info(request, "Thanks for helping test, happy bug hunting!")
+            else:
+                messages.warning(request, f"You do not have access to the {user_type} role")
         else:
             # Handle cases where the user is already onboarded
             messages.info(request, f"You already have access to the {user_type} role")
@@ -2530,6 +2558,10 @@ def onboard_decline(request, user_type=None):
             case "forge":
                 profile.forge_onboard = False
                 messages.warning(request, "You can revisit the Forge agreement at any time")
+            case "tester":
+                # (Still a tester: asked again at the next tester page.)
+                profile.tester_onboard = False
+                messages.warning(request, "You can revisit the tester agreement at any time")
             case _:
                 profile.player_onboard = False
                 messages.error(request, "An error occured")
@@ -4095,6 +4127,79 @@ def set_language_custom(request):
     return redirect(next_url)
 
 
+# ── Beta testers (admins) ───────────────────────────────────────────────────
+# Every tester and whether they've accepted the tester agreement
+# (onboard_user 'tester'), a search to invite players, and a way to remove them.
+
+TESTER_SEARCH_LIMIT = 8
+
+
+def _tester_counts():
+    testers = Profile.objects.filter(tester=True)
+    total = testers.count()
+    accepted = testers.filter(tester_onboard=True).count()
+    return {'total': total, 'accepted': accepted, 'waiting': total - accepted}
+
+
+@admin_onboard_required
+def manage_testers(request):
+    testers = Profile.objects.filter(tester=True).order_by('tester_onboard', 'display_name')
+    return render(request, 'the_gatehouse/manage_testers.html', {
+        'testers': testers,
+        'counts': _tester_counts(),
+    })
+
+
+@admin_onboard_required
+def tester_search(request):
+    """HTMX: players who could be invited (signed-up players who aren't testers
+    yet) whose discord or display name contains `?q=`. Nothing until something
+    is typed."""
+    query = (request.GET.get('q') or '').strip()
+    players = Profile.objects.none()
+    if query:
+        players = Profile.objects.filter(
+            group__in=['A', 'D', 'E', 'P'], user__isnull=False, tester=False,
+        ).filter(
+            Q(discord__icontains=query) | Q(display_name__icontains=query)
+        ).exclude(slug__isnull=True).order_by('display_name')[:TESTER_SEARCH_LIMIT]
+    return render(request, 'the_gatehouse/partials/tester_search_results.html', {
+        'players': players,
+        'query': query,
+    })
+
+
+@admin_onboard_required
+@require_POST
+def tester_invite(request, slug):
+    """HTMX: make a player a tester (they still have to accept the agreement).
+    Swaps out their search result; their new row and the counts go out of band."""
+    profile = get_object_or_404(Profile, slug=slug, user__isnull=False)
+    if not profile.player:
+        return HttpResponseBadRequest("Only players can be testers.")
+    profile.tester = True
+    profile.tester_onboard = False
+    profile.save(update_fields=['tester', 'tester_onboard'])
+    return render(request, 'the_gatehouse/partials/tester_invited.html', {
+        'tester': profile,
+        'counts': _tester_counts(),
+    })
+
+
+@admin_onboard_required
+@require_POST
+def tester_remove(request, slug):
+    """HTMX: no longer a tester. Removes their row; the counts go out of band."""
+    profile = get_object_or_404(Profile, slug=slug)
+    profile.tester = False
+    profile.tester_onboard = False
+    profile.save(update_fields=['tester', 'tester_onboard'])
+    return render(request, 'the_gatehouse/partials/tester_counts.html', {
+        'counts': _tester_counts(),
+        'oob': True,
+    })
+
+
 @admin_onboard_required
 def admin_dashboard(request):
 
@@ -4125,6 +4230,7 @@ def admin_dashboard(request):
         tts_status=ForgedFaction.TTSStatus.SUBMITTED
     ).count()
 
+    tester_counts = _tester_counts()
     law_url = reverse('manage-law-updates')
     admin_url = reverse('admin:index')
     guild_invites_url = reverse('pending-guild-invites')
@@ -4208,6 +4314,22 @@ def admin_dashboard(request):
                     "label": "View Pending Posts",
                     "link": pending_posts_url,
                     "class": 'primary' if pending_posts_count > 0 else 'secondary',
+                 },
+            ],
+        },
+        {
+            "title": "Beta Testers",
+            "subtitle": "Testers and the Tester Agreement",
+            "image": "/static/images/ambush.jpg",
+            "fields": [
+                {"title": "Testers", "content": tester_counts['total']},
+                {"title": "Waiting to Accept", "content": tester_counts['waiting']},
+            ],
+            "buttons": [
+                {
+                    "label": "Manage Testers",
+                    "link": reverse('manage-testers'),
+                    "class": 'primary' if tester_counts['waiting'] > 0 else 'secondary',
                  },
             ],
         },
