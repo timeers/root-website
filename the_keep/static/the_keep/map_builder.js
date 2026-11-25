@@ -22,8 +22,12 @@
   const STEP_TRACK_PX = config.track.step * PPL;
   const ITEM = config.item_grid;
   const BUILDING_PX = config.building_size * PPL;   // building square size
-  const DOT_PX = Math.max(W, H) / 120;
-  const STROKE = Math.max(W, H) / 600;
+  // Dots and line widths: these sizes on the whole map, scaled with the view
+  // when the Buildings step zooms in, so they stay the same size on screen.
+  const BASE_DOT_PX = Math.max(W, H) / 120;
+  const BASE_STROKE = Math.max(W, H) / 600;
+  let DOT_PX = BASE_DOT_PX;
+  let STROKE = BASE_STROKE;
 
   const state = config.state;
   state.clearings = state.clearings || [];
@@ -38,20 +42,35 @@
     { key: 'track', heading: 'VP and Item Tracks', name: 'VP & Item Tracks', short: 'Tracks',
       hint: 'Drag the item grid onto the printed item spaces. Drag the VP track up or down so the blue dots align with the printed 0-30 track.' },
     { key: 'clearings', heading: 'Clearings', name: 'Clearings',
-      hint: 'Click the middle of a clearing, then drag (or click) to where its suit marker goes. Drag the number tile around the circle. Select a clearing to re-number or delete it.' },
+      hint: 'Click to create a clearing, then drag (or click) to where its suit marker goes. Drag the number tile to place it around the clearing. Select a clearing to re-number or delete it.' },
     { key: 'buildings', heading: 'Buildings & Ruins', name: 'Buildings & Ruins', short: 'Buildings',
-      hint: 'Click each building slot. Drag inside a square to move it and press x to remove it. Select a building and click the ruin tile to make it a ruin.' },
+      hint: 'Starting with Clearing #1: click each building slot, then use the arrows at the top for the next clearing. '
+      + 'Drag inside a square to move it and press x to remove it. Select a building and click the ruin tile to make it a ruin. '
+      + 'Click the mini map to see the whole map; there, click a clearing (or the magnifier) to zoom back in, or click outside the clearings to place a building.' },
     { key: 'forests', heading: 'Forests', name: 'Forests',
-      hint: 'Click the middle of each forest. Drag a dot to move it and press x to remove it. These are used for Relic placements.' },
+      hint: 'Click the middle of each forest. Drag a dot to move it and press x to remove it. '
+      + 'These are used for Relic placements. Forests will be divided by Special Paths and Rivers only if stated in the rules.' },
     { key: 'review', heading: 'Review', name: 'Review',
-      hint: 'Check the count of each element, then click "Complete" to generate the final JSON.' },
+      hint: 'Check the location and count of each element, then click "Complete" to generate the final JSON.' },
   ];
   if (config.paths_step) {
     STEPS.splice(STEPS.findIndex(s => s.key === 'forests'), 0,
       { key: 'paths', heading: 'Paths & Rivers', name: 'Paths & Rivers', short: 'Paths',
-        hint: 'Pick a path type, then drag from one clearing to another, or to the '
-              + 'middle of another path. Select a path to change its type, drag one of '
-              + 'its ends to another clearing, or press x to remove it.' });
+        hint: 'Pick a path type, then drag from one clearing to another, or to the middle of another path. '
+              + 'You can choose different colored paths from the Special Path selector. You can choose between Rivers and Lakes from the River selector. '
+              + 'Select a path to change its type, drag one of its ends to another clearing, or press x to remove it. '
+              + "Multiple paths cannot connect the same two clearings." });
+  }
+  // Setup Card Rules (the setup card page's form, over the map), after Paths &
+  // Rivers: they say what the special paths do and which divide forests.
+  const rulesBox = document.getElementById('mb-rules');
+  const rulesForm = rulesBox && rulesBox.querySelector('#msc-form');
+  if (config.rules_step && rulesForm && !config.readonly) {
+    STEPS.splice(STEPS.findIndex(s => s.key === 'paths') + 1, 0,
+      { key: 'rules', heading: 'Map Rules', name: 'Map Rules', short: 'Rules',
+        hint: "If you use colored paths, name them and say what they do. Whether they or the river divide forests, "
+              + "and add the map's setup modifications and special rules. They're saved with your map, "
+              + 'and printed on its setup card.' });
   }
   if (config.upload_step) {
     STEPS.unshift({ key: 'upload', heading: 'Map Name & Art', name: 'Start', short: 'Start',
@@ -65,11 +84,24 @@
   const STEP_UPLOAD = stepOf('upload'), STEP_TRACK = stepOf('track'), STEP_CLEARINGS = stepOf('clearings'),
         STEP_BUILDINGS = stepOf('buildings'), STEP_FORESTS = stepOf('forests'), STEP_REVIEW = STEPS.length - 1;
   const STEP_PATHS = stepOf('paths');   // -1 on the Keep
+  const STEP_RULES = stepOf('rules');   // -1 without it
   const PRINT = config.print || null;   // the Forge's printed art (see print_art in tts_map.py)
   const PATH = config.path || null;     // the Forge's path constants (path_config in tts_map.py)
   const PATH_KINDS = ['path', 'special', 'river'];
   const BLANK_GIF = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
   let drawKind = 'path';      // the kind of path the Paths step draws
+  // Special paths come in types, by colour (tts_map.SPECIAL_PATH_TYPES): a
+  // path's own is p.special (none: the first). Named on the setup card.
+  const SPECIALS = (PATH && PATH.specials) || [];
+  const SPECIAL_DEFAULT = SPECIALS.length ? SPECIALS[0].key : 'red';
+  let drawSpecial = SPECIAL_DEFAULT;   // the type the Paths step draws
+  const specialKey = (p) => (SPECIALS.some(t => t.key === p.special) ? p.special : SPECIAL_DEFAULT);
+  const specialType = (key) => SPECIALS.find(t => t.key === key) || { key, colour: '#ed2731', label: key };
+  // A path's colour: its kind's, or a special path's type's.
+  const pathColour = (p) => (p.kind === 'special' ? specialType(specialKey(p)).colour : PATH.colours[p.kind]);
+  // The special path types the layout has, in order.
+  const usedSpecials = () => SPECIALS.map(t => t.key)
+    .filter(key => state.paths.some(p => p.kind === 'special' && specialKey(p) === key));
 
   let step = config.readonly ? STEP_REVIEW : 0;
   let selected = null;        // {kind: 'clearing'|'forest'|'building', index}
@@ -210,27 +242,38 @@
 
   // Each path's {kind, points (its centre line, trimmed to the clearings'
   // circles), middle}, in state order.
-  // A river and a path between the same two ends: bow them apart, the river to
-  // one side and the path to the other (measured from the ends in key order,
-  // so both agree), by PATH.shared_bend half-widths at the middle (_bow_apart).
-  function bowApart(control, a, b, p) {
+  // A river and a path between the same two ends: bow them apart, to `side`
+  // (+1/-1, measured from the ends in key order, so both agree), by
+  // PATH.shared_bend half-widths at the middle (_bow_apart).
+  function bowApart(control, a, b, p, side) {
     const [from, to] = endKey(p.a) <= endKey(p.b) ? [a, b] : [b, a];
     const length = Math.hypot(to[0] - from[0], to[1] - from[1]) || 1e-9;
     const nx = -(to[1] - from[1]) / length, ny = (to[0] - from[0]) / length;
-    const side = p.kind === 'river' ? 1 : -1;
     const bulge = PATH.shared_bend * PATH.width * (PATH.river_width + 1) / 2;
     return [control[0] + side * nx * 2 * bulge, control[1] + side * ny * 2 * bulge];
+  }
+
+  // Which way a path sharing both ends with its twin of the other family bows
+  // (_pair_side in tts_map.py): its own `bow` (+1/-1 towards the normal of its
+  // a->b line, chosen where it was dropped), else opposite its twin's, else the
+  // water one +1 and the land one -1. In key order, as bowApart measures.
+  const keySign = (p) => (endKey(p.a) <= endKey(p.b) ? 1 : -1);
+  function pairSide(p, twin) {
+    if (p.bow === 1 || p.bow === -1) return p.bow * keySign(p);
+    if (twin && (twin.bow === 1 || twin.bow === -1)) return -twin.bow * keySign(twin);
+    return familyOf(p.kind) === 'river' ? 1 : -1;
+  }
+
+  // Each path's twin: the other family's path between the same two ends, or -1.
+  function twinOf(index, paths = state.paths) {
+    const p = paths[index];
+    return paths.findIndex((q, k) => k !== index && pairKey(q.a, q.b) === pairKey(p.a, p.b)
+                                     && familyOf(q.kind) !== familyOf(p.kind));
   }
 
   function pathShapes() {
     const cs = circles();
     const shapes = [];
-    // Paths sharing both ends with one of the other family.
-    const families = new Map();
-    for (const p of state.paths) {
-      const key = pairKey(p.a, p.b);
-      families.set(key, (families.get(key) || new Set()).add(familyOf(p.kind)));
-    }
     const shape = (i, depth) => {
       if (shapes[i]) return shapes[i];
       if (depth > state.paths.length) throw new Error('path attachments loop');
@@ -242,10 +285,11 @@
       });
       const [a, b] = ends;
       // Kept clear of other clearings by half its own width (a river's is wider).
-      const clearance = PATH.width * (p.kind === 'river' ? PATH.river_width : 1) / 2;
+      const clearance = PATH.width * (familyOf(p.kind) === 'river' ? PATH.river_width : 1) / 2;
       const obstacles = cs.filter((c, k) => !own.has(k)).map(([x, y, r]) => [x, y, r + clearance]);
       let control = route(a, b, obstacles);
-      if (families.get(pairKey(p.a, p.b)).size > 1) control = bowApart(control, a, b, p);
+      const twin = twinOf(i);
+      if (twin >= 0) control = bowApart(control, a, b, p, pairSide(p, state.paths[twin]));
       const t0 = 'c' in p.a ? trim(a, control, b, a, cs[p.a.c][2], true) : 0;
       const t1 = Math.max('c' in p.b ? trim(a, control, b, b, cs[p.b.c][2], false) : 1, t0);
       const points = [];
@@ -292,15 +336,21 @@
   }
 
   // Rivers, and paths with special paths: one of each may join the same two ends.
-  const familyOf = (kind) => (kind === 'river' ? 'river' : 'land');
+  // Water (rivers and lakes) and land (paths and special paths): one of each
+  // may join the same two ends (path_family in tts_map.py).
+  const familyOf = (kind) => (kind === 'river' || kind === 'lake' ? 'river' : 'land');
 
   // Can a path of `kind` (path `self` when moving one of its ends) join ends a
   // and b? Not an end to itself, not a second of its family between the same
   // two ends, and never attached (through others) to itself (clean_paths in tts_map.py).
   function canConnect(a, b, self = null, kind = null) {
     if (!a || !b || endKey(a) === endKey(b)) return false;
+    kind = kind || (self !== null ? state.paths[self].kind : drawKind);
+    // A lake joins two clearings, and nothing joins a lake's middle (clean_paths).
+    if (kind === 'lake' && ('p' in a || 'p' in b)) return false;
+    if ([a, b].some(e => 'p' in e && state.paths[e.p] && state.paths[e.p].kind === 'lake')) return false;
     const key = pairKey(a, b);
-    const family = familyOf(kind || (self !== null ? state.paths[self].kind : drawKind));
+    const family = familyOf(kind);
     if (state.paths.some((p, k) => k !== self && pairKey(p.a, p.b) === key && familyOf(p.kind) === family)) return false;
     if (self !== null) {
       for (const e of [a, b]) if ('p' in e && (e.p === self || dependsOn(e.p, self))) return false;
@@ -351,7 +401,10 @@
   // The end under a point: a path's middle handle first, then a clearing's circle.
   function anchorAt(p) {
     let best = null, bestD = handleRadius() * 1.6;
+    // A lake only ever ends on a clearing; nothing ends on a lake's middle.
+    const kind = drag && drag.kind === 'path-end' ? state.paths[drag.index].kind : drawKind;
     pathCache.forEach((s, j) => {
+      if (kind === 'lake' || s.kind === 'lake') return;
       const d = dist(p, s.middle);
       if (d < bestD) { best = { p: j }; bestD = d; }
     });
@@ -368,6 +421,387 @@
 
   let pathCache = [];   // the shapes drawn last (render), for hit-testing
 
+  // A path just dropped (drawn, or an end moved) where its twin of the other
+  // family already joins the same ends: it bows to the side of the line
+  // between its ends that it was dropped on (`bow`, see pairSide), and its twin
+  // to the other. Dropped (near enough) on the line itself: the sides stay as
+  // they were.
+  function chooseSide(index, end, dropAt) {
+    const twin = twinOf(index);
+    if (twin < 0) return;
+    const p = state.paths[index];
+    const a = anchorPoint(p.a), b = anchorPoint(p.b), at = end === 'a' ? a : b;
+    if (!a || !b) return;
+    const length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1e-9;
+    const across = ((dropAt[0] - at[0]) * -(b[1] - a[1]) + (dropAt[1] - at[1]) * (b[0] - a[0])) / length;
+    if (Math.abs(across) < DOT_PX / 2) return;
+    p.bow = across > 0 ? 1 : -1;
+    delete state.paths[twin].bow;     // the latest choice wins
+  }
+
+  // ── Buildings step: one clearing at a time ────────────────────────────────
+  // Buildings sit in clearings, so the Buildings & Ruins step shows one
+  // clearing at a time, zoomed in. The board keeps its size and shape: only
+  // the part of the map drawn in it changes. The view is a box in board pixels
+  // with the board's own shape: the SVG's viewBox, and the same transform on
+  // the art under it. A mini-map (drag it to a corner, click it for the whole
+  // map) shows where the view is; on the whole map, a magnifier zooms back in.
+  const FULL = { x: 0, y: 0, w: W, h: H };
+  const ZOOM_PAD = 0.15;        // the view's margin round a clearing, each side
+  const ZOOM_EDGE = 10;         // the zoom controls' distance from the board's edge (screen px)
+  const ZOOM_MS = 250;
+  const artImage = document.getElementById('mb-image');
+  const minimap = document.getElementById('mb-minimap');
+  const minimapArt = minimap.querySelector('img');
+  const minimapView = document.getElementById('mb-minimap-view');
+  const clearingNav = document.getElementById('mb-clearing-nav');
+  const navLabel = document.getElementById('mb-nav-label');
+  const navPrev = document.getElementById('mb-nav-prev');
+  const navNext = document.getElementById('mb-nav-next');
+  const zoomInBtn = document.getElementById('mb-zoom-in');
+  const NEXT_CLEARING = navNext.getAttribute('aria-label');
+  // on: zoomed in (else the whole map); clearing: which (state.clearings
+  // index); view: its box, worked out when it's chosen (not on every redraw,
+  // so dragging a building out never moves the view under the pointer).
+  const zoom = { on: true, clearing: null, view: null };
+  let shownView = FULL;         // the view on screen (part way, mid-animation)
+  let targetView = FULL;        // where it's going
+  let viewFrame = null;
+  let countCardFrom = null;     // the count card's place before the view changed (it slides to its new one)
+  let miniCorner = 'tr';        // the mini-map's corner: t/b + l/r
+  try {
+    const saved = window.localStorage.getItem('mb-minimap-corner');
+    if (['tl', 'tr', 'bl', 'br'].includes(saved)) miniCorner = saved;
+  } catch (err) { /* no storage: top right */ }
+
+  // The clearings in number order (ties and unnumbered ones in list order).
+  function clearingOrder() {
+    return state.clearings.map((c, i) => [c, i]).filter(([c]) => c.marker)
+      .sort((a, b) => ((a[0].number || Infinity) - (b[0].number || Infinity)) || a[1] - b[1])
+      .map(([, i]) => i);
+  }
+
+  function nearestClearing(p) {
+    let best = null, bestD = Infinity;
+    state.clearings.forEach((c, i) => {
+      if (!c.marker) return;
+      const d = dist(p, px(c.centre));
+      if (d < bestD) { best = i; bestD = d; }
+    });
+    return best;
+  }
+
+  // The clearing whose circle p is inside (the nearest centre, where circles
+  // overlap), or null.
+  function clearingAt(p) {
+    let inside = null, nearest = Infinity;
+    state.clearings.forEach((c, i) => {
+      if (!c.marker) return;
+      const centre = px(c.centre), d = dist(p, centre);
+      if (d <= dist(centre, px(c.marker)) && d < nearest) { inside = i; nearest = d; }
+    });
+    return inside;
+  }
+
+  function zoomActive() {
+    const c = zoom.clearing === null ? null : state.clearings[zoom.clearing];
+    return step === STEP_BUILDINGS && !config.readonly && zoom.on && !!zoom.view && !!(c && c.marker);
+  }
+
+  // The view round clearing i: its circle, suit marker, number tile and the
+  // buildings nearest it, with a margin; never smaller than an average
+  // clearing's; centred on it, with the board's shape, and kept on the board.
+  function clearingView(i) {
+    const c = state.clearings[i], centre = px(c.centre), m = px(c.marker), R = dist(centre, m);
+    let reachX = R, reachY = R;
+    const take = (x, y, r) => {
+      reachX = Math.max(reachX, Math.abs(x - centre[0]) + r);
+      reachY = Math.max(reachY, Math.abs(y - centre[1]) + r);
+    };
+    take(m[0], m[1], Math.max(...config.marker_px));
+    const t = numberTile(c);
+    take(t[0], t[1], config.number_radius_px);
+    for (const b of state.buildings) {
+      const p = px(b.at);
+      if (nearestClearing(p) === i) take(p[0], p[1], BUILDING_PX * 0.75);
+    }
+    const hh = Math.max(reachY * (1 + ZOOM_PAD), reachX * (1 + ZOOM_PAD) * H / W,
+                        (config.default_radius_px || R) * 1.35);
+    const hw = hh * W / H;
+    if (2 * hw >= W || 2 * hh >= H) return FULL;
+    return { x: Math.min(Math.max(centre[0] - hw, 0), W - 2 * hw),
+             y: Math.min(Math.max(centre[1] - hh, 0), H - 2 * hh), w: 2 * hw, h: 2 * hh };
+  }
+
+  function zoomToClearing(i) {
+    zoom.on = i !== null;
+    zoom.clearing = i;
+    zoom.view = i === null ? null : clearingView(i);
+  }
+
+  // Entering the step: clearing 1.
+  function zoomStart() {
+    const order = clearingOrder();
+    zoomToClearing(order.length ? order[0] : null);
+  }
+
+  // From the review: the building's clearing (keeping it selected).
+  function zoomOnBuilding(index) {
+    if (step !== STEP_BUILDINGS || !state.buildings[index]) return;
+    const k = nearestClearing(px(state.buildings[index].at));
+    if (k !== null) zoomToClearing(k);
+  }
+
+  // Another clearing, or in and out: a building selected in the old view may
+  // be out of this one, so the selection goes (its pop-up would float off).
+  function changeView(fn) {
+    fn();
+    selected = null;
+    render();
+  }
+
+  // On every redraw: head for the view this step wants. A new view sets the
+  // line widths at once (they're drawn after this) and animates the box.
+  function syncView() {
+    const target = zoomActive() ? zoom.view : FULL;
+    if (['x', 'y', 'w', 'h'].every(k => Math.abs(target[k] - targetView[k]) < 1e-6)) return;
+    targetView = target;
+    noteCountCard();
+    DOT_PX = BASE_DOT_PX * target.w / W;
+    STROKE = BASE_STROKE * target.w / W;
+    if (viewFrame) cancelAnimationFrame(viewFrame);
+    let still = false;
+    try { still = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (err) { /* animate */ }
+    const from = shownView, start = performance.now(), ms = still ? 0 : ZOOM_MS;
+    const frame = (now) => {
+      const t = ms ? Math.min(1, Math.max(0, (now - start) / ms)) : 1;
+      const e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;    // ease in and out
+      applyView({ x: from.x + (target.x - from.x) * e, y: from.y + (target.y - from.y) * e,
+                  w: from.w + (target.w - from.w) * e, h: from.h + (target.h - from.h) * e });
+      viewFrame = t < 1 ? requestAnimationFrame(frame) : null;
+      if (t >= 1 && selected) updatePopover();     // (it was placed for the old view)
+    };
+    if (ms) viewFrame = requestAnimationFrame(frame); else frame(start);
+  }
+
+  function applyView(v) {
+    shownView = v;
+    svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
+    // The art: scaled from its top-left corner, after moving the view's
+    // corner there (translate percentages are of the image's own box).
+    const s = W / v.w;
+    artImage.style.transform = v === FULL || (Math.abs(s - 1) < 1e-9 && !v.x && !v.y)
+      ? '' : `scale(${s}) translate(${-v.x / W * 100}%, ${-v.y / H * 100}%)`;
+    minimapView.setAttribute('x', v.x);
+    minimapView.setAttribute('y', v.y);
+    minimapView.setAttribute('width', v.w);
+    minimapView.setAttribute('height', v.h);
+  }
+
+  // The count card moves with the view (onto the item track, or into a top
+  // corner): it slides there, with the zoom. noteCountCard() before it's
+  // placed again, slideCountCard() after.
+  function noteCountCard() {
+    countCardFrom = countCard.classList.contains('d-none') ? null : countCard.getBoundingClientRect();
+  }
+
+  function slideCountCard() {
+    const from = countCardFrom;
+    countCardFrom = null;
+    if (!from || countCard.classList.contains('d-none')) return;
+    let still = false;
+    try { still = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (err) { /* slide */ }
+    countCard.style.transition = 'none';
+    countCard.style.transform = '';
+    const to = countCard.getBoundingClientRect();
+    const dx = from.left - to.left, dy = from.top - to.top;
+    if (still || Math.hypot(dx, dy) < 1) {
+      countCard.style.transition = '';
+      return;
+    }
+    countCard.style.transform = `translate(${dx}px, ${dy}px)`;
+    countCard.getBoundingClientRect();      // (start from there)
+    countCard.style.transition = `transform ${ZOOM_MS}ms cubic-bezier(0.65, 0, 0.35, 1), width .25s ease`;
+    countCard.style.transform = '';
+    const done = (evt) => {
+      if (evt && evt.propertyName !== 'transform') return;
+      countCard.style.transition = '';
+      countCard.removeEventListener('transitionend', done);
+    };
+    countCard.addEventListener('transitionend', done);
+  }
+
+  // The mini-map's size and its corner's position (board pixels).
+  function miniBox(area, corner = miniCorner) {
+    const w = Math.min(Math.max(area.width * 0.22, 90), 200, area.width - 2 * ZOOM_EDGE), h = w * H / W;
+    return { w, h, left: corner[1] === 'l' ? ZOOM_EDGE : area.width - w - ZOOM_EDGE,
+             top: corner[0] === 't' ? ZOOM_EDGE : area.height - h - ZOOM_EDGE };
+  }
+
+  // The zoomed count card: in the top corner the mini-map isn't in.
+  function placeInTopCorner(card, width) {
+    const area = board.getBoundingClientRect();
+    card.classList.remove('mb-grow-up');
+    card.style.bottom = 'auto';
+    card.style.top = `${ZOOM_EDGE}px`;
+    card.style.left = `${miniCorner === 'tl' ? area.width - width - ZOOM_EDGE : ZOOM_EDGE}px`;
+  }
+
+  // Shows and places the mini-map, the clearing pill and the magnifier.
+  function updateZoomControls() {
+    const order = step === STEP_BUILDINGS && !config.readonly ? clearingOrder() : [];
+    const zoomed = order.length > 0 && zoomActive();
+    minimap.classList.toggle('d-none', !zoomed);
+    clearingNav.classList.toggle('d-none', !zoomed);
+    zoomInBtn.classList.toggle('d-none', !order.length || zoomed);
+    const area = board.getBoundingClientRect();
+    if (zoomed) {
+      if (minimapArt.getAttribute('src') !== artImage.getAttribute('src')) minimapArt.src = artImage.getAttribute('src');
+      if (!miniDrag) {
+        const box = miniBox(area);
+        Object.assign(minimap.style, { width: `${box.w}px`, height: `${box.h}px`, left: `${box.left}px`, top: `${box.top}px` });
+      }
+      placeClearingNav(order, area);
+    } else if (order.length) {
+      placeZoomIn(area);
+    }
+  }
+
+  // ‹ Clearing 3 of 12 ›, at the top: centred, or in the gap between what's
+  // in the top corners (the zoomed count card, the mini-map when it's up
+  // there); just "3/12" where that's too narrow, and below them both if even
+  // that doesn't fit.
+  function placeClearingNav(order, area) {
+    const k = order.indexOf(zoom.clearing);
+    const n = state.clearings[zoom.clearing].number || k + 1;
+    const last = k === order.length - 1;
+    navPrev.disabled = k <= 0;
+    navNext.querySelector('i').className = last ? 'bi bi-arrows-fullscreen' : 'bi bi-chevron-right';
+    const nextLabel = last ? navNext.dataset.full : NEXT_CLEARING;
+    navNext.setAttribute('aria-label', nextLabel);
+    navNext.title = nextLabel;
+    // The top corners' contents (board pixels; layout boxes, not mid-slide ones).
+    const corners = [];
+    if (!countCard.classList.contains('d-none')) {
+      corners.push({ left: countCard.offsetLeft, right: countCard.offsetLeft + countCard.offsetWidth,
+                     bottom: countCard.offsetTop + countCard.offsetHeight });
+    }
+    if (miniCorner[0] === 't') {
+      const mini = miniBox(area);
+      corners.push({ left: mini.left, right: mini.left + mini.w, bottom: mini.top + mini.h });
+    }
+    let lo = ZOOM_EDGE, hi = area.width - ZOOM_EDGE;
+    for (const c of corners) {
+      if (c.left + c.right < area.width) lo = Math.max(lo, c.right + ZOOM_EDGE);   // in the left half
+      else hi = Math.min(hi, c.left - ZOOM_EDGE);
+    }
+    clearingNav.classList.remove('brief');
+    navLabel.textContent = `${navLabel.dataset.clearing} ${n} ${navLabel.dataset.of} ${order.length}`;
+    if (clearingNav.offsetWidth > hi - lo) {
+      clearingNav.classList.add('brief');
+      navLabel.textContent = `${n}/${order.length}`;
+    }
+    const w = clearingNav.offsetWidth;
+    let top = ZOOM_EDGE;
+    if (w > hi - lo) {
+      // No room between them: under them, across the whole width.
+      top = Math.max(ZOOM_EDGE, ...corners.map(c => c.bottom + ZOOM_EDGE));
+      lo = ZOOM_EDGE;
+      hi = area.width - ZOOM_EDGE;
+    }
+    clearingNav.style.top = `${top}px`;
+    clearingNav.style.left = `${Math.max(Math.min((area.width - w) / 2, hi - w), lo)}px`;
+  }
+
+  // The magnifier: top right, below the item track (and its count card) if
+  // they'd be in the way.
+  function placeZoomIn(area) {
+    const size = zoomInBtn.offsetWidth || 40;
+    const left = area.width - size - ZOOM_EDGE;
+    let top = ZOOM_EDGE;
+    const track = itemTrackBox();
+    const blocks = [[track.left, track.top, track.left + track.width, track.top + track.height]];
+    if (!countCard.classList.contains('d-none')) {
+      const r = countCard.getBoundingClientRect();
+      blocks.push([r.left - area.left, r.top - area.top, r.right - area.left, r.bottom - area.top]);
+    }
+    for (let pass = 0; pass < 2; pass++) {
+      for (const [x0, y0, x1, y1] of blocks) {
+        if (left < x1 + 4 && left + size > x0 - 4 && top < y1 + 4 && top + size > y0 - 4) top = y1 + ZOOM_EDGE;
+      }
+    }
+    zoomInBtn.style.top = `${Math.min(top, Math.max(area.height - size - ZOOM_EDGE, ZOOM_EDGE))}px`;
+  }
+  window.addEventListener('resize', () => updateZoomControls());
+
+  navPrev.addEventListener('click', () => {
+    const order = clearingOrder(), k = order.indexOf(zoom.clearing);
+    if (k > 0) changeView(() => zoomToClearing(order[k - 1]));
+  });
+  navNext.addEventListener('click', () => {
+    const order = clearingOrder(), k = order.indexOf(zoom.clearing);
+    if (k >= 0 && k < order.length - 1) changeView(() => zoomToClearing(order[k + 1]));
+    else changeView(() => { zoom.on = false; });       // after the last: the whole map
+  });
+  zoomInBtn.addEventListener('click', () => {
+    changeView(() => {
+      const order = clearingOrder();
+      zoomToClearing(order.includes(zoom.clearing) ? zoom.clearing : (order.length ? order[0] : null));
+    });
+  });
+
+  // The mini-map: a click shows the whole map; a drag moves it, snapping to
+  // the nearest corner on release.
+  let miniDrag = null;
+  minimap.addEventListener('pointerdown', (evt) => {
+    evt.stopPropagation();
+    evt.preventDefault();
+    minimap.setPointerCapture(evt.pointerId);
+    const area = board.getBoundingClientRect(), r = minimap.getBoundingClientRect();
+    miniDrag = { id: evt.pointerId, x: evt.clientX, y: evt.clientY,
+                 left: r.left - area.left, top: r.top - area.top, moved: false };
+  });
+  minimap.addEventListener('pointermove', (evt) => {
+    if (!miniDrag || evt.pointerId !== miniDrag.id) return;
+    const dx = evt.clientX - miniDrag.x, dy = evt.clientY - miniDrag.y;
+    if (!miniDrag.moved && Math.hypot(dx, dy) < 5) return;
+    miniDrag.moved = true;
+    minimap.classList.add('mb-dragging-mini');
+    const area = board.getBoundingClientRect();
+    const left = Math.min(Math.max(miniDrag.left + dx, 0), area.width - minimap.offsetWidth);
+    const top = Math.min(Math.max(miniDrag.top + dy, 0), area.height - minimap.offsetHeight);
+    minimap.style.left = `${left}px`;
+    minimap.style.top = `${top}px`;
+  });
+  function endMiniDrag(evt, cancelled) {
+    if (!miniDrag || evt.pointerId !== miniDrag.id) return;
+    const moved = miniDrag.moved;
+    miniDrag = null;
+    minimap.classList.remove('mb-dragging-mini');
+    if (moved || cancelled) {
+      // The corner nearest its middle.
+      const area = board.getBoundingClientRect(), r = minimap.getBoundingClientRect();
+      const midX = r.left + r.width / 2 - area.left, midY = r.top + r.height / 2 - area.top;
+      if (moved) miniCorner = (midY < area.height / 2 ? 't' : 'b') + (midX < area.width / 2 ? 'l' : 'r');
+      try { window.localStorage.setItem('mb-minimap-corner', miniCorner); } catch (err) { /* not kept */ }
+      noteCountCard();
+      updateCountCards();       // the zoomed count card takes the other top corner
+      slideCountCard();
+      updateZoomControls();
+      return;
+    }
+    changeView(() => { zoom.on = false; });
+  }
+  minimap.addEventListener('pointerup', (evt) => endMiniDrag(evt, false));
+  minimap.addEventListener('pointercancel', (evt) => endMiniDrag(evt, true));
+  minimap.addEventListener('keydown', (evt) => {
+    if (evt.key === 'Enter' || evt.key === ' ') {
+      evt.preventDefault();
+      changeView(() => { zoom.on = false; });
+    }
+  });
+  for (const node of [clearingNav, zoomInBtn]) node.addEventListener('pointerdown', (evt) => evt.stopPropagation());
+
   // ── Drawing ───────────────────────────────────────────────────────────────
   function el(name, attrs, parent) {
     const node = document.createElementNS(NS, name);
@@ -376,10 +810,11 @@
     return node;
   }
 
-  const content = el('g', {}, svg);
+  const content = el('g', { id: 'mb-content' }, svg);   // (the Buildings step's mini-map shows it too)
   // The suit marker's outline, shared with the summary card's clearing icon
   // (map_summary.js keeps it as <symbol id="mb-marker"> on the page).
   MapSummary.loadMarker(config.marker_svg).then(ok => { if (ok) render(); });
+  MapSummary.useIcons({ forest: config.forest_icon, ruin: config.ruin_icon });   // (the review's summary card)
 
   // A step's pieces appear from that step on: never before it (they'd be in
   // the way of what's being placed now), dimmed on the steps after it, and at
@@ -436,8 +871,14 @@
   // A path: PATH.lanes rows of pill-shaped dashes, every other row shifted
   // half a dash, which makes cobblestones. A river: one solid line. (As the
   // PDF prints them.)
-  function drawLanes(g, points, kind) {
-    const colour = PATH.colours[kind];
+  function drawLanes(g, points, kind, colour = PATH.colours[kind]) {
+    if (kind === 'lake') {
+      // Its water is the outline (drawLakes); the line it's drawn along shows faintly over it.
+      el('polyline', { points: points.map(p => p.join(',')).join(' '), fill: 'none', stroke: '#1f2d6b',
+                       'stroke-opacity': 0.45, 'stroke-width': PATH.width * 0.35, 'stroke-linecap': 'round',
+                       'stroke-dasharray': `${PATH.width * 0.9} ${PATH.width * 0.6}`, 'pointer-events': 'none' }, g);
+      return;
+    }
     if (kind === 'river') {
       el('polyline', { points: points.map(p => p.join(',')).join(' '), fill: 'none', stroke: colour,
                        'stroke-width': PATH.width * PATH.river_width, 'stroke-linecap': 'butt',   // ends at the clearing's edge
@@ -454,6 +895,78 @@
     });
   }
 
+  // ── Lakes (map_lakes.js works the water out) ──
+  // Recomputed only when what they depend on changes; at half the grid while
+  // something's being dragged (smooth), at full size otherwise and for saving.
+  let lakeCache = { key: null, grid: 0, rings: [] };
+  function lakeRings(full = false) {
+    if (!PATH || !state.paths.some(p => p.kind === 'lake') || !window.MapLakes) return [];
+    // A forest being dragged (or just placed): the last outline stays put
+    // until it's dropped, then it's worked out again in full. (Worked out on
+    // every move, the lakes would jump about even far from the forest.)
+    if (!full && drag && drag.kind === 'forest' && lakeCache.key !== null) return lakeCache.rings;
+    const grid = full || !drag ? PATH.lake.grid : Math.round(PATH.lake.grid / 2);
+    const key = JSON.stringify([state.clearings, state.paths, state.forests]);
+    if (lakeCache.key === key && lakeCache.grid >= grid) return lakeCache.rings;
+    const shapes = pathCache.length === state.paths.length ? pathCache : pathShapes();
+    const cs = circles();
+    const onLake = new Set(state.paths.filter(p => p.kind === 'lake').flatMap(p => [p.a.c, p.b.c]));
+    // Rivers ending at each clearing: their end on its rim and the way they
+    // flow in (a lake there curves out to meet each, widening).
+    const feeds = new Map();
+    state.paths.forEach((p, i) => {
+      if (p.kind !== 'river' || !shapes[i]) return;
+      const pts = shapes[i].points;
+      for (const [end, at, before] of [['a', pts[0], pts[1]], ['b', pts[pts.length - 1], pts[pts.length - 2]]]) {
+        if (!('c' in p[end]) || !at || !before) continue;
+        const len = Math.hypot(at[0] - before[0], at[1] - before[1]) || 1;
+        if (!feeds.has(p[end].c)) feeds.set(p[end].c, []);
+        feeds.get(p[end].c).push([at[0], at[1], (at[0] - before[0]) / len, (at[1] - before[1]) / len]);
+      }
+    });
+    const centre = (e) => cs[e.c].slice(0, 2);
+    const input = {
+      width: W, height: H, grid,
+      overlap: PATH.lake.clearing_overlap, smooth: PATH.lake.smooth, minHalf: PATH.lake.min_half,
+      round: PATH.lake.round, crossReach: PATH.lake.cross_reach,
+      touch: PATH.lake.touch, lens: PATH.lake.lens, funnel: PATH.lake.funnel, variation: PATH.lake.variation,
+      shoreMargin: PATH.lake.shore_margin,
+      riverHalf: PATH.width * PATH.river_width / 2, linkReach: PATH.link_reach,
+      // The setup card's fit: a lake reaches a clearing as far as it is on the card.
+      card: PATH.card || null,
+      clearings: cs.map(([x, y, r], i) => ({ x, y, r, lake: onLake.has(i), feeds: feeds.get(i) || null,
+                                             suit: config.fixed ? state.clearings[i].suit || null : null })),
+      // A lake's line runs on into its clearings' centres.
+      lakes: state.paths.map((p, i) => [p, i]).filter(([p]) => p.kind === 'lake')
+        .map(([p, i]) => ({ a: p.a.c, b: p.b.c, points: [centre(p.a), ...shapes[i].points, centre(p.b)] })),
+      lines: state.paths.map((p, i) => [p, i]).filter(([p]) => p.kind !== 'lake')
+        .map(([p, i]) => ({ points: shapes[i].points, kind: p.kind,
+                            half: PATH.width * (p.kind === 'river' ? PATH.river_width : 1) / 2 })),
+      forests: state.forests.map(f => { const [x, y] = px(f); return { x, y, r: PATH.lake.forest_r }; }),
+    };
+    let rings = [];
+    try {
+      rings = window.MapLakes.shapes(input).rings;
+    } catch (err) {
+      rings = [];     // never break the board: the lakes are drawn as lines until it's fixed
+    }
+    lakeCache = { key, grid, rings };
+    return rings;
+  }
+
+  // The saved outline (state.lake_shapes, tts_map.py): rings in 0-1 of the frame.
+  function lakeShapesForSave() {
+    return lakeRings(true).map(ring => ring.map(([x, y]) => [Math.round(x / W * 1e4) / 1e4, Math.round(y / H * 1e4) / 1e4]));
+  }
+
+  function drawLakes(g) {
+    const rings = lakeRings();
+    if (!rings.length) return;
+    const d = rings.map(ring => 'M' + ring.map(p => p.map(n => n.toFixed(1)).join(' ')).join('L') + 'Z').join(' ');
+    el('path', { d, fill: PATH.colours.lake, 'fill-rule': 'evenodd', 'fill-opacity': config.image ? 0.75 : 1,
+                 stroke: '#2c3f80', 'stroke-width': STROKE * 1.5, 'stroke-linejoin': 'round', 'pointer-events': 'none' }, g);
+  }
+
   // Paths & Rivers, drawn first: under the printed art and every piece.
   function drawPaths() {
     pathCache = [];
@@ -466,6 +979,7 @@
     }
     const onStep = step === STEP_PATHS && !config.readonly;
     const ending = drag && drag.kind === 'path-end';
+    drawLakes(g);
     // Bottom to top where they cross: rivers, special paths, paths
     // (PATH.draw_order, as printed). Stable within a kind.
     const rank = (i) => PATH.draw_order.indexOf(pathCache[i].kind);
@@ -474,19 +988,20 @@
       const s = pathCache[i];
       const pg = el('g', { opacity: ending && drag.index === i ? 0.35 : 1 }, g);
       const pts = s.points.map(p => p.join(',')).join(' ');
-      const width = PATH.width * (s.kind === 'river' ? PATH.river_width : 1);   // as drawn
+      const width = PATH.width * (familyOf(s.kind) === 'river' ? PATH.river_width : 1);   // as drawn (a lake's line, as a river's)
       if (selected && selected.kind === 'path' && selected.index === i) {
         el('polyline', { points: pts, fill: 'none', stroke: '#dc3545', 'stroke-opacity': 0.6,
                          'stroke-width': width + STROKE * 6, 'stroke-linecap': 'round', 'pointer-events': 'none' }, pg);
       }
-      drawLanes(pg, s.points, s.kind);
+      drawLanes(pg, s.points, s.kind, state.paths[i] ? pathColour(state.paths[i]) : PATH.colours[s.kind]);
       // The click target: the path's whole width, and never too thin to hit.
       el('polyline', { points: pts, fill: 'none', stroke: 'transparent', 'stroke-width': Math.max(width * 1.3, DOT_PX * 2.5),
                        'pointer-events': 'stroke', 'data-kind': 'path', 'data-index': i, style: 'cursor: pointer' }, pg);
     });
     if (!onStep) return;
-    // Each path's middle: another path can start or end there.
+    // Each path's middle: another path can start or end there (not a lake's).
     for (const s of pathCache) {
+      if (s.kind === 'lake' || drawKind === 'lake') continue;
       el('circle', { cx: s.middle[0], cy: s.middle[1], r: handleRadius(), fill: 'rgba(255,255,255,0.85)',
                      stroke: '#231f20', 'stroke-width': STROKE, 'pointer-events': 'none' }, g);
     }
@@ -504,11 +1019,12 @@
     if (drag && (drag.kind === 'new-path' || ending)) {
       const fixed = anchorPoint(drag.kind === 'new-path' ? drag.from : drag.other);
       if (!fixed) return;
-      const kind = drag.kind === 'new-path' ? drawKind : state.paths[drag.index].kind;
+      const colour = drag.kind === 'new-path'
+        ? pathColour({ kind: drawKind, special: drawSpecial }) : pathColour(state.paths[drag.index]);
       const band = { x1: fixed[0], y1: fixed[1], x2: drag.at[0], y2: drag.at[1], 'stroke-linecap': 'round',
                      'pointer-events': 'none' };
       el('line', { ...band, stroke: '#231f20', 'stroke-opacity': 0.6, 'stroke-width': PATH.width * 0.45 }, g);
-      el('line', { ...band, stroke: PATH.colours[kind], 'stroke-width': PATH.width * 0.3,
+      el('line', { ...band, stroke: colour, 'stroke-width': PATH.width * 0.3,
                    'stroke-dasharray': `${PATH.width * 0.4} ${PATH.width * 0.3}` }, g);
       const target = anchorAt(drag.at);
       if (target && dragTargetOk(target)) {
@@ -528,6 +1044,7 @@
   }
 
   function render() {
+    syncView();     // first: a new view sets the line widths drawn below
     content.innerHTML = '';
     drawPaths();
     drawPrinted();
@@ -683,7 +1200,8 @@
   // ── Counters, tools, review ───────────────────────────────────────────────
   function counts() {
     // River clearings: clearings at the end of at least one river.
-    const riverEnds = state.paths.filter(p => p.kind === 'river').flatMap(p => [p.a, p.b]).filter(e => 'c' in e);
+    // River clearings: clearings at the end of at least one river or lake.
+    const riverEnds = state.paths.filter(p => familyOf(p.kind) === 'river').flatMap(p => [p.a, p.b]).filter(e => 'c' in e);
     return {
       clearings: state.clearings.length,
       forests: state.forests.length,
@@ -691,6 +1209,9 @@
       ruins: state.buildings.filter(b => b.ruin).length,
       paths: state.paths.filter(p => p.kind === 'path').length,
       special: state.paths.filter(p => p.kind === 'special').length,
+      // Each special path type's: special_<key>.
+      ...Object.fromEntries(SPECIALS.map(t => [`special_${t.key}`,
+        state.paths.filter(p => p.kind === 'special' && specialKey(p) === t.key).length])),
       river_clearings: new Set(riverEnds.map(e => e.c)).size,
     };
   }
@@ -705,6 +1226,7 @@
       btn.disabled = n > STEP_UPLOAD && artStepLocked();
       if (n === step) btn.setAttribute('aria-current', 'step'); else btn.removeAttribute('aria-current');
     });
+    fitStepNames();
     placeProgressThumb();
     document.getElementById('mb-heading').textContent = STEPS[step].heading;
 
@@ -712,7 +1234,11 @@
     updateSuitMode();
     updatePathMode();
     updateCountCards();
+    slideCountCard();
+    updateZoomControls();
     updateUpload();
+
+    if (rulesBox) rulesBox.classList.toggle('d-none', step !== STEP_RULES);
 
     document.getElementById('mb-back').disabled = step === 0;
     document.getElementById('mb-next').classList.toggle('d-none', step === STEP_REVIEW);
@@ -728,7 +1254,11 @@
   }
 
   // A piece's icon (map_summary.js draws them all, for the summary card too).
+  // ('special:<key>': a special path type's, in its colour.)
   function iconSvg(kind) {
+    if (kind.startsWith('special:')) {
+      return MapSummary.icon('special', { ...PATH.colours, special: specialType(kind.slice(8)).colour });
+    }
     return MapSummary.icon(kind, PATH ? PATH.colours : null);
   }
 
@@ -745,11 +1275,14 @@
         tile('ruin', 'Ruins', c.ruins, config.expected.ruins, STEP_BUILDINGS),
         tile('forest', 'Forests', c.forests, config.expected.forests, STEP_FORESTS),
       ],
-      // Special paths only when there are some.
+      // Then each special path type the map has, in its colour, by its name
+      // (the Rules step's): their tiles open that step.
       path_tiles: STEP_PATHS < 0 ? [] : [
         tile('path', 'Paths', c.paths, null, STEP_PATHS),
-        ...(c.special ? [tile('special', state.special_path_name || 'Special Paths', c.special, null, STEP_PATHS)] : []),
         tile('river', 'River Clearings', c.river_clearings, config.expected.river_clearings, STEP_PATHS),
+        ...usedSpecials().map(key => ({ ...tile('special', specialName(key), c[`special_${key}`], null,
+                                                 STEP_RULES >= 0 ? STEP_RULES : STEP_PATHS),
+                                         colour: specialType(key).colour, special: key })),
       ],
       colours: PATH ? PATH.colours : null,
     };
@@ -993,14 +1526,9 @@
         render();
         return;
       }
-      // A press inside an existing clearing's circle selects it (the nearest
-      // centre, where circles overlap) rather than starting a new one.
-      let inside = null, nearest = Infinity;
-      state.clearings.forEach((c, i) => {
-        if (!c.marker) return;
-        const centre = px(c.centre), d = dist(p, centre);
-        if (d <= dist(centre, px(c.marker)) && d < nearest) { inside = i; nearest = d; }
-      });
+      // A press inside an existing clearing's circle selects it rather than
+      // starting a new one.
+      const inside = clearingAt(p);
       if (inside !== null) {
         selected = { kind: 'clearing', index: inside };
         render();
@@ -1039,6 +1567,13 @@
         render();
         return;
       }
+      // The whole map: a press inside a clearing zooms in on it (buildings go
+      // in there, up close); outside every clearing, it places one here.
+      const inside = zoomActive() ? null : clearingAt(p);
+      if (inside !== null) {
+        changeView(() => zoomToClearing(inside));
+        return;
+      }
       // Place it and keep it under the pointer, so press-and-drag places and moves it.
       state.buildings.push({ at: norm(...p), ruin: false });
       selected = { kind: 'building', index: state.buildings.length - 1 };
@@ -1062,6 +1597,8 @@
     goTo(target[0]);
     if (target[1] && Number.isInteger(h.index)) {
       selected = { kind: target[1], index: h.index };
+      // A building: zoomed in on its clearing.
+      if (target[1] === 'building') zoomOnBuilding(h.index);
       render();
     }
   }
@@ -1122,6 +1659,8 @@
       const target = anchorAt(drag.at);
       if (target && canConnect(drag.from, target)) {
         state.paths.push({ kind: drawKind, a: drag.from, b: target });
+        if (drawKind === 'special' && drawSpecial !== SPECIAL_DEFAULT) state.paths[state.paths.length - 1].special = drawSpecial;
+        chooseSide(state.paths.length - 1, 'b', drag.at);
         edited = true;
       } else if ('p' in drag.from && dist(drag.at, drag.start) < DOT_PX) {
         // A click on a path's middle (no drag): select that path.
@@ -1133,6 +1672,7 @@
       const target = anchorAt(drag.at);
       if (target && dragTargetOk(target)) {
         state.paths[drag.index][drag.end] = target;
+        chooseSide(drag.index, drag.end, drag.at);
         edited = true;
       }
     }
@@ -1232,8 +1772,11 @@
 
   // Slide the toggle's highlight onto `kind`'s button. The segments differ in
   // width (special paths are just a swatch), so it's placed from the button
-  // itself (--mb-kind-x / --mb-kind-w, map_builder.css).
-  function setKindToggle(toggle, kind) {
+  // itself (--mb-kind-x / --mb-kind-w, map_builder.css). special: a special
+  // path's type, for its segment's swatch.
+  function setKindToggle(toggle, kind, special) {
+    if (familyOf(kind) === 'river') setWaterKind(toggle, kind);
+    if (special) setSpecialKind(toggle, special);
     toggle.querySelectorAll('[data-path-kind]').forEach(btn => {
       const on = btn.dataset.pathKind === kind;
       btn.setAttribute('aria-checked', on ? 'true' : 'false');
@@ -1244,25 +1787,160 @@
     });
   }
 
-  if (drawToggle) {
-    drawToggle.querySelectorAll('[data-path-kind]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        drawKind = btn.dataset.pathKind;
-        updatePathMode();
+  // The water segment is River or Lake: its swatch, label and kind follow the
+  // choice, and its menu ticks it.
+  function setWaterKind(toggle, kind) {
+    const btn = toggle.querySelector('[data-water]');
+    if (!btn) return;
+    btn.dataset.pathKind = kind;
+    const label = kind === 'lake' ? btn.dataset.labelLake : btn.dataset.labelRiver;
+    btn.querySelector('.mb-kind-label').textContent = label;
+    btn.title = label;
+    btn.setAttribute('aria-label', label);
+    btn.querySelector('.mb-kind-swatch').classList.toggle('mb-kind-swatch-lake', kind === 'lake');
+    toggle.querySelectorAll('[data-water-kind]').forEach(item => {
+      item.setAttribute('aria-checked', item.dataset.waterKind === kind ? 'true' : 'false');
+    });
+  }
+
+  // The special path segment is a type (colour): its swatch follows the
+  // choice, and its menu ticks it.
+  function setSpecialKind(toggle, key) {
+    const btn = toggle.querySelector('[data-special]');
+    if (!btn) return;
+    btn.querySelector('.mb-kind-swatch').style.setProperty('--mb-swatch', specialType(key).colour);
+    toggle.querySelectorAll('[data-special-kind]').forEach(item => {
+      item.setAttribute('aria-checked', item.dataset.specialKind === key ? 'true' : 'false');
+    });
+  }
+
+  // The segments with a menu: 'water' (River / Lake) and 'special' (colours).
+  const MENU_BUTTONS = { water: '[data-water]', special: '[data-special]' };
+  const menuOf = (toggle, which) => toggle.querySelector(`.mb-water-menu[data-menu-for="${which}"]`);
+
+  function menuOpen(toggle, which) {
+    const menu = menuOf(toggle, which);
+    return !!menu && !menu.hidden;
+  }
+
+  function openMenu(toggle, which, open) {
+    for (const other of Object.keys(MENU_BUTTONS)) {
+      const menu = menuOf(toggle, other), btn = toggle.querySelector(MENU_BUTTONS[other]);
+      const on = open && other === which;
+      if (menu) menu.hidden = !on;
+      if (btn) btn.classList.toggle('mb-menu-open', on);
+    }
+    if (!open) return;
+    const menu = menuOf(toggle, which), btn = toggle.querySelector(MENU_BUTTONS[which]);
+    if (!menu || !btn) return;
+    // Under its segment, right edges lined up; below the toggle, or above it
+    // when the board has no room below.
+    menu.style.right = `${Math.max(0, toggle.clientWidth - btn.offsetLeft - btn.offsetWidth)}px`;
+    menu.classList.remove('up');
+    if (menu.getBoundingClientRect().bottom > board.getBoundingClientRect().bottom) menu.classList.add('up');
+    const item = menu.querySelector('[aria-checked="true"]:not(:disabled)') || menu.querySelector('button:not(:disabled)');
+    if (item) item.focus();
+  }
+
+  // A kind toggle (the Draw card's, or the selected path's): onPick(kind,
+  // special) (special: a special path's type, when one was picked). A segment
+  // with a menu, when it's already chosen (or by its chevron), opens it instead.
+  function wireKindToggle(toggle, onPick) {
+    toggle.querySelectorAll('[data-path-kind]').forEach(btn => {
+      btn.addEventListener('click', (evt) => {
+        const which = btn.hasAttribute('data-water') ? 'water' : btn.hasAttribute('data-special') ? 'special' : null;
+        if (which && menuOf(toggle, which)
+            && (evt.target.closest('.mb-kind-chevron') || btn.getAttribute('aria-checked') === 'true')) {
+          openMenu(toggle, which, !menuOpen(toggle, which));
+          return;
+        }
+        openMenu(toggle, null, false);
+        onPick(btn.dataset.pathKind, which === 'special' ? currentSpecial(toggle) : null);
       });
+    });
+    toggle.querySelectorAll('[data-water-kind]').forEach(item => {
+      item.addEventListener('click', () => {
+        openMenu(toggle, null, false);
+        onPick(item.dataset.waterKind, null);
+      });
+    });
+    toggle.querySelectorAll('[data-special-kind]').forEach(item => {
+      item.addEventListener('click', () => {
+        openMenu(toggle, null, false);
+        onPick('special', item.dataset.specialKind);
+      });
+    });
+    toggle.querySelectorAll('.mb-water-menu').forEach(menu => {
+      menu.addEventListener('keydown', (evt) => {
+        const items = [...menu.querySelectorAll('button:not(:disabled)')];
+        const at = items.indexOf(document.activeElement);
+        if (evt.key === 'Escape') {
+          openMenu(toggle, null, false);
+          const btn = toggle.querySelector(MENU_BUTTONS[menu.dataset.menuFor]);
+          if (btn) btn.focus();
+        } else if (evt.key === 'ArrowDown' || evt.key === 'ArrowUp') {
+          const next = items[(at + (evt.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length];
+          if (next) next.focus();
+        } else {
+          return;
+        }
+        evt.preventDefault();
+        evt.stopPropagation();     // not the builder's own keys
+      });
+    });
+    // A press anywhere else closes it.
+    document.addEventListener('pointerdown', (evt) => {
+      if ((menuOpen(toggle, 'water') || menuOpen(toggle, 'special')) && !toggle.contains(evt.target)) {
+        openMenu(toggle, null, false);
+      }
+    }, true);
+  }
+
+  // The special type a toggle shows (its ticked menu item).
+  function currentSpecial(toggle) {
+    const item = toggle.querySelector('[data-special-kind][aria-checked="true"]');
+    return item ? item.dataset.specialKind : SPECIAL_DEFAULT;
+  }
+
+  // Can path `index` become a lake? Only joining two clearings, with nothing
+  // on its middle, nor on the water path it would replace (replaceTwin).
+  function lakeAllowed(index) {
+    const path = state.paths[index];
+    if (!('c' in path.a && 'c' in path.b)) return "A lake joins two clearings, not a path's middle.";
+    const attached = (k) => state.paths.some(q => [q.a, q.b].some(e => 'p' in e && e.p === k));
+    if (attached(index)) return "Another path ends on this one's middle: a lake can't have one.";
+    const twin = state.paths.findIndex((q, k) => k !== index && pairKey(q.a, q.b) === pairKey(path.a, path.b)
+                                                && familyOf(q.kind) === 'river');
+    if (twin >= 0 && attached(twin)) return "Another path ends on the river here: a lake can't have one.";
+    return null;
+  }
+
+  if (drawToggle) {
+    wireKindToggle(drawToggle, (kind, special) => {
+      drawKind = kind;
+      if (special) drawSpecial = special;
+      updatePathMode();
+      render();         // (a lake hides the path middles' handles)
     });
     pathMode.addEventListener('pointerdown', (evt) => evt.stopPropagation());
   }
   if (popKind) {
-    popKind.querySelectorAll('[data-path-kind]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (!selected || selected.kind !== 'path') return;
-        const path = state.paths[selected.index];
-        if (path.kind === btn.dataset.pathKind) return;
-        path.kind = btn.dataset.pathKind;
-        replaceTwin(selected.index);
+    wireKindToggle(popKind, (kind, special) => {
+      if (!selected || selected.kind !== 'path') return;
+      const path = state.paths[selected.index];
+      if (kind === 'special' && path.kind === 'special') {
+        // Another colour of special path: the same kind (no twin to replace).
+        if (!special || specialKey(path) === special) return;
+        if (special === SPECIAL_DEFAULT) delete path.special; else path.special = special;
         changed();
-      });
+        return;
+      }
+      if (path.kind === kind || (kind === 'lake' && lakeAllowed(selected.index))) return;
+      path.kind = kind;
+      if (kind === 'special' && special && special !== SPECIAL_DEFAULT) path.special = special;
+      if (kind !== 'special') delete path.special;
+      replaceTwin(selected.index);
+      changed();
     });
   }
 
@@ -1284,7 +1962,7 @@
       : Math.min(Math.max(box.width, 230), 300, box.area.width - 8);
     placeOnItemTrack(pathMode, width);
     // Last: the highlight is placed from its button's laid-out size.
-    setKindToggle(drawToggle, drawKind);
+    setKindToggle(drawToggle, drawKind, drawSpecial);
   }
   window.addEventListener('resize', updatePathMode);
 
@@ -1318,7 +1996,18 @@
     // A path: its kind (the same toggle as the Draw card) and delete.
     if (popKindWrap) {
       popKindWrap.classList.toggle('d-none', selected.kind !== 'path');
-      if (selected.kind === 'path') setKindToggle(popKind, state.paths[selected.index].kind);
+      if (selected.kind === 'path') {
+        const kind = state.paths[selected.index].kind;
+        if (familyOf(kind) === 'land') setWaterKind(popKind, 'river');   // (not left on another path's Lake)
+        setKindToggle(popKind, kind, kind === 'special' ? specialKey(state.paths[selected.index]) : SPECIAL_DEFAULT);
+        // Lake only where it can be one (lakeAllowed says why not).
+        const lakeItem = popKind.querySelector('[data-water-kind="lake"]');
+        const why = lakeAllowed(selected.index);
+        lakeItem.disabled = !!why && state.paths[selected.index].kind !== 'lake';
+        lakeItem.title = lakeItem.disabled ? why : '';
+      } else {
+        openMenu(popKind, null, false);
+      }
     }
     if (isClearing) {
       const c = state.clearings[selected.index];
@@ -1443,6 +2132,10 @@
     const box = itemTrackBox();
     card.style.width = width === null ? 'auto' : `${width}px`;
     if (width === null) width = card.offsetWidth;
+    if (card === countCard && zoomActive()) {
+      placeInTopCorner(card, width);   // the item track is out of view
+      return;
+    }
     const left = Math.min(Math.max(box.left, 4), box.area.width - width - 4);
     card.style.left = `${left}px`;
     const up = box.top + openHeight(card, openWidth === null ? width : openWidth) > box.area.height - 4;
@@ -1490,10 +2183,15 @@
     // An optional 4th entry is a shorter label for when the full one doesn't fit.
     [STEP_BUILDINGS]: [['building', 'buildings', 'Building Slots', 'Buildings'], ['ruin', 'ruins', 'Ruins']],
     [STEP_FORESTS]: [['forest', 'forests', 'Forests']],
-    // On the VP track, like Clearings.
-    [STEP_PATHS]: [['path', 'paths', 'Paths'], ['special', 'special', 'Special Paths', 'Special'],
-                   ['river', 'river_clearings', 'River Clearings', 'Rivers']],
   };
+  // A step's count rows. Paths (on the VP track, like Clearings): Paths, River
+  // Clearings, then each special path type the map has, just its coloured
+  // icon and count (they're named on the setup card).
+  function countRows(n) {
+    if (STEP_PATHS < 0 || n !== STEP_PATHS) return COUNT_ROWS[n];
+    return [['path', 'paths', 'Paths'], ['river', 'river_clearings', 'River Clearings', 'Rivers'],
+            ...usedSpecials().map(key => [`special:${key}`, `special_${key}`, ''])];
+  }
 
   // compact: no labels. brief: just the current number (no "/ expected").
   function countRowsHtml(rows, compact, brief = false, short = false) {
@@ -1504,12 +2202,9 @@
       const known = expected !== null && expected !== undefined;
       const off = known && n !== expected ? ' off' : '';
       const figure = known && !brief ? `${n} / ${expected}` : `${n}`;
-      // Paths step, with special paths: their label is the map's name for them,
-      // an input (kept even when the other labels are dropped).
-      const naming = key === 'special' && step === STEP_PATHS && n >= 1;
       return `<div class="mb-count-row"><span class="mb-count-icon">${iconSvg(icon)}</span>`
         + `<span class="mb-count-figure${off}">${figure}</span>`
-        + (naming ? specialNameInput() : compact ? '' : `<span class="mb-count-label">${label}</span>`) + '</div>';
+        + (compact || !label ? '' : `<span class="mb-count-label">${label}</span>`) + '</div>';
     }).join('');
   }
 
@@ -1574,7 +2269,7 @@
 
     // Buildings & Ruins / Forests card.
     const onPill = step === STEP_CLEARINGS || (STEP_PATHS >= 0 && step === STEP_PATHS);
-    const rows = onPill ? null : COUNT_ROWS[step];
+    const rows = onPill ? null : countRows(step);
     countCard.classList.toggle('d-none', !rows);
     if (rows) updateCountCard(rows, box, compact);
 
@@ -1587,21 +2282,9 @@
       clearingPill.style.height = `${height}px`;
       clearingPill.style.fontSize = `${Math.min(Math.max(height * 0.45, 12), 17)}px`;
       clearingPill.style.setProperty('--mb-pill-icon', `${Math.round(Math.min(Math.max(height * 0.45, 12), 18))}px`);
-      const nameField = document.getElementById('mb-special-name');
-      if (nameField && document.activeElement === nameField) {
-        // Typing the special paths' name: just the numbers, so focus stays put.
-        clearingPill.querySelectorAll('.mb-count-figure').forEach((figure, i) => {
-          figure.textContent = counts()[COUNT_ROWS[step][i][1]];
-        });
-        placePill();
-        return;
-      }
       // The VP track spans nearly the whole board, so the full text fits even on
       // small screens; drop the label only if the pill would be wider than the track.
-      const fill = (...args) => {
-        clearingPill.innerHTML = countRowsHtml(COUNT_ROWS[step], ...args);
-        fitSpecialName();
-      };
+      const fill = (...args) => { clearingPill.innerHTML = countRowsHtml(countRows(step), ...args); };
       fill(false);
       const trackWidth = (Math.max(...cols) - Math.min(...cols)) * box.scale;
       if (clearingPill.offsetWidth > trackWidth) fill(false, false, true);   // short labels
@@ -1620,43 +2303,6 @@
     clearingPill.style.left = `${Math.min(Math.max(cx - w / 2, 4), box.area.width - w - 4)}px`;
     clearingPill.style.top = `${cy - h / 2}px`;
   }
-
-  // ── The special paths' name (in the Paths step's pill) ──
-  // What the map's special paths are (Bridges, Mountain Passes...): saved with
-  // the layout, and the label of their summary tile (tts_map.layout_summary).
-  function specialNameInput() {
-    return `<input type="text" id="mb-special-name" maxlength="${config.special_name_max || 24}"`
-      + ' placeholder="Special Paths" aria-label="Special Path Name" autocomplete="off" spellcheck="false">';
-  }
-
-  // Fill the name input (its value set as a property: it's the user's text) and
-  // size it to the text, or to the placeholder when empty.
-  let measureCanvas = null;
-  function fitSpecialName() {
-    const input = document.getElementById('mb-special-name');
-    if (!input) return;
-    if (input.value !== (state.special_path_name || '')) input.value = state.special_path_name || '';
-    const style = getComputedStyle(input);
-    measureCanvas = measureCanvas || document.createElement('canvas');
-    const ctx = measureCanvas.getContext('2d');
-    ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-    const text = Math.max(ctx.measureText(input.value).width, ctx.measureText(input.placeholder).width);
-    const extra = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
-      + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
-    input.style.width = `${Math.ceil(text + extra + 2)}px`;
-  }
-
-  clearingPill.addEventListener('input', (evt) => {
-    if (evt.target.id !== 'mb-special-name') return;
-    state.special_path_name = evt.target.value;
-    dirty = true;
-    showSaved(false);
-    fitSpecialName();
-    placePill();
-  });
-  clearingPill.addEventListener('keydown', (evt) => {
-    if (evt.target.id === 'mb-special-name' && evt.key === 'Enter') evt.target.blur();
-  });
 
   countCard.addEventListener('pointerdown', (evt) => evt.stopPropagation());
   countCard.addEventListener('click', (evt) => {
@@ -1989,6 +2635,34 @@
   // text, never narrower than the step's own share.
   const THUMB_PAD = 12;     // px either side of the text
   const THUMB_INSET = 3;    // the bar's padding
+  // The steps' names: full, else short, else none (just the numbers): the
+  // longest that fits in every step's share of the bar, with a little room
+  // either side (map_builder.css, mb-names-*). (The highlight may reach a
+  // little past its share: placeProgressThumb.)
+  const STEP_NAME_MODES = ['mb-names-full', 'mb-names-short', 'mb-names-none'];
+  // px either side of a step's number and name, by mode: short names need
+  // more (at their narrowest they crowd the numbers: numbers only, then).
+  const STEP_NAME_ROOM = { 'mb-names-full': 4, 'mb-names-short': 10 };
+  let stepNamesWidth = null;
+  function fitStepNames() {
+    const bar = document.getElementById('mb-progress');
+    if (!bar || !bar.clientWidth || bar.clientWidth === stepNamesWidth) return;
+    stepNamesWidth = bar.clientWidth;
+    const fits = (room) => [...bar.querySelectorAll('[data-step]')].every(btn => {
+      let used = 0, shown = 0;
+      for (const child of btn.querySelectorAll('.mb-step-num, .mb-name-full, .mb-name-short, .mb-step-name:not(:has(span))')) {
+        const w = child.getBoundingClientRect().width;
+        if (w) { used += w; shown++; }
+      }
+      const gap = parseFloat(getComputedStyle(btn).columnGap) || 0;
+      return used + gap * Math.max(shown - 1, 0) + 2 * room <= btn.clientWidth;
+    });
+    for (const mode of STEP_NAME_MODES) {
+      bar.classList.remove(...STEP_NAME_MODES);
+      bar.classList.add(mode);
+      if (mode === 'mb-names-none' || fits(STEP_NAME_ROOM[mode])) break;
+    }
+  }
   function placeProgressThumb() {
     const bar = document.getElementById('mb-progress');
     const thumb = document.getElementById('mb-progress-thumb');
@@ -2012,9 +2686,11 @@
     thumb.style.left = `${x}px`;
     thumb.style.width = `${width}px`;
   }
-  window.addEventListener('resize', placeProgressThumb);
+  window.addEventListener('resize', () => { fitStepNames(); placeProgressThumb(); });
   // The step names' font (and so their widths) may load after the first layout.
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(placeProgressThumb);
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => { stepNamesWidth = null; fitStepNames(); placeProgressThumb(); });
+  }
 
   // ── Steps and saving ──────────────────────────────────────────────────────
   function goTo(n) {
@@ -2024,6 +2700,8 @@
     selected = null;
     if (pendingMarker !== null && !state.clearings[pendingMarker].marker) removeClearing(pendingMarker);
     pendingMarker = null;
+    if (step === STEP_BUILDINGS) zoomStart();
+    if (step === STEP_RULES) showRulesSections();
     render();
     introduceStep();
   }
@@ -2050,6 +2728,63 @@
     });
     progress.appendChild(btn);
   });
+
+  // ── Rules step ───────────────────────────────────────────────────────────
+  // The setup card page's form (map_setup_card_editor.html, embedded): it
+  // shows the sections the layout has now (the special path types it uses,
+  // Raging River with rivers), is saved with the layout (its fields as
+  // `card`: the_keep/services/map_setup_card.save_builder_card), and the
+  // review's summary takes the special paths' names from it.
+  function showRulesSections() {
+    if (rulesForm && rulesForm.mscSections) {
+      rulesForm.mscSections(usedSpecials(), state.paths.some(p => p.kind === 'river'));
+    }
+  }
+
+  function rulesPayload() {
+    if (!rulesForm || STEP_RULES < 0) return {};
+    const card = {};
+    for (const [name, value] of new FormData(rulesForm)) {
+      if (name === 'csrfmiddlewaretoken') continue;
+      (card[name] = card[name] || []).push(value);
+    }
+    return { card };
+  }
+
+  // A special path type's name: the Rules step's, else its default ("Special
+  // Paths" while it's the only type, else its colour's).
+  function specialName(key) {
+    const input = rulesForm && rulesForm.querySelector(`input[name="special_name_${key}"]`);
+    if (input && input.value.trim()) return input.value.trim();
+    const several = usedSpecials().length > 1;
+    if (input) return several ? input.dataset.several : input.dataset.single;
+    return several ? `${specialType(key).label} Paths` : 'Special Paths';
+  }
+
+  // The card's problems (from a save): over the form, and in the messages.
+  function showRulesErrors(errors) {
+    if (!rulesBox) return;
+    let box = document.getElementById('mb-rules-errors');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'mb-rules-errors';
+      rulesBox.prepend(box);
+    }
+    box.innerHTML = '';
+    if (errors.length) {
+      box.appendChild(alertBox('danger', errors));
+      document.getElementById('mb-messages').appendChild(
+        alertBox('danger', ["The setup card's rules weren't saved: " + errors.join(' ')]));
+    }
+  }
+
+  if (rulesForm) {
+    // An edit there is an unsaved change, like one on the map.
+    const edited = () => { dirty = true; showSaved(false); };
+    rulesForm.addEventListener('input', edited);
+    rulesForm.addEventListener('change', edited);
+    rulesBox.addEventListener('pointerdown', (evt) => evt.stopPropagation());
+  }
 
   // ── Step cards ────────────────────────────────────────────────────────────
   // A card introduces each step; the info button beside the title reopens it.
@@ -2153,6 +2888,15 @@
     }
   }
 
+  // The layout to save: with its lakes' outline worked out from exactly this
+  // layout, at full size (the printed map and setup card draw it).
+  function withLakeShapes(layout) {
+    const out = { ...layout };
+    const shapes = lakeShapesForSave();
+    if (shapes.length) out.lake_shapes = shapes; else delete out.lake_shapes;
+    return out;
+  }
+
   // Returns true when the page is moving on (a redirect).
   async function saveNow(generate) {
     const box = document.getElementById('mb-messages');
@@ -2170,7 +2914,7 @@
       const response = await fetch(config.save_url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() },
-        body: JSON.stringify(startStepFields({ state, generate })),
+        body: JSON.stringify(startStepFields({ state: withLakeShapes(state), generate, ...rulesPayload() })),
       });
       result = await response.json();
     } catch (err) {
@@ -2181,6 +2925,7 @@
       dirty = false;
       showSaved(true);
     }
+    showRulesErrors(result.card_errors || []);
     if (nameInput && result.name) {
       nameInput.value = result.name;
       const heading = document.getElementById('mb-page-title');

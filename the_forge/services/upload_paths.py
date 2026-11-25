@@ -94,6 +94,20 @@ def map_preview_upload_path(instance, filename):
     )
 
 
+def map_card_front_upload_path(instance, filename):
+    return upload_path(
+        slug_parts=[instance.faction.slug, 'map'],
+        filename='card_front.webp',
+    )
+
+
+def map_card_back_upload_path(instance, filename):
+    return upload_path(
+        slug_parts=[instance.faction.slug, 'map'],
+        filename='card_back.webp',
+    )
+
+
 def card_preview_upload_path(instance, filename):
     return upload_path(
         slug_parts=[instance.faction.slug, 'card'],

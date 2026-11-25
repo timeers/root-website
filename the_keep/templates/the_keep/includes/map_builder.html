@@ -28,11 +28,34 @@ generate_title. Load map_summary.css, map_builder.css, map_summary.js and map_bu
 
 <!-- Board -->
 <div class="position-relative border rounded mb-3" id="mb-board" style="touch-action: pinch-zoom; user-select: none;">
-    <img src="{% if config.image %}{{ config.image }}{% else %}data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=={% endif %}"
-         alt="{{ board_alt }}" class="w-100 d-block" id="mb-image" draggable="false"
-         style="aspect-ratio: {{ config.width }} / {{ config.height }};{% if config.blank %} background: {{ config.blank }};{% endif %}">
+    <!-- The art, in a window that clips it when the Buildings step zooms in -->
+    <div id="mb-viewport">
+        <img src="{% if config.image %}{{ config.image }}{% else %}data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw=={% endif %}"
+             alt="{{ board_alt }}" class="w-100 d-block" id="mb-image" draggable="false"
+             style="aspect-ratio: {{ config.width }} / {{ config.height }};{% if config.blank %} background: {{ config.blank }};{% endif %}">
+    </div>
     <svg id="mb-svg" class="position-absolute top-0 start-0 w-100 h-100"
          viewBox="0 0 {{ config.width }} {{ config.height }}" preserveAspectRatio="none"></svg>
+
+    <!-- Buildings step: one clearing at a time. The mini-map (drag it to a
+         corner; click it for the whole map), the way between clearings, and
+         the button back into the clearing from the whole map. -->
+    <div id="mb-minimap" class="d-none" role="button" tabindex="0"
+         aria-label="{% trans 'Show the whole map' %}" title="{% trans 'Show the whole map (drag to move)' %}">
+        <img alt="" draggable="false"{% if config.blank %} style="background: {{ config.blank }};"{% endif %}>
+        <svg viewBox="0 0 {{ config.width }} {{ config.height }}" preserveAspectRatio="none" aria-hidden="true">
+            <use href="#mb-content"></use>
+            <rect id="mb-minimap-view" fill="none" stroke="#dc3545" vector-effect="non-scaling-stroke" stroke-width="2"></rect>
+        </svg>
+    </div>
+    <div id="mb-clearing-nav" class="d-none" role="group" aria-label="{% trans 'Clearings' %}">
+        <button type="button" id="mb-nav-prev" aria-label="{% trans 'Previous clearing' %}"><i class="bi bi-chevron-left"></i></button>
+        <span id="mb-nav-label" aria-live="polite" data-clearing="{% trans 'Clearing' %}" data-of="{% trans 'of' %}"></span>
+        <button type="button" id="mb-nav-next" aria-label="{% trans 'Next clearing' %}"
+                data-full="{% trans 'Show full map' %}"><i class="bi bi-chevron-right"></i></button>
+    </div>
+    <button type="button" id="mb-zoom-in" class="d-none" aria-label="{% trans 'Zoom into the clearing' %}"
+            title="{% trans 'Zoom into the clearing' %}"><i class="bi bi-zoom-in"></i></button>
 
     {% if config.upload_step %}
     <!-- Forge, first step: the map's name (top third) and its art (bottom two
@@ -110,8 +133,16 @@ generate_title. Load map_summary.css, map_builder.css, map_summary.js and map_bu
     <div id="mb-path-mode" class="d-none">
         <div class="mb-mode-title" id="mb-path-title"
              data-path="{% trans 'Draw Paths' %}" data-special="{% trans 'Draw Special Paths' %}"
-             data-river="{% trans 'Draw Rivers' %}">{% trans 'Draw Paths' %}</div>
+             data-river="{% trans 'Draw Rivers' %}" data-lake="{% trans 'Draw Lakes' %}">{% trans 'Draw Paths' %}</div>
         {% include 'the_keep/includes/map_path_kind_toggle.html' with toggle_id='mb-draw-kind' %}
+    </div>
+    {% endif %}
+
+    {% if rules and config.rules_step %}
+    <!-- Setup Card Rules step: the setup card page's form, floating over the
+         map and scrolling within it (saved with the layout: map_builder.js) -->
+    <div id="mb-rules" class="d-none">
+        {% include 'the_keep/includes/map_setup_card_editor.html' with form=rules.form features=rules.features text=rules.text law_url=rules.law_url embedded=True %}
     </div>
     {% endif %}
 

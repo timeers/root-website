@@ -1263,19 +1263,38 @@ class MapBuilderTests(TestCase):
         self.assertTrue(result['generated'], result)
         self.assertEqual(Map.objects.get(pk=self.map.pk).river_clearings, 2)
 
-    def test_the_keep_builder_saves_the_special_path_name(self):
+    def test_the_keep_builder_saves_the_setup_card_rules(self):
+        # The Rules step: its form's fields saved with the layout, as the Map's
+        # map_card (the same JSON as a Forge map's), named special paths and all.
         from the_keep.models import Map
         self.client.force_login(self.designer_user)
-        self.assertEqual(self.client.get(self._builder_url()).context['config']['special_name_max'], 24)
+        page = self.client.get(self._builder_url())
+        self.assertTrue(page.context['config']['rules_step'])
+        self.assertIn('id="mb-rules"', page.content.decode())
         state = self._state()
-        state['paths'] = [{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}]
+        state['paths'] = [{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}},
+                          {'kind': 'special', 'special': 'green', 'a': {'c': 1}, 'b': {'c': 2}}]
         state['visited'] = ['paths']
-        state['special_path_name'] = 'Bridges'
-        self.client.post(self._builder_url(), json.dumps({'state': state}), content_type='application/json')
-        self.assertEqual(Map.objects.get(pk=self.map.pk).tts_builder['special_path_name'], 'Bridges')
-        # The Map's page shows it, on its summary card.
+        card = {'special_name_red': ['Bridges'], 'special_rule_red': ['Cross by day.'], 'special_divides_red': ['no'],
+                'special_name_green': [''], 'modifications': ['Set up the ferry.'], 'raging_river': ['no']}
+        result = self.client.post(self._builder_url(), json.dumps({'state': state, 'card': card}),
+                                  content_type='application/json').json()
+        self.assertEqual(result['card_errors'], [])
+        saved = Map.objects.get(pk=self.map.pk).map_card
+        self.assertEqual(saved['special_paths']['red'], {'name': 'Bridges', 'rule': 'Cross by day.', 'divides_forests': False})
+        self.assertEqual(saved['modifications'], 'Set up the ferry.')
+        # The Map's page shows them on its summary card: named, or by their colour.
         html = self.client.get(reverse('map-detail', kwargs={'slug': self.map.slug})).content.decode()
         self.assertIn('"label": "Bridges"', html)
+        self.assertIn('"label": "Green Paths"', html)
+        # A card that won't fit isn't saved (the layout is), and says so.
+        too_long = {**card, 'modifications': ['x' * 300], 'rule_name': [f'R{n}' for n in range(6)],
+                    'rule_text': ['y' * 300] * 6}
+        result = self.client.post(self._builder_url(), json.dumps({'state': state, 'card': too_long, 'generate': True}),
+                                  content_type='application/json').json()
+        self.assertTrue(result['card_errors'])
+        self.assertFalse(result['ok'])
+        self.assertEqual(Map.objects.get(pk=self.map.pk).map_card['modifications'], 'Set up the ferry.')
 
     def test_map_page_has_the_layout_summary(self):
         from the_keep.models import Map
@@ -1300,8 +1319,16 @@ class MapBuilderTests(TestCase):
         self.assertEqual(set(config['suit_icons']), {'fox', 'rabbit', 'mouse', 'bird', 'city'})
         self.assertIn('images/tags/Bird_Tag.png', config['suit_icons']['bird'])
         self.assertIn('images/map_builder/clearing_marker.svg', config['marker_svg'])
+        # The summary card's forest icon: in the builder's config and the detail pages' data.
+        from the_keep.services.tts_map import layout_summary
+        self.assertIn('pdf/maps/root_map_green_forest.svg', config['forest_icon'])
+        self.assertEqual(layout_summary({})['forest_icon'], config['forest_icon'])
+        self.assertIn('images/tts/assets/ruin.png', config['ruin_icon'])
+        self.assertEqual(layout_summary({})['ruin_icon'], config['ruin_icon'])
         width, height = config['marker_px']
         self.assertAlmostEqual(width / height, 2.0, delta=0.05)
+        from the_keep.services.tts_map import DEFAULT_CLEARING_RADIUS
+        self.assertAlmostEqual(config['default_radius_px'], DEFAULT_CLEARING_RADIUS * config['px_per_local'])
         with mock.patch('django.contrib.staticfiles.finders.find', return_value=None):
             self.assertIsNone(self.client.get(self._builder_url()).context['config']['marker_svg'])
 
@@ -2006,13 +2033,37 @@ class MapPathTests(TestCase):
         before = sum(l for (a, _b), l in zip(zip(points, points[1:]), lengths) if a[0] < mx)
         self.assertAlmostEqual(before, sum(lengths) / 2, delta=max(lengths))
 
+    def test_special_path_types(self):
+        # Kept by key (the first, red, is the default: no key); an unknown key is red.
+        from the_keep.services.tts_map import clean_paths, layout_summary, path_shapes
+        paths = clean_paths([{'kind': 'special', 'special': 'green', 'a': {'c': 0}, 'b': {'c': 1}},
+                             {'kind': 'special', 'special': 'red', 'a': {'c': 1}, 'b': {'c': 2}},
+                             {'kind': 'special', 'special': 'purple', 'a': {'c': 2}, 'b': {'c': 3}},
+                             {'kind': 'path', 'special': 'green', 'a': {'c': 0}, 'b': {'c': 3}}], 4)
+        self.assertEqual([p.get('special') for p in paths], ['green', None, None, None])
+        # Each drawn (printed, and on the card) in its type's colour.
+        state = self._state(paths)
+        self.assertEqual([s['colour'] for s in path_shapes(self._geometry(), state)],
+                         ['#2f9e44', '#ed2731', '#ed2731', '#ffffff'])
+        # The summary: Paths, River Clearings, then each type, by its name or colour.
+        state['visited'] = ['paths']
+        tiles = layout_summary(state, map_card={'special_paths': {'green': {'name': 'Bridges'}}})['path_tiles']
+        self.assertEqual([(t['kind'], t['label'], t['count']) for t in tiles],
+                         [('path', 'Paths', 1), ('river', 'River Clearings', 0),
+                          ('special', 'Red Paths', 2), ('special', 'Bridges', 1)])
+        self.assertEqual(tiles[3]['colour'], '#2f9e44')
+        # Just one type: "Special Paths", as maps had.
+        state['paths'] = [p for p in paths if p.get('special') != 'green']
+        self.assertEqual([t['label'] for t in layout_summary(state)['path_tiles']][2:], ['Special Paths'])
+
     def test_river_clearings_count_once_and_only_once_visited(self):
         from the_keep.services.tts_map import layout_counts, path_totals
         state = self._state([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}},
                              {'kind': 'river', 'a': {'c': 1}, 'b': {'c': 2}},
                              {'kind': 'special', 'a': {'c': 0}, 'b': {'c': 3}},
                              {'kind': 'path', 'a': {'c': 2}, 'b': {'c': 3}}])
-        self.assertEqual(path_totals(state), {'path': 1, 'special': 1, 'river': 2, 'river_clearings': 3})
+        self.assertEqual(path_totals(state), {'path': 1, 'special': 1, 'river': 2, 'lake': 0, 'river_clearings': 3,
+                                              'specials': {'red': 1}})
         self.assertEqual(layout_counts(state)['river_clearings'], 3)
         state['visited'] = []
         self.assertNotIn('river_clearings', layout_counts(state))
@@ -2187,6 +2238,233 @@ class MapPathTests(TestCase):
         self.assertLess(min(x, y, FORGE_FRAME[0] - x, FORGE_FRAME[1] - y), 0)   # past the edge
         self.assertNotIn(1, rivers['trimmed'])                                  # not cut back
 
+    # A river from clearing 0 ending at 1, heading down-left, with clearing 2
+    # in its way off the map: round 2's bottom is the long way, round its top
+    # (turning in 1) the short way to the left edge.
+    BLOCKED_RUN_OFF = [(0.47, 0.21), (0.30, 0.36), (0.13, 0.49)]
+
+    def test_a_blocked_run_off_takes_the_shorter_way(self):
+        from the_keep.services.tts_map import RIVER_WIDTH, RUN_OFF_MAX_TURN, _circles, _path_px, _run_off
+        state, shapes, rivers = self._print_rivers([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}],
+                                                   clearings=self.BLOCKED_RUN_OFF)
+        self.assertEqual(rivers['springs'], [])
+        turn, _side = rivers['run_offs'][(0, 'b')]
+        self.assertNotEqual(turn, 0)
+        cx, cy, r = _circles(self._geometry(), state)[1]
+        ox, oy, r2 = _circles(self._geometry(), state)[2]
+        at = shapes[0]['points'][-1]
+        join = next(link for link in rivers['links'] if math.dist(link[0], at) < 1e-6)
+        run = next(link for link in rivers['links'] if math.dist(link[0], join[-1]) < 1e-6 and link is not join)
+        self.assertLess(run[-1][0], 0)                                       # off the left edge...
+        self.assertLess(run[-1][1], oy)                                      # ...above clearing 2
+        # Shorter than the way round 2's bottom (straight on, bent as a path).
+        before = shapes[0]['points'][-2]
+        d = ((at[0] - before[0]), (at[1] - before[1]))
+        d = (d[0] / math.hypot(*d), d[1] / math.hypot(*d))
+        half = _path_px(self._geometry())['width'] * RIVER_WIDTH / 2
+        old = _run_off(at, d, self._geometry(), [(ox, oy, r2 + half)], half)
+        length = lambda line: sum(math.dist(p, q) for p, q in zip(line, line[1:]))     # noqa: E731
+        self.assertLess(length(join) + length(run), length(old))
+        # Joined as two rivers are: on from the river's end along its way...
+        self.assertLess(math.dist(join[0], at), 1e-6)
+        self.assertLess(self._angle((join[1][0] - join[0][0], join[1][1] - join[0][1]), d), 1)
+        # ...to the run's start on the clearing's rim, along the run's way out.
+        self.assertLess(math.dist(join[-1], run[0]), 1e-6)
+        self.assertAlmostEqual(math.dist(run[0], (cx, cy)), r, places=3)
+        self.assertLess(self._angle((join[-1][0] - join[-2][0], join[-1][1] - join[-2][1]),
+                                    (run[1][0] - run[0][0], run[1][1] - run[0][1])), 1)
+        # Never more than RUN_OFF_MAX_TURN from the river's way.
+        out = (run[1][0] - run[0][0], run[1][1] - run[0][1])
+        self.assertLessEqual(math.degrees(math.acos((out[0] * d[0] + out[1] * d[1]) / math.hypot(*out))),
+                             RUN_OFF_MAX_TURN + 1e-6)
+
+    def test_a_run_off_never_turns_back(self):
+        from the_keep.services.tts_map import MapGeometry, _clearing_run_off
+        # Heading left from (1000, 1000), walled in on every side but behind:
+        # no way off within RUN_OFF_MAX_TURN, so it's carried on as before.
+        walls = [(1000 + 450 * math.cos(math.radians(a)), 1000 + 450 * math.sin(math.radians(a)), 260)
+                 for a in range(-170, 171, 20) if abs(a) >= 60]
+        way = _clearing_run_off((900, 1000), (-1, 0), (1000, 1000, 100), MapGeometry(2000, 2000), walls, 10)
+        self.assertIsNone(way['choice'])
+        self.assertIsNone(way['join'])
+
+    def test_an_unblocked_run_off_runs_straight_on(self):
+        _state, shapes, rivers = self._print_rivers([{'kind': 'river', 'a': {'c': 1}, 'b': {'c': 0}}],
+                                                    clearings=[(0.1, 0.5), (0.4, 0.5)])
+        self.assertEqual(rivers['run_offs'], {(0, 'b'): (0, 0)})
+        run, = rivers['links']
+        self.assertLess(math.dist(run[0], shapes[0]['points'][-1]), 1e-6)       # from the river's end
+        self.assertTrue(all(abs(y - run[0][1]) < 1e-6 for _x, y in run))      # straight on
+
+    def test_the_setup_card_runs_off_the_printed_maps_way(self):
+        from unittest import mock
+        from the_keep.services import map_setup_card as msc
+        from the_keep.services.tts_map import FORGE_FRAME
+        state, _shapes, rivers = self._print_rivers([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}],
+                                                    clearings=self.BLOCKED_RUN_OFF)
+        with mock.patch.object(msc, 'river_extras', wraps=msc.river_extras) as extras:
+            msc._Diagram(state, FORGE_FRAME, (160, 140), False)
+        kwargs = extras.call_args.kwargs
+        self.assertEqual(kwargs['run_offs'], rivers['run_offs'])
+        card = msc.river_extras(*extras.call_args.args, **kwargs)
+        self.assertEqual(card['run_offs'], rivers['run_offs'])               # the same way off...
+        self.assertEqual(len(card['links']), len(card['run_offs']))          # ...each end's run alone (no join)
+
+    # ── Lakes ──
+    def test_lake_rules(self):
+        from the_keep.services.tts_map import clean_paths
+        raw = [{'kind': 'lake', 'a': {'c': 0}, 'b': {'c': 1}},
+               {'kind': 'river', 'a': {'c': 1}, 'b': {'c': 0}},        # water twin of the lake: dropped
+               {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},         # land beside it: kept
+               {'kind': 'path', 'a': {'c': 2}, 'b': {'p': 0}},         # on the lake's middle: dropped
+               {'kind': 'lake', 'a': {'c': 2}, 'b': {'p': 2}}]         # a lake to a path's middle: dropped
+        self.assertEqual([(p['kind'], p['a'], p['b']) for p in clean_paths(raw, 3)],
+                         [('lake', {'c': 0}, {'c': 1}), ('path', {'c': 0}, {'c': 1})])
+
+    def test_lake_shapes_are_kept_and_held_to_size(self):
+        from the_keep.services.tts_map import LAKE_RING_POINTS_MAX, clean_builder_state
+        ring = [[0.1, 0.1], [0.3, 0.12345678], [0.2, 1.3]]
+        state = self._state([{'kind': 'lake', 'a': {'c': 0}, 'b': {'c': 1}}])
+        state['lake_shapes'] = [ring, [[0, 0]]]
+        self.assertEqual(clean_builder_state(state)['lake_shapes'], [[[0.1, 0.1], [0.3, 0.1235], [0.2, 1.05]]])
+        state['lake_shapes'] = [[[0.1, 0.1]] * (LAKE_RING_POINTS_MAX + 1)]
+        self.assertNotIn('lake_shapes', clean_builder_state(state))         # too big: dropped
+        state['lake_shapes'] = [[['x', 0.1], [0.2, 0.2], [0.3, 0.3]]]
+        self.assertNotIn('lake_shapes', clean_builder_state(state))         # malformed
+        state = self._state([{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}])
+        state['lake_shapes'] = [ring]
+        self.assertNotIn('lake_shapes', clean_builder_state(state))         # no lake
+
+    def test_lake_clearings_count_as_river_clearings(self):
+        from the_keep.services.tts_map import layout_summary, path_totals
+        state = self._state([{'kind': 'lake', 'a': {'c': 0}, 'b': {'c': 1}},
+                             {'kind': 'lake', 'a': {'c': 1}, 'b': {'c': 2}},
+                             {'kind': 'river', 'a': {'c': 2}, 'b': {'c': 3}}])
+        totals = path_totals(state)
+        self.assertEqual((totals['lake'], totals['river_clearings']), (1, 4))
+        tiles = {t['kind']: t['count'] for t in layout_summary(state, fixed=False)['path_tiles']}
+        self.assertNotIn('lake', tiles)                 # no Lakes tile
+        self.assertEqual(tiles['river'], 4)
+
+    def _river_into_lake(self, rivers, lake_shapes=None):
+        """Clearing 1 on a lake (1-2, to its right); `rivers` end at it."""
+        paths = [{'kind': 'lake', 'a': {'c': 1}, 'b': {'c': 2}}] + rivers
+        state = self._state(paths, clearings=[(0.2, 0.5), (0.5, 0.5), (0.8, 0.5), (0.5, 0.15), (0.5, 0.85)])
+        if lake_shapes:
+            state['lake_shapes'] = lake_shapes
+        from the_keep.services.tts_map import path_shapes, print_rivers
+        shapes = path_shapes(self._geometry(), state)
+        return state, shapes, print_rivers(self._geometry(), state, shapes)
+
+    def test_a_river_flows_through_its_clearing_into_the_lake(self):
+        # Without an outline: from the river's end on to where the lake's line leaves the clearing.
+        state, shapes, rivers = self._river_into_lake([{'kind': 'river', 'a': {'c': 3}, 'b': {'c': 1}}])
+        self.assertFalse(any(s['key'] == (1, 'b') for s in rivers['springs']))    # no rounded end, no run-off
+        arrive = shapes[1]['points'][-1]
+        lake_end = shapes[0]['points'][0]
+        link = next(l for l in rivers['links'] if math.dist(l[0], arrive) < 1e-6)
+        from the_keep.services.tts_map import PATH_WIDTH, RIVER_WIDTH
+        half = PATH_WIDTH * self._geometry().px_per_local * RIVER_WIDTH / 2
+        self.assertLess(math.dist(link[-1], lake_end), half + 1)       # nudged half a river into the water
+        # With an outline: to its nearest point to the clearing (a little into the water).
+        ring = [[0.55, 0.45], [0.75, 0.45], [0.75, 0.55], [0.55, 0.55]]
+        state, shapes, rivers = self._river_into_lake([{'kind': 'river', 'a': {'c': 3}, 'b': {'c': 1}}], [ring])
+        g = self._geometry()
+        link = next(l for l in rivers['links'] if math.dist(l[0], shapes[1]['points'][-1]) < 1e-6)
+        x0 = g.to_pixels(0.55, 0.5)[0]
+        self.assertAlmostEqual(link[-1][1], g.to_pixels(0.5, 0.5)[1], delta=2)
+        self.assertGreater(link[-1][0], x0)            # just inside the water's edge
+        self.assertLess(link[-1][0], x0 + half + 1)
+
+    def test_a_river_the_lakes_funnel_reaches_gets_no_link(self):
+        # The outline curves out to the river's end on the rim (map_lakes.js's
+        # funnel): the river stops there and the lake carries on from it.
+        g = self._geometry()
+        state, shapes, rivers = self._river_into_lake([{'kind': 'river', 'a': {'c': 3}, 'b': {'c': 1}}])
+        end = shapes[1]['points'][-1]
+        u, v = end[0] / g.width, end[1] / g.height
+        ring = [[u - 0.02, v - 0.04], [u + 0.02, v - 0.04], [u + 0.02, v + 0.03], [u - 0.02, v + 0.03]]
+        state, shapes, rivers = self._river_into_lake([{'kind': 'river', 'a': {'c': 3}, 'b': {'c': 1}}], [ring])
+        self.assertFalse(any(math.dist(l[0], end) < 1e-6 for l in rivers['links']))
+        from the_keep.services.tts_map import RIVER_LINK_REACH, path_config
+        self.assertEqual(path_config(g)['link_reach'], RIVER_LINK_REACH)
+
+    def test_several_rivers_feed_one_lake(self):
+        state, shapes, rivers = self._river_into_lake([{'kind': 'river', 'a': {'c': 3}, 'b': {'c': 1}},
+                                                       {'kind': 'river', 'a': {'c': 4}, 'b': {'c': 1}}])
+        starts = [shapes[i]['points'][-1] for i in (1, 2)]
+        for start in starts:
+            self.assertTrue(any(math.dist(l[0], start) < 1e-6 for l in rivers['links']))
+
+    def test_lake_settings_reach_the_builder(self):
+        from the_keep.services.tts_map import path_config
+        lake = path_config(self._geometry())['lake']
+        self.assertEqual(lake['clearing_overlap'], 0.25)
+        for key in ('smooth', 'min_half', 'round', 'cross_reach', 'touch', 'lens', 'funnel', 'variation',
+                    'shore_margin'):
+            self.assertGreater(lake[key], 0)
+        self.assertNotIn('building_r', lake)            # buildings don't shape lakes (their clearings do)
+
+    def test_the_setup_cards_fit_reaches_the_builder(self):
+        from the_keep.services import map_setup_card as msc
+        from the_keep.services.tts_map import SUITS, path_config
+        card = path_config(self._geometry())['card']
+        self.assertEqual(card['clearing_r'], msc.CLEARING_R)
+        self.assertEqual(card['box_w'], msc._card_size()[0] - 2 * msc.MARGIN)
+        self.assertEqual((card['min_h'], card['max_h']), (msc.DIAGRAM_MIN_H, msc.DIAGRAM_MAX_H))
+        self.assertEqual(card['pad'], msc.CLEARING_R + 2)
+        self.assertEqual((card['stretch'], card['min_scale']), (msc.DIAGRAM_MAX_STRETCH, msc.CLEARING_MIN_SCALE))
+        self.assertEqual(card['lake_wobble'], msc.LAKE_WOBBLE)
+        self.assertEqual(set(card['icon_half']), set(SUITS))
+        self.assertEqual(card['icon_half']['city'], msc.SUIT_ICON_H * msc.SUIT_ICON_SCALE['city'] / 2)
+
+    def test_print_layout_gives_the_lake_outline_or_a_line(self):
+        from the_keep.services.tts_map import print_layout
+        state = self._state([{'kind': 'lake', 'a': {'c': 0}, 'b': {'c': 1}}])
+        layout = print_layout(self._geometry(), state)
+        self.assertEqual((layout['lakes'], layout['lake_lines']), ([], True))
+        state['lake_shapes'] = [[[0.1, 0.1], [0.3, 0.1], [0.2, 0.3]]]
+        layout = print_layout(self._geometry(), state)
+        self.assertEqual(len(layout['lakes'][0]), 3)
+        self.assertFalse(layout['lake_lines'])
+
+    # ── Springs: a loose end far from the edge it's heading for ──
+    def test_a_river_heading_inland_starts_at_its_clearing(self):
+        # Clearing 0 near the left edge; the river flows from 1 into 0, i.e.
+        # leftwards, at 0: the left edge is near, so it runs off.
+        _state, _shapes, rivers = self._print_rivers([{'kind': 'river', 'a': {'c': 1}, 'b': {'c': 0}}],
+                                                     clearings=[(0.1, 0.5), (0.4, 0.5)])
+        self.assertEqual([s['key'] for s in rivers['springs']], [(0, 'a')])   # at 1, heading right: a spring
+        self.assertEqual(len(rivers['links']), 1)                             # only 0's end runs off
+        x, _y = rivers['links'][0][-1]
+        self.assertLess(x, 0)                                                 # off the left edge
+
+    def test_a_spring_on_a_path_middle(self):
+        # A river ending on the middle of a path near the top, heading down
+        # into the map: far from the bottom edge, near the top one.
+        _state, _shapes, rivers = self._print_rivers(
+            [{'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}}, {'kind': 'river', 'a': {'p': 0}, 'b': {'c': 2}}],
+            clearings=[(0.2, 0.1), (0.8, 0.1), (0.5, 0.9)])
+        # Heading up at the path's middle (from 2 to it): the top edge is near, so it runs off...
+        self.assertEqual(rivers['springs'], [])
+        # A path across the lower middle, and a river from a clearing near the
+        # bottom up into its middle: heading up there, the top edge is far and
+        # the bottom near, so it starts at the path (its clearing end runs off).
+        _state, _shapes, rivers = self._print_rivers(
+            [{'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}}, {'kind': 'river', 'a': {'c': 2}, 'b': {'p': 0}}],
+            clearings=[(0.2, 0.6), (0.8, 0.6), (0.5, 0.9)])
+        self.assertEqual([s['key'] for s in rivers['springs']], [(1, 'b')])
+        self.assertEqual(len(rivers['links']), 1)
+
+    def test_print_layout_gives_springs_their_rounded_ends(self):
+        from the_keep.services.tts_map import print_layout
+        state = self._state([{'kind': 'river', 'a': {'c': 1}, 'b': {'c': 0}}], clearings=[(0.1, 0.5), (0.4, 0.5)])
+        layout = print_layout(self._geometry(), state)
+        self.assertEqual(len(layout['river_springs']), 1)
+        x, y = layout['river_springs'][0]
+        cx, cy, r = self._circle(state, 1)
+        self.assertAlmostEqual(math.hypot(x - cx, y - cy), r, delta=1.0)     # at clearing 1's circle
+
     # ── A river and a path between the same two clearings ──
     def test_a_river_and_a_path_may_share_two_clearings(self):
         from the_keep.services.tts_map import clean_paths
@@ -2213,6 +2491,46 @@ class MapPathTests(TestCase):
         y0 = alone[0]['points'][0][1]
         self.assertLess((path['middle'][1] - y0) * (river['middle'][1] - y0), 0)
 
+    def _shared_pair(self, path_bow=None, river_bow=None, river_reversed=False):
+        """A path 0->2 and a river between the same clearings: (path, river, y of the straight line)."""
+        from the_keep.services.tts_map import path_shapes
+        path = {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 2}}
+        river = {'kind': 'river', 'a': {'c': 2}, 'b': {'c': 0}} if river_reversed \
+            else {'kind': 'river', 'a': {'c': 0}, 'b': {'c': 2}}
+        if path_bow is not None:
+            path['bow'] = path_bow
+        if river_bow is not None:
+            river['bow'] = river_bow
+        shapes = path_shapes(self._geometry(), self._state([path, river], clearings=[(0.2, 0.3), (0.5, 0.9), (0.8, 0.3)]))
+        y0 = self._geometry().to_pixels(0.2, 0.3)[1]
+        return shapes[0], shapes[1], y0
+
+    def test_bow_chooses_the_side(self):
+        # The river 0->2 runs left to right: its normal (-dy, dx) points down (y down).
+        _path, river, y0 = self._shared_pair(river_bow=1)
+        self.assertGreater(river['middle'][1], y0)
+        path, river, y0 = self._shared_pair(river_bow=-1)
+        self.assertLess(river['middle'][1], y0)
+        self.assertGreater(path['middle'][1], y0)          # the path always on the other side
+        # The same choice made on the path instead.
+        path, river, y0 = self._shared_pair(path_bow=1)
+        self.assertGreater(path['middle'][1], y0)
+        self.assertLess(river['middle'][1], y0)
+
+    def test_bow_is_measured_along_its_own_direction(self):
+        # A river drawn 2->0 (reversed) with bow -1 bows the way 0->2 with bow 1 does.
+        _p, forward, _y = self._shared_pair(river_bow=1)
+        _p, backward, _y = self._shared_pair(river_bow=-1, river_reversed=True)
+        self.assertAlmostEqual(forward['middle'][1], backward['middle'][1], places=6)
+
+    def test_clean_paths_keeps_bow(self):
+        from the_keep.services.tts_map import clean_paths
+        raw = [{'kind': 'path', 'a': {'c': 9}, 'b': {'c': 1}},          # dropped: renumbers the rest
+               {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}, 'bow': -1},
+               {'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}, 'bow': 2},
+               {'kind': 'special', 'a': {'c': 1}, 'b': {'c': 2}, 'bow': True}]
+        self.assertEqual([p.get('bow') for p in clean_paths(raw, 3)], [-1, None, None])
+
     # ── The special paths' name ──
     def test_special_path_name(self):
         from the_keep.services.tts_map import SPECIAL_PATH_NAME_MAX, clean_builder_state, layout_summary
@@ -2229,3 +2547,419 @@ class MapPathTests(TestCase):
         self.assertIn('Bridges', labels)
         del state['special_path_name']
         self.assertIn('Special Paths', [t['label'] for t in layout_summary(state)['path_tiles']])
+
+
+# ── Map setup cards (services/map_setup_card.py) ────────────────────────────
+from the_keep.services import map_setup_card as msc
+from the_keep.services.tts_map import FORGE_FRAME
+
+
+def _card_layout(paths=(), forests=((0.45, 0.45),), clearings=None, **extra):
+    clearings = clearings or [
+        {'centre': [0.2, 0.3], 'marker': [0.2, 0.36], 'number': 1},
+        {'centre': [0.8, 0.3], 'marker': [0.8, 0.36], 'number': 2},
+        {'centre': [0.2, 0.8], 'marker': [0.2, 0.86], 'number': 3},
+        {'centre': [0.8, 0.8], 'marker': [0.8, 0.86], 'number': 4},
+    ]
+    return {'clearings': clearings, 'forests': [list(f) for f in forests], 'paths': list(paths), **extra}
+
+
+class MapSetupCardDataTests(TestCase):
+    def test_clean_setup_card(self):
+        card = msc.clean_setup_card({
+            'special_path_rule': '  Cross\x07 only by day.  ', 'modifications': 'x' * 999, 'raging_river': 'yes',
+            'rules': [{'name': ' Ferry ', 'text': 'Sail.'}, {'name': '', 'text': '  '}, 'junk']
+                     + [{'name': f'R{n}', 'text': 't'} for n in range(9)],
+        })
+        # (A card from before special path types: its one rule is the first type's.)
+        self.assertEqual(card['special_paths']['red']['rule'], 'Cross only by day.')
+        self.assertEqual(len(card['modifications']), msc.MODIFICATIONS_MAX)
+        self.assertIs(card['raging_river'], False)          # only a real True
+        self.assertEqual(card['rules'][0], {'name': 'Ferry', 'text': 'Sail.'})
+        self.assertEqual(len(card['rules']), msc.RULES_MAX)
+        self.assertEqual(msc.clean_setup_card(None)['rules'], [])
+
+    def test_special_paths_divide_forests_by_default(self):
+        special = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}])
+        divides = lambda card: msc.special_types(special, card, 'en')[0]['divides_forests']  # noqa: E731
+        self.assertTrue(divides({}))
+        self.assertFalse(divides({'special_divides_forests': False}))          # (a card from before types)
+        self.assertTrue(divides({'special_divides_forests': 'no'}))            # only a real False
+        self.assertFalse(divides({'special_paths': {'red': {'divides_forests': False}}}))
+        # Without special paths it doesn't apply (and doesn't change the card).
+        self.assertEqual(msc.applicable(_card_layout(), {'special_divides_forests': False})['special_paths'], {})
+
+    def test_sections_the_layout_lacks_are_kept_but_not_drawn(self):
+        card = {'special_path_rule': 'Bridges.', 'raging_river': True}
+        self.assertEqual(msc.applicable(_card_layout(), card)['special_paths'], {})
+        self.assertEqual(msc.clean_setup_card(card)['special_paths']['red']['rule'], 'Bridges.')     # (still stored)
+        self.assertFalse(msc.applicable(_card_layout(), card)['raging_river'])
+        rivers = _card_layout(paths=[{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}])
+        self.assertTrue(msc.applicable(rivers, card)['raging_river'])
+        # ...and don't change the fingerprint while they don't apply.
+        fp = lambda c: msc.card_fingerprint('Map', _card_layout(), c, frame=FORGE_FRAME, lang_code='en')  # noqa: E731
+        self.assertEqual(fp(card), fp({}))
+
+    def test_the_fingerprint_ignores_what_the_card_doesnt_draw(self):
+        fp = lambda layout, title='Map', lang='en': msc.card_fingerprint(  # noqa: E731
+            title, layout, {}, frame=FORGE_FRAME, lang_code=lang)
+        base = fp(_card_layout())
+        self.assertEqual(base, fp(_card_layout(logo=[0.1, 0.1], track_y=0.5, buildings=[{'at': [0.5, 0.5]}])))
+        self.assertNotEqual(base, fp(_card_layout(forests=[(0.5, 0.6)])))
+        self.assertNotEqual(base, fp(_card_layout(), title='Other'))
+        self.assertNotEqual(base, fp(_card_layout(), lang='fr'))
+        self.assertEqual(len(base), 32)
+
+    def test_translations_fall_back_to_english_per_string(self):
+        from the_forge import pdf_engine
+        with mock.patch.dict(pdf_engine.PDF_TEXT, {'xx': {'map_setup_card': {'raging_river': 'Fleuve'}}}):
+            text = msc.card_text('xx')
+        self.assertEqual(text['raging_river'], 'Fleuve')
+        self.assertEqual(text['modifications'], 'Setup Modifications')
+        self.assertEqual(msc.card_text('zz')['special_paths'], 'Special Paths')
+
+    def test_run_in_escapes_and_italicises(self):
+        self.assertEqual(msc.run_in('Ferry', 'Sail <b>now</b> (spend a card) & go'),
+                         '<b>Ferry.</b> Sail &lt;b&gt;now&lt;/b&gt; <i>(spend a card)</i> &amp; go')
+        self.assertEqual(msc.run_in('A & B?', ''), '<b>A &amp; B?</b>')
+
+
+class ForestTreesTests(TestCase):
+    FRAME = (160.0, 120.0)
+
+    def test_a_forest_fills_only_its_own_area(self):
+        wall = ([(80.0, -10.0), (80.0, 130.0)], 1.0)     # a path down the middle
+        left = msc.forest_trees(self.FRAME, [], [wall], [(40.0, 60.0)])
+        self.assertTrue(left)
+        self.assertTrue(all(x < 80 for x, _y in left))
+        reach = msc.TREE_GAP + msc.TREE_H / 2 + 1.0
+        self.assertTrue(all(abs(x - 80) >= reach for x, _y in left))
+
+    def test_trees_keep_clear_of_clearings(self):
+        clearing = (80.0, 60.0, 13.0)
+        trees = msc.forest_trees(self.FRAME, [clearing], [], [(20.0, 20.0)])
+        self.assertTrue(all(math.hypot(x - 80, y - 60) >= 13 + msc.TREE_GAP for x, y in trees))
+
+    def test_avoided_lines_dont_bound_a_forest(self):
+        line = ([(80.0, -10.0), (80.0, 130.0)], 1.0)
+        trees = msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0)], avoid_lines=[line])
+        self.assertTrue(any(x > 80 for x, _y in trees))            # both sides
+        reach = msc.TREE_GAP + msc.TREE_H / 2 + 1.0
+        self.assertTrue(all(abs(x - 80) >= reach for x, _y in trees))   # but clear of the line
+        bounded = msc.forest_trees(self.FRAME, [], [line], [(40.0, 60.0)])
+        self.assertFalse(any(x > 80 for x, _y in bounded))
+
+    def test_a_narrow_passage_still_joins_a_forest(self):
+        # A suit icon all but closing the frame: too narrow for a tree on
+        # either side of it, but it doesn't bound the forest.
+        icon = (80.0, 20.0, 15.0)
+        trees = msc.forest_trees((160.0, 40.0), [], [], [(20.0, 20.0)], avoid=[icon])
+        self.assertTrue(any(x > 100 for x, _y in trees))
+        self.assertTrue(all(math.hypot(x - 80, y - 20) >= 15 + msc.TREE_GAP for x, y in trees))
+        # A path there does bound it.
+        wall = ([(80.0, -10.0), (80.0, 50.0)], 1.0)
+        trees = msc.forest_trees((160.0, 40.0), [], [wall], [(20.0, 20.0)])
+        self.assertFalse(any(x > 80 for x, _y in trees))
+
+    def test_clearings_drawn_nearly_touching_dont_split_a_forest_the_map_doesnt(self):
+        # Two clearings drawn 4 apart, touching the frame's top and bottom:
+        # too narrow for the trees' grid, so as drawn they part it in two...
+        top, bottom = (80.0, 17.0, 17.0), (80.0, 55.0, 17.0)
+        frame = (160.0, 72.0)
+        shut = msc.forest_trees(frame, [top, bottom], [], [(30.0, 45.0)])
+        self.assertFalse(any(x > 100 for x, _y in shut))
+        # ...but where the map has an opening between them, they part the
+        # forests smaller than drawn: the forest reaches the other side, and
+        # its trees still keep clear of the clearings as drawn.
+        bounds = [(80.0, 17.0, 9.0), (80.0, 55.0, 9.0)]
+        open_ = msc.forest_trees(frame, [top, bottom], [], [(30.0, 45.0)], bounds=bounds)
+        self.assertTrue(any(x > 100 for x, _y in open_))
+        self.assertTrue(all(math.hypot(x - cx, y - cy) >= r + msc.TREE_GAP for x, y in open_ for cx, cy, r in (top, bottom)))
+        # A path ending at one of them still bounds a forest: it runs on to the
+        # clearing's centre, so nothing slips round its end.
+        wall = ([(80.0, -10.0), (80.0, 0.0)], 1.0)       # down to the top clearing's circle
+        under = ([(80.0, 72.0), (80.0, 90.0)], 1.0)      # up to the bottom one's
+        walled = msc.forest_trees(frame, [top, bottom], [wall, under], [(30.0, 45.0)], bounds=bounds)
+        self.assertTrue(any(x > 100 for x, _y in walled))                       # (the gap between them is open)
+        sealed = msc.forest_trees(frame, [top, bottom], [wall, under, ([(80.0, 34.0), (80.0, 38.0)], 1.0)],
+                                  [(30.0, 45.0)], bounds=bounds)
+        self.assertFalse(any(x > 100 for x, _y in sealed))                      # (a path between them shuts it)
+
+    def test_every_forest_gets_a_tree(self):
+        # A forest squeezed between two paths, with no room for a tree on the
+        # grid: one tree where its point is (and none in a lake).
+        walls = [([(-10.0, 18.0), (170.0, 18.0)], 1.0), ([(-10.0, 24.0), (170.0, 24.0)], 1.0)]
+        trees = msc.forest_trees(self.FRAME, [], walls, [(40.0, 21.0)])
+        self.assertEqual(trees, [(40.0, 21.0)])
+        lake = [[(30.0, 15.0), (50.0, 15.0), (50.0, 27.0), (30.0, 27.0)]]
+        self.assertEqual(msc.forest_trees(self.FRAME, [], walls, [(40.0, 21.0)], water=lake), [])
+        # A forest with room gets its trees as before, no extra one.
+        roomy = msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0)])
+        self.assertNotIn((40.0, 60.0), roomy)
+
+    def test_a_narrow_strip_still_fills_with_trees(self):
+        # A strip between two paths, too narrow for the trees' grid to have
+        # more than a spot or two: trees between its spots too, along it.
+        walls = [([(-10.0, 16.0), (170.0, 16.0)], 1.0), ([(-10.0, 27.0), (170.0, 27.0)], 1.0)]
+        trees = msc.forest_trees(self.FRAME, [], walls, [(40.0, 21.5)])
+        self.assertGreaterEqual(len(trees), 5)
+        self.assertTrue(all(16 < y < 27 for _x, y in trees))
+        self.assertGreater(max(x for x, _y in trees) - min(x for x, _y in trees), 80)
+
+    def test_a_forest_drawn_on_a_line_moves_to_its_side(self):
+        # A raging river drawn over a forest's point: moved off it, to the
+        # side the forest is on on the map (here, above).
+        river = ([(0.0, 60.0), (160.0, 60.0)], 4.0)
+        spot = msc._off_lines((50.0, 61.0), [river], (0.0, -1.0))
+        self.assertLess(spot[1], 60 - 4)
+        self.assertEqual(msc._off_lines((50.0, 40.0), [river], (0.0, -1.0)), (50.0, 40.0))   # (clear of it: as it is)
+
+    def test_two_forests_in_one_area_fill_it_once(self):
+        one = msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0)])
+        two = msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0), (120.0, 60.0)])
+        self.assertEqual(len(one), len(two))
+
+    def test_evenly_spaced_with_a_little_variation(self):
+        trees = msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0)])
+        nearest = [min(math.dist(a, b) for b in trees if b is not a) for a in trees]
+        self.assertGreaterEqual(min(nearest), msc.TREE_SPACING - 2 * msc.TREE_JITTER - 1e-6)
+        self.assertGreater(len(set(round(n, 1) for n in nearest)), 5)        # not a plain grid
+        self.assertEqual(trees, msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0)]))   # but always the same
+
+
+class MapSetupCardEngineTests(TestCase):
+    RIVER = {'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}
+
+    def _engine(self, layout=None, card=None, **kwargs):
+        return msc.MapSetupCardEngine('Highlands', layout or _card_layout(), card or {}, frame=FORGE_FRAME, **kwargs)
+
+    def _diagram(self, layout, raging=False):
+        engine = self._engine(layout)
+        return msc._Diagram(layout, FORGE_FRAME, (engine.text_w, 150.0), raging)
+
+    def test_pages(self):
+        import fitz
+        front, back = self._engine().render()
+        self.assertIsNone(back)
+        self.assertEqual(fitz.open(stream=front, filetype='pdf').page_count, 1)
+        self.assertIn('Highlands', fitz.open(stream=front, filetype='pdf')[0].get_text())
+        _front, back = self._engine(card={'rules': [{'name': 'Ferry', 'text': 'Sail.'}]}).render()
+        self.assertIn('Ferry.', fitz.open(stream=back, filetype='pdf')[0].get_text())
+        # Raging River alone makes a back, its stock rule first.
+        rivers = _card_layout(paths=[self.RIVER])
+        engine = self._engine(rivers, card={'raging_river': True, 'rules': [{'name': 'Ferry', 'text': 'Sail.'}]})
+        self.assertEqual([h for h, _t in engine.back_items()], ['Raging River', 'Ferry'])
+        text = fitz.open(stream=engine.render()[1], filetype='pdf')[0].get_text()
+        self.assertLess(text.index('Raging River'), text.index('Ferry'))
+
+    def test_lines_end_on_the_clearing_circles(self):
+        path = {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}}
+        diagram = self._diagram(_card_layout(paths=[path]))
+        (a, b), ((ax, ay, r), (bx, by, _r)) = diagram.paths[0]['points'][::32], diagram.clearings[:2]
+        self.assertAlmostEqual(math.hypot(a[0] - ax, a[1] - ay), r, places=3)
+        self.assertAlmostEqual(math.hypot(b[0] - bx, b[1] - by), r, places=3)
+
+    def test_a_lone_river_runs_off_the_frame(self):
+        river = {'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}
+        diagram = self._diagram(_card_layout(paths=[river]))
+        ends = [points[-1] for points in diagram.rivers[1:]]      # the run-offs
+        self.assertEqual(len(ends), 2)
+        for x, y in ends:
+            self.assertTrue(x <= 0 or x >= diagram.box_w or y <= 0 or y >= diagram.height)
+
+    def test_springs_follow_the_printed_map(self):
+        from the_keep.services.tts_map import MapGeometry, print_rivers
+        # Clearing 1 (right) is a lone river end heading right, with the right
+        # edge near: it runs off. Clearing 0's end heads left, far less near.
+        layout = _card_layout(clearings=[{'centre': [0.45, 0.5], 'number': 1}, {'centre': [0.9, 0.5], 'number': 2}],
+                              paths=[{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 1}}], forests=())
+        printed = print_rivers(MapGeometry(*FORGE_FRAME), layout)
+        self.assertEqual([s['key'] for s in printed['springs']], [(0, 'a')])
+        diagram = self._diagram(layout)
+        self.assertEqual(len(diagram.rivers), 1 + len(printed['links']))      # the river, and one run-off
+
+    def test_a_river_merges_into_another(self):
+        rivers = [self.RIVER, {'kind': 'river', 'a': {'c': 2}, 'b': {'p': 0}}]
+        diagram = self._diagram(_card_layout(paths=rivers))
+        main = diagram.rivers[0]
+        merge = min(diagram.rivers[2:], key=lambda pts: min(math.dist(pts[-1], q) for q in main))
+        # It ends on the main river's line.
+        self.assertLess(min(msc._seg_distance(merge[-1], a, b) for a, b in zip(main, main[1:])), 0.5)
+
+    def test_a_raging_river_is_twice_as_wide_and_bounds_forests(self):
+        across = {'kind': 'river', 'a': {'c': 0}, 'b': {'c': 3}}
+        calm, raging = self._diagram(_card_layout(paths=[across])), self._diagram(_card_layout(paths=[across]), True)
+        self.assertEqual(raging.river_width, 2 * calm.river_width)
+        self.assertGreater(len(calm.trees), len(raging.trees))
+        main = raging.rivers[0]
+        for p in raging.trees:
+            self.assertGreaterEqual(min(msc._seg_distance(p, a, b) for a, b in zip(main, main[1:])),
+                                    raging.river_width / 2)
+
+    def test_the_legend_only_with_special_paths(self):
+        self.assertEqual(self._engine()._legend(), [])
+        # (A layout and card from before special path types: the first type's name and rule.)
+        special = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}], special_path_name='Bridges')
+        engine = self._engine(special, card={'special_path_rule': 'Cross by day.'})
+        # The key is just the name beside its colour; what they do is a rule on the back.
+        (paragraph, colour), = engine._legend()
+        self.assertEqual((paragraph.text, colour), (': Bridges', '#ed2731'))
+        self.assertEqual(engine.back_items(), [('Bridges', 'Cross by day.')])
+        self.assertTrue(engine.has_back)
+        self.assertFalse(self._engine(special).has_back)        # no rule: no back
+        unnamed = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}])
+        self.assertIn('Special Paths', self._engine(unnamed)._legend()[0][0].text)
+
+    def test_a_legend_line_and_rule_per_special_path_type(self):
+        both = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}},
+                                   {'kind': 'special', 'special': 'orange', 'a': {'c': 1}, 'b': {'c': 2}}])
+        engine = self._engine(both, card={'special_paths': {'orange': {'name': 'Ropes', 'rule': 'Climb.'}}})
+        # In SPECIAL_PATH_TYPES order; an unnamed one by its colour (there are two types).
+        self.assertEqual([(p.text, colour) for p, colour in engine._legend()],
+                         [(': Red Paths', '#ed2731'), (': Ropes', '#f08c00')])
+        self.assertEqual(engine.back_items(), [('Ropes', 'Climb.')])
+        self.assertTrue(engine.fits()['front'])
+
+    def test_the_diagram_keeps_the_maps_shape_within_its_stretch(self):
+        wide = _card_layout(clearings=[{'centre': [0.1, 0.45], 'number': 1}, {'centre': [0.9, 0.55], 'number': 2}],
+                            forests=())
+        diagram = self._diagram(wide)
+        (ax, ay, _r), (bx, by, _r2) = diagram.clearings
+        sx = (bx - ax) / (0.8 * FORGE_FRAME[0])
+        sy = (by - ay) / (0.1 * FORGE_FRAME[1])
+        self.assertLessEqual(sy / sx, msc.DIAGRAM_MAX_STRETCH + 1e-6)
+
+    def test_special_paths_divide_forests_or_not(self):
+        # A forest split only by a special path from clearing 1 (top left) to 4 (bottom right).
+        layout = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 3}}], forests=((0.3, 0.7),))
+        divided = msc._Diagram(layout, FORGE_FRAME, (self._engine().text_w, 150.0), False)
+        joined = msc._Diagram(layout, FORGE_FRAME, (self._engine().text_w, 150.0), False, dividing_specials=set())
+        (ax, ay, _r), (bx, by, _r2) = divided.clearings[0], divided.clearings[3]
+        side = lambda p: (bx - ax) * (p[1] - ay) - (by - ay) * (p[0] - ax)  # noqa: E731
+        self.assertEqual(len({side(p) > 0 for p in divided.trees}), 1)     # one side only
+        self.assertEqual(len({side(p) > 0 for p in joined.trees}), 2)      # both sides
+        # Not dividing them, it's like a river that isn't raging: trees go over
+        # it (it's drawn under them), right across its line.
+        self.assertTrue(divided.paths[0]['divides'])
+        self.assertFalse(joined.paths[0]['divides'])
+        line = joined.paths[0]['points']
+        self.assertTrue(any(min(msc._seg_distance(p, a, b) for a, b in zip(line, line[1:])) < msc.PATH_WIDTH
+                            for p in joined.trees))
+
+    def test_river_banks_vary_a_little(self):
+        values = [msc._wobble(s / 3, 'seed') for s in range(300)]
+        self.assertTrue(all(-1 <= v <= 1 for v in values))
+        self.assertEqual(values, [msc._wobble(s / 3, 'seed') for s in range(300)])     # repeatable
+        line = [(0.0, 50.0), (200.0, 50.0)]
+        half = 2.0
+        outline = msc.river_outline(line, half, 'seed')
+        amp = msc.RIVER_WOBBLE * half
+        banks = [abs(y - 50.0) for x, y in outline if 0 < x < 200]
+        self.assertTrue(all(half - amp - 1e-6 <= b <= half + amp + 1e-6 for b in banks))
+        self.assertGreater(max(banks) - min(banks), amp / 2)                          # it does vary
+
+    def test_a_card_always_draws_the_same(self):
+        layout = _card_layout(paths=[{'kind': 'river', 'a': {'c': 0}, 'b': {'c': 3}}])
+        import fitz
+        pixels = lambda: fitz.open(stream=self._engine(layout).render()[0], filetype='pdf')[0].get_pixmap().samples  # noqa: E731
+        self.assertEqual(pixels(), pixels())        # (the PDFs differ only in their random document ID)
+
+    def test_a_river_into_a_lake_stops_on_the_card(self):
+        # Clearing 1 (top right) is on a lake; the river from 3 (bottom right) ends there.
+        river = {'kind': 'river', 'a': {'c': 3}, 'b': {'c': 1}}
+        ring = [[0.15, 0.2], [0.85, 0.2], [0.85, 0.4], [0.15, 0.4]]
+        with_lake = self._diagram(_card_layout(paths=[{'kind': 'lake', 'a': {'c': 0}, 'b': {'c': 1}}, river],
+                                               forests=(), lake_shapes=[ring]))
+        alone = self._diagram(_card_layout(paths=[river], forests=()))
+        # Alone, the river runs off at both ends; into the lake, only at the other end.
+        self.assertEqual(len(with_lake.rivers), len(alone.rivers) - 1)
+
+    def test_lakes_on_the_card(self):
+        lake = {'kind': 'lake', 'a': {'c': 0}, 'b': {'c': 1}}
+        ring = [[0.15, 0.2], [0.85, 0.2], [0.85, 0.42], [0.15, 0.42]]
+        layout = _card_layout(paths=[lake], forests=((0.5, 0.3), (0.5, 0.6)), lake_shapes=[ring])
+        diagram = self._diagram(layout)
+        self.assertEqual(diagram.paths, [])                 # never a dashed line
+        self.assertEqual(diagram.rivers, [])                # nor a river
+        self.assertEqual(len(diagram.lakes), 1)
+        self.assertFalse(any(msc._inside(p, diagram.lakes) for p in diagram.trees))   # no tree in the water
+        self.assertTrue(diagram.trees)                      # the forest below it still fills
+        # Without an outline, the lake is drawn as a river.
+        self.assertEqual(len(self._diagram(_card_layout(paths=[lake])).rivers), 1)
+        # The outline is part of the card's fingerprint.
+        fp = lambda l: msc.card_fingerprint('Map', l, {}, frame=FORGE_FRAME, lang_code='en')  # noqa: E731
+        self.assertNotEqual(fp(layout), fp({**layout, 'lake_shapes': [[[0.1, 0.1], [0.9, 0.1], [0.5, 0.5]]]}))
+        self.assertTrue(self._engine(layout).render()[0])
+
+    def test_fixed_suits_get_their_icons(self):
+        layout = _card_layout(fixed=True)
+        for clearing, suit in zip(layout['clearings'], ('fox', 'rabbit', 'city')):
+            clearing['suit'] = suit
+        diagram = self._diagram(layout)
+        self.assertEqual(diagram.suits, ['fox', 'rabbit', 'city', None])
+        # Room above the top clearings for their icons.
+        top = min(y - r for _x, y, r in diagram.clearings)
+        self.assertGreaterEqual(top, msc.SUIT_ICON_H * msc.SUIT_ICON_SCALE['city'] / 2)
+        self.assertEqual(self._diagram({**layout, 'fixed': False}).suits, [])
+        fp = lambda l: msc.card_fingerprint('Map', l, {}, frame=FORGE_FRAME, lang_code='en')  # noqa: E731
+        self.assertNotEqual(fp(layout), fp({**layout, 'fixed': False}))
+        self.assertTrue(self._engine(layout).render()[0])   # draws
+
+    def test_setup_modifications_go_on_the_back_unless_it_is_full(self):
+        import fitz
+        rules = lambda n, words: [{'name': f'R{i}', 'text': 'word ' * words} for i in range(n)]  # noqa: E731
+        # On the back by default, before the special paths' rule and the rules.
+        special = _card_layout(paths=[{'kind': 'special', 'a': {'c': 0}, 'b': {'c': 1}}])
+        short = self._engine(special, card={'modifications': 'Skip ruins.', 'special_path_rule': 'Cross by day.',
+                                            'rules': [{'name': 'Ferry', 'text': 'Sail.'}]})
+        self.assertTrue(short.modifications_on_back)
+        self.assertEqual(short._front_top(), [])
+        self.assertEqual([h for h, _t in short.back_items()], ['Setup Modifications', 'Special Paths', 'Ferry'])
+        front, back = short.render()
+        self.assertNotIn('Setup Modifications', fitz.open(stream=front, filetype='pdf')[0].get_text())
+        self.assertIn('Setup Modifications', fitz.open(stream=back, filetype='pdf')[0].get_text())
+        self.assertTrue(self._engine(card={'modifications': 'Skip ruins.'}).has_back)   # even alone
+        # A back too full for them, with room on the front: on the front.
+        full = self._engine(card={'modifications': 'word ' * 5, 'rules': rules(3, 40)})
+        self.assertFalse(full.modifications_on_back)
+        self.assertEqual(len(full._front_top()), 1)
+        self.assertEqual(full.fits(), {'front': True, 'back': True})
+        # Room on neither: they stay on the back, and the back is reported.
+        neither = self._engine(card={'modifications': 'word ' * 59, 'rules': rules(2, 40)})
+        self.assertTrue(neither.modifications_on_back)
+        self.assertEqual(neither.fits(), {'front': True, 'back': False})
+
+    def test_fits(self):
+        self.assertEqual(self._engine().fits(), {'front': True, 'back': True})
+        crowded = {'modifications': 'word ' * 60, 'rules': [{'name': f'R{n}', 'text': 'word ' * 58} for n in range(6)]}
+        fits = self._engine(card=crowded).fits()
+        self.assertFalse(fits['back'])
+
+
+@override_settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='map-card-test-'))
+class RefreshSetupCardTests(TestCase):
+    """refresh_setup_card works on any map with the card fields: a keep Map here."""
+    def test_a_keep_map(self):
+        from django.contrib.auth.models import User
+        from the_gatehouse.models import Language, Profile
+        from the_keep.models import Map
+        english, _ = Language.objects.get_or_create(code='en', defaults={'name': 'English'})
+        designer = Profile.objects.get(user=User.objects.create_user(username='cartographer', password='pw'))
+        keep_map = Map.objects.create(title='Highlands', designer=designer, language=english,
+                                      map_card={'rules': [{'name': 'Ferry', 'text': 'Sail.'}]})
+        args = {'title': 'Highlands', 'layout': _card_layout(), 'lang_code': 'en', 'frame': (1000, 900)}
+        self.assertTrue(msc.refresh_setup_card(keep_map, **args))
+        keep_map.refresh_from_db()
+        self.assertTrue(keep_map.card_image and keep_map.card_2_image)
+        versions = (keep_map.card_image_version, keep_map.card_2_image_version)
+        self.assertFalse(msc.refresh_setup_card(keep_map, **args))           # up to date
+        # A new title redraws both sides; the same back is the same file.
+        keep_map.map_card = {'rules': [{'name': 'Ferry', 'text': 'Sail.'}]}
+        self.assertTrue(msc.refresh_setup_card(keep_map, **{**args, 'title': 'Lowlands'}))
+        keep_map.refresh_from_db()
+        self.assertEqual(keep_map.card_image_version, versions[0] + 1)
+        # No rules: the back goes.
+        keep_map.map_card = {}
+        msc.refresh_setup_card(keep_map, **{**args, 'title': 'Lowlands'})
+        keep_map.refresh_from_db()
+        self.assertFalse(keep_map.card_2_image)

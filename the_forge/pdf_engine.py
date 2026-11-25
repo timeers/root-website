@@ -426,8 +426,9 @@ CRAFTED_OVERLAY_COLOR_HEX = '#000000'  # red while iterating, so the overlay is 
 # All translatable PDF text, keyed first by language code, then by element key.
 # Drop new element keys (e.g. 'decree', 'setup_card') into each language entry
 # as new dynamic boxes are added — no need for a separate top-level map per
-# element. Use _pdf_text(element_key, lang_code) to look up; missing language
-# falls back to PDF_TEXT_FALLBACK, missing element returns {}.
+# element. Use _pdf_text(element_key, lang_code) to look up: any string the
+# language lacks (or a language without the element at all) falls back to
+# PDF_TEXT_FALLBACK's, and a missing element returns {}.
 PDF_TEXT_FALLBACK = 'en'
 PDF_TEXT = {
     'en': {
@@ -462,6 +463,17 @@ PDF_TEXT = {
         },
         'adset': {
             'title': 'ADVANCED SETUP'
+        },
+        # A Forge map's setup card (the_keep/services/map_setup_card.py).
+        'map_setup_card': {
+            'modifications': 'Setup Modifications',
+            'special_paths': 'Special Paths',      # the legend's name when the map hasn't named them
+            # ...when it has more than one type of them (tts_map.SPECIAL_PATH_TYPES, by key).
+            'special_paths_red': 'Red Paths',
+            'special_paths_green': 'Green Paths',
+            'special_paths_orange': 'Orange Paths',
+            'raging_river': 'Raging River',
+            'raging_river_text': 'The river divides forests (as printed paths do).',
         },
     },
     'fr': {
@@ -605,10 +617,10 @@ PDF_TEXT = {
 }
 
 def _pdf_text(element_key, lang_code):
-    lang = PDF_TEXT.get(lang_code) or PDF_TEXT[PDF_TEXT_FALLBACK]
-    if element_key in lang:
-        return lang[element_key]
-    return PDF_TEXT[PDF_TEXT_FALLBACK].get(element_key, {})
+    """The element's strings in the language, each falling back to English's."""
+    fallback = PDF_TEXT[PDF_TEXT_FALLBACK].get(element_key, {})
+    own = (PDF_TEXT.get(lang_code) or {}).get(element_key, {})
+    return {**fallback, **own}
 
 
 def _lang_code_for(obj):

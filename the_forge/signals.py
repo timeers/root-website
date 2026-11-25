@@ -96,13 +96,14 @@ def _delete_image_preview(sender, instance, **kwargs):
 
 
 def _delete_map_art(sender, instance, **kwargs):
-    """A ForgedMap's art: not in IMAGE_FIELDS_CONFIG, so it's never shrunk to
-    a board-sized image, but still deleted with the map."""
-    if instance.art and instance.art.name:
-        try:
-            instance.art.delete(save=False)
-        except Exception:
-            pass
+    """A ForgedMap's art and setup card: not in IMAGE_FIELDS_CONFIG, so never
+    shrunk, but still deleted with the map."""
+    for field in (instance.art, instance.card_image, instance.card_2_image):
+        if field and field.name:
+            try:
+                field.delete(save=False)
+            except Exception:
+                pass
 
 
 def _delete_piece_figure(sender, instance, **kwargs):

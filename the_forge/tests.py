@@ -1313,7 +1313,11 @@ class MapPublishTests(_MapPublishBase):
         ForgedFaction.objects.filter(pk=long_draft.pk).update(faction_name='L' * 41)
         long_draft.refresh_from_db()
         reqs = self.client.get(reverse('forge-map-detail', args=[long_draft.pk])).context['submit_requirements']
-        self.assertFalse(next(r for r in reqs if r['label'] == 'Map Name')['done'])
+        # (Its Unique Name row covers the length too: there's no separate Map Name row.)
+        self.assertFalse(any(r['label'] == 'Map Name' for r in reqs))
+        name = next(r for r in reqs if r['label'] == 'Unique Name')
+        self.assertFalse(name['done'])
+        self.assertIn('40 characters', name['warning'])
 
     def test_forge_maps_need_a_building_slot_and_a_ruin(self):
         draft = self._create()
@@ -1338,11 +1342,12 @@ class MapPublishTests(_MapPublishBase):
         self.assertIn("been completed yet",
                       self.client.get(reverse('forge-map-detail', args=[draft.pk])).content.decode())
 
-        # Completed: the image, the layout, the forest count and TTS are out of date.
+        # Completed: the image, the layout, the forest count, the setup card
+        # (it draws the forests) and TTS are out of date.
         self._save(draft, more_forests, generate=True)
         form = self._sync_form(draft)
         stale = {row[0] for row in form.diff_rows if not row[5]}
-        self.assertEqual(stale, {'board_image', 'forests'})   # the layout goes with any sync
+        self.assertEqual(stale, {'board_image', 'forests', 'card_image'})   # the layout goes with any sync
         self.assertFalse(form.tts_plan['in_sync'])
 
         # Apply everything but the forest count: it stays as it was.
@@ -1354,9 +1359,9 @@ class MapPublishTests(_MapPublishBase):
         self.assertEqual(keep_map.forests, 1)
         self.assertEqual(len(keep_map.tts_builder['forests']), 2)
         self.assertEqual(len(keep_map.tts_json['BoardLayout']['forests']), 2)
-        self.assertEqual({row[0] for row in self._sync_form(draft).diff_rows if not row[5]}, {'forests'})
+        self.assertEqual({row[0] for row in self._sync_form(draft).diff_rows if not row[5]}, {'forests', 'card_image'})
 
-        self.client.post(reverse('forge-map-sync', args=[draft.pk]), {'sync_forests': 'on'})
+        self.client.post(reverse('forge-map-sync', args=[draft.pk]), {'sync_forests': 'on', 'sync_card_image': 'on'})
         keep_map.refresh_from_db()
         self.assertEqual(keep_map.forests, 2)
         self.assertFalse(self._sync_form(draft).has_changes)
@@ -1395,11 +1400,15 @@ class MapPublishTests(_MapPublishBase):
         self.assertEqual((translation.post_id, translation.language, translation.translated_title),
                          (keep_map.pk, self.french, 'Hautes Terres'))
 
-        self.assertEqual([row[0] for row in self._sync_form(draft).diff_rows], ['translated_board_image'])
-        self.client.post(reverse('forge-map-sync', args=[draft.pk]), {'sync_translated_board_image': 'on'})
+        self.assertEqual([row[0] for row in self._sync_form(draft).diff_rows],
+                         ['translated_board_image', 'translated_card_image'])
+        self.client.post(reverse('forge-map-sync', args=[draft.pk]),
+                         {'sync_translated_board_image': 'on', 'sync_translated_card_image': 'on'})
         translation.refresh_from_db()
         self.assertTrue(translation.translated_board_image)
         self.assertEqual(translation.translated_board_image_version, draft.forged_map.preview_version)
+        self.assertTrue(translation.translated_card_image)
+        self.assertFalse(translation.translated_card_2_image)      # no rules: no back
         self.assertFalse(self._sync_form(draft).has_changes)
 
         self.client.post(reverse('forge-map-unlink', args=[draft.pk]))
@@ -2071,6 +2080,37 @@ class ForgedMapPathsTests(TestCase):
         self.assertGreater(order.index('suit'), max(i for i, k in enumerate(order) if k == 'clearing'))
         self.assertEqual(order[-3:], ['root_map_items', 'root_map_vp', 'root_map_logo'])
 
+    def test_lakes_are_printed_from_their_outline_first(self):
+        from .map_pdf_engine import MapLayoutEngine
+        draft = self._create()
+        layout = _fixed_layout(visited=['clearings', 'buildings', 'forests', 'paths'],
+                               paths=[{'kind': 'lake', 'a': {'c': 0}, 'b': {'c': 1}}])
+        layout['lake_shapes'] = [[[0.25, 0.35], [0.65, 0.35], [0.65, 0.55], [0.25, 0.55]]]
+        self.assertTrue(self._complete(draft, layout)['ok'])
+        forged_map = ForgedMap.objects.get(faction=draft)
+        self.assertEqual(len(forged_map.tts_builder['lake_shapes']), 1)
+        order = []
+        with mock.patch.object(MapLayoutEngine, '_draw_lakes', lambda _s, _c, rings: order.append(('lakes', len(rings)))), \
+                mock.patch.object(MapLayoutEngine, '_draw_path', lambda _s, _c, item, *_r: order.append(item['kind'])), \
+                mock.patch.object(MapLayoutEngine, '_draw_clearing', lambda *_a: order.append('clearing')):
+            MapLayoutEngine(forged_map).build(BytesIO())
+        self.assertEqual(order[0], ('lakes', 1))
+        self.assertNotIn('lake', order)                  # its outline is filled; no line
+        # Without an outline, it's printed as a river line.
+        state = dict(forged_map.tts_builder)
+        del state['lake_shapes']
+        ForgedMap.objects.filter(pk=forged_map.pk).update(tts_builder=state)
+        forged_map.refresh_from_db()
+        order.clear()
+        with mock.patch.object(MapLayoutEngine, '_draw_lakes', lambda _s, _c, rings: order.append(('lakes', len(rings)))), \
+                mock.patch.object(MapLayoutEngine, '_draw_path', lambda _s, _c, item, *_r: order.append(item['kind'])), \
+                mock.patch.object(MapLayoutEngine, '_draw_clearing', lambda *_a: order.append('clearing')):
+            MapLayoutEngine(forged_map).build(BytesIO())
+        self.assertIn('lake', order)
+        # And a real render doesn't fail either way.
+        from .map_pdf_engine import render_map_pdf
+        self.assertTrue(render_map_pdf(forged_map, target_dpi=20))
+
     def test_a_map_without_art_completes_with_its_paths_printed(self):
         draft = self._create()
         result = self._complete(draft)
@@ -2173,3 +2213,260 @@ class ForgedMapPathsTests(TestCase):
         keep_map = KeepMap.objects.create(title='Riverlands', designer=self.designer, clearings=2)
         MapPublisher().always_sync(forged, keep_map)
         self.assertEqual(KeepMap.objects.get(pk=keep_map.pk).tts_builder['special_path_name'], 'Bridges')
+
+
+# ── Map setup cards (the_keep/services/map_setup_card.py) ───────────────────
+@override_settings(MEDIA_ROOT=_TTS_MEDIA, SITE_URL='https://example.test')
+class MapSetupCardTests(_MapPublishBase):
+
+    def _card_post(self, draft, rules=(), **fields):
+        data = {'modifications': '', 'raging_river': 'no', **fields,
+                'rule_name': [name for name, _text in rules], 'rule_text': [text for _name, text in rules]}
+        return self.client.post(reverse('forge-map-setup-card', args=[draft.pk]), data)
+
+    def _map(self, draft):
+        return ForgedMap.objects.get(faction_id=draft.pk)
+
+    def test_complete_renders_a_front_only_card(self):
+        draft = self._completed()
+        forged_map = self._map(draft)
+        self.assertTrue(forged_map.card_image.name.endswith('map/card_front.webp'))
+        self.assertFalse(forged_map.card_2_image)
+        self.assertEqual(forged_map.card_image_version, 1)
+        self.assertEqual(len(forged_map.card_fingerprint), 32)
+        self.assertFalse(forged_map.card_stale)
+        page = self.client.get(reverse('forge-map-detail', args=[draft.pk])).content.decode()
+        self.assertIn('Setup Card', page)
+        self.assertIn(forged_map.card_image.url, page)
+
+    def test_the_editor_saves_and_renders_the_card(self):
+        draft = self._create()
+        self.assertTrue(self._save(draft, _paths_layout(special=True), generate=True).json()['ok'])
+        page = self.client.get(reverse('forge-map-setup-card', args=[draft.pk]))
+        self.assertEqual(page.status_code, 200)
+        html = page.content.decode()
+        self.assertIn('name="special_rule_red"', html)      # it has (red) special paths
+        self.assertIn('data-special-section="red">', html)  # (shown)
+        self.assertIn('data-special-section="green" hidden', html)
+        self.assertIn('id="msc-divides-red-no"', html)
+        self.assertIn('name="raging_river"', html)          # and rivers
+        self.assertNotIn('data-river-section hidden', html)
+        self.assertIn('The river divides forests', html)
+
+        response = self._card_post(draft, rules=[('Ferry', 'Move along the river (spend a card).'), ('', '')],
+                                   special_rule_red='Only the ruler may cross.', modifications='Skip ruins.',
+                                   raging_river='yes')
+        self.assertRedirects(response, reverse('forge-map-detail', args=[draft.pk]), fetch_redirect_response=False)
+        forged_map = self._map(draft)
+        self.assertEqual(forged_map.map_card, {
+            'special_paths': {'red': {'name': '', 'rule': 'Only the ruler may cross.', 'divides_forests': True}},
+            'modifications': 'Skip ruins.', 'raging_river': True,
+            'rules': [{'name': 'Ferry', 'text': 'Move along the river (spend a card).'}]})
+        self.assertTrue(forged_map.card_2_image)            # rules: a back
+        self.assertEqual(forged_map.card_2_image_version, 1)
+        # The Forge's TTS JSON carries the card, rules side as its back.
+        card = [o for o in draft.__class__.objects.get(pk=draft.pk).tts_json['ObjectStates'] if o.get('Name') == 'Card']
+        self.assertEqual(len(card), 1)
+        self.assertEqual(card[0]['Tags'], ['Map Object'])
+        self.assertFalse(card[0]['HideWhenFaceDown'])
+        deck = next(iter(card[0]['CustomDeck'].values()))
+        self.assertIn('card_front.webp', deck['FaceURL'])
+        self.assertIn('card_back.webp', deck['BackURL'])
+
+        # Nothing for the back (no setup modifications, special path rule, Raging
+        # River or rules): the back goes, and the front shows twice in TTS.
+        self._card_post(draft)
+        forged_map = self._map(draft)
+        self.assertFalse(forged_map.card_2_image)
+        self.assertEqual(forged_map.card_2_image_version, 2)
+        card = [o for o in draft.__class__.objects.get(pk=draft.pk).tts_json['ObjectStates'] if o.get('Name') == 'Card']
+        deck = next(iter(card[0]['CustomDeck'].values()))
+        self.assertIn('card_front.webp', deck['BackURL'])
+
+    def test_special_paths_dividing_forests_is_saved(self):
+        draft = self._create()
+        self.assertTrue(self._save(draft, _paths_layout(special=True), generate=True).json()['ok'])
+        self._card_post(draft, special_divides_red='no')
+        self.assertFalse(self._map(draft).map_card['special_paths']['red']['divides_forests'])
+        self._card_post(draft, special_divides_red='yes')
+        self.assertNotIn('red', self._map(draft).map_card['special_paths'])     # (the default: nothing kept)
+
+    def test_the_builder_has_a_rules_step_that_saves_the_card(self):
+        draft = self._create()
+        page = self.client.get(reverse('forge-map-builder', args=[draft.pk]))
+        self.assertTrue(page.context['config']['rules_step'])
+        html = page.content.decode()
+        self.assertIn('id="mb-rules"', html)
+        self.assertIn('data-embedded', html)               # (no buttons: saved with the layout)
+        self.assertNotIn('Save Setup Card', html)
+        layout = _paths_layout(special=True)
+        card = {'special_name_red': ['Bridges'], 'special_rule_red': ['Cross by day.'], 'raging_river': ['yes']}
+        result = self._save(draft, layout, card=card).json()
+        self.assertEqual(result['card_errors'], [])
+        forged_map = self._map(draft)
+        self.assertEqual(forged_map.map_card['special_paths']['red']['name'], 'Bridges')
+        self.assertTrue(forged_map.map_card['raging_river'])
+        # Too much for the card: not saved, and Complete is refused.
+        result = self._save(draft, layout, generate=True,
+                            card={**card, 'modifications': ['x' * 300], 'rule_name': [f'R{n}' for n in range(6)],
+                                  'rule_text': ['y' * 300] * 6}).json()
+        self.assertTrue(result['card_errors'])
+        self.assertFalse(result['ok'])
+        self.assertEqual(self._map(draft).map_card['special_paths']['red']['name'], 'Bridges')
+        # The read-only builder (the map's page) has no Rules step.
+        detail = self.client.get(reverse('forge-map-detail', args=[draft.pk]))
+        self.assertFalse(detail.context['config']['rules_step'])
+        self.assertNotIn('id="mb-rules"', detail.content.decode())
+
+    def test_sections_only_for_what_the_map_has(self):
+        draft = self._completed()
+        html = self.client.get(reverse('forge-map-setup-card', args=[draft.pk])).content.decode()
+        # Every special path type's section is there, hidden (their text kept), as is Raging River's.
+        for key in ('red', 'green', 'orange'):
+            self.assertIn(f'data-special-section="{key}" hidden', html)
+        self.assertIn('data-river-section hidden', html)
+        self.assertIn('name="modifications"', html)
+
+    def test_text_that_wont_fit_is_refused_with_the_law_note(self):
+        draft = self._completed()
+        long = 'Word ' * 59
+        response = self._card_post(draft, rules=[(f'Rule {n}', long) for n in range(6)])
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['form'].overflow, 'back')
+        self.assertIn('Need more room?', response.content.decode())
+        self.assertEqual(self._map(draft).map_card, {})
+        # Too many rules.
+        response = self._card_post(draft, rules=[(f'Rule {n}', 'x') for n in range(7)])
+        self.assertIn('6 rules at most', response.content.decode())
+
+    def test_only_editors(self):
+        draft = self._completed()
+        other = User.objects.create_user(username='stranger', password='pw')
+        Profile.objects.filter(user=other).update(group='D', player_onboard=True, forge_onboard=True)
+        self.client.force_login(other)
+        self.assertEqual(self.client.get(reverse('forge-map-setup-card', args=[draft.pk])).status_code, 302)
+        self._card_post(draft, modifications='Hacked.')
+        self.assertEqual(self._map(draft).map_card, {})
+
+    def test_submit_and_sync_carry_the_card(self):
+        draft = self._completed()
+        self._card_post(draft, rules=[('Ferry', 'Cross the river.')])
+        self._submit(draft)
+        keep_map = KeepMap.objects.get(title='Highlands')
+        forged_map = self._map(draft)
+        self.assertTrue(keep_map.card_image and keep_map.card_2_image)
+        self.assertEqual(keep_map.map_card, forged_map.map_card)
+        self.assertEqual(keep_map.card_fingerprint, forged_map.card_fingerprint)
+        self.assertEqual(keep_map.card_image_version, forged_map.card_image_version)
+        self.assertNotIn('/forge/', json.dumps(keep_map.tts_json))
+        self.assertFalse(self._sync_form(draft).has_changes)
+
+        # A new rule: one Setup Card row; applying it updates the card, back, text and stamp.
+        self._card_post(draft, rules=[('Ferry', 'Cross the river.'), ('Fog', 'No battles in clearing 1.')])
+        form = self._sync_form(draft)
+        self.assertEqual({row[0] for row in form.diff_rows if not row[5]}, {'card_image'})
+        # The TTS JSON doesn't change: the card's images keep their URLs.
+        self.assertTrue(form.tts_plan['in_sync'])
+        self.client.post(reverse('forge-map-sync', args=[draft.pk]), {'sync_card_image': 'on'})
+        keep_map.refresh_from_db()
+        forged_map = self._map(draft)
+        self.assertEqual(len(keep_map.map_card['rules']), 2)
+        self.assertEqual(keep_map.card_fingerprint, forged_map.card_fingerprint)
+        self.assertTrue(keep_map.card_2_image)
+
+        # No rules any more: applying the row clears the keep Map's back.
+        self._card_post(draft)
+        self.client.post(reverse('forge-map-sync', args=[draft.pk]), {'sync_card_image': 'on'})
+        keep_map.refresh_from_db()
+        self.assertFalse(keep_map.card_2_image)
+        self.assertEqual(keep_map.map_card['rules'], [])
+
+    def test_linking_keeps_a_keep_maps_own_card_until_its_row_is_ticked(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile as Upload
+        keep_map = KeepMap.objects.create(title='Highlands', designer=self.designer, language=self.english,
+                                          card_image=Upload('own.webp', _image_upload(50, 70).read()),
+                                          card_2_image=Upload('own_back.webp', _image_upload(50, 70).read()))
+        KeepMap.objects.filter(pk=keep_map.pk).update(card_image_version=7, card_2_image_version=7)
+        draft = self._completed()
+        self.client.post(reverse('forge-map-link', args=[draft.pk]), {'target': f'post:{keep_map.pk}'})
+        draft.refresh_from_db()
+        self.assertEqual(draft.published_post_id, keep_map.pk)
+        form = self._sync_form(draft)
+        # The Forge card is at version 1, but the row shows: it's compared by its stamp.
+        self.assertIn('card_image', {row[0] for row in form.diff_rows if not row[5]})
+        own = (keep_map.card_image.name, keep_map.card_2_image.name)
+        self.client.post(reverse('forge-map-sync', args=[draft.pk]), {'sync_board_image': 'on'})
+        keep_map.refresh_from_db()
+        self.assertEqual((keep_map.card_image.name, keep_map.card_2_image.name), own)
+        self.assertEqual(keep_map.map_card, {})
+
+    def test_renaming_makes_the_card_out_of_date_until_re_rendered(self):
+        draft = self._completed()
+        self._save(draft, _fixed_layout(), name='Lowlands')
+        forged_map = self._map(draft)
+        self.assertTrue(forged_map.card_stale)
+        from .publishing import publisher_for
+        reqs = {r.label: r for r in publisher_for(ForgedFaction.objects.get(pk=draft.pk)).prerequisites(
+            ForgedFaction.objects.get(pk=draft.pk))}
+        # (Its own row no more: Completed Map covers it, saying what to do.)
+        self.assertNotIn('Setup Card', reqs)
+        self.assertFalse(reqs['Completed Map'].done)
+        self.assertIn('setup card is out of date', reqs['Completed Map'].warning)
+        self.assertIn('The setup card is out of date',
+                      self.client.get(reverse('forge-map-detail', args=[draft.pk])).content.decode())
+        self.client.post(reverse('forge-map-setup-card-render', args=[draft.pk]))
+        forged_map = self._map(draft)
+        self.assertFalse(forged_map.card_stale)
+        self.assertEqual(forged_map.card_image_version, 2)
+        reqs = {r.label: r for r in publisher_for(ForgedFaction.objects.get(pk=draft.pk)).prerequisites(
+            ForgedFaction.objects.get(pk=draft.pk))}
+        self.assertTrue(reqs['Completed Map'].done)
+
+    def test_moving_the_logo_leaves_the_card_alone(self):
+        draft = self._completed()
+        before = self._map(draft)
+        self._save(draft, _fixed_layout(logo=[0.2, 0.2]), generate=True)
+        after = self._map(draft)
+        self.assertNotEqual(after.preview_version, before.preview_version)
+        self.assertEqual((after.card_image_version, after.card_fingerprint),
+                         (before.card_image_version, before.card_fingerprint))
+
+    def test_editing_the_card_leaves_the_map_image_alone(self):
+        draft = self._completed()
+        before = self._map(draft)
+        self._card_post(draft, modifications='Skip ruins.')
+        after = self._map(draft)
+        self.assertEqual(fingerprint_map(after), fingerprint_map(before))
+        self.assertEqual(after.preview_version, before.preview_version)
+        self.assertFalse(after.preview_stale)
+
+    def test_the_pdf_download_ends_with_the_card(self):
+        import fitz
+        from .map_pdf_engine import render_map_pdf
+        draft = self._completed()
+        forged_map = self._map(draft)
+        # The map's own image never draws the card.
+        self.assertEqual(fitz.open(stream=render_map_pdf(forged_map), filetype='pdf').page_count, 1)
+        pdf = self.client.get(reverse('forge-map-pdf', args=[draft.pk])).content
+        self.assertEqual(fitz.open(stream=pdf, filetype='pdf').page_count, 2)
+        self._card_post(draft, rules=[('Ferry', 'Cross the river.')])
+        pdf = self.client.get(reverse('forge-map-pdf', args=[draft.pk])).content
+        self.assertEqual(fitz.open(stream=pdf, filetype='pdf').page_count, 3)
+
+    def test_deleting_the_map_deletes_its_card(self):
+        import os
+        draft = self._completed()
+        self._card_post(draft, rules=[('Ferry', 'Cross the river.')])
+        forged_map = self._map(draft)
+        paths = [forged_map.card_image.path, forged_map.card_2_image.path]
+        self.assertTrue(all(os.path.exists(p) for p in paths))
+        forged_map.delete()
+        self.assertFalse(any(os.path.exists(p) for p in paths))
+
+    def test_backfill_command(self):
+        draft = self._completed()
+        ForgedMap.objects.filter(faction_id=draft.pk).update(card_image='', card_fingerprint='')
+        out = StringIO()
+        call_command('render_map_setup_cards', stdout=out)
+        self.assertIn('1 setup card(s) rendered', out.getvalue())
+        self.assertTrue(self._map(draft).card_image)

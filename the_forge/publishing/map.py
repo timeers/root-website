@@ -78,6 +78,63 @@ def _image_version(forged):
     return (forged_map.preview_version or 0) if forged_map else 0
 
 
+# ── The setup card (the_keep/services/map_setup_card.py) ──
+# One row: the front, the back and the card's text always move together. It's
+# in sync when the keep Map's stamp (card_fingerprint) is this card's, not by
+# version: a keep Map with its own card can have any version, so comparing them
+# could hide the Forge's card, and leaving the row unticked keeps the keep
+# Map's own card and back.
+def _card(forged):
+    forged_map, state = rendered(forged)
+    return forged_map.card_image if state and forged_map.card_image else None
+
+
+def _card_version(forged):
+    forged_map = forged_map_of(forged)
+    return (forged_map.card_image_version or 0) if forged_map else 0
+
+
+def _card_in_sync(forged, current, proposed):
+    from .diff import sync_target
+    forged_map = forged_map_of(forged)
+    return bool(current) and getattr(sync_target(forged), 'card_fingerprint', None) == forged_map.card_fingerprint
+
+
+def _card_applied(forged):
+    """After the front is copied: the back (or none), and on a keep Map the
+    card's text and stamp."""
+    from ..services.upload_paths import copy_image_field
+    from .diff import sync_mode, sync_target
+    forged_map, target = forged_map_of(forged), sync_target(forged)
+    prefix = 'translated_' if sync_mode(forged) == 'translation' else ''
+    back = f'{prefix}card_2_image'
+    if forged_map.card_2_image:
+        setattr(target, back, copy_image_field(forged_map.card_2_image))
+        setattr(target, f'{back}_version', forged_map.card_2_image_version or 0)
+    elif getattr(target, back):
+        if prefix:
+            getattr(target, back).delete(save=False)
+        setattr(target, back, None)     # (a keep post's save deletes the old file)
+    if not prefix:
+        target.map_card = forged_map.map_card
+        target.card_fingerprint = forged_map.card_fingerprint
+    target.save()
+
+
+def _translation_card_in_sync(forged, current, proposed):
+    """A translation has no stamp: its front's version, and its back matching
+    whether the Forge card has one."""
+    target_version = getattr(_translation(forged), 'translated_card_image_version', 0) or 0
+    forged_map = forged_map_of(forged)
+    has_back = bool(getattr(_translation(forged), 'translated_card_2_image', None))
+    return bool(current) and _card_version(forged) <= target_version and has_back == bool(forged_map.card_2_image)
+
+
+def _translation(forged):
+    from .diff import sync_target
+    return sync_target(forged)
+
+
 class MapSubmitForm(MapCreateForm):
     """Submit a Forge map as a new keep Map. The name, language and the counts
     come from the map (its rendered layout) and are shown read-only; the
@@ -176,13 +233,18 @@ class MapPublisher(Publisher):
     # refresh: nothing. Only the builder's Complete (or a download) renders a
     # map, so publishing never renders and never waits for the renderer.
 
+    def name_problem(self, forged):
+        # The builder holds a name to the keep post title's length; one from
+        # before that (or set some other way) may be longer.
+        if not 0 < len(forged.faction_name or '') <= MAX_TITLE:
+            return f'Keep the name to {MAX_TITLE} characters (rename it on the Start step).'
+        return None
+
     def prerequisites(self, forged):
         forged_map, state = rendered(forged)
-        name_ok = 0 < len(forged.faction_name or '') <= MAX_TITLE
         has_art = bool(forged_map and forged_map.art)
         reqs = [
-            Requirement('Map Name', name_ok, None if name_ok else
-                        f'Keep the name to {MAX_TITLE} characters (rename it on the Start step).'),
+            # (Its name: the publish card's Unique Name row, with name_problem.)
             # Art is optional for building and printing a map (a grey board),
             # but a map submitted to the Root Database needs its own.
             Requirement('Original Art', has_art, None if has_art else
@@ -192,7 +254,13 @@ class MapPublisher(Publisher):
             reqs.append(Requirement('Completed Map', False,
                                     'Finish the map in the builder and click Complete.'))
         else:
+            # Completed: the map, and its setup card up to date with it.
+            # Publishing never renders: an out-of-date card (after a rename,
+            # new rules saved from the builder, say) is re-rendered from the
+            # map's page first. The warning says which needs doing.
             errors = rendered_errors(state)
+            if not errors and forged_map.card_stale:
+                errors = ["Your setup card is out of date: re-render it from the map's page."]
             reqs.append(Requirement('Completed Map', not errors, ' '.join(errors) or None))
         return reqs
 
@@ -221,16 +289,26 @@ class MapPublisher(Publisher):
         forged_map, state = rendered(forged)
         if not state:
             return {}
-        return {'board_image': (forged_map.image_preview, forged_map.preview_version or 0)}
+        images = {'board_image': (forged_map.image_preview, forged_map.preview_version or 0)}
+        if forged_map.card_image:
+            images['card_image'] = (forged_map.card_image, forged_map.card_image_version or 0)
+            if forged_map.card_2_image:
+                images['card_2_image'] = (forged_map.card_2_image, forged_map.card_2_image_version or 0)
+        return images
 
     def after_submit(self, forged, post, profile):
         """The new Map gets the map's layout and counts (the form already set
         the counts; apply_builder_counts is the keep builder's own writer), then
         its Tabletop Simulator JSON, built on its own (keep) board image."""
-        _forged_map, state = rendered(forged)
+        forged_map, state = rendered(forged)
         layout = clean_builder_state(state)
-        Map.objects.filter(pk=post.pk).update(tts_builder=layout)
+        # The setup card's text and stamp go with its images (submit_images).
+        card = {'map_card': forged_map.map_card, 'card_fingerprint': forged_map.card_fingerprint} \
+            if forged_map.card_image else {}
+        Map.objects.filter(pk=post.pk).update(tts_builder=layout, **card)
         post.tts_builder = layout
+        for name, value in card.items():
+            setattr(post, name, value)
         apply_builder_counts(post, layout)
         from .tts import store_keep_tts
         store_keep_tts(forged, self, post, profile)
@@ -251,6 +329,8 @@ class MapPublisher(Publisher):
             SyncField('forests', 'Forests', _count('forests'), kind='int'),
             SyncField('river_clearings', 'River Clearings', _count('river_clearings'), kind='int'),
             SyncField('fixed_clearings', 'Fixed Clearing Suits', _fixed, kind='bool'),
+            SyncField('card_image', 'Setup Card', _card, kind='image', version=_card_version,
+                      keep_version_attr='card_image_version', in_sync=_card_in_sync, on_applied=_card_applied),
         ]
 
     def always_sync(self, forged, target):
@@ -264,11 +344,18 @@ class MapPublisher(Publisher):
 
     def translation_fields(self, forged):
         return [SyncField('translated_board_image', 'Map Image (translation)', _image, kind='image',
-                          version=_image_version, keep_version_attr='translated_board_image_version')]
+                          version=_image_version, keep_version_attr='translated_board_image_version'),
+                SyncField('translated_card_image', 'Setup Card (translation)', _card, kind='image',
+                          version=_card_version, keep_version_attr='translated_card_image_version',
+                          in_sync=_translation_card_in_sync, on_applied=_card_applied)]
 
     def tts_fingerprint(self, forged):
         forged_map, state = rendered(forged)
         payload = {'image': forged_map.preview_version if forged_map else 0, 'layout': state}
+        if forged_map and forged_map.card_image:
+            # The TTS JSON's setup card: only its being there (and having a
+            # back) changes the JSON; its images' URLs never change.
+            payload['card'] = [True, bool(forged_map.card_2_image)]
         return hashlib.md5(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
     def tts_plan(self, forged, diff_rows, extras):

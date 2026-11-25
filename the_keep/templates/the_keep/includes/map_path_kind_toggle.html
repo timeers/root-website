@@ -3,8 +3,14 @@
   The Paths step's 3-way toggle (map_builder.js): which kind of path to draw
   (the item track's card: "Paths"), or the selected path's kind (the edit
   pop-up, with singular=True: "Path"). A swatch and a label per kind (special
-  paths just their red swatch: a map names them itself, in the Paths step's
-  count pill), with a highlight that slides to the chosen one.
+  paths just their colour's swatch: a map names them on its setup card),
+  with a highlight that slides to the chosen one.
+
+  Two segments have a menu, opened by their chevron (or a click on them while
+  they're chosen): the water segment, River or Lake (map_builder.js sets its
+  data-path-kind, swatch and label to the chosen one), and the special path
+  segment, its colour (tts_map.SPECIAL_PATH_TYPES, from config.path.specials:
+  map_builder.js sets its swatch).
 {% endcomment %}
 <div class="mb-kind-toggle" id="{{ toggle_id }}" role="radiogroup" aria-label="{% trans 'Path type' %}">
     <span class="mb-kind-thumb" aria-hidden="true"></span>
@@ -12,21 +18,38 @@
     <button type="button" role="radio" aria-checked="true" data-path-kind="path" title="{% trans 'Path' %}" aria-label="{% trans 'Path' %}">
         <span class="mb-kind-swatch" style="--mb-swatch: #c4c9ce;"></span><span class="mb-kind-label">{% trans 'Path' %}</span>
     </button>
-    <button type="button" role="radio" aria-checked="false" data-path-kind="special" title="{% trans 'Special Path' %}" aria-label="{% trans 'Special Path' %}">
-        <span class="mb-kind-swatch" style="--mb-swatch: #ed2731;"></span>
+    <button type="button" role="radio" aria-checked="false" data-path-kind="special" data-special title="{% trans 'Special Path' %}" aria-label="{% trans 'Special Path' %}">
+        <span class="mb-kind-swatch" style="--mb-swatch: #ed2731;"></span><span class="mb-kind-chevron" aria-hidden="true"></span>
     </button>
-    <button type="button" role="radio" aria-checked="false" data-path-kind="river" title="{% trans 'River' %}" aria-label="{% trans 'River' %}">
-        <span class="mb-kind-swatch" style="--mb-swatch: #3e55a5;"></span><span class="mb-kind-label">{% trans 'River' %}</span>
+    <button type="button" role="radio" aria-checked="false" data-path-kind="river" data-water
+            data-label-river="{% trans 'River' %}" data-label-lake="{% trans 'Lake' %}" title="{% trans 'River' %}" aria-label="{% trans 'River' %}">
+        <span class="mb-kind-swatch" style="--mb-swatch: #3e55a5;"></span><span class="mb-kind-label">{% trans 'River' %}</span><span class="mb-kind-chevron" aria-hidden="true"></span>
     </button>
     {% else %}
     <button type="button" role="radio" aria-checked="true" data-path-kind="path" title="{% trans 'Paths' %}" aria-label="{% trans 'Paths' %}">
         <span class="mb-kind-swatch" style="--mb-swatch: #c4c9ce;"></span><span class="mb-kind-label">{% trans 'Paths' %}</span>
     </button>
-    <button type="button" role="radio" aria-checked="false" data-path-kind="special" title="{% trans 'Special Paths' %}" aria-label="{% trans 'Special Paths' %}">
-        <span class="mb-kind-swatch" style="--mb-swatch: #ed2731;"></span>
+    <button type="button" role="radio" aria-checked="false" data-path-kind="special" data-special title="{% trans 'Special Paths' %}" aria-label="{% trans 'Special Paths' %}">
+        <span class="mb-kind-swatch" style="--mb-swatch: #ed2731;"></span><span class="mb-kind-chevron" aria-hidden="true"></span>
     </button>
-    <button type="button" role="radio" aria-checked="false" data-path-kind="river" title="{% trans 'Rivers' %}" aria-label="{% trans 'Rivers' %}">
-        <span class="mb-kind-swatch" style="--mb-swatch: #3e55a5;"></span><span class="mb-kind-label">{% trans 'Rivers' %}</span>
+    <button type="button" role="radio" aria-checked="false" data-path-kind="river" data-water
+            data-label-river="{% trans 'Rivers' %}" data-label-lake="{% trans 'Lakes' %}" title="{% trans 'Rivers' %}" aria-label="{% trans 'Rivers' %}">
+        <span class="mb-kind-swatch" style="--mb-swatch: #3e55a5;"></span><span class="mb-kind-label">{% trans 'Rivers' %}</span><span class="mb-kind-chevron" aria-hidden="true"></span>
     </button>
     {% endif %}
+    <div class="mb-water-menu mb-special-menu" role="menu" hidden data-menu-for="special">
+        {% for type in config.path.specials %}
+        <button type="button" role="menuitemradio" aria-checked="{% if forloop.first %}true{% else %}false{% endif %}" data-special-kind="{{ type.key }}">
+            <span class="mb-kind-swatch" style="--mb-swatch: {{ type.colour }};"></span>{% trans type.label %}
+        </button>
+        {% endfor %}
+    </div>
+    <div class="mb-water-menu" role="menu" hidden data-menu-for="water">
+        <button type="button" role="menuitemradio" aria-checked="true" data-water-kind="river">
+            <span class="mb-kind-swatch" style="--mb-swatch: #3e55a5;"></span>{% if singular %}{% trans 'River' %}{% else %}{% trans 'Rivers' %}{% endif %}
+        </button>
+        <button type="button" role="menuitemradio" aria-checked="false" data-water-kind="lake">
+            <span class="mb-kind-swatch mb-kind-swatch-lake" style="--mb-swatch: #3e55a5;"></span>{% if singular %}{% trans 'Lake' %}{% else %}{% trans 'Lakes' %}{% endif %}
+        </button>
+    </div>
 </div>

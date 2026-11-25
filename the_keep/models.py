@@ -1290,6 +1290,11 @@ class Map(Post):
     # in 0-1 image coordinates; the site generates the TTS JSON from it. See
     # the_keep/services/tts_map.py.
     tts_builder = models.JSONField(null=True, blank=True)
+    # Its setup card's text (the_keep/services/map_setup_card.py): the card's
+    # images are the post's card_image / card_2_image. card_fingerprint is what
+    # those were rendered from: for a Forge map, which Forge card they are.
+    map_card = models.JSONField(default=dict, blank=True)
+    card_fingerprint = models.CharField(max_length=32, blank=True, default='')
     def save(self, *args, **kwargs):
         self.component = 'Map'  # Set the component type
         self.sorting = 2

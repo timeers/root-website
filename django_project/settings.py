@@ -207,6 +207,21 @@ CACHES = {
     }
 }
 
+# Tests get a per-process in-memory cache instead of the shared Redis one. On
+# Redis, the suite's cache.clear() calls wiped the dev server's cache and sessions,
+# cached Discord lookups leaked between tests and runs, and under --parallel one
+# worker's clear() deleted another's login session mid-request (SessionInterrupted
+# -> a spurious 400). Dev sessions live in the cache (above), so this isolates
+# them too. render_guard fails open without Redis, which is fine under test.
+if 'test' in sys.argv:
+    # Refuses real HTTP to Discord; see django_project/test_runner.py.
+    TEST_RUNNER = 'django_project.test_runner.NoDiscordNetworkRunner'
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        }
+    }
+
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
 

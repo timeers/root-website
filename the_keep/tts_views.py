@@ -10,6 +10,7 @@ from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 
@@ -243,6 +244,22 @@ def post_tts_json_download(request, slug):
     return response
 
 
+def _post_lang(post):
+    language = getattr(post, 'language', None)
+    return language.code if language else 'en'
+
+
+def _rules_context(post, state, width, height):
+    """The builder's Rules step: the setup card editor's form and context
+    (the_keep/includes/map_setup_card_editor.html), on the live layout."""
+    from .forms import MapSetupCardForm
+    from .services.map_setup_card import card_text, layout_features
+    form = MapSetupCardForm(None, title=post.title, layout=state, frame=(width, height),
+                            lang_code=_post_lang(post), map_card=post.map_card)
+    law_url = reverse('post-law-group-create', kwargs={'slug': post.slug})
+    return {'form': form, 'features': layout_features(state), 'text': card_text(_post_lang(post)), 'law_url': law_url}
+
+
 @login_required
 def map_builder(request, slug):
     """The visual map builder: lay out a Map post's VP track, items, clearings,
@@ -277,8 +294,20 @@ def map_builder(request, slug):
         generate = bool(payload.get('generate'))
         stages = None if generate else visited_stages(state)
         errors, warnings = check_builder(post, state, stages)
-        result = {'ok': True, 'saved': True, 'changes': [], 'errors': errors, 'warnings': warnings, 'counted': []}
+        # The Rules step: the setup card's text (the Map's map_card, the same
+        # JSON as a Forge map's), checked against this layout.
+        card_errors = []
+        if 'card' in payload:
+            from .services.map_setup_card import save_builder_card
+            card_errors = save_builder_card(post, payload['card'], state, title=post.title,
+                                            frame=(post.board_image.width, post.board_image.height),
+                                            lang_code=_post_lang(post))
+        result = {'ok': True, 'saved': True, 'changes': [], 'errors': errors, 'warnings': warnings, 'counted': [],
+                  'card_errors': card_errors}
         if generate:
+            if card_errors:
+                errors = errors + ["The setup card's rules need fixing first (the Setup Card Rules step)."]
+                result['errors'] = errors
             if errors:
                 result['ok'] = False
             else:
@@ -318,7 +347,10 @@ def map_builder(request, slug):
                 # (a Keep map is its own board image: nothing is printed).
                 paths_step=True,
                 path=path_config(geometry),
+                # Setup Card Rules (the Map's map_card).
+                rules_step=True,
             ),
+            'rules': _rules_context(post, state, width, height),
             'ratio_warning': not (1.0 <= ratio <= 1.2),
             'errors': errors,
             'warnings': warnings,

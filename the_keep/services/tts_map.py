@@ -165,6 +165,8 @@ def number_tile_radius_px(geometry):
 # ── The builder page (shared by the Keep and the Forge) ─────────────────────
 
 MARKER_SVG = 'images/map_builder/clearing_marker.svg'
+FOREST_ICON = 'pdf/maps/root_map_green_forest.svg'   # the summary card's forest icon (a printed map's forest)
+RUIN_ICON = 'images/tts/assets/ruin.png'             # ...and its ruin (the builder's ruin tile)
 
 # The official boards' shape (about 1.09 wide to 1 tall). Forge maps are cropped
 # to it, and the Forge builder always works in this frame, whatever the art's
@@ -233,12 +235,45 @@ def clean_builder_state(state, *, logo=False):
     paths = clean_paths(state.get('paths'), len(clearings))
     if paths:
         clean['paths'] = paths
-    # What the map's special paths are (Bridges, Mountain Passes...): kept even
-    # while it has none, so drawing one again brings it back.
+    if any(p['kind'] == 'lake' for p in paths):
+        shapes = clean_lake_shapes(state.get('lake_shapes'))
+        if shapes:
+            clean['lake_shapes'] = shapes
+    # The name the builder used to give its (red) special paths: kept, as the
+    # red ones' name when the setup card hasn't one (map_setup_card.special_types).
     name = state.get('special_path_name')
     if isinstance(name, str) and name.strip():
         clean['special_path_name'] = name.strip()[:SPECIAL_PATH_NAME_MAX]
     return clean
+
+
+def clean_lake_shapes(raw):
+    """The builder's lake outlines (state['lake_shapes']), held to sane sizes:
+    rings of at least 3 [u, v] points, numbers clamped just past the frame and
+    rounded. Malformed: [] (the lakes are then drawn as wide rivers)."""
+    if not isinstance(raw, list):
+        return []
+    rings, total = [], 0
+    for ring in raw[:LAKE_RINGS_MAX]:
+        if not isinstance(ring, list) or len(ring) > LAKE_RING_POINTS_MAX:
+            return []
+        points = []
+        for point in ring:
+            if not (isinstance(point, (list, tuple)) and len(point) == 2):
+                return []
+            try:
+                u, v = (round(min(max(float(n), -0.05), 1.05), 4) for n in point)
+            except (TypeError, ValueError):
+                return []
+            if u != u or v != v:         # NaN
+                return []
+            points.append([u, v])
+        if len(points) >= 3:
+            total += len(points)
+            if total > LAKE_POINTS_MAX:
+                return []
+            rings.append(points)
+    return rings
 
 
 def suit_icons():
@@ -269,9 +304,14 @@ def builder_config(image_url, width, height, state, *, fixed, expected, save_url
         'item_grid': pieces()['item_grid'],
         'building_size': BUILDING_SIZE,
         'number_radius_px': number_tile_radius_px(geometry),
+        # An average clearing's radius: the Buildings step's zoom never shows less than one.
+        'default_radius_px': DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
         'suit_icons': suit_icons(),
         # The suit marker's outline (tts/make_marker_svg.py); round dots without it.
         'marker_svg': static(MARKER_SVG) if finders.find(MARKER_SVG) else None,
+        # The summary card's forest and ruin icons (on the review step).
+        'forest_icon': static(FOREST_ICON) if finders.find(FOREST_ICON) else None,
+        'ruin_icon': static(RUIN_ICON) if finders.find(RUIN_ICON) else None,
         # The marker mesh's footprint (mesh units x its 1.3 scale), in pixels.
         'marker_px': [3.164 * 1.3 / BOARD_SCALE * geometry.px_per_local,
                       1.575 * 1.3 / BOARD_SCALE * geometry.px_per_local],
@@ -279,7 +319,6 @@ def builder_config(image_url, width, height, state, *, fixed, expected, save_url
         # Step cards open by themselves until the user's first finished map.
         'show_intros': bool(show_intros),
         'random_icon': static('images/ClearingsRandom.png'),
-        'special_name_max': SPECIAL_PATH_NAME_MAX,
     }
     config.update(extra)
     return config
@@ -405,6 +444,11 @@ def print_layout(geometry, state):
     rivers = print_rivers(geometry, state, layout['paths'])
     layout['river_links'] = rivers['links']
     layout['river_trimmed'] = rivers['trimmed']
+    layout['river_springs'] = [spring['at'] for spring in rivers['springs']]   # rounded river ends
+    # Lakes: the builder's outlines, in pixels (filled even-odd). A layout with
+    # lakes but no outline draws them as wide rivers instead ('lake_lines').
+    layout['lakes'] = [[geometry.to_pixels(u, v) for u, v in ring] for ring in state.get('lake_shapes') or []]
+    layout['lake_lines'] = not layout['lakes']
     inset = CLEARING_OUTLINE_INSET * geometry.width / FORGE_FRAME[0]
     layout['clearings'] = [(x, y, max(r - inset, r / 2))     # (never below half a very small clearing)
                            for c, (x, y, r) in zip(state.get('clearings') or [], _circles(geometry, state))
@@ -418,21 +462,68 @@ def print_layout(geometry, state):
 # {'p': path index} (that path's middle: a river joining a river). The builder
 # (map_builder.js) mirrors this geometry, so what's printed is what was drawn.
 
-PATH_KINDS = ('path', 'special', 'river')
-# Bottom to top, where they cross: rivers, then special paths, then paths
-# (the builder draws them the same way, via path_config).
-PATH_DRAW_ORDER = ('river', 'special', 'path')
+PATH_KINDS = ('path', 'special', 'river', 'lake')
+# Bottom to top, where they cross: lakes, rivers, then special paths, then
+# paths (the builder draws them the same way, via path_config).
+PATH_DRAW_ORDER = ('lake', 'river', 'special', 'path')
 # A river and a path (or special path) may join the same two ends; two of a
 # family may not. Where a river and a path share both ends they bow apart, each
 # by this many (river + path) half-widths at the middle, so they don't overlap.
 SHARED_BEND = 1.0
-SPECIAL_PATH_NAME_MAX = 24       # the name a map gives its special paths (the Paths step's pill)
+SPECIAL_PATH_NAME_MAX = 24       # the name a map gives a type of its special paths (its setup card)
 
 
 def path_family(kind):
-    """'river' or 'land' (paths and special paths): one of each may share two ends."""
-    return 'river' if kind == 'river' else 'land'
-PATH_COLOURS = {'path': '#ffffff', 'special': '#ed2731', 'river': '#3e55a5'}
+    """'river' (water: rivers and lakes) or 'land' (paths and special paths):
+    one of each may share two ends."""
+    return 'river' if kind in ('river', 'lake') else 'land'
+PATH_COLOURS = {'path': '#ffffff', 'special': '#ed2731', 'river': '#3e55a5', 'lake': '#3e55a5'}
+# The special paths' types, by colour, in order: a path {'kind': 'special',
+# 'special': key} (no key: the first, red, as every map had before). Their
+# names and rules are the map's setup card's (map_card['special_paths']). A
+# type is one more entry here.
+SPECIAL_PATH_TYPES = (
+    {'key': 'red', 'colour': '#ed2731', 'label': 'Red'},
+    {'key': 'green', 'colour': '#2f9e44', 'label': 'Green'},
+    {'key': 'orange', 'colour': '#f08c00', 'label': 'Orange'},
+)
+SPECIAL_KEYS = tuple(t['key'] for t in SPECIAL_PATH_TYPES)
+SPECIAL_DEFAULT = SPECIAL_KEYS[0]
+
+
+def special_key(path):
+    """A special path's type (its key; the first for one without)."""
+    key = (path or {}).get('special')
+    return key if key in SPECIAL_KEYS else SPECIAL_DEFAULT
+
+
+def special_colour(key):
+    return next((t['colour'] for t in SPECIAL_PATH_TYPES if t['key'] == key), PATH_COLOURS['special'])
+
+
+def path_colour(path):
+    """A path's colour: its kind's, or for a special path its type's."""
+    return special_colour(special_key(path)) if path.get('kind') == 'special' else PATH_COLOURS[path['kind']]
+# Lakes: drawn from clearing to clearing like a river, printed as an area of
+# water filling the space around them halfway to the land (other clearings,
+# paths, rivers, forests, buildings). The builder works the outline out
+# (map_lakes.js) and saves it with the layout: state['lake_shapes'], rings of
+# [u, v] (0-1), drawn even-odd (a ring can be an island's hole).
+LAKE_GRID = 180                  # the lake outline's grid: cells across the frame
+LAKE_FOREST_ISLAND = 0.5         # a forest in a lake or sea is an island this share of an average clearing's radius
+LAKE_SHORE_MARGIN = 0.35         # a sea keeps this share of an average clearing's radius clear of paths (beyond their width)
+LAKE_CLEARING_OVERLAP = 0.25     # a lake overlaps this share of its clearings' radius (their edge); the rest stays dry
+LAKE_SMOOTH = 0.35               # spikes and points of water narrower than twice this (x a clearing's radius) are rounded off
+LAKE_CROSS_REACH = 1.0           # a path an inland lake is forced across isn't land this far (x a clearing's radius) from the crossing
+LAKE_TOUCH = 0.92               # an inland lake just touches each of its clearings this share of its radius from the centre
+LAKE_LENS = 0.3                  # a lake between two clearings is a lens this share of the gap between them wide (each side)
+LAKE_FUNNEL = 0.35               # where a river ends at a lake clearing, the lake runs in this share of its radius wide, to the river's width at its middle
+LAKE_VARIATION = 0.12            # lake shores vary gently in and out by up to this share of a clearing's radius
+LAKE_ROUND = 0.6                 # shores are softened (every corner rounded) over this share of a clearing's radius
+LAKE_MIN_HALF = 1.5              # a lake is at least this many river half-widths wide along its line
+LAKE_RINGS_MAX = 40
+LAKE_RING_POINTS_MAX = 400
+LAKE_POINTS_MAX = 4000
 MAP_BLANK = '#808080'            # a map without art: medium grey under everything
 PATH_WIDTH = 0.05                # local units (~a sixth of a clearing's radius)
 PATH_LANES = 3                   # parallel rows of pill-shaped dashes: cobblestones
@@ -446,8 +537,11 @@ CLEARING_OUTLINE_WIDTH = 0.008   # local units
 # Forge frame (FORGE_FRAME, 2180 wide), about 2.3 mm on the 22 in board. (5% of
 # the radius, averaged over a real map's clearings and rounded up.)
 CLEARING_OUTLINE_INSET = 9
-RIVER_LINK_REACH = 0.6           # a river's curve through a clearing: control points this share of its radius in
+SPRING_RATIO = 1.0               # a loose river end whose edge ahead is this many times farther than the one behind is a spring
+RIVER_LINK_REACH = 0.6          # a river's curve through a clearing: control points this share of its radius in
 MERGE_REACH = 1.5                # a river merging into another: starts (and ends) this many river widths from the junction
+RUN_OFF_MAX_TURN = 100.0         # a lone river at a clearing whose way straight off the map is blocked may turn up to this (degrees) in it
+RUN_OFF_TURN_COST = 0.5          # ...choosing the shortest way off, each 90° of turn counting as this share more length
 DEFAULT_CLEARING_RADIUS = 0.3    # local units, for a clearing without its marker yet
 MAX_PATHS = 300
 PATH_SAMPLES = 32
@@ -477,21 +571,27 @@ def clean_paths(raw, clearing_count):
     dropped one goes too. The rest are renumbered, and so are the {'p': j}
     references to them."""
     raw = [p for p in (raw if isinstance(raw, list) else [])[:MAX_PATHS]]
-    parsed = {}
+    parsed, bows, specials = {}, {}, {}
     for i, p in enumerate(raw):
         if not isinstance(p, dict) or p.get('kind') not in PATH_KINDS:
             continue
         a, b = _end(p.get('a'), clearing_count, len(raw)), _end(p.get('b'), clearing_count, len(raw))
         if a and b and a != b:
             parsed[i] = (p['kind'], a, b)
+            if p['kind'] == 'special' and special_key(p) != SPECIAL_DEFAULT:
+                specials[i] = special_key(p)
+            if p.get('bow') in (1, -1) and not isinstance(p.get('bow'), bool):
+                bows[i] = int(p['bow'])
 
     alive = set(parsed)
     changed = True
     while changed:
         changed = False
-        # Attached to a path that's gone (or to itself).
+        # Attached to a path that's gone (or to itself), or to a lake's middle
+        # (nothing can be), or a lake not joining two clearings.
         for i in sorted(alive):
-            if any(key == 'p' and (j not in alive or j == i) for key, j in parsed[i][1:]):
+            if any(key == 'p' and (j not in alive or j == i or parsed[j][0] == 'lake') for key, j in parsed[i][1:]) \
+                    or (parsed[i][0] == 'lake' and any(key == 'p' for key, _j in parsed[i][1:])):
                 alive.discard(i)
                 changed = True
         # A second path of the same family (rivers; paths and special paths)
@@ -524,6 +624,10 @@ def clean_paths(raw, clearing_count):
         kind, a, b = parsed[i]
         out.append({'kind': kind, 'a': {a[0]: renumber[a[1]] if a[0] == 'p' else a[1]},
                     'b': {b[0]: renumber[b[1]] if b[0] == 'p' else b[1]}})
+        if i in specials:  # a special path's type (none: the first)
+            out[-1]['special'] = specials[i]
+        if i in bows:      # which side it bows to, when it shares its ends (_pair_side)
+            out[-1]['bow'] = bows[i]
     return out
 
 
@@ -536,11 +640,25 @@ def _path_px(geometry):
 
 def path_config(geometry):
     """The builder's copy of the path constants (pixels), so it draws as the PDF does."""
+    from .map_setup_card import builder_card_config
     px = _path_px(geometry)
-    return {'colours': PATH_COLOURS, 'width': px['width'], 'lanes': PATH_LANES, 'stroke': PATH_STROKE,
+    return {'colours': PATH_COLOURS, 'specials': [dict(t) for t in SPECIAL_PATH_TYPES],
+            'width': px['width'], 'lanes': PATH_LANES, 'stroke': PATH_STROKE,
             'dash': PATH_DASH, 'gap': PATH_GAP, 'river_width': RIVER_WIDTH, 'default_radius': px['default_radius'],
-            'draw_order': list(PATH_DRAW_ORDER), 'shared_bend': SHARED_BEND,
-            'samples': PATH_SAMPLES, 'bend_steps': _BEND_STEPS, 'bend_max': _BEND_MAX, 'blank': MAP_BLANK}
+            'draw_order': list(PATH_DRAW_ORDER), 'shared_bend': SHARED_BEND, 'link_reach': RIVER_LINK_REACH,
+            'samples': PATH_SAMPLES, 'bend_steps': _BEND_STEPS, 'bend_max': _BEND_MAX, 'blank': MAP_BLANK,
+            # Lakes (map_lakes.js): their grid, a forest's island, and the lake shapes.
+            'lake': {'grid': LAKE_GRID,
+                     'touch': LAKE_TOUCH, 'lens': LAKE_LENS, 'funnel': LAKE_FUNNEL, 'variation': LAKE_VARIATION,
+                     'forest_r': LAKE_FOREST_ISLAND * DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
+                     'shore_margin': LAKE_SHORE_MARGIN * DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
+                     'clearing_overlap': LAKE_CLEARING_OVERLAP,
+                     'smooth': LAKE_SMOOTH * DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
+                     'round': LAKE_ROUND * DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
+                     'cross_reach': LAKE_CROSS_REACH * DEFAULT_CLEARING_RADIUS * geometry.px_per_local,
+                     'min_half': LAKE_MIN_HALF * px['width'] * RIVER_WIDTH / 2},
+            # The setup card's diagram fit: lakes reach a clearing as far as it is on the card.
+            'card': builder_card_config()}
 
 
 def _circles(geometry, state):
@@ -573,24 +691,40 @@ def _route(a, b, obstacles):
     """The control point of a quadratic curve from a to b that keeps clear of
     every obstacle (x, y, clearance): straight (the midpoint) when that's
     clear, else bent sideways as little as works; straight if nothing does."""
+    options = _route_options(a, b, obstacles, both=False)
+    return options[0][1] if options else ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+
+
+def _route_options(a, b, obstacles, both=True):
+    """The clear ways from a to b, as (side, control point), best first:
+    [(0, the midpoint)] when straight is clear; else, for each side it can
+    bend to (+1 or -1, across a→b), the least bend that keeps clear of every
+    obstacle, the smaller bend first (on a tie, away from the obstacle the
+    straight line cuts deepest into). [] if nothing is clear. both=False:
+    just the best."""
     mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
     blocking = [o for o in obstacles if _segment_distance(o, a, b) < o[2]]
     if not blocking:
-        return mid
+        return [(0, mid)]
     length = math.hypot(b[0] - a[0], b[1] - a[1]) or 1e-9
     nx, ny = -(b[1] - a[1]) / length, (b[0] - a[0]) / length
     # Bend away from the obstacle the straight line cuts deepest into.
     worst = min(blocking, key=lambda o: _segment_distance(o, a, b) - o[2])
     side = -1 if (worst[0] - mid[0]) * nx + (worst[1] - mid[1]) * ny > 0 else 1
+    options = []
     for step in range(1, _BEND_STEPS + 1):
         bulge = _BEND_MAX * length * step / _BEND_STEPS
         for s in (side, -side):
+            if any(found == s for found, _c in options):
+                continue
             # A quadratic's middle sits halfway to its control point.
             control = (mid[0] + s * nx * 2 * bulge, mid[1] + s * ny * 2 * bulge)
             samples = [_quad(a, control, b, i / PATH_SAMPLES) for i in range(PATH_SAMPLES + 1)]
             if all(math.hypot(p[0] - o[0], p[1] - o[1]) >= o[2] for o in obstacles for p in samples):
-                return control
-    return mid
+                options.append((s, control))
+                if not both or len(options) == 2:
+                    return options
+    return options
 
 
 def _trim(a, control, b, centre, radius, start):
@@ -631,13 +765,31 @@ def _pair_key(path):
     return '|'.join(sorted((_end_key(path['a']), _end_key(path['b']))))
 
 
-def _bow_apart(control, a, b, path, width):
+def _key_sign(path):
+    """+1 if the path runs from its ends in key order, else -1."""
+    return 1 if _end_key(path['a']) <= _end_key(path['b']) else -1
+
+
+def _pair_side(path, twin):
+    """Which way (+1/-1, across the line between the ends in key order) a path
+    sharing both ends with its twin of the other family bows. A path's `bow`
+    (+1/-1: towards the normal of its own a->b line, chosen where the designer
+    dropped it) wins, then its twin's (which this path is opposite); without
+    either, the water one bows +1 and the land one -1 (bowApart in
+    map_builder.js)."""
+    if path.get('bow') in (1, -1):
+        return path['bow'] * _key_sign(path)
+    if twin is not None and twin.get('bow') in (1, -1):
+        return -twin['bow'] * _key_sign(twin)
+    return 1 if path_family(path['kind']) == 'river' else -1
+
+
+def _bow_apart(control, a, b, path, side, width):
     """A river and a path between the same two ends: push their curve apart,
-    the river to one side and the path to the other (the side measured from the
-    ends in key order, so both agree), by SHARED_BEND half-widths at the middle."""
+    to `side` (+1/-1, measured from the ends in key order, so both agree), by
+    SHARED_BEND half-widths at the middle."""
     p, q = (a, b) if _end_key(path['a']) <= _end_key(path['b']) else (b, a)
     nx, ny = _unit(-(q[1] - p[1]), q[0] - p[0])
-    side = 1 if path['kind'] == 'river' else -1
     bulge = SHARED_BEND * width * (RIVER_WIDTH + 1) / 2
     # A quadratic's middle sits halfway to its control point.
     return (control[0] + side * nx * 2 * bulge, control[1] + side * ny * 2 * bulge)
@@ -646,15 +798,22 @@ def _bow_apart(control, a, b, path, width):
 def path_shapes(geometry, state):
     """Each path's kind, colour and centre line (a polyline in pixels,
     trimmed to the clearings' circles) and its middle, in state order."""
-    paths = state.get('paths') or []
-    circles = _circles(geometry, state)
-    width = _path_px(geometry)['width']
+    return route_paths(state.get('paths') or [], _circles(geometry, state), _path_px(geometry)['width'])
+
+
+def route_paths(paths, circles, width):
+    """path_shapes' work, from its inputs: the paths (state['paths']), the
+    clearings' (x, y, r) and a path's width (a river's is RIVER_WIDTH times
+    it), in the same units. A map setup card (map_setup_card.py) draws its
+    diagram with it too."""
     shapes = {}
-    # Paths that share both ends with one of the other family (a river and a path).
+    # Paths that share both ends with one of the other family (a river and a
+    # path): each one's twin.
     pairs = {}
     for i, p in enumerate(paths):
-        pairs.setdefault(_pair_key(p), set()).add(path_family(p['kind']))
-    shared = {i for i, p in enumerate(paths) if len(pairs[_pair_key(p)]) > 1}
+        pairs.setdefault(_pair_key(p), []).append(i)
+    twins = {i: j for members in pairs.values() for i in members for j in members
+             if path_family(paths[i]['kind']) != path_family(paths[j]['kind'])}
 
     def shape(i, depth=0):
         if i in shapes:
@@ -671,17 +830,19 @@ def path_shapes(geometry, state):
                 ends.append(shape(end['p'], depth + 1)['middle'])
         a, b = ends
         # Kept clear of other clearings by half its own width (a river's is wider).
-        clearance = width * (RIVER_WIDTH if p['kind'] == 'river' else 1) / 2
+        clearance = width * (RIVER_WIDTH if path_family(p['kind']) == 'river' else 1) / 2
         obstacles = [(x, y, r + clearance) for k, (x, y, r) in enumerate(circles) if k not in own]
         control = _route(a, b, obstacles)
-        if i in shared:
-            control = _bow_apart(control, a, b, p, width)
+        if i in twins:
+            control = _bow_apart(control, a, b, p, _pair_side(p, paths[twins[i]]), width)
         t0 = _trim(a, control, b, a, circles[p['a']['c']][2], True) if 'c' in p['a'] else 0.0
         t1 = _trim(a, control, b, b, circles[p['b']['c']][2], False) if 'c' in p['b'] else 1.0
         t1 = max(t1, t0)
         points = [_quad(a, control, b, t0 + (t1 - t0) * k / PATH_SAMPLES) for k in range(PATH_SAMPLES + 1)]
-        shapes[i] = {'kind': p['kind'], 'colour': PATH_COLOURS[p['kind']], 'points': points,
+        shapes[i] = {'kind': p['kind'], 'colour': path_colour(p), 'points': points,
                      'middle': _middle(points)}
+        if p['kind'] == 'special':
+            shapes[i]['special'] = special_key(p)
         return shapes[i]
 
     return [shape(i) for i in range(len(paths))]
@@ -793,13 +954,86 @@ def _merge(start, d, target, at, reach):
 def _run_off(start, d, geometry, obstacles, half_width):
     """A river carried on from `start`, the way it was flowing (d), to the
     map's edge and just past it, bending round `obstacles` like a path. None
-    if it's already leaving the frame."""
+    if it's already leaving the frame. (`geometry`: anything with the frame's
+    width and height, its corner at 0, 0.)"""
     edge = _ray_to_edge(start, d, geometry.width, geometry.height)
     if edge is None:
         return None
     control = _route(start, edge, obstacles)
     run = [_quad(start, control, edge, n / PATH_SAMPLES) for n in range(PATH_SAMPLES + 1)]
     return run + [_past_edge(run[-2], edge, half_width, geometry)]
+
+
+def _clearing_run_off(at, d, circle, geometry, obstacles, half_width, prefer=None):
+    """A lone river at a clearing (its end `at` on the clearing's rim, flowing
+    along d) carried on to the map's edge: {'join': its curve on through the
+    clearing (None when it runs straight on), 'run': from there to just past
+    the edge, 'choice': (turn, side) as taken, None for _run_off's}, or None
+    if it's already leaving the frame.
+
+    Straight on, as _run_off, when that's clear. Else the shortest way off
+    of the directions up to RUN_OFF_MAX_TURN either way of d (each 90° of
+    turn counting as RUN_OFF_TURN_COST more length): leaving the clearing's
+    rim, bent round the obstacles like a path, and joined to the river
+    through the clearing as two rivers are (river_extras). prefer: a choice
+    to take when it's clear here (the printed map's, for its setup card).
+    None clear: _run_off's."""
+    w, h = geometry.width, geometry.height
+    edge = _ray_to_edge(at, d, w, h)
+    if edge is None:
+        return None
+    if not any(_segment_distance(o, at, edge) < o[2] for o in obstacles):
+        return {'join': None, 'run': _run_off(at, d, geometry, obstacles, half_width), 'choice': (0, 0)}
+    cx, cy, r = circle
+    route_obstacles = list(obstacles) + [(cx, cy, r * 0.98)]   # (not back across its own clearing)
+
+    def turn_of(u):
+        return math.degrees(math.acos(max(-1.0, min(1.0, u[0] * d[0] + u[1] * d[1]))))
+
+    def ways(turn):
+        """[(score, choice, B, control, E, u_B)] leaving along d turned by `turn`."""
+        a = math.radians(turn)
+        u = (d[0] * math.cos(a) - d[1] * math.sin(a), d[0] * math.sin(a) + d[1] * math.cos(a))
+        end = _ray_to_edge((cx, cy), u, w, h)
+        if end is None:
+            return []
+        out = []
+        for side, _control in _route_options((cx + u[0] * r, cy + u[1] * r), end, route_obstacles):
+            start, best = (cx + u[0] * r, cy + u[1] * r), None
+            for _ in range(2):      # then again from where the run leaves the rim, so it leaves squarely
+                options = dict(_route_options(start, end, route_obstacles))
+                control = options.get(side, options.get(0))
+                if control is None:
+                    break
+                u_b = _unit(control[0] - start[0], control[1] - start[1])
+                if u_b == (0.0, 0.0) or turn_of(u_b) > RUN_OFF_MAX_TURN:
+                    break
+                best = (start, control, u_b)
+                start = (cx + u_b[0] * r, cy + u_b[1] * r)
+            if best is None:
+                continue
+            start, control, u_b = best
+            run = [_quad(start, control, end, n / PATH_SAMPLES) for n in range(PATH_SAMPLES + 1)]
+            score = _polyline_length(run) * (1 + RUN_OFF_TURN_COST * turn_of(u_b) / 90)
+            out.append((score, (turn, side), start, control, end, u_b))
+        return out
+
+    found = []
+    if prefer is not None:
+        found = [way for way in ways(prefer[0]) if way[1] == tuple(prefer)]
+    if not found:
+        step = 20
+        for turn in range(-int(RUN_OFF_MAX_TURN), int(RUN_OFF_MAX_TURN) + 1, step):
+            found.extend(ways(turn))
+    if not found:
+        return {'join': None, 'run': _run_off(at, d, geometry, obstacles, half_width), 'choice': None}
+    _score, choice, start, control, end, u_b = min(found, key=lambda way: way[0])
+    reach = r * RIVER_LINK_REACH
+    p1 = (at[0] + d[0] * reach, at[1] + d[1] * reach)
+    p2 = (start[0] - u_b[0] * reach, start[1] - u_b[1] * reach)
+    join = [_cubic(at, p1, p2, start, n / PATH_SAMPLES) for n in range(PATH_SAMPLES + 1)]
+    run = [_quad(start, control, end, n / PATH_SAMPLES) for n in range(PATH_SAMPLES + 1)]
+    return {'join': join, 'run': run + [_past_edge(run[-2], end, half_width, geometry)], 'choice': choice}
 
 
 def print_rivers(geometry, state, shapes=None):
@@ -810,19 +1044,83 @@ def print_rivers(geometry, state, shapes=None):
     - Two rivers at a clearing: a curve through it, continuing each river's
       line (the straightest pairs first). An odd one out curves into the
       nearest of those, like a tributary.
-    - One river at a clearing, or a river ending on a path's middle: carried
-      on, the way it was flowing, to the map's edge (round other clearings).
+    - A river ending on a path's middle: carried on, the way it was
+      flowing, to the map's edge (round the clearings).
+    - One river at a clearing: likewise, when its way straight on is clear.
+      Else the shortest way off, turning up to RUN_OFF_MAX_TURN in the
+      clearing (curving through it as two rivers do), round the other
+      clearings ('run_offs': {(river, end): the way it took}).
     - A river ending on another river's middle: cut back a little and curved
-      into that river (its printed line), flowing the way it was heading."""
-    paths = state.get('paths') or []
+      into that river (its printed line), flowing the way it was heading.
+    - A loose end (either run-off above) whose way to the edge is longer than
+      the way back to the edge behind it is a spring: the river starts there,
+      with no run-off ('springs': [{'key': (river, end), 'at', 'd'}])."""
     shapes = shapes if shapes is not None else path_shapes(geometry, state)
-    circles = _circles(geometry, state)
-    width = _path_px(geometry)['width'] * RIVER_WIDTH
+    paths = state.get('paths') or []
+    lakes = [[geometry.to_pixels(u, v) for u, v in ring] for ring in state.get('lake_shapes') or []]
+    return river_extras(paths, shapes, _circles(geometry, state), _path_px(geometry)['width'] * RIVER_WIDTH,
+                        geometry, water=lake_clearings(paths), feed=True, lakes=lakes)
+
+
+def _is_spring(start, d, frame):
+    """A loose river end at `start`, flowing along d: is the frame's edge
+    ahead farther (SPRING_RATIO times) than the edge behind it? Then it's
+    where the river starts, not a river running a long way off the map."""
+    ahead = _ray_to_edge(start, d, frame.width, frame.height)
+    if ahead is None:
+        return False                     # already leaving the frame: it runs off
+    behind = _ray_to_edge(start, (-d[0], -d[1]), frame.width, frame.height)
+    behind_d = math.dist(start, behind) if behind is not None else 0.0
+    return math.dist(start, ahead) > behind_d * SPRING_RATIO
+
+
+def river_extras(paths, shapes, circles, width, frame, join_clearings=True, springs=None, water=(),
+                 feed=False, lakes=(), run_offs=None):
+    """print_rivers' work, from its inputs: the paths (state['paths']), their
+    shapes ({'points', ...} each, as path_shapes), the clearings' (x, y, r),
+    the river's width and the frame (anything with width and height, its
+    corner at 0, 0), all in the same units. Also draws a map setup card's
+    rivers (map_setup_card.py), which stop at the clearings: with
+    join_clearings=False, two rivers at a clearing aren't joined through it
+    (nor is an odd one out merged), but a lone river there still runs off.
+
+    springs: which loose ends are springs, as a set of (river index, end):
+    the card passes the printed map's, so the two agree. None decides here.
+    run_offs: likewise, the way each lone river at a clearing leaves the map
+    ({(river index, end): (turn, side)}, as _clearing_run_off chose it), so
+    the card's runs leave the way the printed map's do (when that's clear).
+    water: clearings on a lake: a river ending at one flows into the lake
+    (no run-off, and no join through the clearing). feed: and draw it on
+    through the clearing into the water: to the nearest point of the lake
+    outline (`lakes`, rings in the same units), or without one, to where the
+    lake's line meets the clearing."""
     half = width / 2
     reach_base = MERGE_REACH * width
     rivers = [i for i, p in enumerate(paths) if p['kind'] == 'river']
     printed = {i: list(shapes[i]['points']) for i in rivers}
-    links, trimmed, done = [], {}, set()
+    links, trimmed, done, found_springs, found_run_offs = [], {}, set(), [], {}
+
+    def loose_end(key, at, d, obstacles, circle=None):
+        """Run a loose end off to the edge, unless it's a spring. At a
+        clearing (its circle): through it, the shortest way off."""
+        spring = (key in springs) if springs is not None else _is_spring(at, d, frame)
+        if spring:
+            found_springs.append({'key': key, 'at': at, 'd': d})
+            return
+        if circle is None:
+            run = _run_off(at, d, frame, obstacles, half)
+            if run:
+                links.append(run)
+            return
+        way = _clearing_run_off(at, d, circle, frame, obstacles, half, prefer=(run_offs or {}).get(key))
+        if way is None:
+            return
+        if way['join'] and join_clearings:
+            links.append(way['join'])
+        if way['run']:
+            links.append(way['run'])
+        if way['choice'] is not None:
+            found_run_offs[key] = way['choice']
 
     def arriving(points, end):
         """(point, direction it flows in) where a river reaches its `end`."""
@@ -856,10 +1154,7 @@ def print_rivers(geometry, state, shapes=None):
                 links.append(_merge(start, d, printed[target], junction, reach_base))
             else:
                 at, d = arriving(printed[i], end)
-                obstacles = [(x, y, r + half) for x, y, r in circles]
-                run = _run_off(at, d, geometry, obstacles, half)
-                if run:
-                    links.append(run)
+                loose_end((i, end), at, d, [(x, y, r + half) for x, y, r in circles])
         done.add(i)
 
     for i in rivers:
@@ -867,24 +1162,45 @@ def print_rivers(geometry, state, shapes=None):
 
     # Rivers at clearings (their clearing ends are never trimmed).
     ends = {}            # clearing -> [(end point, direction into the clearing)]
+    keys = {}            # clearing -> [(river, end)], beside ends
     for i in rivers:
         for end in ('a', 'b'):
             if 'c' in paths[i][end]:
                 at, d = arriving(printed[i], end)
                 if d != (0.0, 0.0):
                     ends.setdefault(paths[i][end]['c'], []).append((at, d))
+                    keys.setdefault(paths[i][end]['c'], []).append((i, end))
 
     def sampled(fn):
         return [fn(k / PATH_SAMPLES) for k in range(PATH_SAMPLES + 1)]
 
     for k, items in sorted(ends.items()):
+        if k in water:
+            # It flows into the lake (no run-off), on through the clearing.
+            if feed:
+                target = _lake_mouth(k, circles[k], paths, shapes, lakes)
+                if target is not None:
+                    (tx, ty), (nx, ny) = target
+                    reach = circles[k][2] * RIVER_LINK_REACH
+                    # An inland lake's outline curves out to meet the river at the
+                    # rim, widening from its width (map_lakes.js): nothing to draw.
+                    # Otherwise (a sea, an island clearing, an outline saved
+                    # before that): a curve on through the clearing to the water.
+                    items = [(at, d) for at, d in items
+                             if not _inside_rings((at[0] + d[0] * half, at[1] + d[1] * half), lakes)]
+                    end = (tx + nx * half, ty + ny * half)     # a little into the water: no hairline gap
+                    for at, d in items:
+                        p1 = (at[0] + d[0] * reach, at[1] + d[1] * reach)
+                        p2 = (tx - nx * reach, ty - ny * reach)
+                        links.append(sampled(lambda t, at=at, p1=p1, p2=p2: _cubic(at, p1, p2, end, t)))
+            continue
         cx, cy, r = circles[k]
         if len(items) == 1:
             at, d = items[0]
-            obstacles = [(x, y, rr + half) for j, (x, y, rr) in enumerate(circles) if j != k]
-            run = _run_off(at, d, geometry, obstacles, half)
-            if run:
-                links.append(run)
+            loose_end(keys[k][0], at, d, [(x, y, rr + half) for j, (x, y, rr) in enumerate(circles) if j != k],
+                      circle=circles[k])
+            continue
+        if not join_clearings:
             continue
         remaining, pairs = list(items), []
         while len(remaining) >= 2:
@@ -904,7 +1220,50 @@ def print_rivers(geometry, state, shapes=None):
             (at, d), = remaining
             curve = min(pairs, key=lambda c: math.hypot(*(p - q for p, q in zip(_middle(c), at))))
             links.append(_merge(at, d, curve, _middle(curve), reach_base))
-    return {'links': links, 'trimmed': trimmed}
+    return {'links': links, 'trimmed': trimmed, 'springs': found_springs, 'run_offs': found_run_offs}
+
+
+def _lake_mouth(k, circle, paths, shapes, lakes):
+    """Where the water meets lake clearing k: (point, unit direction into the
+    water). The nearest point of the lake outline to the clearing (within a
+    little of its circle), or without an outline, where a lake's line leaves
+    the clearing."""
+    cx, cy, r = circle
+    best, best_d = None, r * 1.5
+    for ring in lakes:
+        for a, b in zip(ring, ring[1:] + ring[:1]):
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            length2 = dx * dx + dy * dy
+            t = 0.0 if not length2 else max(0.0, min(1.0, ((cx - a[0]) * dx + (cy - a[1]) * dy) / length2))
+            p = (a[0] + dx * t, a[1] + dy * t)
+            d = math.hypot(p[0] - cx, p[1] - cy)
+            if d < best_d:
+                best, best_d = (p, _unit(-dy, dx)), d
+    if best is not None:
+        p, (nx, ny) = best
+        # Of the two normals, the one whose side is water (even-odd: the
+        # outline's rings can be holes).
+        probe = (p[0] + nx * 2, p[1] + ny * 2)
+        if not _inside_rings(probe, lakes):
+            nx, ny = -nx, -ny
+        return p, (nx, ny)
+    for i, path in enumerate(paths):
+        if path.get('kind') != 'lake':
+            continue
+        for end, points in (('a', shapes[i]['points']), ('b', shapes[i]['points'][::-1])):
+            if path[end].get('c') == k:
+                at = points[0]
+                return at, _unit(at[0] - cx, at[1] - cy)
+    return None
+
+
+def _inside_rings(p, rings):
+    inside = False
+    for ring in rings:
+        for (ax, ay), (bx, by) in zip(ring, ring[1:] + ring[:1]):
+            if (ay > p[1]) != (by > p[1]) and p[0] < ax + (p[1] - ay) * (bx - ax) / (by - ay):
+                inside = not inside
+    return inside
 
 
 def river_links(geometry, state, shapes=None):
@@ -912,11 +1271,39 @@ def river_links(geometry, state, shapes=None):
     return print_rivers(geometry, state, shapes)['links']
 
 
+def lake_bodies(paths):
+    """The lakes' bodies: sets of clearings joined by lake paths."""
+    parent = {}
+
+    def find(k):
+        while parent.setdefault(k, k) != k:
+            parent[k] = parent[parent[k]]
+            k = parent[k]
+        return k
+
+    for p in paths:
+        if p.get('kind') == 'lake' and 'c' in (p.get('a') or {}) and 'c' in (p.get('b') or {}):
+            parent[find(p['a']['c'])] = find(p['b']['c'])
+    bodies = {}
+    for k in parent:
+        bodies.setdefault(find(k), set()).add(k)
+    return list(bodies.values())
+
+
+def lake_clearings(paths):
+    return {k for body in lake_bodies(paths) for k in body}
+
+
 def path_totals(state):
-    """{'path': n, 'special': n, 'river': n, 'river_clearings': n}."""
+    """{'path': n, 'special': n, 'river': n, 'lake': lake bodies,
+    'river_clearings': n (clearings on a river or a lake),
+    'specials': {type key: n} (the special paths by type, used ones only)}."""
     paths = state.get('paths') or []
     totals = {kind: sum(1 for p in paths if p.get('kind') == kind) for kind in PATH_KINDS}
-    totals['river_clearings'] = len({end['c'] for p in paths if p.get('kind') == 'river'
+    totals['specials'] = {key: n for key in SPECIAL_KEYS
+                          if (n := sum(1 for p in paths if p.get('kind') == 'special' and special_key(p) == key))}
+    totals['lake'] = len(lake_bodies(paths))
+    totals['river_clearings'] = len({end['c'] for p in paths if p.get('kind') in ('river', 'lake')
                                      for end in (p.get('a') or {}, p.get('b') or {}) if 'c' in end})
     return totals
 
@@ -1001,7 +1388,9 @@ def _suit_names():
 def _summary(tiles, path_tiles, suits):
     from django.contrib.staticfiles import finders
     return {'tiles': tiles, 'path_tiles': path_tiles, 'suits': suits, 'colours': PATH_COLOURS,
-            'marker_svg': static(MARKER_SVG) if finders.find(MARKER_SVG) else None}
+            'marker_svg': static(MARKER_SVG) if finders.find(MARKER_SVG) else None,
+            'forest_icon': static(FOREST_ICON) if finders.find(FOREST_ICON) else None,
+            'ruin_icon': static(RUIN_ICON) if finders.find(RUIN_ICON) else None}
 
 
 def _random_note():
@@ -1010,11 +1399,12 @@ def _random_note():
             'icon': static('images/ClearingsRandom.png')}
 
 
-def layout_summary(state, *, fixed=None):
+def layout_summary(state, *, fixed=None, map_card=None, lang_code='en'):
     """The summary card's data from a builder layout: a tile per piece, a row
-    for Paths, Special Paths (only when there are some) and River Clearings
-    once the Paths step was reached, and the clearing suits (the layout's
-    fixed / random choice, else `fixed`)."""
+    for Paths, River Clearings and a tile per special path type the map uses
+    (named on its setup card, map_card) once the Paths step was reached, and
+    the clearing suits (the layout's fixed / random choice, else `fixed`)."""
+    from .map_setup_card import special_types
     from django.utils.translation import gettext as _
     state = state or {}
     counts = layout_counts(state)
@@ -1026,11 +1416,12 @@ def layout_summary(state, *, fixed=None):
     path_tiles = []
     if 'paths' in visited_stages(state):
         totals = path_totals(state)
-        path_tiles = [tile('path', _('Paths'), totals['path'])]
-        if totals['special']:
-            # Labelled with the map's own name for its special paths, when it has one.
-            path_tiles.append(tile('special', state.get('special_path_name') or _('Special Paths'), totals['special']))
-        path_tiles.append(tile('river', _('River Clearings'), totals['river_clearings']))
+        path_tiles = [tile('path', _('Paths'), totals['path']),
+                      tile('river', _('River Clearings'), totals['river_clearings'])]
+        # Then each special path type, in its colour, by its name.
+        for kind in special_types(state, map_card, lang_code):
+            path_tiles.append({**tile('special', kind['name'], kind['count']), 'colour': kind['colour'],
+                               'special': kind['key']})
     fixed = state['fixed'] if isinstance(state.get('fixed'), bool) else bool(fixed)
     if not fixed:
         return _summary(tiles, path_tiles, _random_note())
@@ -1069,7 +1460,9 @@ def map_summary(map_post):
     (with clearings), else from its own figures."""
     state = getattr(map_post, 'tts_builder', None) or {}
     if state.get('clearings'):
-        return layout_summary(state, fixed=map_post.fixed_clearings)
+        language = getattr(map_post, 'language', None)
+        return layout_summary(state, fixed=map_post.fixed_clearings, map_card=getattr(map_post, 'map_card', None),
+                              lang_code=language.code if language else 'en')
     return figures_summary(map_post)
 
 
@@ -1162,6 +1555,34 @@ def track_snaps(geometry, state):
             for row in (-1, 0, 1) for i in range(TRACK_CELLS)]
 
 
+SETUP_CARD_DECK_ID = 90          # no other object in a map's save has a CustomDeck
+SETUP_CARD_GAP = 0.6             # table units between the board's edge and its setup card
+
+
+def _setup_card_object(map_post, geometry):
+    """The map's setup card (any map with a card_image: a keep Map's upload, or
+    a Forge map's generated card), beside the board's right edge at its top:
+    its back is the rules side, or the front again when it has none."""
+    from .tts import DEFAULT_CARD_TRANSFORM, TTSSingleCardDeck
+
+    front = getattr(map_post, 'card_image', None)
+    if not front:
+        return None
+    back = getattr(map_post, 'card_2_image', None) or front
+    # A card at scale 2.3 is about 5 x 7 table units.
+    half_w, half_h = 2.3 * 1.1, 2.3 * 1.55
+    (left_x, top_z), (right_x, bottom_z) = geometry.to_table(0.0, 0.0), geometry.to_table(1.0, 1.0)
+    out = 1 if right_x > left_x else -1
+    down = 1 if bottom_z > top_z else -1
+    transform = {**DEFAULT_CARD_TRANSFORM, 'posX': right_x + out * (half_w + SETUP_CARD_GAP),
+                 'posZ': top_z + down * half_h}
+    card = TTSSingleCardDeck(front, back, SETUP_CARD_DECK_ID, request=SiteURLRequest(),
+                             card_name=f'{map_post.title} Setup Card', transform=transform).to_object()
+    card['Tags'] = ['Map Object']
+    card['HideWhenFaceDown'] = False     # its back is the rules, for everyone to read
+    return card
+
+
 def build_map_tts_json(map_post, state):
     """The Map post's TTS save from its builder layout."""
     geometry = MapGeometry(map_post.board_image.width, map_post.board_image.height)
@@ -1248,6 +1669,10 @@ def build_map_tts_json(map_post, state):
         'XmlUI': '',
         'AttachedSnapPoints': snaps,
     }
+
+    card = _setup_card_object(map_post, geometry)
+    if card is not None:
+        objects.append(card)
 
     save = wrap_tts_save([board] + objects, save_name=map_post.title)
     save['BoardLayout'] = {

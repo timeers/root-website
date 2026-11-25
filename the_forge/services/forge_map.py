@@ -35,8 +35,9 @@ def step_text():
     """The Forge's wording for the builder's steps (the rest is the keep's)."""
     return {
         'upload': {
-            'hint': "Here we'll walk you through creating a Root map. All you need is a name: your own art is optional "
-                    "(without it, the map is printed on a grey board with its paths and rivers). "
+            'hint': "Here we'll walk you through creating a Root map. All you need is a name to start: "
+                    "If you don't have art the map is printed on a grey board with its paths and rivers. "
+                    "You will need your own art before you submit the map. "
                     "Please don't use AI-generated art.",
             'link': {'before': 'If you already have a finished map, ',
                      'label': 'submit it to the Database',
@@ -44,7 +45,7 @@ def step_text():
                      'after': ' and edit it from there.'},
         },
         'track': {
-            'hint': 'Drag the VP track up or down, and the item grid and the Root logo, to where they should be '
+            'hint': 'Drag the VP track up or down. Move the item grid and the Root logo to where they will be '
                     'printed on your map.',
         },
         'review': {
@@ -93,6 +94,8 @@ def map_builder_config(forged_map, *, profile, readonly=False):
         upload_url=upload_url,
         # Paths & Rivers: drawn in the builder (and printed on a map without art).
         paths_step=True,
+        # Setup Card Rules, after them (the page passes its form: map_views).
+        rules_step=not readonly,
         path=path_config(MapGeometry(*FORGE_FRAME)),
         blank=MAP_BLANK,
         create_url=reverse('forge-map-create') if forged_map is None else None,
@@ -216,6 +219,33 @@ def refresh_map_image(forged_map):
     return True
 
 
+def setup_card_args(forged_map):
+    """What a Forge map's setup card images are drawn from: its name, the
+    layout its published image shows (else the live one), its language and
+    the Forge's frame."""
+    from the_forge.pdf_engine import _lang_code_for
+    layout = forged_map.rendered_builder if forged_map.rendered_builder is not None else forged_map.tts_builder
+    return {'title': forged_map.title, 'layout': layout or {}, 'lang_code': _lang_code_for(forged_map),
+            'frame': FORGE_FRAME}
+
+
+def setup_card_fingerprint(forged_map):
+    from the_keep.services.map_setup_card import card_fingerprint
+    args = setup_card_args(forged_map)
+    return card_fingerprint(args['title'], args['layout'], forged_map.map_card, frame=args['frame'],
+                            lang_code=args['lang_code'])
+
+
+def refresh_forge_setup_card(forged_map):
+    """Render the map's setup card if it's out of date (a completed map only:
+    the card draws the layout its image shows). Call it inside render_slot().
+    Returns True if it changed."""
+    from the_keep.services.map_setup_card import refresh_setup_card
+    if not forged_map.image_preview:
+        return False
+    return refresh_setup_card(forged_map, **setup_card_args(forged_map))
+
+
 def store_map_tts(forged_map):
     """Build the map's TTS JSON from its layout (on the generated image) and
     store it on the draft. Returns (ok, errors)."""
@@ -247,6 +277,7 @@ def refresh_map_snapshot(faction):
     try:
         with render_slot():
             refresh_map_image(forged_map)
+            refresh_forge_setup_card(forged_map)
     except RenderBusy:
         return "The map generator is busy. Try again in a moment."
     ok, errors = store_map_tts(forged_map)

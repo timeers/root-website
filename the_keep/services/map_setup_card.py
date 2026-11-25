@@ -1,0 +1,1176 @@
+"""A map's setup card: a poker-sized card with the map's name, its setup
+modifications, a diagram of the map (clearings, paths, rivers and forests of
+little trees) and a legend for its special paths on the front; its special
+rules on the back.
+
+Shared by any map with the card fields (map_card, card_fingerprint,
+card_image, card_2_image and their versions): a Forge map (ForgedMap) now, a
+keep Map later. Nothing here reads a model's own fields beyond those: the
+engine draws from a title, a builder layout (tts_builder) and the card's data,
+and refresh_setup_card stores its images on whatever it's given.
+
+The card's data (map_card), the same JSON on a Forge map and a keep Map:
+    {"special_paths": {type key: {"name": str, "rule": str, "divides_forests": bool}},
+     "modifications": str, "raging_river": bool, "rules": [{"name": str, "text": str}]}
+A map's special paths come in types, by colour (tts_map.SPECIAL_PATH_TYPES):
+each has its own name, rule and whether it divides forests (special_types).
+Cards saved before then had one "special_path_rule" and
+"special_divides_forests", and the layout its "special_path_name": read as
+the first type's. The card's fixed wording is in the Forge's translations
+(pdf_engine.PDF_TEXT, 'map_setup_card'), in the map's language with English
+for anything missing.
+"""
+import hashlib
+import json
+import math
+import re
+from functools import lru_cache
+from io import BytesIO
+from types import SimpleNamespace
+
+from .tts_map import (PRINT_DIR, SPECIAL_DEFAULT, SPECIAL_KEYS, SPECIAL_PATH_NAME_MAX, SPECIAL_PATH_TYPES, SUITS,
+                      MapGeometry, lake_clearings, path_shapes, print_rivers, river_extras, route_paths, special_key)
+
+SETUP_CARD_RENDER_VERSION = 22
+CARD_DIR = PRINT_DIR / 'setup_card'
+
+# ── The card's data ─────────────────────────────────────────────────────────
+SPECIAL_RULE_MAX = 200
+MODIFICATIONS_MAX = 300
+RULES_MAX = 6
+RULE_NAME_MAX = 40
+RULE_TEXT_MAX = 300
+
+_CONTROL = re.compile(r'[\x00-\x08\x0b-\x1f\x7f]')
+
+
+def _text(value, limit):
+    if not isinstance(value, str):
+        return ''
+    return _CONTROL.sub('', value).strip()[:limit]
+
+
+def clean_setup_card(data):
+    """The card's data, trimmed and held to its limits; empty rules dropped.
+    (The stock Raging River rule isn't one of the rules: it's a switch.)"""
+    data = data if isinstance(data, dict) else {}
+    rules = []
+    for rule in data.get('rules') if isinstance(data.get('rules'), list) else []:
+        if not isinstance(rule, dict):
+            continue
+        name, text = _text(rule.get('name'), RULE_NAME_MAX), _text(rule.get('text'), RULE_TEXT_MAX)
+        if name or text:
+            rules.append({'name': name, 'text': text})
+    # Each special path type's name, rule and whether it divides forests (only
+    # for drawing the trees: any rule about it is the designer's own). A card
+    # from before types: its one rule and switch are the first type's.
+    stored = data.get('special_paths') if isinstance(data.get('special_paths'), dict) else {}
+    if not stored and ('special_path_rule' in data or 'special_divides_forests' in data):
+        stored = {SPECIAL_DEFAULT: {'rule': data.get('special_path_rule'),
+                                    'divides_forests': data.get('special_divides_forests')}}
+    special_paths = {}
+    for key in SPECIAL_KEYS:
+        entry = stored.get(key)
+        if not isinstance(entry, dict):
+            continue
+        kept = {'name': _text(entry.get('name'), SPECIAL_PATH_NAME_MAX),
+                'rule': _text(entry.get('rule'), SPECIAL_RULE_MAX),
+                'divides_forests': entry.get('divides_forests') is not False}
+        if kept['name'] or kept['rule'] or not kept['divides_forests']:    # (else: all defaults, nothing to keep)
+            special_paths[key] = kept
+    return {
+        'special_paths': special_paths,
+        'modifications': _text(data.get('modifications'), MODIFICATIONS_MAX),
+        'raging_river': data.get('raging_river') is True,
+        'rules': rules[:RULES_MAX],
+    }
+
+
+def used_special_keys(layout):
+    """The special path types the layout has, in SPECIAL_PATH_TYPES order."""
+    used = {special_key(p) for p in (layout or {}).get('paths') or [] if isinstance(p, dict) and p.get('kind') == 'special'}
+    return [key for key in SPECIAL_KEYS if key in used]
+
+
+def layout_features(layout):
+    """{'special': bool, 'specials': [type keys used], 'river': bool}: which of
+    the card's sections apply."""
+    kinds = {p.get('kind') for p in (layout or {}).get('paths') or [] if isinstance(p, dict)}
+    specials = used_special_keys(layout)
+    return {'special': bool(specials), 'specials': specials, 'river': 'river' in kinds}
+
+
+def applicable(layout, map_card):
+    """The card's data with the sections the layout no longer has dropped (a
+    special path type it doesn't use, Raging River without rivers). They stay
+    stored, so they come back with them."""
+    card = clean_setup_card(map_card)
+    used = used_special_keys(layout)
+    card['special_paths'] = {key: entry for key, entry in card['special_paths'].items() if key in used}
+    if not layout_features(layout)['river']:
+        card['raging_river'] = False
+    return card
+
+
+def default_special_name(key, lang_code, several):
+    """An unnamed special path type's name: "Special Paths" on a map with one
+    type of them, else its colour's ("Red Paths")."""
+    text = card_text(lang_code)
+    if several:
+        return text.get(f'special_paths_{key}') or next(t['label'] for t in SPECIAL_PATH_TYPES if t['key'] == key)
+    return text.get('special_paths', '')
+
+
+def special_types(layout, map_card, lang_code):
+    """The special path types the layout uses, in order: [{key, colour,
+    label, name (the card's, else the default), named (the card's own),
+    rule, divides_forests, count}]. A card without a name for the first type
+    takes the layout's old special_path_name."""
+    card = clean_setup_card(map_card)
+    used = used_special_keys(layout)
+    counts = {key: sum(1 for p in (layout or {}).get('paths') or []
+                       if isinstance(p, dict) and p.get('kind') == 'special' and special_key(p) == key) for key in used}
+    out = []
+    for kind in SPECIAL_PATH_TYPES:
+        key = kind['key']
+        if key not in used:
+            continue
+        entry = card['special_paths'].get(key) or {}
+        name = entry.get('name') or ''
+        if not name and key == SPECIAL_DEFAULT:
+            name = _text((layout or {}).get('special_path_name'), SPECIAL_PATH_NAME_MAX)
+        out.append({'key': key, 'colour': kind['colour'], 'label': kind['label'], 'named': bool(name),
+                    'name': name or default_special_name(key, lang_code, len(used) > 1),
+                    'rule': entry.get('rule', ''), 'divides_forests': entry.get('divides_forests', True),
+                    'count': counts[key]})
+    return out
+
+
+def card_text(lang_code):
+    """The card's fixed wording in the language (English for anything missing)."""
+    from the_forge.pdf_engine import _pdf_text
+    return _pdf_text('map_setup_card', lang_code)
+
+
+def _diagram_layout(layout):
+    """The parts of a layout the card draws (not the logo, tracks, items or
+    buildings): moving those mustn't make a new card."""
+    layout = layout or {}
+    out = {
+        'clearings': [{'centre': c.get('centre'), 'number': c.get('number')} for c in layout.get('clearings') or []],
+        'suits': _suits(layout),
+        'forests': layout.get('forests') or [],
+        'paths': layout.get('paths') or [],
+        'lakes': layout.get('lake_shapes') or [],
+    }
+    if layout_features(layout)['special']:
+        # (The first type's old name, when its card has none.)
+        out['special_path_name'] = layout.get('special_path_name') or ''
+    return out
+
+
+def _suits(layout):
+    """Each clearing's suit on a fixed-suit map (None for one without), else []."""
+    layout = layout or {}
+    if not layout.get('fixed'):
+        return []
+    return [c.get('suit') if c.get('suit') in SUITS else None for c in layout.get('clearings') or []]
+
+
+def card_fingerprint(title, layout, map_card, *, frame, lang_code):
+    """What a card is drawn from: md5 hex (32 characters, the field's size)."""
+    payload = {
+        'v': SETUP_CARD_RENDER_VERSION,
+        'title': title or '',
+        'layout': _diagram_layout(layout),
+        'card': applicable(layout, map_card),
+        'frame': [round(float(frame[0]), 3), round(float(frame[1]), 3)],
+        'lang': lang_code,
+        'text': card_text(lang_code),
+    }
+    return hashlib.md5(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
+
+
+# ── Drawing ─────────────────────────────────────────────────────────────────
+MARGIN = 10.0                 # text from the card's sides (points)
+TITLE_SIZE = 15.0
+TITLE_MIN_SIZE = 9.0
+TITLE_BASELINE = 27.0         # from the card's top
+BODY_TOP = 36.0               # the first line of text, from the card's top
+BOTTOM = 14.0                 # clear of the border's bottom edge
+BODY_SIZE = 9.0
+BODY_MIN_SIZE = 8.0           # a back's rules shrink to fit, this far
+LEADING = 1.2
+PARAGRAPH_GAP = 3.0
+DIAGRAM_GAP = 4.0             # between the diagram and the text above / below it
+DIAGRAM_MIN_H = 110.0         # the front's text must leave the diagram this much
+DIAGRAM_MAX_H = 140.0         # the diagram is never taller than this (it's centred in any space left over);
+                              # 200 is more than a front ever has, so as it stands it never limits it
+DIAGRAM_MAX_STRETCH = 1.4     # a diagram may be stretched this much (either way) to fill its space
+
+CLEARING_R = 13.29            # map_setup_clearing.svg's own size (9.38 mm across)
+CLEARING_MIN_SCALE = 0.7      # crowded maps: smaller clearings, down to this share
+CLEARING_FILL = '#f8e3a4'     # the card's paper (map_setup_card_border.svg)
+NUMBER_FONT = 'Baskerville-Bold'
+NUMBER_SIZE = 17.0
+NUMBER_SUIT_NUDGE = 2       # a fixed-suit clearing's number, this much lower: clear of its suit icon
+INK = '#110f0d'
+PATH_WIDTH = 2.0
+PATH_DASH = (2.0, 2.0)
+RIVER_COLOUR = '#978ead'      # the example card's river: its blue, half over the paper
+RIVER_WIDTH = 3.25           # half the example card's band
+RAGING_RIVER_WIDTH = RIVER_WIDTH * 2
+# Water's edges vary a little, as if drawn by hand: smooth noise along each
+# river bank (and lake shore), with a new value every WOBBLE_STEP. 0 = smooth.
+WOBBLE_STEP = 7.0
+RIVER_WOBBLE = 0.35           # a bank moves up to this share of the river's half-width in or out
+LAKE_WOBBLE = 0.8             # a lake's shore moves up to this far (pt) in or out
+SUIT_ICON_H = 11.5            # a fixed-suit map's suit icon, on top of its clearing's circle
+SUIT_ICONS = {'fox': 'fox_icon_black_outline.svg', 'rabbit': 'rabbit_icon_black_border.svg',
+              'mouse': 'mouse_icon_black_outline.svg', 'bird': 'bird_icon_black_outline.svg',
+              'city': 'city_icon_black_outline.svg'}
+SUIT_ICON_SCALE = {'city': 1.3}   # three suits in one icon: drawn larger to read
+LEGEND_INSET = 4.0            # the legend's special path sample, in from the card's text margin
+LEGEND_SWATCH = 10.0          # its length
+LEGEND_INDENT = LEGEND_INSET + LEGEND_SWATCH + 1.0   # then ": name", just after it
+
+TREE_H = 5.3                  # map_setup_tree.svg, drawn this tall
+TREE_SPACING = 8.0            # the trees' hex grid: the distance between neighbouring trees before they're nudged
+TREE_GAP = 1.2                # from a clearing, a path (or a raging river) and the diagram's edge
+TREE_JITTER = 1.8             # each tree nudged up to this far (any direction), so the grid doesn't show
+TREE_SKIP = 0.08              # this share of spots left empty, for a few natural gaps
+FOREST_GAP = 1.5 * TREE_SPACING   # two clearings drawn closer than this, with an opening between them on the map, don't split a forest
+FEW_TREES = 3                 # a forest's area with fewer trees than this on the grid gets more between its spots
+
+
+def _card_size():
+    from the_forge.pdf_engine import CARD_SLOT_H, CARD_SLOT_W
+    return CARD_SLOT_W, CARD_SLOT_H
+
+
+def builder_card_config():
+    """What map_lakes.js needs to work out how big a clearing is on the card
+    (cardRadius: _Diagram's fit, repeated), so lakes reach it there too."""
+    return {'clearing_r': CLEARING_R, 'box_w': _card_size()[0] - 2 * MARGIN,
+            'min_h': DIAGRAM_MIN_H, 'max_h': DIAGRAM_MAX_H, 'pad': CLEARING_R + 2,
+            'stretch': DIAGRAM_MAX_STRETCH, 'min_scale': CLEARING_MIN_SCALE, 'lake_wobble': LAKE_WOBBLE,
+            'icon_half': {s: SUIT_ICON_H * SUIT_ICON_SCALE.get(s, 1) / 2 for s in SUITS}}
+
+
+@lru_cache(maxsize=None)
+def _svg(name):
+    from svglib.svglib import svg2rlg
+    return svg2rlg(str(CARD_DIR / name))
+
+
+def _escape(text):
+    from the_forge.pdf_engine import _xml_escape
+    return _xml_escape(text or '')
+
+
+def _italic_parentheticals(markup):
+    """Parentheticals in italic, as the printed cards set them."""
+    return re.sub(r'\([^()]*\)', lambda m: f'<i>{m.group(0)}</i>', markup)
+
+
+def run_in(heading, text):
+    """'<b>Heading.</b> text', escaped, with its parentheticals in italic."""
+    heading = (heading or '').strip()
+    parts = []
+    if heading:
+        if heading[-1] not in '.!?:':
+            heading += '.'
+        parts.append(f'<b>{_escape(heading)}</b>')
+    if text:
+        parts.append(_italic_parentheticals(_escape(text)))
+    return ' '.join(parts)
+
+
+def _style(size, name='card'):
+    from reportlab.lib.colors import HexColor
+    from reportlab.lib.styles import ParagraphStyle
+    return ParagraphStyle(name, fontName='Baskerville', fontSize=size, leading=size * LEADING,
+                          textColor=HexColor(INK))
+
+
+def _paragraph(markup, size):
+    from reportlab.platypus import Paragraph
+    return Paragraph(markup, _style(size))
+
+
+def _height(paragraphs, width):
+    total = 0.0
+    for n, p in enumerate(paragraphs):
+        total += p.wrap(width, 10_000)[1] + (PARAGRAPH_GAP if n else 0)
+    return total
+
+
+def _wobble(s, seed):
+    """Smooth noise in -1..1 along a distance s: a hashed value every
+    WOBBLE_STEP, eased between (cosine), so there are no kinks. The same
+    s and seed always give the same value, so a card always draws the same."""
+    t = s / WOBBLE_STEP
+    k = math.floor(t)
+
+    def knot(n):
+        return hashlib.md5(f'{seed}:{n}'.encode()).digest()[0] / 255 * 2 - 1
+
+    f = (1 - math.cos((t - k) * math.pi)) / 2
+    return knot(k) * (1 - f) + knot(k + 1) * f
+
+
+def _resample(points, step):
+    """The polyline's points about `step` apart, by distance, with the distance of each."""
+    out = [(points[0], 0.0)]
+    run = 0.0
+    for a, b in zip(points, points[1:]):
+        length = math.dist(a, b)
+        if not length:
+            continue
+        n = max(1, math.ceil(length / step))
+        for k in range(1, n + 1):
+            t = k / n
+            out.append(((a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t), run + length * t))
+        run += length
+    return out
+
+
+def _seed(points, n):
+    """A line's noise seed: its rounded start, so it's the same each render."""
+    return f'{n}:{round(points[0][0])}:{round(points[0][1])}'
+
+
+def river_outline(points, half, seed):
+    """A river's filled outline: its centre line with banks `half` out on
+    each side, each bank moved in or out (independently) by up to
+    RIVER_WOBBLE x half along its length, and rounded ends."""
+    amp = RIVER_WOBBLE * half
+    samples = _resample(points, 1.5)
+    if len(samples) < 2:
+        return []
+    left, right = [], []
+    for k, (p, s) in enumerate(samples):
+        a, b = samples[max(k - 1, 0)][0], samples[min(k + 1, len(samples) - 1)][0]
+        length = math.dist(a, b) or 1e-9
+        nx, ny = -(b[1] - a[1]) / length, (b[0] - a[0]) / length
+        hl = half + amp * _wobble(s, f'{seed}L')
+        hr = half + amp * _wobble(s, f'{seed}R')
+        left.append((p[0] + nx * hl, p[1] + ny * hl))
+        right.append((p[0] - nx * hr, p[1] - ny * hr))
+
+    def cap(p, start, end, steps=8):
+        """A half circle round p from `start` to `end` (the two bank points)."""
+        a0 = math.atan2(start[1] - p[1], start[0] - p[0])
+        a1 = math.atan2(end[1] - p[1], end[0] - p[0])
+        r0, r1 = math.dist(p, start), math.dist(p, end)
+        # Clockwise in these coordinates: from the left bank round past the
+        # river's end (or start) to the right bank, never back across the river.
+        sweep = (a1 - a0) % (2 * math.pi) - 2 * math.pi
+        return [(p[0] + math.cos(a0 + sweep * i / steps) * (r0 + (r1 - r0) * i / steps),
+                 p[1] + math.sin(a0 + sweep * i / steps) * (r0 + (r1 - r0) * i / steps)) for i in range(1, steps)]
+
+    end, start = samples[-1][0], samples[0][0]
+    return (left + cap(end, left[-1], right[-1]) + right[::-1] + cap(start, right[0], left[0]))
+
+
+def lake_shore(ring, seed):
+    """A lake's outline with a gently uneven shore: its points every ~2 pt,
+    each moved in or out along the ring's normal by up to LAKE_WOBBLE."""
+    closed = ring + ring[:1]
+    samples = _resample(closed, 2.0)[:-1]
+    if len(samples) < 3:
+        return list(ring)
+    out = []
+    for k, (p, s) in enumerate(samples):
+        a, b = samples[k - 1][0], samples[(k + 1) % len(samples)][0]
+        length = math.dist(a, b) or 1e-9
+        nx, ny = -(b[1] - a[1]) / length, (b[0] - a[0]) / length
+        w = LAKE_WOBBLE * _wobble(s, seed)
+        out.append((p[0] + nx * w, p[1] + ny * w))
+    return out
+
+
+def _segments(points):
+    return list(zip(points, points[1:]))
+
+
+def _seg_distance(p, a, b):
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length2 = dx * dx + dy * dy
+    t = 0.0 if not length2 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / length2))
+    return math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy)
+
+
+def _cross(o, a, b):
+    return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+
+def _segments_cross(p, q, a, b):
+    d1, d2 = _cross(a, b, p), _cross(a, b, q)
+    d3, d4 = _cross(p, q, a), _cross(p, q, b)
+    return (d1 > 0) != (d2 > 0) and (d3 > 0) != (d4 > 0)
+
+
+def _inside(p, rings):
+    """Is p inside the rings, even-odd (a ring inside another is a hole)?"""
+    inside = False
+    for ring in rings:
+        for (ax, ay), (bx, by) in zip(ring, ring[1:] + ring[:1]):
+            if (ay > p[1]) != (by > p[1]) and p[0] < ax + (p[1] - ay) * (bx - ax) / (by - ay):
+                inside = not inside
+    return inside
+
+
+def forest_trees(frame, clearings, lines, forests, avoid=(), avoid_lines=(), water=(), bounds=None):
+    """Where a card's trees go: (x, y) of each, filling each forest's area.
+
+    frame: (width, height), its corner at 0, 0. clearings: (x, y, r) each.
+    lines: (polyline, half width) of everything that bounds a forest (paths,
+    special paths, and a raging river's lines). forests: the forest points.
+    avoid: (x, y, r) discs trees keep clear of but that don't bound a forest
+    (the suit icons). avoid_lines: (polyline, half width) likewise: lines
+    trees keep off without them bounding a forest. water: lake outlines
+    (rings): no tree inside one. bounds: the clearings as big as they are on
+    the map, scaled to the card ((x, y, r) each, none bigger than as drawn):
+    these, not the drawn ones, part the areas, so two clearings drawn nearly
+    touching where the map has an opening between them don't split a forest
+    (trees still keep clear of the drawn ones). Lines that stop at a drawn
+    clearing's circle run on to its centre for this, so there's no way round
+    their ends.
+
+    Works on the trees' own hex grid, in two parts. The areas: neighbouring
+    spots are joined unless a line or a clearing lies between them, so only
+    those bound a forest; a narrow passage (between an icon and a path, say)
+    still joins the two sides. The trees: each forest's area gets one on every
+    spot with room for it (clear of the clearings, lines, avoided discs and the
+    frame's edge), less a few left empty. Two forests in one area fill it once."""
+    width, height = frame
+    tree_half = TREE_H / 2
+    row_h = TREE_SPACING * math.sqrt(3) / 2
+    edge = tree_half + TREE_GAP
+    segments = [(a, b, half) for points, half in lines for a, b in _segments(points)]
+    clear_of = segments + [(a, b, half) for points, half in avoid_lines for a, b in _segments(points)]
+    if bounds is None:
+        bounds = clearings
+    else:
+        for points, half in lines:
+            if not half:
+                continue          # (a lake's shore: closed already)
+            for end in (points[0], points[-1]):
+                centre = next(((cx, cy) for cx, cy, r in clearings if math.hypot(end[0] - cx, end[1] - cy) <= r + 1), None)
+                if centre is not None:
+                    segments.append((tuple(end), centre, half))
+
+    def noise(i, j):
+        """A spot's nudge (any direction, up to TREE_JITTER) and whether it's
+        left empty: from its grid position, so a card always draws the same."""
+        h = hashlib.md5(f'{i},{j}'.encode()).digest()
+        angle, reach = h[0] / 256 * 2 * math.pi, math.sqrt(h[1] / 255) * TREE_JITTER
+        return (math.cos(angle) * reach, math.sin(angle) * reach), h[2] / 256 < TREE_SKIP
+
+    def has_room(p, gap=TREE_GAP):
+        if not (edge <= p[0] <= width - edge and edge <= p[1] <= height - edge):
+            return False
+        if any(math.hypot(p[0] - cx, p[1] - cy) < r + gap + tree_half for cx, cy, r in (*clearings, *avoid)):
+            return False
+        if any(_seg_distance(p, a, b) < half + gap + tree_half for a, b, half in clear_of):
+            return False
+        return not (water and _inside(p, water))
+
+    # Every spot in the frame that isn't on a clearing or a line joins up the
+    # areas; `drawn` are those that also get a tree.
+    nodes, drawn = {}, set()
+    rows = int(height / row_h) + 2
+    cols = int(width / TREE_SPACING) + 2
+    for j in range(-1, rows):
+        for i in range(-1, cols):
+            x = edge + i * TREE_SPACING + (TREE_SPACING / 2 if j % 2 else 0)
+            y = edge + j * row_h
+            (dx, dy), skip = noise(i, j)
+            p = (x + dx, y + dy)
+            if not (0 <= p[0] <= width and 0 <= p[1] <= height):
+                continue
+            if any(math.hypot(p[0] - cx, p[1] - cy) < r for cx, cy, r in bounds):
+                continue
+            if any(_seg_distance(p, a, b) < half for a, b, half in segments):
+                continue
+            nodes[(i, j)] = p
+            if not skip and has_room(p):
+                drawn.add((i, j))
+
+    def blocked(p, q):
+        if any(_seg_distance((cx, cy), p, q) < r for cx, cy, r in bounds):
+            return True
+        lo_x, hi_x, lo_y, hi_y = min(p[0], q[0]), max(p[0], q[0]), min(p[1], q[1]), max(p[1], q[1])
+        for a, b, _half in segments:
+            if max(a[0], b[0]) < lo_x or min(a[0], b[0]) > hi_x or max(a[1], b[1]) < lo_y or min(a[1], b[1]) > hi_y:
+                continue
+            if _segments_cross(p, q, a, b):
+                return True
+        return False
+
+    def neighbours(i, j):
+        shift = j % 2      # odd rows sit half a step right
+        for di, dj in ((-1, 0), (1, 0), (-1 + shift, -1), (shift, -1), (-1 + shift, 1), (shift, 1)):
+            yield i + di, j + dj
+
+    filled = {}        # spot -> its area (the first forest to reach it)
+    starts = []
+    for n_forest, (fx, fy) in enumerate(forests):
+        open_nodes = sorted(nodes, key=lambda k: math.hypot(nodes[k][0] - fx, nodes[k][1] - fy))
+        # The nearest spot the forest point can reach without crossing a line.
+        start = next((k for k in open_nodes[:12] if not blocked((fx, fy), nodes[k])), None)
+        starts.append(start)
+        if start is None or start in filled:
+            continue
+        stack = [start]
+        filled[start] = n_forest
+        while stack:
+            k = stack.pop()
+            for n in neighbours(*k):
+                if n in nodes and n not in filled and not blocked(nodes[k], nodes[n]):
+                    filled[n] = n_forest
+                    stack.append(n)
+    trees = [nodes[k] for k in sorted(filled.keys() & drawn, key=lambda k: (k[1], k[0]))]
+    # A narrow area (a strip between a raging river and a path, say) has room
+    # for few of the grid's spots: there, trees go between them too (a grid
+    # half as wide), a little closer to the lines and each other, so it fills
+    # like the rest.
+    placed = {}
+    for k in filled.keys() & drawn:
+        placed.setdefault(filled[k], []).append(nodes[k])
+    for area in sorted(set(filled.values())):
+        if len(placed.get(area, [])) >= FEW_TREES:
+            continue
+        members = [nodes[k] for k, a in filled.items() if a == area]
+        # The area on a finer grid: from its spots, spreading as they do
+        # (never across a line or a clearing), past where the coarse grid has
+        # any (a strip's far end, say).
+        fine = TREE_SPACING / 2
+        x0 = min(p[0] for p in members) - 3 * TREE_SPACING
+        y0 = min(p[1] for p in members) - 3 * TREE_SPACING
+        cols_f = int((max(p[0] for p in members) + 3 * TREE_SPACING - x0) / fine) + 1
+        rows_f = int((max(p[1] for p in members) + 3 * TREE_SPACING - y0) / fine) + 1
+        fine_spots = {}
+        for jj in range(rows_f):
+            for ii in range(cols_f):
+                p = (x0 + ii * fine, y0 + jj * fine)
+                if not (0 <= p[0] <= width and 0 <= p[1] <= height):
+                    continue
+                if any(math.hypot(p[0] - cx, p[1] - cy) < r for cx, cy, r in bounds):
+                    continue
+                if any(_seg_distance(p, a, b) < half for a, b, half in segments):
+                    continue
+                fine_spots[(ii, jj)] = p
+        reached = [k for k, p in fine_spots.items()
+                   if any(math.dist(p, q) <= TREE_SPACING and not blocked(p, q) for q in members)]
+        seen, stack = set(reached), list(reached)
+        while stack:
+            ii, jj = stack.pop()
+            for di in (-1, 0, 1):
+                for dj in (-1, 0, 1):
+                    n = (ii + di, jj + dj)
+                    if n in fine_spots and n not in seen and not blocked(fine_spots[(ii, jj)], fine_spots[n]):
+                        seen.add(n)
+                        stack.append(n)
+        for k in sorted(seen, key=lambda k: (k[1], k[0])):
+            p = fine_spots[k]
+            # (A little tighter here than elsewhere: closer to the lines and
+            # each other, so a narrow strip still reads as a forest.)
+            if has_room(p, TREE_GAP * 0.25) and all(math.dist(p, t) >= TREE_SPACING * 0.8 for t in trees):
+                trees.append(p)
+                placed.setdefault(area, []).append(p)
+    # Every forest gets at least one tree: one whose area has no room for any
+    # (a small one, squeezed between a lake and a path, say) gets one where
+    # its point is.
+    with_trees = {area for area, spots in placed.items() if spots}
+    for (fx, fy), start in zip(forests, starts):
+        if (start is None or filled.get(start) not in with_trees) and not (water and _inside((fx, fy), water)):
+            trees.append((fx, fy))
+            if start is not None:
+                with_trees.add(filled.get(start))
+    return trees
+
+
+def _nearest_on(p, segments):
+    """The point of the segments (a, b) nearest p, and its distance."""
+    best, best_d = None, math.inf
+    for a, b in segments:
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        t = max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / ((dx * dx + dy * dy) or 1e-12)))
+        q = (a[0] + dx * t, a[1] + dy * t)
+        d = math.dist(p, q)
+        if d < best_d:
+            best, best_d = q, d
+    return best, best_d
+
+
+def _map_side(point, lines, place):
+    """Which way, on the card, a forest at `point` (map pixels) lies from the
+    nearest line that bounds forests on the map (lines: (polyline, kind)):
+    a unit vector, or None."""
+    segments = [ab for points, _kind in lines for ab in _segments(points)]
+    if not segments:
+        return None
+    q, d = _nearest_on(point, segments)
+    if not d:
+        return None
+    away = ((point[0] - q[0]) / d, (point[1] - q[1]) / d)
+    a, b = place(point), place((point[0] + away[0], point[1] + away[1]))
+    length = math.dist(a, b)
+    return ((b[0] - a[0]) / length, (b[1] - a[1]) / length) if length else None
+
+
+def _off_lines(spot, lines, side):
+    """A forest's spot on the card, moved off a line the card draws over it:
+    to just clear of it on `side` (a unit vector: the side the forest is on
+    on the map)."""
+    if side is None:
+        return spot
+    clear = TREE_GAP + TREE_H / 2 + 0.5
+    for points, half in lines:
+        if not half:
+            continue
+        q, d = _nearest_on(spot, list(_segments(points)))
+        if q is None or d >= half:
+            continue        # (not on the line: it bounds the forest as it is)
+        # Across the line at its nearest point, on the forest's side.
+        a, b = min(_segments(points), key=lambda ab: _seg_distance(spot, *ab))
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        length = math.hypot(dx, dy) or 1.0
+        n = (-dy / length, dx / length)
+        if n[0] * side[0] + n[1] * side[1] < 0:
+            n = (-n[0], -n[1])
+        spot = (q[0] + n[0] * (half + clear), q[1] + n[1] * (half + clear))
+    return spot
+
+
+class _Diagram:
+    """The map, laid out in the diagram's frame (points, y down, its corner at
+    0, 0): clearings, paths routed as on the printed map, rivers (run off to
+    the frame's edge and merged into each other as on the printed map) and the
+    forests' trees."""
+
+    def __init__(self, layout, frame, box, raging, dividing_specials=None):
+        self.box_w, self.box_h = box
+        clearings = layout.get('clearings') or []
+        fw, fh = frame
+        points = [(c['centre'][0] * fw, c['centre'][1] * fh) for c in clearings]
+        forests = [(f[0] * fw, f[1] * fh) for f in layout.get('forests') or []]
+        everything = points + forests
+        self.r = CLEARING_R
+        self.river_width = RAGING_RIVER_WIDTH if raging else RIVER_WIDTH
+        self.suits = _suits(layout)
+        pad = CLEARING_R + 2
+        # Room above the top clearings for their suit icons.
+        pad_top = pad + max((SUIT_ICON_H * SUIT_ICON_SCALE.get(s, 1) / 2 for s in self.suits if s), default=0)
+        inner_w, inner_h = self.box_w - 2 * pad, self.box_h - pad - pad_top
+        if not points or inner_w <= 0 or inner_h <= 0:    # (no room: text saved before the layout changed)
+            self.height = 0
+            self.clearings, self.numbers, self.paths, self.rivers, self.trees, self.lakes = [], [], [], [], [], []
+            return
+        xs, ys = [p[0] for p in everything], [p[1] for p in everything]
+        min_x, min_y = min(xs), min(ys)
+        span_x, span_y = max(xs) - min_x, max(ys) - min_y
+        sx = inner_w / span_x if span_x else None
+        sy = inner_h / span_y if span_y else None
+        # One scale (the board's shape), stretched a little either way to fill.
+        if sx and sy:
+            s = min(sx, sy)
+            sx, sy = min(sx, s * DIAGRAM_MAX_STRETCH), min(sy, s * DIAGRAM_MAX_STRETCH)
+        sx = sx or sy or 1.0
+        sy = sy or sx
+        used_h = span_y * sy + pad + pad_top
+        self.height = min(self.box_h, used_h)
+        ox = (self.box_w - span_x * sx) / 2
+        oy = pad_top + (self.height - pad - pad_top - span_y * sy) / 2
+
+        def place(p):
+            return (ox + (p[0] - min_x) * sx, oy + (p[1] - min_y) * sy)
+
+        centres = [place(p) for p in points]
+        # Crowded clearings: smaller, so neighbours don't overlap.
+        nearest = min((math.dist(a, b) for n, a in enumerate(centres) for b in centres[n + 1:]), default=None)
+        if nearest is not None and nearest < 2 * CLEARING_R + 3:
+            self.r = CLEARING_R * max(CLEARING_MIN_SCALE, (nearest - 3) / (2 * CLEARING_R))
+        self.clearings = [(x, y, self.r) for x, y in centres]
+        self.numbers = [c.get('number') for c in clearings]
+        frame_obj = SimpleNamespace(width=self.box_w, height=self.height)
+
+        # Routed as on the printed map (straight, unless that would cross
+        # another clearing: then bent round it; a river and a path between
+        # the same clearings bow apart), and cut at the clearings' circles.
+        paths = layout.get('paths') or []
+        ordered = route_paths(paths, self.clearings, RIVER_WIDTH / 2)
+        width = self.river_width
+        # Which loose ends are springs, and which way a lone river at a
+        # clearing leaves the map: as on the printed map (decided on the map's
+        # own shape, not the card's stretched one), so the two agree.
+        printed = print_rivers(MapGeometry(fw, fh), layout)
+        springs = {spring['key'] for spring in printed['springs']}
+        extras = river_extras(paths, ordered, self.clearings, width, frame_obj, join_clearings=False,
+                              springs=springs, water=lake_clearings(paths), run_offs=printed['run_offs'])
+        # A river runs on into its clearings' centres (under them), so two
+        # meeting at a clearing read as one, however wide.
+        self.rivers = []
+        for i, s in enumerate(ordered):
+            if s['kind'] != 'river':
+                continue
+            points = list(extras['trimmed'].get(i, s['points']))
+            if 'c' in paths[i]['a']:
+                points.insert(0, centres[paths[i]['a']['c']])
+            if 'c' in paths[i]['b']:
+                points.append(centres[paths[i]['b']['c']])
+            self.rivers.append(points)
+        self.rivers += extras['links']
+        # Lakes: the builder's outlines, placed like everything else, their
+        # shores gently uneven. Without an outline, a lake is drawn as a river.
+        lake_rings = [[place((u * fw, v * fh)) for u, v in ring] for ring in layout.get('lake_shapes') or []]
+        self.lakes = [lake_shore(ring, _seed(ring, n)) for n, ring in enumerate(lake_rings)]
+        if not self.lakes:
+            self.rivers += [[centres[paths[i]['a']['c']], *s['points'], centres[paths[i]['b']['c']]]
+                            for i, s in enumerate(ordered) if s['kind'] == 'lake']
+        self.paths = [s for s in ordered if s['kind'] not in ('river', 'lake')]
+
+        # What bounds a forest: paths, special paths (those of the types in
+        # dividing_specials, all when None; the others, like a river that
+        # isn't raging, are drawn under the trees, which go over them) and,
+        # when it's raging, the river.
+        def divides(s):
+            return s['kind'] != 'special' or dividing_specials is None or s.get('special') in dividing_specials
+        for s in self.paths:
+            s['divides'] = divides(s)
+        lines = [(s['points'], PATH_WIDTH / 2) for s in self.paths if divides(s)]
+        if raging:
+            lines += [(points, width / 2 * (1 + RIVER_WOBBLE)) for points in self.rivers]
+        # Lakes always divide forests, and no tree is ever in one.
+        lines += [(ring + ring[:1], 0.0) for ring in self.lakes]
+        # Trees keep clear of the suit icons too (a disc round each, on top of its clearing).
+        icons = [(x, y - r, SUIT_ICON_H * SUIT_ICON_SCALE.get(suit, 1) * self.r / CLEARING_R / 2)
+                 for (x, y, r), suit in zip(self.clearings, self.suits) if suit]
+        # The card draws every clearing one size, often closer together than
+        # on the map: two can nearly close a gap the map leaves open between
+        # them (too narrow for the trees' grid), splitting a forest the map
+        # doesn't. There, the two part the forests a little smaller than
+        # drawn, leaving FOREST_GAP between them (paths run on to the clearings'
+        # centres for this, so nothing slips round their ends). Clearings that
+        # touch on the map itself stay as they are.
+        board = [(c['centre'][0] * fw, c['centre'][1] * fh,
+                  math.dist((c['centre'][0] * fw, c['centre'][1] * fh), (c['marker'][0] * fw, c['marker'][1] * fh))
+                  if c.get('marker') else 0.0) for c in clearings]
+        parting = [r for _x, _y, r in self.clearings]
+        for n, (x1, y1, r1) in enumerate(self.clearings):
+            for m in range(n + 1, len(self.clearings)):
+                x2, y2, r2 = self.clearings[m]
+                apart = math.dist((x1, y1), (x2, y2))
+                if apart - r1 - r2 >= FOREST_GAP or math.dist(board[n][:2], board[m][:2]) <= board[n][2] + board[m][2]:
+                    continue
+                size = max((apart - FOREST_GAP) / 2, 0.0)
+                parting[n], parting[m] = min(parting[n], size), min(parting[m], size)
+        bounds = [(x, y, r) for (x, y, _r), r in zip(self.clearings, parting)]
+        # A forest's point that the card draws on (or right beside) a line
+        # that bounds forests (a raging river, drawn wide): moved off it, to
+        # the side the forest is on on the map.
+        on_map = [(s['points'], s['kind']) for s in path_shapes(MapGeometry(fw, fh), layout)
+                  if divides(s) and s['kind'] != 'lake' and (raging or s['kind'] != 'river')]
+        spots = [_off_lines(place(f), lines, _map_side(f, on_map, place)) for f in forests]
+        self.trees = forest_trees((self.box_w, self.height), self.clearings, lines,
+                                  spots, avoid=icons,
+                                  water=self.lakes, bounds=bounds)
+
+
+class MapSetupCardEngine:
+    """Draws a map's setup card: draw_front(c) / draw_back(c) on a page the
+    card's size (CARD_SLOT_W x CARD_SLOT_H), or render() both to PDF bytes.
+
+    title: the map's name. layout: its builder layout (tts_builder). map_card:
+    the card's data. frame: the (width, height) the layout's 0-1 coordinates
+    are fractions of (FORGE_FRAME for a Forge map, the board image's size for
+    a keep Map). lang_code: the card's fixed wording's language."""
+
+    def __init__(self, title, layout, map_card, *, frame, lang_code='en'):
+        import the_forge.pdf_engine  # noqa: F401  (registers the card's fonts)
+        self.title = title or ''
+        self.layout = layout or {}
+        self.card = applicable(self.layout, map_card)
+        self.frame = frame
+        self.lang_code = lang_code
+        self.text = card_text(lang_code)
+        # The special path types the map uses: their colours, names and rules.
+        self.specials = special_types(self.layout, map_card, lang_code)
+        self.width, self.height = _card_size()
+        self.text_w = self.width - 2 * MARGIN
+        # The setup modifications go on the back, before the rules; only if
+        # they don't fit there, but do on the front (above the diagram, leaving
+        # it room), on the front. Fitting nowhere, they stay on the back, and
+        # fits() says so.
+        self.modifications_on_back = bool(self.card['modifications'])
+        if self.modifications_on_back and self._back_size() is None:
+            self.modifications_on_back = False
+            if not (self._front_fits() and self._back_size() is not None):
+                self.modifications_on_back = True
+
+    # ── What goes on each side ──
+    @property
+    def raging(self):
+        return self.card['raging_river']
+
+    def back_items(self):
+        """(heading, text) of each paragraph on the back: the setup
+        modifications (when moved there), what the special paths do, the stock
+        Raging River rule, then the rules."""
+        items = []
+        if self.modifications_on_back:
+            items.append((self.text.get('modifications', ''), self.card['modifications']))
+        items += [(kind['name'], kind['rule']) for kind in self.specials if kind['rule']]
+        if self.raging:
+            items.append((self.text.get('raging_river', ''), self.text.get('raging_river_text', '')))
+        items += [(rule['name'], rule['text']) for rule in self.card['rules']]
+        return items
+
+    @property
+    def has_back(self):
+        return bool(self.back_items())
+
+    def _front_top(self, size=BODY_SIZE):
+        paragraphs = []
+        if self.card['modifications'] and not self.modifications_on_back:
+            paragraphs.append(_paragraph(run_in(self.text.get('modifications', ''), self.card['modifications']), size))
+        return paragraphs
+
+    def _legend(self, size=BODY_SIZE):
+        """[(paragraph, colour)]: a line per special path type, its name beside
+        a stretch of its line (what they do is a rule, on the back)."""
+        return [(_paragraph(': ' + _escape(kind['name']), size), kind['colour']) for kind in self.specials]
+
+    def _legend_width(self):
+        return self.text_w - LEGEND_INDENT
+
+    def _front_space(self):
+        """(top text height, legend height, the diagram's height)."""
+        top = _height(self._front_top(), self.text_w)
+        legend = self._legend()
+        legend_h = _height([p for p, _colour in legend], self._legend_width())
+        available = self.height - BODY_TOP - BOTTOM - top - legend_h
+        available -= (DIAGRAM_GAP if top else 0) + (DIAGRAM_GAP if legend_h else 0)
+        return top, legend_h, available
+
+    def _back_size(self):
+        """The largest size (BODY_SIZE down to BODY_MIN_SIZE) the back's rules fit at, or None."""
+        available = self.height - BODY_TOP - BOTTOM
+        size = BODY_SIZE
+        while size >= BODY_MIN_SIZE - 1e-6:
+            if _height([_paragraph(run_in(h, t), size) for h, t in self.back_items()], self.text_w) <= available:
+                return size
+            size -= 0.25
+        return None
+
+    def _front_fits(self):
+        return self._front_space()[2] >= DIAGRAM_MIN_H
+
+    def fits(self):
+        """{'front': bool, 'back': bool}: the front leaves the diagram
+        DIAGRAM_MIN_H, and the back's text (the setup modifications too, unless
+        they've moved to the front) fits at BODY_MIN_SIZE or more."""
+        return {'front': self._front_fits(),
+                'back': not self.has_back or self._back_size() is not None}
+
+    # ── Drawing ──
+    def _border_and_title(self, c):
+        from reportlab.graphics import renderPDF
+        from reportlab.lib.colors import HexColor
+        from reportlab.pdfbase.pdfmetrics import stringWidth
+        border = _svg('map_setup_card_border.svg')
+        c.saveState()
+        c.scale(self.width / border.width, self.height / border.height)
+        renderPDF.draw(border, c, 0, 0)
+        c.restoreState()
+        size = TITLE_SIZE
+        while size > TITLE_MIN_SIZE and stringWidth(self.title, 'Luminari', size) > self.text_w:
+            size -= 0.5
+        c.setFillColor(HexColor(INK))
+        c.setFont('Luminari', size)
+        c.drawCentredString(self.width / 2, self.height - TITLE_BASELINE, self.title)
+
+    def _draw_paragraphs(self, c, paragraphs, top, width, x=MARGIN):
+        """Paragraphs down from `top` (from the card's top); returns where they end."""
+        y = top
+        for n, p in enumerate(paragraphs):
+            if n:
+                y += PARAGRAPH_GAP
+            h = p.wrap(width, 10_000)[1]
+            p.drawOn(c, x, self.height - y - h)
+            y += h
+        return y
+
+    def draw_front(self, c):
+        from reportlab.lib.colors import HexColor
+        self._border_and_title(c)
+        top_paragraphs = self._front_top()
+        top_h, legend_h, available = self._front_space()
+        y = self._draw_paragraphs(c, top_paragraphs, BODY_TOP, self.text_w)
+        if top_paragraphs:
+            y += DIAGRAM_GAP
+        box_h = min(max(available, 0), DIAGRAM_MAX_H)
+        diagram = _Diagram(self.layout, self.frame, (self.width - 2 * MARGIN, box_h), self.raging,
+                           dividing_specials={kind['key'] for kind in self.specials if kind['divides_forests']})
+        # The diagram, centred in its space (all of it, when DIAGRAM_MAX_H holds it smaller).
+        frame_top = y + (max(available, 0) - diagram.height) / 2
+        self._draw_diagram(c, diagram, MARGIN, frame_top)
+        # The legend, at the bottom: a line per special path type, each with
+        # its swatch beside its first line.
+        top = self.height - BOTTOM - legend_h
+        for n, (paragraph, colour) in enumerate(self._legend()):
+            if n:
+                top += PARAGRAPH_GAP
+            h = paragraph.wrap(self._legend_width(), 10_000)[1]
+            paragraph.drawOn(c, MARGIN + LEGEND_INDENT, self.height - top - h)
+            line_y = self.height - top - BODY_SIZE * LEADING / 2 - 1
+            c.saveState()
+            c.setStrokeColor(HexColor(colour))
+            c.setLineWidth(PATH_WIDTH)
+            c.setDash(list(PATH_DASH), 0)
+            start = MARGIN + LEGEND_INSET
+            c.line(start, line_y, start + LEGEND_SWATCH, line_y)
+            c.restoreState()
+            top += h
+
+    def draw_back(self, c):
+        self._border_and_title(c)
+        items = self.back_items()
+        size = self._back_size()
+        if size is not None:
+            self._draw_paragraphs(c, [_paragraph(run_in(h, t), size) for h, t in items], BODY_TOP, self.text_w)
+            return
+        # Too long (saved before its layout changed, say): as much as fits, then "…".
+        available = self.height - BODY_TOP - BOTTOM - BODY_MIN_SIZE * LEADING - PARAGRAPH_GAP
+        kept = []
+        for h, t in items:
+            trial = kept + [_paragraph(run_in(h, t), BODY_MIN_SIZE)]
+            if _height(trial, self.text_w) > available:
+                break
+            kept = trial
+        kept.append(_paragraph('…', BODY_MIN_SIZE))
+        self._draw_paragraphs(c, kept, BODY_TOP, self.text_w)
+
+    def _draw_diagram(self, c, diagram, left, top):
+        """The diagram, its frame's corner at (left, top) from the card's top left."""
+        from reportlab.lib.colors import HexColor
+        if not diagram.clearings:
+            return
+        H = self.height
+
+        def at(p):
+            return left + p[0], H - top - p[1]
+
+        def polyline(points):
+            path = c.beginPath()
+            path.moveTo(*at(points[0]))
+            for p in points[1:]:
+                path.lineTo(*at(p))
+            c.drawPath(path, stroke=1, fill=0)
+
+        c.saveState()
+        clip = c.beginPath()
+        clip.rect(left, H - top - diagram.height, diagram.box_w, diagram.height)
+        c.clipPath(clip, stroke=0, fill=0)
+
+        # Rivers (trees go over them, unless the river is raging: then they keep
+        # clear), each a filled outline with gently uneven banks. Non-zero fill,
+        # so an outline folding over itself at a sharp turn stays filled.
+        from reportlab.pdfgen.canvas import FILL_EVEN_ODD, FILL_NON_ZERO
+        c.saveState()
+        c.setFillColor(HexColor(RIVER_COLOUR))
+        if diagram.lakes:          # under the rivers; even-odd: a ring inside another is an island
+            shape = c.beginPath()
+            for ring in diagram.lakes:
+                shape.moveTo(*at(ring[0]))
+                for p in ring[1:]:
+                    shape.lineTo(*at(p))
+                shape.close()
+            c.drawPath(shape, stroke=0, fill=1, fillMode=FILL_EVEN_ODD)
+        for n, points in enumerate(diagram.rivers):
+            outline = river_outline(points, diagram.river_width / 2, _seed(points, n))
+            if len(outline) >= 3:
+                shape = c.beginPath()
+                shape.moveTo(*at(outline[0]))
+                for p in outline[1:]:
+                    shape.lineTo(*at(p))
+                shape.close()
+                c.drawPath(shape, stroke=0, fill=1, fillMode=FILL_NON_ZERO)
+        c.restoreState()
+
+        # Special paths (each in its type's colour), then paths
+        # (tts_map.PATH_DRAW_ORDER): those that don't divide forests under the
+        # trees, which go over them as over a river; the rest over the trees.
+        def draw_paths(over_trees):
+            for kind in ('special', 'path'):
+                for shape in diagram.paths:
+                    if shape['kind'] != kind or shape['points'][0] == shape['points'][-1]:
+                        continue
+                    if shape.get('divides', True) != over_trees:
+                        continue
+                    c.saveState()
+                    c.setStrokeColor(HexColor(shape['colour'] if kind == 'special' else INK))
+                    c.setLineWidth(PATH_WIDTH)
+                    c.setDash(list(PATH_DASH), 0)
+                    polyline(shape['points'])
+                    c.restoreState()
+
+        draw_paths(over_trees=False)
+        self._draw_trees(c, [at(p) for p in diagram.trees])
+        draw_paths(over_trees=True)
+
+        # Clearings: the paper inside, the ring, the number.
+        from reportlab.graphics import renderPDF
+        ring = _svg('map_setup_clearing.svg')
+        scale = 2 * diagram.r / ring.width
+        number_size = NUMBER_SIZE * diagram.r / CLEARING_R
+        for (x, y, r), number in zip(diagram.clearings, diagram.numbers):
+            cx, cy = at((x, y))
+            c.saveState()
+            c.setFillColor(HexColor(CLEARING_FILL))
+            c.circle(cx, cy, r, stroke=0, fill=1)
+            c.translate(cx - r, cy - r)
+            c.scale(scale, scale)
+            renderPDF.draw(ring, c, 0, 0)
+            c.restoreState()
+            if isinstance(number, int):
+                nudge = NUMBER_SUIT_NUDGE * diagram.r / CLEARING_R if any(diagram.suits) else 0
+                c.setFillColor(HexColor(INK))
+                c.setFont(NUMBER_FONT, number_size)
+                c.drawCentredString(cx, cy - number_size * 0.33 - nudge, str(number))
+        # Fixed suits: each clearing's suit icon, centred on the top of its
+        # circle (over any neighbour it reaches, so drawn after them all).
+        for (x, y, r), suit in zip(diagram.clearings, diagram.suits):
+            if not suit:
+                continue
+            icon = _svg(f'suits/{SUIT_ICONS[suit]}')
+            icon_h = SUIT_ICON_H * SUIT_ICON_SCALE.get(suit, 1) * diagram.r / CLEARING_R
+            k = icon_h / icon.height
+            cx, cy = at((x, y - r))
+            c.saveState()
+            c.translate(cx - icon.width * k / 2, cy - icon_h / 2)
+            c.scale(k, k)
+            renderPDF.draw(icon, c, 0, 0)
+            c.restoreState()
+        c.restoreState()
+
+    def _draw_trees(self, c, spots):
+        """Each tree is the same PDF form, drawn once per canvas and placed by reference."""
+        if not spots:
+            return
+        from reportlab.graphics import renderPDF
+        tree = _svg('map_setup_tree.svg')
+        scale = TREE_H / tree.height
+        w = tree.width * scale
+        if not getattr(c, '_map_setup_tree', False):
+            c.beginForm('mapSetupTree')
+            c.scale(scale, scale)
+            renderPDF.draw(tree, c, 0, 0)
+            c.endForm()
+            c._map_setup_tree = True
+        for x, y in spots:
+            c.saveState()
+            c.translate(x - w / 2, y - TREE_H / 2)
+            c.doForm('mapSetupTree')
+            c.restoreState()
+
+    def render(self):
+        """(front PDF bytes, back PDF bytes or None), a page each."""
+        from reportlab.pdfgen import canvas as rl_canvas
+
+        def page(draw):
+            buf = BytesIO()
+            c = rl_canvas.Canvas(buf, pagesize=(self.width, self.height))
+            c.setTitle(self.title)
+            draw(c)
+            c.showPage()
+            c.save()
+            return buf.getvalue()
+
+        return page(self.draw_front), (page(self.draw_back) if self.has_back else None)
+
+
+def save_builder_card(owner, fields, layout, *, title, frame, lang_code):
+    """The map builder's Rules step, saved: `fields` are its form's fields
+    ({name: value or [values]}, as the builder sends them), checked like the
+    setup card page's (MapSetupCardForm, against the builder's layout) and
+    stored as owner.map_card (a ForgedMap or a keep Map: the same JSON).
+    Returns a list of errors (nothing stored then); [] when saved."""
+    from django.http import QueryDict
+
+    from the_keep.forms import MapSetupCardForm
+    if not isinstance(fields, dict):
+        return ["Couldn't read the setup card's rules."]
+    data = QueryDict(mutable=True)
+    for name, value in fields.items():
+        for item in (value if isinstance(value, list) else [value]):
+            if isinstance(item, (str, int, float, bool)):
+                data.appendlist(str(name), str(item))
+    form = MapSetupCardForm(data, title=title, layout=layout, frame=frame, lang_code=lang_code,
+                            map_card=owner.map_card)
+    if not form.is_valid():
+        return [error for errors in form.errors.values() for error in errors]
+    if owner.map_card != form.cleaned_data['map_card']:
+        owner.map_card = form.cleaned_data['map_card']
+        type(owner).objects.filter(pk=owner.pk).update(map_card=owner.map_card)
+    return []
+
+
+def setup_card_fits(title, layout, map_card, *, frame, lang_code):
+    """{'front': bool, 'back': bool} (measured, nothing drawn)."""
+    return MapSetupCardEngine(title, layout, map_card, frame=frame, lang_code=lang_code).fits()
+
+
+# ── Storing a card on a map ─────────────────────────────────────────────────
+def _stored_bytes(field):
+    if not field:
+        return None
+    try:
+        field.open('rb')
+        try:
+            return field.read()
+        finally:
+            field.close()
+    except (OSError, ValueError):
+        return None
+
+
+def refresh_setup_card(owner, *, title, layout, lang_code, frame):
+    """Render `owner`'s setup card if it's out of date, and store it: any map
+    with map_card, card_fingerprint, card_image / card_2_image and their
+    versions. Only an image that actually changed is saved (and its version
+    bumped): a back that appears, changes or goes. Returns True if anything
+    changed. Renders: call it inside render_slot()."""
+    from django.core.files.base import ContentFile
+    from django.db.models import F
+
+    from the_forge.pdf_engine import CARD_PREVIEW_DPI, pdf_bytes_to_webp_bytes
+
+    fingerprint = card_fingerprint(title, layout, owner.map_card, frame=frame, lang_code=lang_code)
+    if owner.card_image and owner.card_fingerprint == fingerprint:
+        return False
+    front_pdf, back_pdf = MapSetupCardEngine(title, layout, owner.map_card, frame=frame,
+                                             lang_code=lang_code).render()
+    front = pdf_bytes_to_webp_bytes(front_pdf, dpi=CARD_PREVIEW_DPI, quality=90)
+    back = pdf_bytes_to_webp_bytes(back_pdf, dpi=CARD_PREVIEW_DPI, quality=90) if back_pdf else None
+
+    updates = {'card_fingerprint': fingerprint}
+    if front != _stored_bytes(owner.card_image):
+        owner.card_image.save('card_front.webp', ContentFile(front), save=False)
+        updates['card_image'] = owner.card_image.name
+        updates['card_image_version'] = F('card_image_version') + 1
+    if back is None:
+        if owner.card_2_image:
+            owner.card_2_image.delete(save=False)
+            updates['card_2_image'] = ''
+            updates['card_2_image_version'] = F('card_2_image_version') + 1
+    elif back != _stored_bytes(owner.card_2_image):
+        owner.card_2_image.save('card_back.webp', ContentFile(back), save=False)
+        updates['card_2_image'] = owner.card_2_image.name
+        updates['card_2_image_version'] = F('card_2_image_version') + 1
+    type(owner).objects.filter(pk=owner.pk).update(**updates)
+    owner.card_fingerprint = fingerprint
+    owner.refresh_from_db(fields=['card_image_version', 'card_2_image_version'])
+    return True

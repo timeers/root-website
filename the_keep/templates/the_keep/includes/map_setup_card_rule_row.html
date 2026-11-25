@@ -1,0 +1,14 @@
+<div class="border rounded p-2 mb-2" data-rule-row>
+  <div class="d-flex gap-2 align-items-start">
+    <div class="flex-grow-1">
+      <input type="text" name="rule_name" value="{{ rule.name|default:'' }}" class="form-control form-control-sm mb-1"
+             maxlength="{{ form.limits.rule_name }}" placeholder="Rule name">
+      <textarea name="rule_text" rows="2" class="form-control form-control-sm" maxlength="{{ form.limits.rule_text }}"
+                data-counter placeholder="What it does">{{ rule.text|default:'' }}</textarea>
+      <div class="form-text text-end" data-count></div>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-danger" data-remove-rule title="Remove this rule">
+      <i class="bi bi-trash3"></i>
+    </button>
+  </div>
+</div>
