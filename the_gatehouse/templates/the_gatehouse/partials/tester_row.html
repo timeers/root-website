@@ -1,0 +1,27 @@
+{% comment %} One tester on the testers page: whether they've accepted the tester
+agreement, and a button to remove them (the row goes; the counts update out of band). {% endcomment %}
+<div class="border rounded p-2 mb-2 d-flex justify-content-between align-items-center" id="tester-{{ tester.slug }}">
+  <a href="{% url 'player-detail' tester.slug %}" class="d-flex align-items-center flex-grow-1 me-2 text-reset text-decoration-none" style="min-width: 0;">
+    {% if tester.image %}
+    <img src="{{ tester.image.url }}" class="md-avatar-icon me-2 flex-shrink-0" alt="">
+    {% else %}
+    <i class="bi bi-person-circle me-2 text-muted flex-shrink-0" style="font-size: 1.5rem;"></i>
+    {% endif %}
+    <span class="text-truncate">{{ tester.display_name }} ({{ tester.discord }})</span>
+  </a>
+  <div class="d-flex align-items-center gap-2 flex-shrink-0">
+    {% if tester.tester_onboard %}
+    <span class="badge bg-success"><i class="bi bi-check-lg me-1"></i>Accepted</span>
+    {% else %}
+    <span class="badge bg-warning text-dark"><i class="bi bi-hourglass-split me-1"></i>Waiting</span>
+    {% endif %}
+    <button type="button" class="btn btn-sm btn-outline-danger"
+            hx-post="{% url 'tester-remove' tester.slug %}"
+            hx-target="#tester-{{ tester.slug }}"
+            hx-swap="outerHTML"
+            hx-confirm="Remove {{ tester.display_name }} as a tester?"
+            title="Remove tester">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+</div>

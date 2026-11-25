@@ -133,7 +133,8 @@ generate_title. Load map_summary.css, map_builder.css, map_summary.js and map_bu
     <div id="mb-path-mode" class="d-none">
         <div class="mb-mode-title" id="mb-path-title"
              data-path="{% trans 'Draw Paths' %}" data-special="{% trans 'Draw Special Paths' %}"
-             data-river="{% trans 'Draw Rivers' %}" data-lake="{% trans 'Draw Lakes' %}">{% trans 'Draw Paths' %}</div>
+             data-river="{% trans 'Draw Rivers' %}" data-lake="{% trans 'Draw Lakes' %}"
+             data-ocean="{% trans 'Draw Oceans' %}">{% trans 'Draw Paths' %}</div>
         {% include 'the_keep/includes/map_path_kind_toggle.html' with toggle_id='mb-draw-kind' %}
     </div>
     {% endif %}

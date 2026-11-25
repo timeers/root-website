@@ -138,7 +138,7 @@ def fingerprint_setup_card(card):
 
 # Bump when the map's print layout changes (tts_map.print_layout, the map
 # engine), so stored map previews and cached PDFs are rebuilt.
-MAP_RENDER_VERSION = 6
+MAP_RENDER_VERSION = 7
 
 
 def fingerprint_map(forged_map):

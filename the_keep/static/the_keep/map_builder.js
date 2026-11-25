@@ -57,8 +57,10 @@
     STEPS.splice(STEPS.findIndex(s => s.key === 'forests'), 0,
       { key: 'paths', heading: 'Paths & Rivers', name: 'Paths & Rivers', short: 'Paths',
         hint: 'Pick a path type, then drag from one clearing to another, or to the middle of another path. '
-              + 'You can choose different colored paths from the Special Path selector. You can choose between Rivers and Lakes from the River selector. '
+              + 'You can choose different colored paths from the Special Path selector. You can choose between Rivers, Lakes and Oceans from the River selector '
+              + '(Oceans go along the outside of the map). '
               + 'Select a path to change its type, drag one of its ends to another clearing, or press x to remove it. '
+              + 'Drag a path\'s line to bend it around other clearings, or to the other side of a river it runs beside. '
               + "Multiple paths cannot connect the same two clearings." });
   }
   // Setup Card Rules (the setup card page's form, over the map), after Paths &
@@ -212,6 +214,53 @@
     return mid;
   }
 
+  // A path's arc bent the way the user dragged it (_route_around in
+  // tts_map.py): route()'s quadratic and steps, but only to `side` (+1/-1,
+  // from the a->b line's normal), and on out to PATH.around_max lengths: the
+  // least bulge (no less than minBulge lengths) clear of every obstacle with
+  // each of `wrapped` (the clearings it goes round) between the line and the
+  // arc. {control, ok}: not ok, the farthest clear one on that side (else its
+  // least), never the other side.
+  function routeAround(a, b, obstacles, wrapped, side, minBulge = 0) {
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    const length = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1e-9;
+    const nx = -(b[1] - a[1]) / length, ny = (b[0] - a[0]) / length;
+    const ux = (b[0] - a[0]) / length, uy = (b[1] - a[1]) / length;
+    // Only clearings on that side, and alongside the line (not past its ends).
+    wrapped = wrapped.filter(w => ((w[0] - a[0]) * nx + (w[1] - a[1]) * ny) * side > 0
+                                  && (w[0] - a[0]) * ux + (w[1] - a[1]) * uy > 0
+                                  && (w[0] - a[0]) * ux + (w[1] - a[1]) * uy < length);
+    const unit = PATH.bend_max / PATH.bend_steps;
+    const steps = Math.ceil((PATH.around_max || 2.5) / unit);
+    let best = null;
+    for (let step = 1; step <= steps; step++) {
+      const bulge = unit * step * length;
+      if (bulge < minBulge * length - 1e-9) continue;
+      const control = [mid[0] + side * nx * 2 * bulge, mid[1] + side * ny * 2 * bulge];
+      const samples = [];
+      for (let i = 0; i <= PATH.samples; i++) samples.push(quad(a, control, b, i / PATH.samples));
+      if (!samples.every(p => obstacles.every(o => Math.hypot(p[0] - o[0], p[1] - o[1]) >= o[2]))) continue;
+      best = control;
+      // Round the wrapped ones: each centre inside the arc.
+      if (wrapped.every(w => insidePolygon([w[0], w[1]], samples))) return { control, ok: true };
+    }
+    if (!best) {
+      const bulge = Math.max(minBulge, unit) * length;
+      best = [mid[0] + side * nx * 2 * bulge, mid[1] + side * ny * 2 * bulge];
+    }
+    return { control: best, ok: false };
+  }
+
+  // Even-odd: is p inside the polygon (its points, closed)?
+  function insidePolygon(p, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [ax, ay] = ring[i], [bx, by] = ring[j];
+      if ((ay > p[1]) !== (by > p[1]) && p[0] < ax + (p[1] - ay) * (bx - ax) / (by - ay)) inside = !inside;
+    }
+    return inside;
+  }
+
   // t where the curve crosses the circle around its start (or end).
   function trim(a, control, b, centre, radius, start) {
     let lo = start ? 0 : 0.5, hi = start ? 0.5 : 1;
@@ -287,7 +336,16 @@
       // Kept clear of other clearings by half its own width (a river's is wider).
       const clearance = PATH.width * (familyOf(p.kind) === 'river' ? PATH.river_width : 1) / 2;
       const obstacles = cs.filter((c, k) => !own.has(k)).map(([x, y, r]) => [x, y, r + clearance]);
-      let control = route(a, b, obstacles);
+      let control;
+      if (p.side === 1 || p.side === -1) {
+        // Dragged by the user: round the clearings it was dragged past.
+        const around = new Set(p.around || []);
+        const wrapped = cs.map((c, k) => [c, k]).filter(([, k]) => around.has(k) && !own.has(k))
+          .map(([[x, y, r]]) => [x, y, r + clearance]);
+        control = routeAround(a, b, obstacles, wrapped, p.side, p.bulge || 0).control;
+      } else {
+        control = route(a, b, obstacles);
+      }
       const twin = twinOf(i);
       if (twin >= 0) control = bowApart(control, a, b, p, pairSide(p, state.paths[twin]));
       const t0 = 'c' in p.a ? trim(a, control, b, a, cs[p.a.c][2], true) : 0;
@@ -338,7 +396,10 @@
   // Rivers, and paths with special paths: one of each may join the same two ends.
   // Water (rivers and lakes) and land (paths and special paths): one of each
   // may join the same two ends (path_family in tts_map.py).
-  const familyOf = (kind) => (kind === 'river' || kind === 'lake' ? 'river' : 'land');
+  const familyOf = (kind) => (kind === 'river' || kind === 'lake' || kind === 'ocean' ? 'river' : 'land');
+  // Water drawn as an area (map_lakes.js): a lake (inland), or an ocean (the
+  // sea round the map's outside). Both join two clearings, nothing on their middle.
+  const isArea = (kind) => kind === 'lake' || kind === 'ocean';
 
   // Can a path of `kind` (path `self` when moving one of its ends) join ends a
   // and b? Not an end to itself, not a second of its family between the same
@@ -347,8 +408,8 @@
     if (!a || !b || endKey(a) === endKey(b)) return false;
     kind = kind || (self !== null ? state.paths[self].kind : drawKind);
     // A lake joins two clearings, and nothing joins a lake's middle (clean_paths).
-    if (kind === 'lake' && ('p' in a || 'p' in b)) return false;
-    if ([a, b].some(e => 'p' in e && state.paths[e.p] && state.paths[e.p].kind === 'lake')) return false;
+    if (isArea(kind) && ('p' in a || 'p' in b)) return false;
+    if ([a, b].some(e => 'p' in e && state.paths[e.p] && isArea(state.paths[e.p].kind))) return false;
     const key = pairKey(a, b);
     const family = familyOf(kind);
     if (state.paths.some((p, k) => k !== self && pairKey(p.a, p.b) === key && familyOf(p.kind) === family)) return false;
@@ -400,18 +461,22 @@
 
   // The end under a point: a path's middle handle first, then a clearing's circle.
   function anchorAt(p) {
-    let best = null, bestD = handleRadius() * 1.6;
+    const slack = touchPress ? touchReach() : 0;
+    let best = null, bestD = handleRadius() * 1.6 + slack;
     // A lake only ever ends on a clearing; nothing ends on a lake's middle.
     const kind = drag && drag.kind === 'path-end' ? state.paths[drag.index].kind : drawKind;
     pathCache.forEach((s, j) => {
-      if (kind === 'lake' || s.kind === 'lake') return;
+      if (isArea(kind) || isArea(s.kind)) return;
       const d = dist(p, s.middle);
       if (d < bestD) { best = { p: j }; bestD = d; }
     });
     if (best) return best;
     const cs = circles();
     for (let i = 0; i < cs.length; i++) if (dist(p, cs[i]) <= cs[i][2]) return { c: i };
-    return null;
+    // A touch just outside a clearing: the nearest one within reach.
+    let near = null, nearD = slack;
+    cs.forEach((c, i) => { if (dist(p, c) - c[2] <= nearD) { near = { c: i }; nearD = dist(p, c) - c[2]; } });
+    return near;
   }
 
   function anchorPoint(e) {
@@ -426,6 +491,65 @@
   // between its ends that it was dropped on (`bow`, see pairSide), and its twin
   // to the other. Dropped (near enough) on the line itself: the sides stay as
   // they were.
+  // Dragging a path's line bends its arc: the symmetric arc through the
+  // pointer (where the line was grabbed follows it) gives the side it bends to and the clearings it goes
+  // round (or, round none, how far it bends: an ocean bent out to sea).
+  // Routed like any path (routeAround), it snaps to clean arcs past whole
+  // clearings; a set that can't be routed keeps the last one. Back near its
+  // line, it's routed as it would be anyway. A path sharing both ends with a
+  // river (or the reverse) also bows to the pointer's side of it.
+  function bendTo(p) {
+    const path = state.paths[drag.index];
+    if (!drag.moved && dist(p, drag.start) < DOT_PX) return;
+    drag.moved = true;
+    const a = anchorPoint(path.a), b = anchorPoint(path.b);
+    if (!a || !b) return;
+    const length = dist(a, b) || 1e-9;
+    const nx = -(b[1] - a[1]) / length, ny = (b[0] - a[0]) / length;
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    // The point grabbed (its share along the line, t) follows the pointer: a
+    // quadratic's point at t is 4t(1-t) of the way out to its middle.
+    const t = Math.min(Math.max(((drag.start[0] - a[0]) * (b[0] - a[0]) + (drag.start[1] - a[1]) * (b[1] - a[1])) / (length * length), 0.2), 0.8);
+    const off = ((p[0] - mid[0]) * nx + (p[1] - mid[1]) * ny) / (4 * t * (1 - t));
+    const side = off > 0 ? 1 : -1;
+    let next = {};
+    if (Math.abs(off) >= Math.max(DOT_PX * 1.5, length * 0.05)) {
+      const bulge = Math.abs(off);
+      const control = [mid[0] + side * nx * 2 * bulge, mid[1] + side * ny * 2 * bulge];
+      const samples = [];
+      for (let i = 0; i <= PATH.samples; i++) samples.push(quad(a, control, b, i / PATH.samples));
+      const own = new Set([path.a, path.b].filter(e => 'c' in e).map(e => e.c));
+      const around = state.clearings.map((c, k) => [c, k])
+        .filter(([c, k]) => c.marker && !own.has(k) && insidePolygon(px(c.centre), samples)).map(([, k]) => k);
+      next = around.length ? { side, around } : { side, bulge: Math.round(bulge / length * 50) / 50 };
+      if (around.length && !bendRoutes(path, next)) return;     // (keeps the last set)
+    }
+    const twin = drag.twin;
+    const bow = twin >= 0 && Math.abs(off) >= DOT_PX / 2 ? side : null;
+    const key = JSON.stringify([next, bow]);
+    if (key === drag.last) return;
+    drag.last = key;
+    delete path.side; delete path.around; delete path.bulge;
+    Object.assign(path, next);
+    if (bow !== null) {
+      path.bow = bow;
+      delete state.paths[twin].bow;     // the latest choice wins (as chooseSide)
+    }
+    changed();
+  }
+
+  // Can `path` be routed round its clearings as `bend` asks? (routeAround's ok.)
+  function bendRoutes(path, bend) {
+    const cs = circles();
+    const a = anchorPoint(path.a), b = anchorPoint(path.b);
+    const own = new Set([path.a, path.b].filter(e => 'c' in e).map(e => e.c));
+    const clearance = PATH.width * (familyOf(path.kind) === 'river' ? PATH.river_width : 1) / 2;
+    const obstacles = cs.filter((c, k) => !own.has(k)).map(([x, y, r]) => [x, y, r + clearance]);
+    const around = new Set(bend.around || []);
+    const wrapped = cs.map((c, k) => [c, k]).filter(([, k]) => around.has(k)).map(([[x, y, r]]) => [x, y, r + clearance]);
+    return routeAround(a, b, obstacles, wrapped, bend.side, bend.bulge || 0).ok;
+  }
+
   function chooseSide(index, end, dropAt) {
     const twin = twinOf(index);
     if (twin < 0) return;
@@ -872,7 +996,7 @@
   // half a dash, which makes cobblestones. A river: one solid line. (As the
   // PDF prints them.)
   function drawLanes(g, points, kind, colour = PATH.colours[kind]) {
-    if (kind === 'lake') {
+    if (isArea(kind)) {
       // Its water is the outline (drawLakes); the line it's drawn along shows faintly over it.
       el('polyline', { points: points.map(p => p.join(',')).join(' '), fill: 'none', stroke: '#1f2d6b',
                        'stroke-opacity': 0.45, 'stroke-width': PATH.width * 0.35, 'stroke-linecap': 'round',
@@ -900,7 +1024,7 @@
   // something's being dragged (smooth), at full size otherwise and for saving.
   let lakeCache = { key: null, grid: 0, rings: [] };
   function lakeRings(full = false) {
-    if (!PATH || !state.paths.some(p => p.kind === 'lake') || !window.MapLakes) return [];
+    if (!PATH || !state.paths.some(p => isArea(p.kind)) || !window.MapLakes) return [];
     // A forest being dragged (or just placed): the last outline stays put
     // until it's dropped, then it's worked out again in full. (Worked out on
     // every move, the lakes would jump about even far from the forest.)
@@ -910,7 +1034,7 @@
     if (lakeCache.key === key && lakeCache.grid >= grid) return lakeCache.rings;
     const shapes = pathCache.length === state.paths.length ? pathCache : pathShapes();
     const cs = circles();
-    const onLake = new Set(state.paths.filter(p => p.kind === 'lake').flatMap(p => [p.a.c, p.b.c]));
+    const onLake = new Set(state.paths.filter(p => isArea(p.kind)).flatMap(p => [p.a.c, p.b.c]));
     // Rivers ending at each clearing: their end on its rim and the way they
     // flow in (a lake there curves out to meet each, widening).
     const feeds = new Map();
@@ -937,9 +1061,10 @@
       clearings: cs.map(([x, y, r], i) => ({ x, y, r, lake: onLake.has(i), feeds: feeds.get(i) || null,
                                              suit: config.fixed ? state.clearings[i].suit || null : null })),
       // A lake's line runs on into its clearings' centres.
-      lakes: state.paths.map((p, i) => [p, i]).filter(([p]) => p.kind === 'lake')
-        .map(([p, i]) => ({ a: p.a.c, b: p.b.c, points: [centre(p.a), ...shapes[i].points, centre(p.b)] })),
-      lines: state.paths.map((p, i) => [p, i]).filter(([p]) => p.kind !== 'lake')
+      lakes: state.paths.map((p, i) => [p, i]).filter(([p]) => isArea(p.kind))
+        .map(([p, i]) => ({ a: p.a.c, b: p.b.c, points: [centre(p.a), ...shapes[i].points, centre(p.b)],
+                            ocean: p.kind === 'ocean' })),
+      lines: state.paths.map((p, i) => [p, i]).filter(([p]) => !isArea(p.kind))
         .map(([p, i]) => ({ points: shapes[i].points, kind: p.kind,
                             half: PATH.width * (p.kind === 'river' ? PATH.river_width : 1) / 2 })),
       forests: state.forests.map(f => { const [x, y] = px(f); return { x, y, r: PATH.lake.forest_r }; }),
@@ -1001,7 +1126,7 @@
     if (!onStep) return;
     // Each path's middle: another path can start or end there (not a lake's).
     for (const s of pathCache) {
-      if (s.kind === 'lake' || drawKind === 'lake') continue;
+      if (isArea(s.kind) || isArea(drawKind)) continue;
       el('circle', { cx: s.middle[0], cy: s.middle[1], r: handleRadius(), fill: 'rgba(255,255,255,0.85)',
                      stroke: '#231f20', 'stroke-width': STROKE, 'pointer-events': 'none' }, g);
     }
@@ -1373,6 +1498,12 @@
     state.paths.forEach((p, k) => { if (p.a.c === index || p.b.c === index) touching.add(k); });
     if (touching.size) removePaths(touching);
     for (const p of state.paths) for (const e of [p.a, p.b]) if ('c' in e && e.c > index) e.c -= 1;
+    // (The clearings a dragged path goes round: past the gap too, the removed one gone.)
+    for (const p of state.paths) {
+      if (!p.around) continue;
+      p.around = p.around.filter(k => k !== index).map(k => (k > index ? k - 1 : k));
+      if (!p.around.length) delete p.around;
+    }
     if (pendingMarker === index) pendingMarker = null;
     else if (pendingMarker !== null && pendingMarker > index) pendingMarker -= 1;
     if (selected && selected.kind === 'clearing') {
@@ -1412,6 +1543,51 @@
     return { kind: target.dataset.kind, index: Number(target.dataset.index), end: target.dataset.end };
   }
 
+  // Fingers are broad: a touch that hits nothing, within TOUCH_PX (on screen)
+  // of a piece, is on the nearest one (anchorAt reaches as far for a path's
+  // ends). Only on a touch screen, and only near a piece: a touch on open
+  // board still places one, and a mouse is unaffected.
+  const TOUCH_PX = 11;
+  const TOUCH_KINDS = new Set(['centre', 'marker', 'number', 'forest', 'building', 'path', 'path-end']);
+  let touchPress = false;     // is the press under way a touch?
+  function touchReach() {
+    const ctm = svg.getScreenCTM();
+    return ctm && ctm.a ? TOUCH_PX / ctm.a : 0;
+  }
+  function touchHit(evt) {
+    const at = [evt.clientX, evt.clientY];
+    let best = null, bestD = TOUCH_PX;
+    for (const el of svg.querySelectorAll('[data-kind]')) {
+      if (!TOUCH_KINDS.has(el.dataset.kind) || getComputedStyle(el).pointerEvents === 'none') continue;
+      const d = screenDistance(el, at);
+      if (d < bestD) { best = el; bestD = d; }
+    }
+    return best && { kind: best.dataset.kind, index: Number(best.dataset.index), end: best.dataset.end };
+  }
+  // How far (screen px) a point is from an element's shape: a circle's disc,
+  // a line's stroke, else its box.
+  function screenDistance(el, at) {
+    const ctm = el.getScreenCTM();
+    if (!ctm) return Infinity;
+    const screen = (x, y) => [ctm.a * x + ctm.c * y + ctm.e, ctm.b * x + ctm.d * y + ctm.f];
+    if (el.tagName === 'circle') {
+      const c = screen(el.cx.baseVal.value, el.cy.baseVal.value);
+      return Math.max(dist(at, c) - el.r.baseVal.value * Math.hypot(ctm.a, ctm.b), 0);
+    }
+    if (el.tagName === 'polyline' || el.tagName === 'line') {
+      const pts = el.tagName === 'line'
+        ? [[el.x1.baseVal.value, el.y1.baseVal.value], [el.x2.baseVal.value, el.y2.baseVal.value]]
+        : Array.from(el.points, q => [q.x, q.y]);
+      const s = pts.map(([x, y]) => screen(x, y));
+      let d = Infinity;
+      for (let i = 1; i < s.length; i++) d = Math.min(d, segmentDistance(at, s[i - 1], s[i]));
+      const half = (parseFloat(el.getAttribute('stroke-width')) || 0) / 2 * Math.hypot(ctm.a, ctm.b);
+      return Math.max(d - half, 0);
+    }
+    const r = el.getBoundingClientRect();
+    return Math.hypot(Math.max(r.left - at[0], 0, at[0] - r.right), Math.max(r.top - at[1], 0, at[1] - r.bottom));
+  }
+
   // Only one finger edits: a second finger is the start of a pinch-zoom, so it's
   // left to the browser and whatever the first finger began is undone.
   const pressed = new Set();
@@ -1429,6 +1605,11 @@
     if (drag && drag.created && drag.kind === 'building') {
       state.buildings.splice(drag.index, 1);
       selected = null;
+    }
+    if (drag && drag.kind === 'bend' && drag.moved) {
+      const [path, twin] = JSON.parse(drag.before);
+      state.paths[drag.index] = path;
+      if (twin) state.paths[drag.twin] = twin;
     }
     if (drag && drag.fromPending && state.clearings[drag.index]) {
       // The marker had only just been placed by this press: wait for it again.
@@ -1460,7 +1641,8 @@
     window.getSelection().removeAllRanges();
     document.body.classList.add('mb-dragging');
     const p = pointer(evt);
-    const h = hit(evt);
+    touchPress = evt.pointerType === 'touch';
+    const h = hit(evt) || (touchPress ? touchHit(evt) : null);
     svg.setPointerCapture(evt.pointerId);
 
     // Review: clicking a piece opens its step with it selected for editing.
@@ -1500,8 +1682,14 @@
         render();
         return;
       }
-      // A press on a path selects it (its pop-up: type and delete).
+      // A press on a path selects it (its pop-up: type and delete); dragged,
+      // it bends the path's arc (bendTo).
       selected = h && h.kind === 'path' ? { kind: 'path', index: h.index } : null;
+      if (selected) {
+        const twin = twinOf(h.index);
+        drag = { kind: 'bend', index: h.index, start: p, moved: false, last: null,
+                 before: JSON.stringify([state.paths[h.index], twin >= 0 ? state.paths[twin] : null]), twin };
+      }
       render();
       return;
     }
@@ -1617,6 +1805,10 @@
       render();
       return;
     }
+    if (drag.kind === 'bend') {
+      bendTo(p);
+      return;
+    }
     if (drag.kind === 'track') {
       state.track_y = Math.min(Math.max((p[1] - drag.offset) / H, 0), 1);
     } else if (drag.kind === 'items') {
@@ -1671,7 +1863,13 @@
       // Dropped on an end it can join: reconnect. Anywhere else: it snaps back.
       const target = anchorAt(drag.at);
       if (target && dragTargetOk(target)) {
-        state.paths[drag.index][drag.end] = target;
+        const path = state.paths[drag.index];
+        path[drag.end] = target;
+        // (A clearing it now ends at is no longer one it goes round.)
+        if (path.around && 'c' in target) {
+          path.around = path.around.filter(k => k !== target.c);
+          if (!path.around.length) delete path.around;
+        }
         chooseSide(drag.index, drag.end, drag.at);
         edited = true;
       }
@@ -1787,17 +1985,18 @@
     });
   }
 
-  // The water segment is River or Lake: its swatch, label and kind follow the
-  // choice, and its menu ticks it.
+  // The water segment is River, Lake or Ocean: its swatch, label and kind
+  // follow the choice, and its menu ticks it.
   function setWaterKind(toggle, kind) {
     const btn = toggle.querySelector('[data-water]');
     if (!btn) return;
     btn.dataset.pathKind = kind;
-    const label = kind === 'lake' ? btn.dataset.labelLake : btn.dataset.labelRiver;
+    const label = { lake: btn.dataset.labelLake, ocean: btn.dataset.labelOcean }[kind] || btn.dataset.labelRiver;
     btn.querySelector('.mb-kind-label').textContent = label;
     btn.title = label;
     btn.setAttribute('aria-label', label);
     btn.querySelector('.mb-kind-swatch').classList.toggle('mb-kind-swatch-lake', kind === 'lake');
+    btn.querySelector('.mb-kind-swatch').classList.toggle('mb-kind-swatch-ocean', kind === 'ocean');
     toggle.querySelectorAll('[data-water-kind]').forEach(item => {
       item.setAttribute('aria-checked', item.dataset.waterKind === kind ? 'true' : 'false');
     });
@@ -1935,7 +2134,7 @@
         changed();
         return;
       }
-      if (path.kind === kind || (kind === 'lake' && lakeAllowed(selected.index))) return;
+      if (path.kind === kind || (isArea(kind) && lakeAllowed(selected.index))) return;
       path.kind = kind;
       if (kind === 'special' && special && special !== SPECIAL_DEFAULT) path.special = special;
       if (kind !== 'special') delete path.special;
@@ -2000,11 +2199,12 @@
         const kind = state.paths[selected.index].kind;
         if (familyOf(kind) === 'land') setWaterKind(popKind, 'river');   // (not left on another path's Lake)
         setKindToggle(popKind, kind, kind === 'special' ? specialKey(state.paths[selected.index]) : SPECIAL_DEFAULT);
-        // Lake only where it can be one (lakeAllowed says why not).
-        const lakeItem = popKind.querySelector('[data-water-kind="lake"]');
+        // Lake and Ocean only where it can be one (lakeAllowed says why not).
         const why = lakeAllowed(selected.index);
-        lakeItem.disabled = !!why && state.paths[selected.index].kind !== 'lake';
-        lakeItem.title = lakeItem.disabled ? why : '';
+        popKind.querySelectorAll('[data-water-kind="lake"], [data-water-kind="ocean"]').forEach(item => {
+          item.disabled = !!why && !isArea(state.paths[selected.index].kind);
+          item.title = item.disabled ? why.replace('a lake', item.dataset.waterKind === 'ocean' ? 'an ocean' : 'a lake') : '';
+        });
       } else {
         openMenu(popKind, null, false);
       }

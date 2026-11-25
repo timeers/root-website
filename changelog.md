@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.13.21] - 2026-11-25 Beta Testers
+
+### New Features
+- Beta Tester permissions
+
+### Bug Fixes
+- Qualifiers use tier check instead of rank check because ranked players in RootELO don't always have a rank
+
 ## [1.13.20] - 2026-11-23 Qualifiers
 
 ### New Features

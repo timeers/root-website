@@ -1,0 +1,5 @@
+{% comment %} The testers page's counts. Sent out of band (oob) after an invite or a removal. {% endcomment %}
+<span id="tester-counts" class="text-muted small"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <span class="badge bg-success">{{ counts.accepted }} accepted</span>
+  <span class="badge bg-warning text-dark">{{ counts.waiting }} waiting</span>
+</span>

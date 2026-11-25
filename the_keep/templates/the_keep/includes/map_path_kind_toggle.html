@@ -7,7 +7,7 @@
   with a highlight that slides to the chosen one.
 
   Two segments have a menu, opened by their chevron (or a click on them while
-  they're chosen): the water segment, River or Lake (map_builder.js sets its
+  they're chosen): the water segment, River, Lake or Ocean (map_builder.js sets its
   data-path-kind, swatch and label to the chosen one), and the special path
   segment, its colour (tts_map.SPECIAL_PATH_TYPES, from config.path.specials:
   map_builder.js sets its swatch).
@@ -22,7 +22,7 @@
         <span class="mb-kind-swatch" style="--mb-swatch: #ed2731;"></span><span class="mb-kind-chevron" aria-hidden="true"></span>
     </button>
     <button type="button" role="radio" aria-checked="false" data-path-kind="river" data-water
-            data-label-river="{% trans 'River' %}" data-label-lake="{% trans 'Lake' %}" title="{% trans 'River' %}" aria-label="{% trans 'River' %}">
+            data-label-river="{% trans 'River' %}" data-label-lake="{% trans 'Lake' %}" data-label-ocean="{% trans 'Ocean' %}" title="{% trans 'River' %}" aria-label="{% trans 'River' %}">
         <span class="mb-kind-swatch" style="--mb-swatch: #3e55a5;"></span><span class="mb-kind-label">{% trans 'River' %}</span><span class="mb-kind-chevron" aria-hidden="true"></span>
     </button>
     {% else %}
@@ -33,7 +33,7 @@
         <span class="mb-kind-swatch" style="--mb-swatch: #ed2731;"></span><span class="mb-kind-chevron" aria-hidden="true"></span>
     </button>
     <button type="button" role="radio" aria-checked="false" data-path-kind="river" data-water
-            data-label-river="{% trans 'Rivers' %}" data-label-lake="{% trans 'Lakes' %}" title="{% trans 'Rivers' %}" aria-label="{% trans 'Rivers' %}">
+            data-label-river="{% trans 'Rivers' %}" data-label-lake="{% trans 'Lakes' %}" data-label-ocean="{% trans 'Oceans' %}" title="{% trans 'Rivers' %}" aria-label="{% trans 'Rivers' %}">
         <span class="mb-kind-swatch" style="--mb-swatch: #3e55a5;"></span><span class="mb-kind-label">{% trans 'Rivers' %}</span><span class="mb-kind-chevron" aria-hidden="true"></span>
     </button>
     {% endif %}
@@ -50,6 +50,9 @@
         </button>
         <button type="button" role="menuitemradio" aria-checked="false" data-water-kind="lake">
             <span class="mb-kind-swatch mb-kind-swatch-lake" style="--mb-swatch: #3e55a5;"></span>{% if singular %}{% trans 'Lake' %}{% else %}{% trans 'Lakes' %}{% endif %}
+        </button>
+        <button type="button" role="menuitemradio" aria-checked="false" data-water-kind="ocean">
+            <span class="mb-kind-swatch mb-kind-swatch-ocean" style="--mb-swatch: #3e55a5;"></span>{% if singular %}{% trans 'Ocean' %}{% else %}{% trans 'Oceans' %}{% endif %}
         </button>
     </div>
 </div>

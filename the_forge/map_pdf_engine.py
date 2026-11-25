@@ -84,7 +84,7 @@ class MapLayoutEngine:
             # Rivers, then special paths, then paths, where they cross (stable within a kind).
             # A river that merges into another is printed cut back where its merge curve begins.
             for i, path in sorted(enumerate(layout['paths']), key=lambda ip: PATH_DRAW_ORDER.index(ip[1]['kind'])):
-                if path['kind'] == 'lake' and not layout['lake_lines']:
+                if path['kind'] in ('lake', 'ocean') and not layout['lake_lines']:
                     continue           # filled above, from its outline
                 if i in layout['river_trimmed']:
                     path = {**path, 'points': layout['river_trimmed'][i]}
@@ -136,7 +136,7 @@ class MapLayoutEngine:
         c.setStrokeColor(HexColor(path['colour']))
         c.setLineCap(1)                     # round
         c.setLineJoin(1)
-        if path['kind'] in ('river', 'lake'):      # (a lake without its outline: drawn as a river)
+        if path['kind'] in ('river', 'lake', 'ocean'):      # (a lake or ocean without its outline: drawn as a river)
             # Flat ends: a river starts right at the clearing's edge.
             c.setLineCap(0)
             c.setLineWidth(RIVER_WIDTH * width * self.k)

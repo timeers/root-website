@@ -2531,6 +2531,86 @@ class MapPathTests(TestCase):
                {'kind': 'special', 'a': {'c': 1}, 'b': {'c': 2}, 'bow': True}]
         self.assertEqual([p.get('bow') for p in clean_paths(raw, 3)], [-1, None, None])
 
+    # ── Dragged arcs: side, the clearings they go round, and bulge ──
+    def _bent(self, **bend):
+        from the_keep.services.tts_map import path_shapes
+        state = self._state([dict({'kind': 'path', 'a': {'c': 0}, 'b': {'c': 2}}, **bend)])
+        return state, path_shapes(self._geometry(), state)[0]
+
+    def _clear_of(self, shape, circle):
+        cx, cy, r = circle
+        return all(math.hypot(x - cx, y - cy) > r for x, y in shape['points'])
+
+    def test_a_dragged_arc_goes_round_the_clearings_on_its_side(self):
+        # 0->2 runs left to right, so side 1 (its normal, y down) is below: round clearing 3.
+        state, shape = self._bent(side=1, around=[3])
+        below = self._circle(state, 3)
+        self.assertGreater(shape['middle'][1], below[1] + below[2])
+        self.assertTrue(self._clear_of(shape, below))
+        self.assertTrue(self._clear_of(shape, self._circle(state, 1)))
+        # Side -1, round nothing: over clearing 1, the other way from its usual route.
+        state, shape = self._bent(side=-1)
+        self.assertLess(shape['middle'][1], self._circle(state, 1)[1])
+
+    def test_a_bulge_bends_further(self):
+        _s, small = self._bent(side=-1)
+        _s, big = self._bent(side=-1, bulge=1.0)
+        self.assertLess(big['middle'][1], small['middle'][1])
+
+    def test_an_arc_that_cant_go_round_keeps_its_side(self):
+        from the_keep.services.tts_map import _route_around
+        # Something to go round far beyond the most it may bend, below the line: not ok, still below.
+        control, ok = _route_around((0, 0), (10, 0), [], [(5, 500, 1)], 1)
+        self.assertFalse(ok)
+        self.assertGreater(control[1], 0)
+        # Round a clearing on the other side: ignored (the least bend on its side).
+        control, ok = _route_around((0, 0), (10, 0), [], [(5, -3, 1)], 1)
+        self.assertTrue(ok)
+        self.assertGreater(control[1], 0)
+
+    def test_clean_paths_keeps_a_dragged_arc(self):
+        from the_keep.services.tts_map import clean_paths
+        raw = [{'kind': 'path', 'a': {'c': 0}, 'b': {'c': 2}, 'side': -1, 'around': [3, 1, 1, 0, 9, 'x'], 'bulge': 0.123456},
+               {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}, 'side': 2, 'around': [3]},
+               {'kind': 'path', 'a': {'c': 1}, 'b': {'c': 2}, 'side': 1, 'bulge': 9},
+               {'kind': 'path', 'a': {'c': 2}, 'b': {'c': 3}, 'side': True}]
+        cleaned = clean_paths(raw, 4)
+        self.assertEqual({k: cleaned[0][k] for k in ('side', 'around', 'bulge')},
+                         {'side': -1, 'around': [1, 3], 'bulge': 0.123})
+        self.assertFalse({'side', 'around', 'bulge'} & set(cleaned[1]))     # no side: none of it
+        self.assertEqual((cleaned[2].get('side'), cleaned[2].get('bulge')), (1, None))
+        self.assertNotIn('side', cleaned[3])
+
+    def test_a_dragged_path_still_bows_from_its_twin(self):
+        # A path dragged over its river (bow) is on the other side of it, bent or not.
+        path, river, y0 = self._shared_pair(path_bow=-1)
+        self.assertLess(path['middle'][1], river['middle'][1])
+        path, river, y0 = self._shared_pair(path_bow=1)
+        self.assertGreater(path['middle'][1], river['middle'][1])
+
+    # ── Oceans ──
+    def test_ocean_clearings_count_as_river_clearings(self):
+        from the_keep.services.tts_map import layout_summary, path_totals
+        state = self._state([{'kind': 'ocean', 'a': {'c': 0}, 'b': {'c': 1}},
+                             {'kind': 'river', 'a': {'c': 1}, 'b': {'c': 2}}])
+        totals = path_totals(state)
+        self.assertEqual(totals['river_clearings'], 3)
+        self.assertNotIn('ocean', totals)
+        self.assertEqual(totals.get('lake', 0), 0)          # oceans aren't lakes
+        tiles = {t['kind']: t['count'] for t in layout_summary(state, fixed=False)['path_tiles']}
+        self.assertNotIn('ocean', tiles)
+        self.assertEqual(tiles['river'], 3)
+
+    def test_an_ocean_keeps_its_shape_and_lake_rules(self):
+        from the_keep.services.tts_map import clean_builder_state, clean_paths
+        state = self._state([{'kind': 'ocean', 'a': {'c': 0}, 'b': {'c': 1}}])
+        state['lake_shapes'] = [[[0.1, 0.1], [0.3, 0.1], [0.2, 0.3]]]
+        self.assertIn('lake_shapes', clean_builder_state(state))
+        # Clearings only at its ends, as a lake's.
+        raw = [{'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}},
+               {'kind': 'ocean', 'a': {'c': 2}, 'b': {'p': 0}}]
+        self.assertEqual([p['kind'] for p in clean_paths(raw, 3)], ['path'])
+
     # ── The special paths' name ──
     def test_special_path_name(self):
         from the_keep.services.tts_map import SPECIAL_PATH_NAME_MAX, clean_builder_state, layout_summary
@@ -2661,10 +2741,19 @@ class ForestTreesTests(TestCase):
         trees = msc.forest_trees((160.0, 40.0), [], [wall], [(20.0, 20.0)])
         self.assertFalse(any(x > 80 for x, _y in trees))
 
-    def test_clearings_drawn_nearly_touching_dont_split_a_forest_the_map_doesnt(self):
+    def test_a_narrow_gap_still_joins_a_forest(self):
         # Two clearings drawn 4 apart, touching the frame's top and bottom:
-        # too narrow for the trees' grid, so as drawn they part it in two...
+        # too narrow for a tree, but nothing closes it, so the forest reaches
+        # the other side (no tree in the gap).
         top, bottom = (80.0, 17.0, 17.0), (80.0, 55.0, 17.0)
+        frame = (160.0, 72.0)
+        trees = msc.forest_trees(frame, [top, bottom], [], [(30.0, 45.0)])
+        self.assertTrue(any(x > 100 for x, _y in trees))
+        self.assertTrue(all(math.hypot(x - cx, y - cy) >= r + msc.TREE_GAP for x, y in trees for cx, cy, r in (top, bottom)))
+
+    def test_clearings_drawn_overlapping_dont_split_a_forest_the_map_doesnt(self):
+        # Drawn overlapping, the two clearings shut the frame...
+        top, bottom = (80.0, 17.0, 19.0), (80.0, 55.0, 19.0)
         frame = (160.0, 72.0)
         shut = msc.forest_trees(frame, [top, bottom], [], [(30.0, 45.0)])
         self.assertFalse(any(x > 100 for x, _y in shut))
@@ -2706,13 +2795,23 @@ class ForestTreesTests(TestCase):
         self.assertTrue(all(16 < y < 27 for _x, y in trees))
         self.assertGreater(max(x for x, _y in trees) - min(x for x, _y in trees), 80)
 
-    def test_a_forest_drawn_on_a_line_moves_to_its_side(self):
-        # A raging river drawn over a forest's point: moved off it, to the
-        # side the forest is on on the map (here, above).
-        river = ([(0.0, 60.0), (160.0, 60.0)], 4.0)
-        spot = msc._off_lines((50.0, 61.0), [river], (0.0, -1.0))
-        self.assertLess(spot[1], 60 - 4)
-        self.assertEqual(msc._off_lines((50.0, 40.0), [river], (0.0, -1.0)), (50.0, 40.0))   # (clear of it: as it is)
+    def test_a_forest_fills_the_side_it_is_on_on_the_map(self):
+        # A raging river drawn over a forest's point: the map says which side
+        # it's on (board_area), so it fills that side, not the one its point
+        # happens to be on on the card.
+        river = ([(-10.0, 60.0), (170.0, 60.0)], 4.0)
+        below = msc.forest_trees(self.FRAME, [], [river], [(50.0, 59.0)],
+                                 board_area=lambda p: 1 if p[1] < 60 else 2, forest_areas=[2])
+        self.assertTrue(below)
+        self.assertTrue(all(y > 60 for _x, y in below))
+
+    def test_an_area_the_card_splits_fills_whole(self):
+        # One area on the map; on the card a path happens to part it. Both
+        # parts are its, so both fill.
+        wall = ([(80.0, -10.0), (80.0, 130.0)], 1.0)
+        trees = msc.forest_trees(self.FRAME, [], [wall], [(40.0, 60.0)],
+                                 board_area=lambda p: 1, forest_areas=[1])
+        self.assertTrue(any(x < 80 for x, _y in trees) and any(x > 80 for x, _y in trees))
 
     def test_two_forests_in_one_area_fill_it_once(self):
         one = msc.forest_trees(self.FRAME, [], [], [(40.0, 60.0)])
@@ -2795,6 +2894,34 @@ class MapSetupCardEngineTests(TestCase):
         for p in raging.trees:
             self.assertGreaterEqual(min(msc._seg_distance(p, a, b) for a, b in zip(main, main[1:])),
                                     raging.river_width / 2)
+
+    def test_a_forest_beside_a_raging_river_fills_its_own_side(self):
+        # A square of paths, a raging river across it corner to corner, and a
+        # forest placed on the map just to one side of the river (on the card,
+        # under the river's width): only that side fills.
+        square = [{'kind': 'path', 'a': {'c': a}, 'b': {'c': b}} for a, b in ((0, 1), (1, 3), (0, 2), (2, 3))]
+        across = {'kind': 'river', 'a': {'c': 0}, 'b': {'c': 3}}
+        for spot, sign in (((0.51, 0.54), -1), ((0.49, 0.56), 1)):
+            diagram = self._diagram(_card_layout(paths=square + [across], forests=[spot]), True)
+            (ax, ay, _r), (bx, by, _r2) = diagram.clearings[0], diagram.clearings[3]
+            sides = {(bx - ax) * (y - ay) - (by - ay) * (x - ax) > 0 for x, y in diagram.trees}
+            self.assertEqual(sides, {sign > 0}, spot)
+            self.assertGreater(len(diagram.trees), 3)
+
+    def test_a_path_bent_past_the_clearings_stays_on_the_card(self):
+        # Clearings 1-2 along the top, a path between them dragged down round
+        # 3 (below, between them): the diagram fits it, not just the clearings.
+        clearings = [{'centre': [0.2, 0.3], 'marker': [0.2, 0.36], 'number': 1},
+                     {'centre': [0.8, 0.3], 'marker': [0.8, 0.36], 'number': 2},
+                     {'centre': [0.5, 0.7], 'marker': [0.5, 0.76], 'number': 3}]
+        bent = {'kind': 'path', 'a': {'c': 0}, 'b': {'c': 1}, 'side': 1, 'around': [2]}
+        diagram = self._diagram(_card_layout(paths=[bent], clearings=clearings))
+        ys = [y for s in diagram.paths for _x, y in s['points']]
+        xs = [x for s in diagram.paths for x, _y in s['points']]
+        self.assertLessEqual(max(ys), diagram.height - msc.PATH_WIDTH / 2)
+        self.assertGreater(max(ys), max(y + r for _x, y, r in diagram.clearings))     # (it is below them)
+        self.assertGreaterEqual(min(xs), msc.PATH_WIDTH / 2)
+        self.assertLessEqual(max(xs), diagram.box_w - msc.PATH_WIDTH / 2)
 
     def test_the_legend_only_with_special_paths(self):
         self.assertEqual(self._engine()._legend(), [])

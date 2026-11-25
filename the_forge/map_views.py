@@ -14,7 +14,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_POST
 
-from the_gatehouse.views import forge_onboard_required
+from the_gatehouse.views import forge_onboard_required, tester_onboard_required
 from the_keep.forms import MapSetupCardForm
 from the_keep.models import Post
 from the_keep.services.tts_map import FORGE_FRAME, check_builder, clean_builder_state, layout_summary
@@ -40,6 +40,7 @@ def _filename(faction, ext):
     return f'{faction.faction_name} - Map.{ext}'
 
 
+@tester_onboard_required
 @forge_onboard_required
 def map_list(request):
     maps = (ForgedFaction.objects
@@ -53,6 +54,7 @@ class _NotCreated(Exception):
     pass
 
 
+@tester_onboard_required
 @forge_onboard_required
 def map_create(request):
     """New Map. A visit opens the builder on its Art step with nothing created
@@ -103,6 +105,7 @@ def map_create(request):
     })
 
 
+@tester_onboard_required
 @forge_onboard_required
 def map_detail(request, pk):
     faction, forged_map = _forged_map(pk)
@@ -128,6 +131,7 @@ def map_detail(request, pk):
     return render(request, 'the_forge/map_detail.html', context)
 
 
+@tester_onboard_required
 @forge_onboard_required
 def map_builder(request, pk):
     faction, forged_map = _forged_map(pk)
@@ -209,6 +213,7 @@ def map_builder(request, pk):
     })
 
 
+@tester_onboard_required
 @login_required
 @require_POST
 def map_art(request, pk):
@@ -230,6 +235,7 @@ def map_art(request, pk):
                          'width': forged_map.art.width, 'height': forged_map.art.height, 'cropped': cropped})
 
 
+@tester_onboard_required
 @login_required
 def map_pdf(request, pk):
     faction, forged_map = _forged_map(pk)
@@ -257,6 +263,7 @@ def map_pdf(request, pk):
     return response
 
 
+@tester_onboard_required
 @login_required
 def map_webp(request, pk):
     faction, forged_map = _forged_map(pk)
@@ -274,6 +281,7 @@ def map_webp(request, pk):
     return response
 
 
+@tester_onboard_required
 @login_required
 def map_tts(request, pk):
     faction, forged_map = _forged_map(pk)
@@ -305,6 +313,7 @@ def _setup_card_form(request, forged_map):
                             map_card=forged_map.map_card)
 
 
+@tester_onboard_required
 @forge_onboard_required
 def map_setup_card(request, pk):
     """The map's setup card: what its special paths do, its setup
@@ -362,6 +371,7 @@ def _render_setup_card(request, forged_map):
     return True
 
 
+@tester_onboard_required
 @login_required
 @require_POST
 def map_setup_card_render(request, pk):

@@ -34,7 +34,7 @@ from the_keep.models import Faction, StatusChoices
 from the_warroom.models import Game, Effort
 from the_gatehouse.models import (DiscordGuild, Profile, DEFAULT_PROFILE_IMAGE,
                                   GUILDS_REFRESH_MAX_AGE, PlayerSchedule,
-                                  general_schedule_for, schedules_for)
+                                  general_schedule_for, schedules_for, Website)
 from the_gatehouse.services.availability import (local_to_utc_hours, utc_to_local_hours,
                                                  hours_to_bitmask, overlap_count,
                                                  format_hour_12, hour_labels,
@@ -4040,3 +4040,146 @@ class ImportChangelogSlugBackfillTests(TestCase):
         self.old.refresh_from_db()
         self.assertIsNone(self.old.slug)
         self.assertIn("Would add a slug to 1.2.3", out.getvalue())
+
+
+class TesterOnboardTests(_NoLoginSignalMixin, TestCase):
+    """Testers accept the tester agreement before tester-gated pages
+    (tester_onboard_required); declining keeps them a tester."""
+
+    def setUp(self):
+        super().setUp()
+        self.user = User.objects.create_user(username='tester', password='pw')
+        self.profile = self.user.profile
+        self.profile.group = Profile.GroupChoices.PLAYER
+        self.profile.player_onboard = True
+        self.profile.save(update_fields=['group', 'player_onboard'])
+        self.factory = RequestFactory()
+
+    def _run_decorator(self, path='/beta/page/'):
+        @views.tester_onboard_required
+        def view(request):
+            return HttpResponse('ok')
+        request = self.factory.get(path)
+        request.user = self.user
+        SessionMiddleware(lambda r: None).process_request(request)
+        request._messages = FallbackStorage(request)
+        return view(request)
+
+    def _set(self, **fields):
+        for name, value in fields.items():
+            setattr(self.profile, name, value)
+        self.profile.save(update_fields=list(fields))
+
+    def test_a_non_tester_is_refused(self):
+        with self.assertRaises(views.PermissionDenied):
+            self._run_decorator()
+
+    def test_a_tester_who_hasnt_accepted_is_sent_to_the_agreement(self):
+        self._set(tester=True)
+        response = self._run_decorator()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse('onboard-user', args=['tester']) + '?next=/beta/page/')
+
+    def test_an_onboarded_tester_gets_the_page(self):
+        self._set(tester=True, tester_onboard=True)
+        self.assertEqual(self._run_decorator().content, b'ok')
+
+    def test_accepting_onboards_and_returns(self):
+        self._set(tester=True)
+        self.client.force_login(self.user)
+        page = self.client.get(reverse('onboard-user', args=['tester']))
+        self.assertContains(page, 'Beta Tester')
+        response = self.client.post(reverse('onboard-user', args=['tester']), {'next': '/beta/page/'})
+        self.assertRedirects(response, '/beta/page/', fetch_redirect_response=False)
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.tester_onboard)
+
+    def test_a_non_tester_cant_accept(self):
+        self.client.force_login(self.user)
+        self.assertNotContains(self.client.get(reverse('onboard-user', args=['tester'])), 'Beta Tester')
+        self.client.post(reverse('onboard-user', args=['tester']), {'next': '/'})
+        self.profile.refresh_from_db()
+        self.assertFalse(self.profile.tester_onboard)
+
+    def test_declining_keeps_the_tester_and_their_group(self):
+        self._set(tester=True)
+        self.client.force_login(self.user)
+        self.client.post(reverse('onboard-decline', args=['tester']))
+        self.profile.refresh_from_db()
+        self.assertTrue(self.profile.tester)
+        self.assertFalse(self.profile.tester_onboard)
+        self.assertEqual(self.profile.group, Profile.GroupChoices.PLAYER)
+
+
+class ManageTestersTests(_NoLoginSignalMixin, TestCase):
+    """The admins' Beta Testers page: the testers, whether they've accepted, and
+    an htmx search to invite players and remove testers."""
+
+    def setUp(self):
+        super().setUp()
+        self.admin = User.objects.create_user(username='boss', password='pw')
+        Profile.objects.filter(user=self.admin).update(group=Profile.GroupChoices.ADMIN,
+                                                       admin_onboard=True, player_onboard=True)
+
+        def player(username, display, **fields):
+            profile = User.objects.create_user(username=username, password='pw').profile
+            profile.group = fields.pop('group', Profile.GroupChoices.PLAYER)
+            profile.display_name = display
+            profile.discord = username
+            for name, value in fields.items():
+                setattr(profile, name, value)
+            profile.save()
+            return profile
+        self.player = player('acorn', 'Acorn Smith')
+        self.waiting = player('birch', 'Birch Waiting', tester=True)
+        self.accepted = player('cedar', 'Cedar Accepted', tester=True, tester_onboard=True)
+        self.outcast = player('acornout', 'Acorn Outcast', group=Profile.GroupChoices.OUTCAST)
+        self.client.force_login(self.admin)
+
+    def test_only_admins(self):
+        self.client.force_login(self.player.user)
+        for url, method in ((reverse('manage-testers'), 'get'), (reverse('tester-search') + '?q=a', 'get'),
+                            (reverse('tester-invite', args=[self.player.slug]), 'post'),
+                            (reverse('tester-remove', args=[self.waiting.slug]), 'post')):
+            self.assertEqual(getattr(self.client, method)(url).status_code, 403, url)
+        self.waiting.refresh_from_db()
+        self.assertTrue(self.waiting.tester)
+
+    def test_the_page_lists_testers_and_whether_they_accepted(self):
+        page = self.client.get(reverse('manage-testers')).content.decode()
+        self.assertIn('Birch Waiting', page)
+        self.assertIn('Cedar Accepted', page)
+        self.assertNotIn('Acorn Smith', page)
+        waiting_row = page[page.index(f'id="tester-{self.waiting.slug}"'):]
+        self.assertIn('Waiting', waiting_row[:waiting_row.index('</button>')])
+        accepted_row = page[page.index(f'id="tester-{self.accepted.slug}"'):]
+        self.assertIn('Accepted', accepted_row[:accepted_row.index('</button>')])
+
+    def test_search_finds_players_who_could_be_invited(self):
+        found = self.client.get(reverse('tester-search'), {'q': 'acorn'}).content.decode()
+        self.assertIn('Acorn Smith', found)
+        self.assertNotIn('Acorn Outcast', found)               # not a player
+        self.assertIn('Acorn Smith', self.client.get(reverse('tester-search'), {'q': 'smith'}).content.decode())
+        self.assertNotIn('Birch', self.client.get(reverse('tester-search'), {'q': 'birch'}).content.decode())   # already a tester
+        self.assertNotIn('Acorn', self.client.get(reverse('tester-search'), {'q': ''}).content.decode())
+
+    def test_invite_makes_a_tester_who_still_has_to_accept(self):
+        response = self.client.post(reverse('tester-invite', args=[self.player.slug]))
+        self.assertContains(response, f'id="tester-{self.player.slug}"')
+        self.assertContains(response, 'hx-swap-oob')
+        self.player.refresh_from_db()
+        self.assertTrue(self.player.tester)
+        self.assertFalse(self.player.tester_onboard)
+        self.assertEqual(self.client.get(reverse('tester-invite', args=[self.player.slug])).status_code, 405)
+
+    def test_remove_clears_both(self):
+        self.client.post(reverse('tester-remove', args=[self.accepted.slug]))
+        self.accepted.refresh_from_db()
+        self.assertFalse(self.accepted.tester)
+        self.assertFalse(self.accepted.tester_onboard)
+
+    def test_the_dashboard_links_it(self):
+        website = Website.get_singular_instance()      # (the dashboard needs a Law check date)
+        website.last_law_check = timezone.now()
+        website.save()
+        self.assertContains(self.client.get(reverse('admin-dashboard')), reverse('manage-testers'))

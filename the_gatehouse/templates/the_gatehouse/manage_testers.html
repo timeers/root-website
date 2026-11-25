@@ -1,0 +1,54 @@
+{% extends 'the_keep/base.html' %}
+{% block title %}Beta Testers | {% endblock %}
+{% block content %}
+
+{% comment %} hx-headers sends the CSRF token on the invite and remove posts below
+(inherited by everything inside). {% endcomment %}
+<div class="container py-5" hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
+  <div class="row justify-content-center">
+    <div class="col-lg-9">
+
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1 class="root-title mb-0">Beta Testers</h1>
+        {% include 'the_gatehouse/partials/tester_counts.html' %}
+      </div>
+      <p class="text-muted">
+        Testers can use features behind the tester gate once they accept the
+        <a href="{% url 'onboard-user' user_type='tester' %}">tester agreement</a>.
+      </p>
+
+      <div class="card mb-4">
+        <div class="card-header">
+          <i class="bi bi-person-plus me-2"></i>Invite a Tester
+        </div>
+        <div class="card-body">
+          <input type="search"
+                 class="form-control"
+                 placeholder="Search players by Discord or display name..."
+                 name="q"
+                 autocomplete="off"
+                 hx-get="{% url 'tester-search' %}"
+                 hx-trigger="keyup changed delay:300ms, search"
+                 hx-target="#tester-search-results">
+          <div id="tester-search-results" class="mt-3"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <i class="bi bi-bug me-2"></i>Current Testers
+        </div>
+        <div class="card-body" id="tester-list">
+          {% for tester in testers %}
+            {% include 'the_gatehouse/partials/tester_row.html' %}
+          {% empty %}
+            <p class="text-muted mb-0" id="tester-empty">No testers yet.</p>
+          {% endfor %}
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+{% endblock content %}

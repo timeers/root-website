@@ -235,7 +235,7 @@ def clean_builder_state(state, *, logo=False):
     paths = clean_paths(state.get('paths'), len(clearings))
     if paths:
         clean['paths'] = paths
-    if any(p['kind'] == 'lake' for p in paths):
+    if any(p['kind'] in WATER_KINDS for p in paths):
         shapes = clean_lake_shapes(state.get('lake_shapes'))
         if shapes:
             clean['lake_shapes'] = shapes
@@ -462,10 +462,13 @@ def print_layout(geometry, state):
 # {'p': path index} (that path's middle: a river joining a river). The builder
 # (map_builder.js) mirrors this geometry, so what's printed is what was drawn.
 
-PATH_KINDS = ('path', 'special', 'river', 'lake')
+PATH_KINDS = ('path', 'special', 'river', 'lake', 'ocean')
+# Water drawn as an area (map_lakes.js works out its outline): a lake, always
+# inland; an ocean, the sea round the outside of the map.
+WATER_KINDS = ('lake', 'ocean')
 # Bottom to top, where they cross: lakes, rivers, then special paths, then
 # paths (the builder draws them the same way, via path_config).
-PATH_DRAW_ORDER = ('lake', 'river', 'special', 'path')
+PATH_DRAW_ORDER = ('ocean', 'lake', 'river', 'special', 'path')
 # A river and a path (or special path) may join the same two ends; two of a
 # family may not. Where a river and a path share both ends they bow apart, each
 # by this many (river + path) half-widths at the middle, so they don't overlap.
@@ -476,8 +479,8 @@ SPECIAL_PATH_NAME_MAX = 24       # the name a map gives a type of its special pa
 def path_family(kind):
     """'river' (water: rivers and lakes) or 'land' (paths and special paths):
     one of each may share two ends."""
-    return 'river' if kind in ('river', 'lake') else 'land'
-PATH_COLOURS = {'path': '#ffffff', 'special': '#ed2731', 'river': '#3e55a5', 'lake': '#3e55a5'}
+    return 'river' if kind in ('river', 'lake', 'ocean') else 'land'
+PATH_COLOURS = {'path': '#ffffff', 'special': '#ed2731', 'river': '#3e55a5', 'lake': '#3e55a5', 'ocean': '#3e55a5'}
 # The special paths' types, by colour, in order: a path {'kind': 'special',
 # 'special': key} (no key: the first, red, as every map had before). Their
 # names and rules are the map's setup card's (map_card['special_paths']). A
@@ -547,6 +550,7 @@ MAX_PATHS = 300
 PATH_SAMPLES = 32
 _BEND_STEPS = 12
 _BEND_MAX = 0.8                  # the furthest a path bends, as a share of its length
+ROUTE_AROUND_MAX = 2.5           # ...or one dragged round clearings (in the builder): this share
 
 
 def _end(value, clearings, paths):
@@ -571,7 +575,7 @@ def clean_paths(raw, clearing_count):
     dropped one goes too. The rest are renumbered, and so are the {'p': j}
     references to them."""
     raw = [p for p in (raw if isinstance(raw, list) else [])[:MAX_PATHS]]
-    parsed, bows, specials = {}, {}, {}
+    parsed, bows, specials, bends = {}, {}, {}, {}
     for i, p in enumerate(raw):
         if not isinstance(p, dict) or p.get('kind') not in PATH_KINDS:
             continue
@@ -580,6 +584,20 @@ def clean_paths(raw, clearing_count):
             parsed[i] = (p['kind'], a, b)
             if p['kind'] == 'special' and special_key(p) != SPECIAL_DEFAULT:
                 specials[i] = special_key(p)
+            # Dragged by the user: the side it bends to, the clearings it goes
+            # round (not its own ends) and how far it bends at least.
+            if p.get('side') in (1, -1) and not isinstance(p.get('side'), bool):
+                own = {end[1] for end in (a, b) if end[0] == 'c'}
+                around = sorted({k for k in (p.get('around') if isinstance(p.get('around'), list) else [])
+                                 if isinstance(k, int) and not isinstance(k, bool)
+                                 and 0 <= k < clearing_count and k not in own})
+                bend = {'side': int(p['side'])}
+                if around:
+                    bend['around'] = around
+                bulge = p.get('bulge')
+                if isinstance(bulge, (int, float)) and not isinstance(bulge, bool) and 0 < bulge <= ROUTE_AROUND_MAX:
+                    bend['bulge'] = round(float(bulge), 3)
+                bends[i] = bend
             if p.get('bow') in (1, -1) and not isinstance(p.get('bow'), bool):
                 bows[i] = int(p['bow'])
 
@@ -590,8 +608,8 @@ def clean_paths(raw, clearing_count):
         # Attached to a path that's gone (or to itself), or to a lake's middle
         # (nothing can be), or a lake not joining two clearings.
         for i in sorted(alive):
-            if any(key == 'p' and (j not in alive or j == i or parsed[j][0] == 'lake') for key, j in parsed[i][1:]) \
-                    or (parsed[i][0] == 'lake' and any(key == 'p' for key, _j in parsed[i][1:])):
+            if any(key == 'p' and (j not in alive or j == i or parsed[j][0] in WATER_KINDS) for key, j in parsed[i][1:]) \
+                    or (parsed[i][0] in WATER_KINDS and any(key == 'p' for key, _j in parsed[i][1:])):
                 alive.discard(i)
                 changed = True
         # A second path of the same family (rivers; paths and special paths)
@@ -626,6 +644,8 @@ def clean_paths(raw, clearing_count):
                     'b': {b[0]: renumber[b[1]] if b[0] == 'p' else b[1]}})
         if i in specials:  # a special path's type (none: the first)
             out[-1]['special'] = specials[i]
+        if i in bends:     # how the user bent it (_route_around)
+            out[-1].update(bends[i])
         if i in bows:      # which side it bows to, when it shares its ends (_pair_side)
             out[-1]['bow'] = bows[i]
     return out
@@ -647,6 +667,7 @@ def path_config(geometry):
             'dash': PATH_DASH, 'gap': PATH_GAP, 'river_width': RIVER_WIDTH, 'default_radius': px['default_radius'],
             'draw_order': list(PATH_DRAW_ORDER), 'shared_bend': SHARED_BEND, 'link_reach': RIVER_LINK_REACH,
             'samples': PATH_SAMPLES, 'bend_steps': _BEND_STEPS, 'bend_max': _BEND_MAX, 'blank': MAP_BLANK,
+            'around_max': ROUTE_AROUND_MAX,
             # Lakes (map_lakes.js): their grid, a forest's island, and the lake shapes.
             'lake': {'grid': LAKE_GRID,
                      'touch': LAKE_TOUCH, 'lens': LAKE_LENS, 'funnel': LAKE_FUNNEL, 'variation': LAKE_VARIATION,
@@ -725,6 +746,43 @@ def _route_options(a, b, obstacles, both=True):
                 if not both or len(options) == 2:
                     return options
     return options
+
+
+def _route_around(a, b, obstacles, wrapped, side, min_bulge=0.0):
+    """(control point, ok): a path's arc bent the way the user dragged it.
+    _route's quadratic and steps, but only to `side` (+1/-1, from the a->b
+    line's normal), and on out to ROUTE_AROUND_MAX lengths: the least bulge
+    (no less than min_bulge lengths) that keeps clear of every obstacle and
+    has each of `wrapped` (obstacles: the clearings it goes round) between
+    the line and the arc. ok False: none does; then the farthest clear one
+    on that side (else its least), never the other side."""
+    mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+    length = math.hypot(b[0] - a[0], b[1] - a[1]) or 1e-9
+    nx, ny = -(b[1] - a[1]) / length, (b[0] - a[0]) / length
+    ux, uy = (b[0] - a[0]) / length, (b[1] - a[1]) / length
+    # Only clearings on that side, and alongside the line (not past its ends).
+    wrapped = [w for w in wrapped
+               if ((w[0] - a[0]) * nx + (w[1] - a[1]) * ny) * side > 0
+               and 0 < ((w[0] - a[0]) * ux + (w[1] - a[1]) * uy) < length]
+    unit = _BEND_MAX / _BEND_STEPS
+    best = None
+    for step in range(1, int(math.ceil(ROUTE_AROUND_MAX / unit)) + 1):
+        bulge = unit * step * length
+        if bulge < min_bulge * length - 1e-9:
+            continue
+        control = (mid[0] + side * nx * 2 * bulge, mid[1] + side * ny * 2 * bulge)
+        samples = [_quad(a, control, b, i / PATH_SAMPLES) for i in range(PATH_SAMPLES + 1)]
+        if not all(math.hypot(p[0] - o[0], p[1] - o[1]) >= o[2] for o in obstacles for p in samples):
+            continue
+        best = control
+        # Round the wrapped ones: each centre inside the arc (the curve, clear
+        # of its circle, then passes beyond it).
+        if all(_inside_rings((w[0], w[1]), [samples]) for w in wrapped):
+            return control, True
+    if best is None:
+        bulge = max(min_bulge, unit) * length
+        best = (mid[0] + side * nx * 2 * bulge, mid[1] + side * ny * 2 * bulge)
+    return best, False
 
 
 def _trim(a, control, b, centre, radius, start):
@@ -832,7 +890,13 @@ def route_paths(paths, circles, width):
         # Kept clear of other clearings by half its own width (a river's is wider).
         clearance = width * (RIVER_WIDTH if path_family(p['kind']) == 'river' else 1) / 2
         obstacles = [(x, y, r + clearance) for k, (x, y, r) in enumerate(circles) if k not in own]
-        control = _route(a, b, obstacles)
+        if p.get('side') in (1, -1):
+            # Dragged by the user: round the clearings it was dragged past.
+            wrapped = [(x, y, r + clearance) for k, (x, y, r) in enumerate(circles)
+                       if k in set(p.get('around') or ()) and k not in own]
+            control, _ok = _route_around(a, b, obstacles, wrapped, p['side'], p.get('bulge') or 0.0)
+        else:
+            control = _route(a, b, obstacles)
         if i in twins:
             control = _bow_apart(control, a, b, p, _pair_side(p, paths[twins[i]]), width)
         t0 = _trim(a, control, b, a, circles[p['a']['c']][2], True) if 'c' in p['a'] else 0.0
@@ -1059,7 +1123,7 @@ def print_rivers(geometry, state, shapes=None):
     paths = state.get('paths') or []
     lakes = [[geometry.to_pixels(u, v) for u, v in ring] for ring in state.get('lake_shapes') or []]
     return river_extras(paths, shapes, _circles(geometry, state), _path_px(geometry)['width'] * RIVER_WIDTH,
-                        geometry, water=lake_clearings(paths), feed=True, lakes=lakes)
+                        geometry, water=water_clearings(paths), feed=True, lakes=lakes)
 
 
 def _is_spring(start, d, frame):
@@ -1248,7 +1312,7 @@ def _lake_mouth(k, circle, paths, shapes, lakes):
             nx, ny = -nx, -ny
         return p, (nx, ny)
     for i, path in enumerate(paths):
-        if path.get('kind') != 'lake':
+        if path.get('kind') not in WATER_KINDS:
             continue
         for end, points in (('a', shapes[i]['points']), ('b', shapes[i]['points'][::-1])):
             if path[end].get('c') == k:
@@ -1290,20 +1354,22 @@ def lake_bodies(paths):
     return list(bodies.values())
 
 
-def lake_clearings(paths):
-    return {k for body in lake_bodies(paths) for k in body}
+def water_clearings(paths):
+    """The clearings on a lake or an ocean (a river ending at one flows into it)."""
+    return {end['c'] for p in paths if p.get('kind') in WATER_KINDS
+            for end in (p.get('a') or {}, p.get('b') or {}) if 'c' in end}
 
 
 def path_totals(state):
     """{'path': n, 'special': n, 'river': n, 'lake': lake bodies,
-    'river_clearings': n (clearings on a river or a lake),
+    'river_clearings': n (clearings on a river, a lake or an ocean; oceans aren't counted),
     'specials': {type key: n} (the special paths by type, used ones only)}."""
     paths = state.get('paths') or []
-    totals = {kind: sum(1 for p in paths if p.get('kind') == kind) for kind in PATH_KINDS}
+    totals = {kind: sum(1 for p in paths if p.get('kind') == kind) for kind in PATH_KINDS if kind != 'ocean'}
     totals['specials'] = {key: n for key in SPECIAL_KEYS
                           if (n := sum(1 for p in paths if p.get('kind') == 'special' and special_key(p) == key))}
     totals['lake'] = len(lake_bodies(paths))
-    totals['river_clearings'] = len({end['c'] for p in paths if p.get('kind') in ('river', 'lake')
+    totals['river_clearings'] = len({end['c'] for p in paths if p.get('kind') in ('river', 'lake', 'ocean')
                                      for end in (p.get('a') or {}, p.get('b') or {}) if 'c' in end})
     return totals
 

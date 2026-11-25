@@ -399,14 +399,17 @@
 
 {% include 'the_forge/partials/_publish_card.html' %}
 
-<!-- TTS Library Section -->
-{% if is_faction %}
-  {% include 'the_forge/partials/_tts_library_card.html' with noun='faction' %}
-{% elif is_admin %}
-  {% include 'the_forge/partials/_tts_library_card.html' with noun='faction' can_edit=False %}
+
+{% if user.profile.tester %}
+  <!-- TTS Library Section -->
+  {% if is_faction %}
+    {% include 'the_forge/partials/_tts_library_card.html' with noun='faction' %}
+  {% elif is_admin %}
+    {% include 'the_forge/partials/_tts_library_card.html' with noun='faction' can_edit=False %}
+  {% endif %}
+  <!-- End TTS Library Section -->
 {% endif %}
 
-<!-- End TTS Library Section -->
 
 
 <!-- End Future Submit Section -->
